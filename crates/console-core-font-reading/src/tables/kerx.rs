@@ -19,11 +19,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_vertical` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_vertical` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_vertical` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_vertical` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_vertical(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -35,11 +41,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_horizontal` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_horizontal` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_horizontal` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_horizontal` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_horizontal(&self) -> bool {
     !self.is_vertical()
@@ -49,11 +61,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_cross_stream` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_cross_stream` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_cross_stream` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_cross_stream` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_cross_stream(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -65,11 +83,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_variable` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_variable` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_variable` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_variable` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_variable(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -81,11 +105,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::process_direction` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::process_direction` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::process_direction` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::process_direction` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn process_direction(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -114,11 +144,11 @@ pub enum SubtableKind<'a> {
 }
 
 impl ReadArgs for SubtableKind<'_> {
-  type Args = (u32, u32);
+  type Arguments = (u32, u32);
 }
 
 impl<'a> FontReadWithArgs<'a> for SubtableKind<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let format = args.0 & 0xFF;
     let tuple_count = args.1;
 
@@ -162,12 +192,18 @@ impl Subtable0<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable0::kerning` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable0::kerning` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn kerning(&self, left: GlyphId, right: GlyphId) -> Option<i32> {
     let Ok(pairs) = self.pairs();
 
-    { let Ok(explicit_value) = pair_kerning(pairs, left, right); explicit_value }
+    {
+      let Ok(explicit_value) = pair_kerning(pairs, left, right);
+      explicit_value
+    }
   }
 }
 
@@ -177,33 +213,72 @@ pub(crate) fn pair_kerning(
   left: GlyphId,
   right: GlyphId,
 ) -> core::result::Result<Option<i32>, console_core_never::Never> {
-    let left_2: GlyphId16 = match match left.try_into() { Ok(value) => Some(value), Err(_left_glyph_outside_font_range) => None } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-    let right_2: GlyphId16 = match match right.try_into() { Ok(value) => Some(value), Err(_right_glyph_outside_font_range) => None } { Some(explicit_value) => explicit_value, None => return Ok(None) };
+  let left_2: GlyphId16 = match match left.try_into() {
+    Ok(value) => Some(value),
+    Err(_left_glyph_outside_font_range) => None,
+  } {
+    Some(explicit_value) => explicit_value,
+    None => return Ok(None),
+  };
+  let right_2: GlyphId16 = match match right.try_into() {
+    Ok(value) => Some(value),
+    Err(_right_glyph_outside_font_range) => None,
+  } {
+    Some(explicit_value) => explicit_value,
+    None => return Ok(None),
+  };
 
-    #[must_use]
-    fn make_key(left: GlyphId16, right: GlyphId16) -> core::result::Result<u32, console_core_never::Never> { Ok({
+  #[must_use]
+  fn make_key(
+    left: GlyphId16,
+    right: GlyphId16,
+  ) -> core::result::Result<u32, console_core_never::Never> {
+    Ok({
       let Ok(value_2) = left.to_u32();
 
       let Ok(value_11) = right.to_u32();
 
       ::core::primitive::u32::wrapping_shl(value_2, 16_u32) | value_11
-    }) }
+    })
+  }
 
-    let ::core::result::Result::Ok(idx) = ::console_core_number_conversion::fixed_index(match match pairs
-      .binary_search_by_key(&({ let Ok(explicit_value) = make_key(left_2, right_2); explicit_value }), |pair| {
+  let ::core::result::Result::Ok(idx) = ::console_core_number_conversion::fixed_index(
+    match match pairs.binary_search_by_key(
+      &({
+        let Ok(explicit_value) = make_key(left_2, right_2);
+        explicit_value
+      }),
+      |pair| {
         let Ok(pair_left) = pair.left();
         let Ok(pair_right) = pair.right();
 
-        { let Ok(explicit_value) = make_key(pair_left, pair_right); explicit_value }
-      }) { ::core::result::Result::Ok(value___) => ::core::option::Option::Some(value___), ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None } { Some(explicit_value) => explicit_value, None => return Ok(None) });
+        {
+          let Ok(explicit_value) = make_key(pair_left, pair_right);
+          explicit_value
+        }
+      },
+    ) {
+      ::core::result::Result::Ok(value___) => ::core::option::Option::Some(value___),
+      ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    },
+  );
 
-    Ok(pairs.get(match ::console_core_number_conversion::index(idx) { ::core::result::Result::Ok(native_position) => native_position }).map(|pair| {
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>({
-        let Ok(explicit_value) = pair.value();
-        explicit_value
-      });
-      migrated_value
-    }))
+  Ok(
+    pairs
+      .get(match ::console_core_number_conversion::index(idx) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      })
+      .map(|pair| {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>({
+          let Ok(explicit_value) = pair.value();
+          explicit_value
+        });
+        migrated_value
+      }),
+  )
 }
 
 #[derive(Clone)]
@@ -291,7 +366,10 @@ impl Subtable2<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable2::kerning` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable2::kerning` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn kerning(&self, left: GlyphId, right: GlyphId) -> Option<i32> {
     let Ok(value_12) = left.to_u32();
@@ -308,13 +386,19 @@ impl Subtable2<'_> {
     }?;
     let left_idx = {
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-        match self.left_offset_table.value(left_2) { Ok(value) => value, Err(_missing_left_kerning_offset) => 0 },
+        match self.left_offset_table.value(left_2) {
+          Ok(value) => value,
+          Err(_missing_left_kerning_offset) => 0,
+        },
       );
       migrated_value
     };
     let right_idx = {
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-        match self.right_offset_table.value(right_2) { Ok(value) => value, Err(_missing_right_kerning_offset) => 0 },
+        match self.right_offset_table.value(right_2) {
+          Ok(value) => value,
+          Err(_missing_right_kerning_offset) => 0,
+        },
       );
       migrated_value
     };
@@ -403,11 +487,11 @@ pub enum Subtable6<'a> {
 }
 
 impl ReadArgs for Subtable6<'_> {
-  type Args = u32;
+  type Arguments = u32;
 }
 
 impl<'a> FontReadWithArgs<'a> for Subtable6<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let tuple_count = *args;
     let Ok(mut cursor) = data.cursor();
     let flags = cursor.read::<u32>()?;
@@ -490,7 +574,10 @@ impl Subtable6<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable6::kerning` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable6::kerning` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn kerning(&self, left: GlyphId, right: GlyphId) -> Option<i32> {
     let Ok(value_14) = left.to_u32();
@@ -507,35 +594,44 @@ impl Subtable6<'_> {
     }?;
 
     #[must_use]
-    fn tuple_kern(value: i32, vector: &Option<&[BigEndian<i16>]>) -> core::result::Result<Option<i32>, console_core_never::Never> {
-        Ok(match vector {
-          Some(values) => {
-            let Ok(value_17) =
-              console_core_number_conversion::index(::core::primitive::u64::wrapping_shr(
-                {
-                  let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(value);
-                  migrated_value
-                },
-                1_u32,
-              ));
-
-            values.get(value_17).map(|adjustment| {
-              let Ok(value_8) = adjustment.get();
-
+    fn tuple_kern(
+      value: i32,
+      vector: &Option<&[BigEndian<i16>]>,
+    ) -> core::result::Result<Option<i32>, console_core_never::Never> {
+      Ok(match vector {
+        Some(values) => {
+          let Ok(value_17) =
+            console_core_number_conversion::index(::core::primitive::u64::wrapping_shr(
               {
-                let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>(value_8);
+                let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(value);
                 migrated_value
-              }
-            })
-          }
-          None => Some(value),
-        })
+              },
+              1_u32,
+            ));
+
+          values.get(value_17).map(|adjustment| {
+            let Ok(value_8) = adjustment.get();
+
+            {
+              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>(value_8);
+              migrated_value
+            }
+          })
+        }
+        None => Some(value),
+      })
     }
 
     match self {
       Self::ShortValues(rows, columns, array, vector) => {
-        let left_idx = match rows.value(left_2) { Ok(value) => value, Err(_missing_left_kerning_class) => Default::default() };
-        let right_idx = match columns.value(right_2) { Ok(value) => value, Err(_missing_right_kerning_class) => Default::default() };
+        let left_idx = match rows.value(left_2) {
+          Ok(value) => value,
+          Err(_missing_left_kerning_class) => Default::default(),
+        };
+        let right_idx = match columns.value(right_2) {
+          Ok(value) => value,
+          Err(_missing_right_kerning_class) => Default::default(),
+        };
         let idx = ::core::primitive::u64::wrapping_add(
           {
             let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(left_idx);
@@ -557,11 +653,20 @@ impl Subtable6<'_> {
           }
         })?;
 
-        { let Ok(explicit_value) = tuple_kern(value, vector); explicit_value }
+        {
+          let Ok(explicit_value) = tuple_kern(value, vector);
+          explicit_value
+        }
       }
       Self::LongValues(rows, columns, array, vector) => {
-        let left_idx = match rows.value(left_2) { Ok(value) => value, Err(_missing_left_kerning_class) => Default::default() };
-        let right_idx = match columns.value(right_2) { Ok(value) => value, Err(_missing_right_kerning_class) => Default::default() };
+        let left_idx = match rows.value(left_2) {
+          Ok(value) => value,
+          Err(_missing_left_kerning_class) => Default::default(),
+        };
+        let right_idx = match columns.value(right_2) {
+          Ok(value) => value,
+          Err(_missing_right_kerning_class) => Default::default(),
+        };
         let idx = ({
           let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(left_idx);
           migrated_value
@@ -579,7 +684,10 @@ impl Subtable6<'_> {
         })?;
         let value_10 = value;
 
-        { let Ok(explicit_value) = tuple_kern(value_10, vector); explicit_value }
+        {
+          let Ok(explicit_value) = tuple_kern(value_10, vector);
+          explicit_value
+        }
       }
     }
   }
@@ -647,10 +755,13 @@ mod tests {
     }
 
     let data = buf.to_vec();
-    let subtable0 = crate::test_support::fixture_value(Subtable0::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let subtable0 = crate::test_support::fixture_value(
+      Subtable0::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     for pair in pairs {
       assert_eq!(
@@ -661,7 +772,6 @@ mod tests {
         Some(pair.2)
       );
     }
-  ;
 
     Ok(())
   }
@@ -703,7 +813,9 @@ mod tests {
         ) {
           Some(kerning) => kerning,
           None => {
-            return Err(crate::test_support::Failure::from(alloc::format!("expected kerning value for {left} and {right}")));
+            return Err(crate::test_support::Failure::from(alloc::format!(
+              "expected kerning value for {left} and {right}"
+            )));
           }
         };
         values.push(kerning);
@@ -715,7 +827,8 @@ mod tests {
   }
 
   #[test]
-  fn parse_subtable4_control_points() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn parse_subtable4_control_points() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
     let Ok(data) = FormatOneFour::FourControlPoints.build_subtable();
     let subtable4 = Subtable4::read({
       let Ok(explicit_value) = FontData::new(&data);
@@ -723,8 +836,13 @@ mod tests {
     })?;
 
     let action = match &subtable4.actions {
-        Subtable4Actions::ControlPoints(matched_action) => matched_action,
-        crate::tables::kerx::Subtable4Actions::AnchorPoints(..) | crate::tables::kerx::Subtable4Actions::ControlPointCoords(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected subtable 4 control points action"))),
+      Subtable4Actions::ControlPoints(matched_action) => matched_action,
+      crate::tables::kerx::Subtable4Actions::AnchorPoints(..)
+      | crate::tables::kerx::Subtable4Actions::ControlPointCoords(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected subtable 4 control points action"
+        )));
+      }
     };
 
     let values = action
@@ -764,8 +882,13 @@ mod tests {
     })?;
 
     let action = match &subtable4.actions {
-        Subtable4Actions::AnchorPoints(matched_action) => matched_action,
-        crate::tables::kerx::Subtable4Actions::ControlPoints(..) | crate::tables::kerx::Subtable4Actions::ControlPointCoords(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected subtable 4 anchor points action"))),
+      Subtable4Actions::AnchorPoints(matched_action) => matched_action,
+      crate::tables::kerx::Subtable4Actions::ControlPoints(..)
+      | crate::tables::kerx::Subtable4Actions::ControlPointCoords(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected subtable 4 anchor points action"
+        )));
+      }
     };
 
     let values = action
@@ -805,8 +928,13 @@ mod tests {
     })?;
 
     let action = match &subtable4.actions {
-        Subtable4Actions::ControlPointCoords(matched_action) => matched_action,
-        crate::tables::kerx::Subtable4Actions::ControlPoints(..) | crate::tables::kerx::Subtable4Actions::AnchorPoints(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected subtable 4 coords action"))),
+      Subtable4Actions::ControlPointCoords(matched_action) => matched_action,
+      crate::tables::kerx::Subtable4Actions::ControlPoints(..)
+      | crate::tables::kerx::Subtable4Actions::AnchorPoints(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected subtable 4 coords action"
+        )));
+      }
     };
 
     let values = action
@@ -863,8 +991,12 @@ mod tests {
     )?;
 
     match &subtable {
-        Subtable6::ShortValues(..) => (),
-        crate::tables::kerx::Subtable6::LongValues(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected short values in subtable 6"))),
+      Subtable6::ShortValues(..) => (),
+      crate::tables::kerx::Subtable6::LongValues(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected short values in subtable 6"
+        )));
+      }
     };
 
     check_subtable6(subtable)?;
@@ -883,8 +1015,12 @@ mod tests {
     )?;
 
     match &subtable {
-        Subtable6::LongValues(..) => (),
-        crate::tables::kerx::Subtable6::ShortValues(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected long values in subtable 6"))),
+      Subtable6::LongValues(..) => (),
+      crate::tables::kerx::Subtable6::ShortValues(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected long values in subtable 6"
+        )));
+      }
     };
 
     check_subtable6(subtable)?;
@@ -903,8 +1039,12 @@ mod tests {
     )?;
 
     match &subtable {
-        Subtable6::LongValues(..) => (),
-        crate::tables::kerx::Subtable6::ShortValues(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected long values in subtable 6"))),
+      Subtable6::LongValues(..) => (),
+      crate::tables::kerx::Subtable6::ShortValues(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected long values in subtable 6"
+        )));
+      }
     };
 
     check_subtable6(subtable)?;
@@ -922,7 +1062,9 @@ mod tests {
         ) {
           Some(kerning) => kerning,
           None => {
-            return Err(crate::test_support::Failure::from(format!("expected kerning value for {left} and {right}")));
+            return Err(crate::test_support::Failure::from(format!(
+              "expected kerning value for {left} and {right}"
+            )));
           }
         };
         values.push(kerning);
@@ -954,59 +1096,59 @@ mod tests {
   impl FormatOneFour {
     #[must_use]
     fn build_subtable(&self) -> core::result::Result<Vec<u8>, console_core_never::Never> {
-        let mut flags_offset = ::core::primitive::u64::wrapping_add(
-          ExtendedStateTable::<()>::HEADER_LEN,
-          u32::RAW_BYTE_LEN,
-        );
+      let mut flags_offset = ::core::primitive::u64::wrapping_add(
+        ExtendedStateTable::<()>::HEADER_LEN,
+        u32::RAW_BYTE_LEN,
+      );
 
-        match self {
-          Self::FourAnchorPoints => {
-            flags_offset |= ::core::primitive::u64::wrapping_shl(1, 30_u32);
-          }
-          Self::FourCoords => {
-            flags_offset |= ::core::primitive::u64::wrapping_shl(2, 30_u32);
-          }
-          Self::One | Self::FourControlPoints => {}
+      match self {
+        Self::FourAnchorPoints => {
+          flags_offset |= ::core::primitive::u64::wrapping_shl(1, 30_u32);
         }
+        Self::FourCoords => {
+          flags_offset |= ::core::primitive::u64::wrapping_shl(2, 30_u32);
+        }
+        Self::One | Self::FourControlPoints => {}
+      }
 
-        let mut buf = font_test_data::bebuffer::BeBuffer::default();
-        buf.extend([({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(flags_offset);
-          migrated_value
-        })]);
+      let mut buf = font_test_data::bebuffer::BeBuffer::default();
+      buf.extend([({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(flags_offset);
+        migrated_value
+      })]);
 
-        match self {
-          Self::One => {
-            buf.extend(ONE_EXPECTED);
-          }
-          Self::FourControlPoints | Self::FourAnchorPoints => {
-            for indices in FOUR_OUTLINE_ANKR_EXPECTED {
-              {
-                buf.extend([indices.0]);
-                buf.extend([indices.1]);
-              };
-            }
-          }
-          Self::FourCoords => {
-            for coords in FOUR_COORDS_EXPECTED {
-              buf.extend(coords);
-            }
+      match self {
+        Self::One => {
+          buf.extend(ONE_EXPECTED);
+        }
+        Self::FourControlPoints | Self::FourAnchorPoints => {
+          for indices in FOUR_OUTLINE_ANKR_EXPECTED {
+            {
+              buf.extend([indices.0]);
+              buf.extend([indices.1]);
+            };
           }
         }
+        Self::FourCoords => {
+          for coords in FOUR_COORDS_EXPECTED {
+            buf.extend(coords);
+          }
+        }
+      }
 
-        let payload = buf.to_vec();
-        let payload_len = {
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(payload.len());
-          migrated_value
-        };
-        #[rustfmt::skip]
+      let payload = buf.to_vec();
+      let payload_len = {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(payload.len());
+        migrated_value
+      };
+      #[rustfmt::skip]
               let header = [
                   6_u32,
                   ::core::primitive::u32::wrapping_add(payload_len, 16),
                   ::core::primitive::u32::wrapping_add(payload_len, 52),
                   ::core::primitive::u32::wrapping_add(payload_len, 88),
               ];
-        #[rustfmt::skip]
+      #[rustfmt::skip]
               let class_table = [
                   6_u16,
                   4,
@@ -1021,20 +1163,20 @@ mod tests {
                   202, 4,
                   !0, !0
               ];
-        #[rustfmt::skip]
+      #[rustfmt::skip]
               let state_array: [u16; 18] = [
                   0, 0, 0, 0, 0, 1,
                   0, 0, 0, 0, 0, 1,
                   0, 0, 0, 0, 2, 1,
               ];
-        #[rustfmt::skip]
+      #[rustfmt::skip]
               let entry_table: [u16; 9] = [
                   0, 0, 1,
                   2, 0, 2,
                   0, 0, 3,
               ];
 
-        Ok(font_test_data::be_buffer! { (..(header)), (..(payload)), (..(class_table)), (..(state_array)), (..(entry_table)) }
+      Ok(font_test_data::be_buffer! { (..(header)), (..(payload)), (..(class_table)), (..(state_array)), (..(entry_table)) }
                   .to_vec())
     }
   }
@@ -1058,168 +1200,174 @@ mod tests {
   impl FormatTwoSix {
     #[must_use]
     fn build_subtable(&self) -> core::result::Result<Vec<u8>, console_core_never::Never> {
-        let mut buf = font_test_data::bebuffer::BeBuffer::default();
-        let row_count = 3u32;
-        let column_count = 3u32;
-        let value_width = match self {
-          Self::Two | Self::SixShort => KerningValueWidth::Short,
-          Self::SixLong | Self::SixLongVector => KerningValueWidth::Long,
-        };
-        let has_kerning_vector = matches!(self, Self::SixLongVector);
+      let mut buf = font_test_data::bebuffer::BeBuffer::default();
+      let row_count = 3u32;
+      let column_count = 3u32;
+      let value_width = match self {
+        Self::Two | Self::SixShort => KerningValueWidth::Short,
+        Self::SixLong | Self::SixLongVector => KerningValueWidth::Long,
+      };
+      let has_kerning_vector = matches!(self, Self::SixLongVector);
 
-        match ::core::primitive::bool::then_some(matches!(self, Self::SixShort | Self::SixLong | Self::SixLongVector), ()) {
-          ::core::option::Option::Some(()) => {
-            {
-              buf.extend([match value_width {
-                KerningValueWidth::Long => 1u32,
-                KerningValueWidth::Short => 0u32,
-              }]);
-              buf.extend([({
-                let Ok(migrated_value) =
-                  console_core_number_conversion::wrapped::<_, u16>(row_count);
-                migrated_value
-              })]);
-              buf.extend([({
-                let Ok(migrated_value) =
-                  console_core_number_conversion::wrapped::<_, u16>(column_count);
-                migrated_value
-              })]);
-            };
-          }
-          ::core::option::Option::None => {
-            buf.extend([row_count]);
-          }
-        }
-
-        let ::core::result::Result::Ok(row_table) = build_lookup(
-          &[
-            0,
-            ::core::primitive::u32::wrapping_mul(2, column_count),
-            column_count,
-            ::core::primitive::u32::wrapping_mul(2, column_count),
-          ],
-          value_width,
-        );
-        let ::core::result::Result::Ok(column_table) = build_lookup(&[0, 1, 2, 0], value_width);
-
-        let kerning_array = [0i32, 10, 20, 30, -10, -20, 8, 4, -2];
-        let mut offset = ::core::primitive::u64::wrapping_add(
-          Subtable::HEADER_LEN,
-          ::core::primitive::u64::wrapping_mul(
-            u32::RAW_BYTE_LEN,
-            match ::core::primitive::bool::then_some(matches!(self, Self::SixShort | Self::SixLong | Self::SixLongVector), ()) {
-              ::core::option::Option::Some(()) => 5,
-              ::core::option::Option::None => 4,
-            },
-          ),
-        );
-
-        match ::core::primitive::bool::then_some(has_kerning_vector, ()) {
-          ::core::option::Option::Some(()) => {
-            offset = ::core::primitive::u64::wrapping_add(offset, 4);
-          }
-          ::core::option::Option::None => {}
-        }
-
-        buf.extend([({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
-          migrated_value
-        })]);
-        match (
+      match ::core::primitive::bool::then_some(
+        matches!(self, Self::SixShort | Self::SixLong | Self::SixLongVector),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => {
           {
-            let Ok(explicit_index) =
-              console_core_number_conversion::fitted::<_, u64>(row_table.len());
-            explicit_index
-          },
-          &mut offset,
-        ) {
-          (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-            *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
-              *explicit_arithmetic_place,
-              explicit_arithmetic_amount,
-            )
-          }
-        };
-
-        buf.extend([({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
-          migrated_value
-        })]);
-        match (
-          {
-            let Ok(explicit_index) =
-              console_core_number_conversion::fitted::<_, u64>(column_table.len());
-            explicit_index
-          },
-          &mut offset,
-        ) {
-          (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-            *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
-              *explicit_arithmetic_place,
-              explicit_arithmetic_amount,
-            )
-          }
-        };
-
-        buf.extend([({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
-          migrated_value
-        })]);
-        match ::core::primitive::bool::then_some(has_kerning_vector, ()) {
-          ::core::option::Option::Some(()) => {
-            match (::core::primitive::u64::wrapping_mul(9, 4), &mut offset) {
-              (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-                *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
-                  *explicit_arithmetic_place,
-                  explicit_arithmetic_amount,
-                )
-              }
-            };
-
+            buf.extend([match value_width {
+              KerningValueWidth::Long => 1u32,
+              KerningValueWidth::Short => 0u32,
+            }]);
             buf.extend([({
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
+              let Ok(migrated_value) =
+                console_core_number_conversion::wrapped::<_, u16>(row_count);
               migrated_value
             })]);
-            buf.extend(row_table);
-            buf.extend(column_table);
+            buf.extend([({
+              let Ok(migrated_value) =
+                console_core_number_conversion::wrapped::<_, u16>(column_count);
+              migrated_value
+            })]);
+          };
+        }
+        ::core::option::Option::None => {
+          buf.extend([row_count]);
+        }
+      }
 
-            let offsets: [u32; 9] = core::array::from_fn(|idx| {
-              ::core::primitive::u32::wrapping_mul(
-                {
-                  let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(idx);
-                  migrated_value
-                },
-                2,
+      let ::core::result::Result::Ok(row_table) = build_lookup(
+        &[
+          0,
+          ::core::primitive::u32::wrapping_mul(2, column_count),
+          column_count,
+          ::core::primitive::u32::wrapping_mul(2, column_count),
+        ],
+        value_width,
+      );
+      let ::core::result::Result::Ok(column_table) = build_lookup(&[0, 1, 2, 0], value_width);
+
+      let kerning_array = [0i32, 10, 20, 30, -10, -20, 8, 4, -2];
+      let mut offset = ::core::primitive::u64::wrapping_add(
+        Subtable::HEADER_LEN,
+        ::core::primitive::u64::wrapping_mul(
+          u32::RAW_BYTE_LEN,
+          match ::core::primitive::bool::then_some(
+            matches!(self, Self::SixShort | Self::SixLong | Self::SixLongVector),
+            (),
+          ) {
+            ::core::option::Option::Some(()) => 5,
+            ::core::option::Option::None => 4,
+          },
+        ),
+      );
+
+      match ::core::primitive::bool::then_some(has_kerning_vector, ()) {
+        ::core::option::Option::Some(()) => {
+          offset = ::core::primitive::u64::wrapping_add(offset, 4);
+        }
+        ::core::option::Option::None => {}
+      }
+
+      buf.extend([({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
+        migrated_value
+      })]);
+      match (
+        {
+          let Ok(explicit_index) =
+            console_core_number_conversion::fitted::<_, u64>(row_table.len());
+          explicit_index
+        },
+        &mut offset,
+      ) {
+        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+          *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
+            *explicit_arithmetic_place,
+            explicit_arithmetic_amount,
+          )
+        }
+      };
+
+      buf.extend([({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
+        migrated_value
+      })]);
+      match (
+        {
+          let Ok(explicit_index) =
+            console_core_number_conversion::fitted::<_, u64>(column_table.len());
+          explicit_index
+        },
+        &mut offset,
+      ) {
+        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+          *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
+            *explicit_arithmetic_place,
+            explicit_arithmetic_amount,
+          )
+        }
+      };
+
+      buf.extend([({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
+        migrated_value
+      })]);
+      match ::core::primitive::bool::then_some(has_kerning_vector, ()) {
+        ::core::option::Option::Some(()) => {
+          match (::core::primitive::u64::wrapping_mul(9, 4), &mut offset) {
+            (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+              *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
+                *explicit_arithmetic_place,
+                explicit_arithmetic_amount,
               )
-            });
-            buf.extend(offsets);
-
-            for value in &kerning_array {
-              buf.extend([({
-                let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i16>(*value);
-                migrated_value
-              })]);
             }
-          }
-          ::core::option::Option::None => {
-            buf.extend(row_table);
-            buf.extend(column_table);
+          };
 
-            match value_width {
-              KerningValueWidth::Long => {
-                buf.extend(kerning_array);
-              }
-              KerningValueWidth::Short => {
-                for &value in &kerning_array {
-                  let Ok(encoded) = console_core_number_conversion::wrapped::<_, i16>(value);
-                  buf.extend([encoded]);
-                }
+          buf.extend([({
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(offset);
+            migrated_value
+          })]);
+          buf.extend(row_table);
+          buf.extend(column_table);
+
+          let offsets: [u32; 9] = core::array::from_fn(|idx| {
+            ::core::primitive::u32::wrapping_mul(
+              {
+                let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(idx);
+                migrated_value
+              },
+              2,
+            )
+          });
+          buf.extend(offsets);
+
+          for value in &kerning_array {
+            buf.extend([({
+              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i16>(*value);
+              migrated_value
+            })]);
+          }
+        }
+        ::core::option::Option::None => {
+          buf.extend(row_table);
+          buf.extend(column_table);
+
+          match value_width {
+            KerningValueWidth::Long => {
+              buf.extend(kerning_array);
+            }
+            KerningValueWidth::Short => {
+              for &value in &kerning_array {
+                let Ok(encoded) = console_core_number_conversion::wrapped::<_, i16>(value);
+                buf.extend([encoded]);
               }
             }
           }
         }
+      }
 
-        Ok(buf.to_vec())
+      Ok(buf.to_vec())
     }
   }
 

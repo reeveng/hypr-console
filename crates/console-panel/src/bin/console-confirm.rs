@@ -112,10 +112,12 @@ fn word() -> Result<Option<String>, Never> {
     Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => String::new(),
   };
 
-  Ok(match ::core::primitive::bool::then_some(said.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(said.trim().to_string()),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(said.trim().to_string()),
+    },
+  )
 }
 
 fn main() -> ExitCode {

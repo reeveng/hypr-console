@@ -193,9 +193,8 @@ mod tests {
     let edge_mode = seen(&edge, WakeState::No)?;
     let panel_mode = seen(&panel, WakeState::No)?;
     let Ok(selection) = console_onscreen::focus::Layer::ScreenSelection.namespace();
-    let selector = format!(
-      r#"{{"eDP-1":{{"levels":{{"3":[{{"namespace":"{selection}","h":800}}]}}}}}}"#
-    );
+    let selector =
+      format!(r#"{{"eDP-1":{{"levels":{{"3":[{{"namespace":"{selection}","h":800}}]}}}}}}"#);
     let selection_mode = seen(&selector, WakeState::Yes)?;
 
     assert_eq!(edge_mode, Mode::Desktop);

@@ -20,7 +20,7 @@ impl<'a> MinByteRange<'a> for TupleVariationHeader<'a> {
 }
 
 impl ReadArgs for TupleVariationHeader<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for TupleVariationHeader<'a> {
@@ -177,7 +177,7 @@ impl<'a> Tuple<'a> {
 }
 
 impl ReadArgs for Tuple<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for Tuple<'_> {
@@ -1024,7 +1024,7 @@ impl<'a> VariationRegion<'a> {
 }
 
 impl ReadArgs for VariationRegion<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for VariationRegion<'_> {

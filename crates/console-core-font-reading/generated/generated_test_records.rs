@@ -229,7 +229,7 @@ impl<'a> ContainsArrays<'a> {
 }
 
 impl ReadArgs for ContainsArrays<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for ContainsArrays<'_> {

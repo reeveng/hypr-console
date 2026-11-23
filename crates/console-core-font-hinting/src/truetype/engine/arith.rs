@@ -16,17 +16,19 @@ impl Engine<'_> {
   }
 
   pub(super) fn op_div(&mut self) -> OpResult {
-    self.value_stack.apply_binary(|a, b| match ::core::primitive::bool::then_some(b == 0, ()) {
-      ::core::option::Option::Some(()) => Err(HintErrorKind::DivideByZero),
-      ::core::option::Option::None => Ok({
-        let Ok(math_result_1) = math::mul_div_no_round(math::ProductRatio {
-          value: a,
-          multiplier: 64,
-          divisor: b,
-        });
-        math_result_1
-      }),
-    })
+    self.value_stack.apply_binary(
+      |a, b| match ::core::primitive::bool::then_some(b == 0, ()) {
+        ::core::option::Option::Some(()) => Err(HintErrorKind::DivideByZero),
+        ::core::option::Option::None => Ok({
+          let Ok(math_result_1) = math::mul_div_no_round(math::ProductRatio {
+            value: a,
+            multiplier: 64,
+            divisor: b,
+          });
+          math_result_1
+        }),
+      },
+    )
   }
 
   pub(super) fn op_mul(&mut self) -> OpResult {

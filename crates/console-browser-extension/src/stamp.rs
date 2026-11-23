@@ -25,13 +25,15 @@ pub fn read(said: &str) -> Result<Option<Stamp>, Never> {
     None => return Ok(None),
   };
 
-  Ok(match ::core::primitive::bool::then_some(hash.is_empty() || version.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(Stamp {
-      hash: hash.to_string(),
-      version: version.to_string(),
-    }),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(hash.is_empty() || version.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(Stamp {
+        hash: hash.to_string(),
+        version: version.to_string(),
+      }),
+    },
+  )
 }
 
 pub fn format_stamp(stamp: &Stamp) -> Result<String, Never> {

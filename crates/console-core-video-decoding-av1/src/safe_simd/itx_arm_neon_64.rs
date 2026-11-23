@@ -36,9 +36,17 @@ impl<'a> LargeNeonOutput<'a> {
   ) -> Rav1dResult<Self> {
     let (first, pitch) = origin;
     let layout = RowLayout::new(size, first, pitch).map_err(|_layout| EINVAL)?;
-    layout.validate_len(pixels.len()).map_err(|_extent| EINVAL)?;
+    layout
+      .validate_len(pixels.len())
+      .map_err(|_extent| EINVAL)?;
 
-    Ok(Self { pixels, layout, size, first, pitch })
+    Ok(Self {
+      pixels,
+      layout,
+      size,
+      first,
+      pitch,
+    })
   }
 
   pub(super) fn size(&self) -> Result<Size<u64>, Never> {
@@ -49,7 +57,11 @@ impl<'a> LargeNeonOutput<'a> {
     let line = point.y.cast_signed().wrapping_mul(self.pitch);
     let first = self.first.wrapping_add_signed(line).wrapping_add(point.x);
     let Ok(position) = index(first);
-    self.pixels.get_mut(position..).and_then(<[_]>::first_chunk_mut).ok_or(EINVAL)
+    self
+      .pixels
+      .get_mut(position..)
+      .and_then(<[_]>::first_chunk_mut)
+      .ok_or(EINVAL)
   }
 }
 
@@ -69,7 +81,10 @@ pub(super) fn add_pixel_lane(target: &mut [u8; 8], residual: int16x8_t) -> Resul
 
 #[rite(neon)]
 pub(super) fn add_uniform(output: LargeNeonOutput<'_>, residual: int16x8_t) -> Rav1dResult {
-  let rows = output.layout.rows_mut(output.pixels).map_err(|_bounds| EINVAL)?;
+  let rows = output
+    .layout
+    .rows_mut(output.pixels)
+    .map_err(|_bounds| EINVAL)?;
 
   for row in rows {
     let (lanes, _tail) = row.as_chunks_mut();
@@ -140,7 +155,10 @@ fn large_dct_rows(
   let Ok(columns) = index(width.min(32));
   let Ok(shift) = pass.shift();
   let rounding = 1_i32.wrapping_shl(shift.wrapping_sub(1));
-  let bounds = CoefficientBounds { lower: i32::from(i16::MIN), upper: i32::from(i16::MAX) };
+  let bounds = CoefficientBounds {
+    lower: i32::from(i16::MIN),
+    upper: i32::from(i16::MAX),
+  };
   let rect = width.wrapping_mul(2) == height || height.wrapping_mul(2) == width;
 
   for (y, row) in (0_u64..).zip(scratch.iter_mut().take(rows)) {
@@ -151,7 +169,10 @@ fn large_dct_rows(
         None => 0,
       };
       *value = match rect.then_some(()) {
-        Some(()) => coefficient.wrapping_mul(181).wrapping_add(128).wrapping_shr(8),
+        Some(()) => coefficient
+          .wrapping_mul(181)
+          .wrapping_add(128)
+          .wrapping_shr(8),
         None => coefficient,
       };
     }
@@ -159,7 +180,11 @@ fn large_dct_rows(
     horizontal(row, NonZeroU32::MIN, bounds)?;
 
     for value in row.iter_mut().take(written) {
-      *value = iclip(value.wrapping_add(rounding).wrapping_shr(shift), bounds.lower, bounds.upper);
+      *value = iclip(
+        value.wrapping_add(rounding).wrapping_shr(shift),
+        bounds.lower,
+        bounds.upper,
+      );
     }
   }
 
@@ -170,7 +195,10 @@ fn large_dct_columns(size: Size<u64>, scratch: &mut [[i32; 64]; 64]) -> Rav1dRes
   let vertical = select_dct(size.height)?;
   let Ok(width) = index(size.width);
   let Ok(height) = index(size.height);
-  let bounds = CoefficientBounds { lower: i32::from(i16::MIN), upper: i32::from(i16::MAX) };
+  let bounds = CoefficientBounds {
+    lower: i32::from(i16::MIN),
+    upper: i32::from(i16::MAX),
+  };
   let mut column = [0_i32; 64];
 
   for x in 0..width {
@@ -192,7 +220,10 @@ fn large_dct_columns(size: Size<u64>, scratch: &mut [[i32; 64]; 64]) -> Rav1dRes
 
 #[rite(neon)]
 fn add_transformed(output: LargeNeonOutput<'_>, scratch: &[[i32; 64]; 64]) -> Rav1dResult {
-  let rows = output.layout.rows_mut(output.pixels).map_err(|_bounds| EINVAL)?;
+  let rows = output
+    .layout
+    .rows_mut(output.pixels)
+    .map_err(|_bounds| EINVAL)?;
 
   for (row, transformed) in rows.zip(scratch) {
     let (destination, _tail) = row.as_chunks_mut();
@@ -247,31 +278,58 @@ struct IdentityThresholds {
   columns: &'static [i32],
 }
 
-fn identity_groups(
-  size: Size<u64>,
-  scaling: IdentityScaling,
-) -> Rav1dResult<IdentityThresholds> {
+fn identity_groups(size: Size<u64>, scaling: IdentityScaling) -> Rav1dResult<IdentityThresholds> {
   const TWO: &[i32] = &[36];
   const FOUR: &[i32] = &[36, 136, 300];
   const FOUR_RECT: &[i32] = &[36, 151, 279];
   const EIGHT: &[i32] = &[36, 136, 300, 1024, 1024, 1024, 1024];
 
   Ok(match (scaling, size.width, size.height) {
-    (IdentityScaling::LargeAxis, 64, 64) => IdentityThresholds { rows: EIGHT, columns: EIGHT },
-    (IdentityScaling::LargeAxis, 64, 32) => IdentityThresholds { rows: FOUR, columns: EIGHT },
-    (IdentityScaling::LargeAxis, 32, 64) => IdentityThresholds { rows: EIGHT, columns: FOUR },
-    (IdentityScaling::LargeAxis, 16, 64) => IdentityThresholds { rows: EIGHT, columns: TWO },
-    (IdentityScaling::LargeAxis, 64, 16) => IdentityThresholds { rows: TWO, columns: EIGHT },
-    (IdentityScaling::TallNarrow, 8, 32) => IdentityThresholds { rows: &[i32::MIN; 3], columns: &[] },
-    (IdentityScaling::ShortWide, 32, 8) => IdentityThresholds { rows: &[], columns: &[i32::MIN; 3] },
-    (IdentityScaling::TallRect, 16, 32) => IdentityThresholds { rows: FOUR_RECT, columns: TWO },
-    (IdentityScaling::WideRect, 32, 16) => IdentityThresholds { rows: TWO, columns: FOUR_RECT },
+    (IdentityScaling::LargeAxis, 64, 64) => IdentityThresholds {
+      rows: EIGHT,
+      columns: EIGHT,
+    },
+    (IdentityScaling::LargeAxis, 64, 32) => IdentityThresholds {
+      rows: FOUR,
+      columns: EIGHT,
+    },
+    (IdentityScaling::LargeAxis, 32, 64) => IdentityThresholds {
+      rows: EIGHT,
+      columns: FOUR,
+    },
+    (IdentityScaling::LargeAxis, 16, 64) => IdentityThresholds {
+      rows: EIGHT,
+      columns: TWO,
+    },
+    (IdentityScaling::LargeAxis, 64, 16) => IdentityThresholds {
+      rows: TWO,
+      columns: EIGHT,
+    },
+    (IdentityScaling::TallNarrow, 8, 32) => IdentityThresholds {
+      rows: &[i32::MIN; 3],
+      columns: &[],
+    },
+    (IdentityScaling::ShortWide, 32, 8) => IdentityThresholds {
+      rows: &[],
+      columns: &[i32::MIN; 3],
+    },
+    (IdentityScaling::TallRect, 16, 32) => IdentityThresholds {
+      rows: FOUR_RECT,
+      columns: TWO,
+    },
+    (IdentityScaling::WideRect, 32, 16) => IdentityThresholds {
+      rows: TWO,
+      columns: FOUR_RECT,
+    },
     _invalid => return Err(EINVAL),
   })
 }
 
 #[rite(neon)]
-fn scale_identity_column(values: int16x8_t, scaling: IdentityScaling) -> Result<int16x8_t, Never> {
+fn scale_identity_column(
+  values: int16x8_t,
+  scaling: IdentityScaling,
+) -> Result<int16x8_t, Never> {
   Ok(match scaling {
     IdentityScaling::TallRect => {
       let scaled = vqrdmulhq_n_s16(values, 23168);
@@ -283,7 +341,9 @@ fn scale_identity_column(values: int16x8_t, scaling: IdentityScaling) -> Result<
       let fraction = vqrdmulhq_n_s16(scaled, 27152);
       vqaddq_s16(vqaddq_s16(scaled, scaled), fraction)
     }
-    IdentityScaling::LargeAxis | IdentityScaling::TallNarrow | IdentityScaling::ShortWide => values,
+    IdentityScaling::LargeAxis | IdentityScaling::TallNarrow | IdentityScaling::ShortWide => {
+      values
+    }
   })
 }
 
@@ -306,9 +366,16 @@ fn write_identity_tile(
   let mut inputs = [vdupq_n_s16(0); 8];
 
   for (column, target) in (origin.x..).zip(&mut inputs) {
-    let Ok(position) = index(column.wrapping_mul(block.output.size.height).wrapping_add(origin.y));
-    let coefficients = block.coefficients.get_mut(position..)
-      .and_then(<[_]>::first_chunk_mut).ok_or(EINVAL)?;
+    let Ok(position) = index(
+      column
+        .wrapping_mul(block.output.size.height)
+        .wrapping_add(origin.y),
+    );
+    let coefficients = block
+      .coefficients
+      .get_mut(position..)
+      .and_then(<[_]>::first_chunk_mut)
+      .ok_or(EINVAL)?;
     let loaded = safe_simd::vld1q_s16(coefficients);
     let Ok(scaled) = scale_identity_column(loaded, scaling);
     *target = scaled;
@@ -330,20 +397,28 @@ fn write_identity_tile(
 #[rite(neon)]
 fn run_large_identity(mut block: LargeNeonBlock<'_>, scaling: IdentityScaling) -> Rav1dResult {
   let thresholds = identity_groups(block.output.size, scaling)?;
-  let row_groups = core::iter::once(i32::MIN).chain(thresholds.rows.iter().copied())
+  let row_groups = core::iter::once(i32::MIN)
+    .chain(thresholds.rows.iter().copied())
     .take_while(|&threshold| block.eob >= threshold);
-  let columns = core::iter::once(i32::MIN).chain(thresholds.columns.iter().copied())
+  let columns = core::iter::once(i32::MIN)
+    .chain(thresholds.columns.iter().copied())
     .take_while(|&threshold| block.eob >= threshold);
   let Ok(column_count) = fixed_index(columns.count());
   let Ok(row_count) = fixed_index(row_groups.count());
-  let last = column_count.wrapping_mul(8).wrapping_sub(1)
-    .wrapping_mul(block.output.size.height).wrapping_add(row_count.wrapping_mul(8));
+  let last = column_count
+    .wrapping_mul(8)
+    .wrapping_sub(1)
+    .wrapping_mul(block.output.size.height)
+    .wrapping_add(row_count.wrapping_mul(8));
   let Ok(required) = index(last);
   block.coefficients.get(..required).ok_or(EINVAL)?;
 
   for tile_y in 0..row_count {
     for tile_x in 0..column_count {
-      let origin = Point { x: tile_x.wrapping_mul(8), y: tile_y.wrapping_mul(8) };
+      let origin = Point {
+        x: tile_x.wrapping_mul(8),
+        y: tile_y.wrapping_mul(8),
+      };
       write_identity_tile(&mut block, origin, scaling)?;
     }
   }

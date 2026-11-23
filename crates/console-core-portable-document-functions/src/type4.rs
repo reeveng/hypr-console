@@ -323,23 +323,27 @@ fn execute<'p>(
       !matches!(left.partial_cmp(&right), Some(Ordering::Equal))
     }),
     PostScriptOp::Not => invert(stack),
-    PostScriptOp::Or => binary_logic(stack, |left, right| left | right, |left, right| {
-      match (left, right) {
+    PostScriptOp::Or => binary_logic(
+      stack,
+      |left, right| left | right,
+      |left, right| match (left, right) {
         (AsBoolAnswer::No, AsBoolAnswer::No) => AsBoolAnswer::No,
         (AsBoolAnswer::Yes, _) | (_, AsBoolAnswer::Yes) => AsBoolAnswer::Yes,
-      }
-    }),
+      },
+    ),
     PostScriptOp::True => stack.push(Argument::Boolean(AsBoolAnswer::Yes)),
-    PostScriptOp::Xor => binary_logic(stack, |left, right| left ^ right, |left, right| {
-      match (left, right) {
+    PostScriptOp::Xor => binary_logic(
+      stack,
+      |left, right| left ^ right,
+      |left, right| match (left, right) {
         (AsBoolAnswer::Yes, AsBoolAnswer::Yes) | (AsBoolAnswer::No, AsBoolAnswer::No) => {
           AsBoolAnswer::No
         }
         (AsBoolAnswer::Yes, AsBoolAnswer::No) | (AsBoolAnswer::No, AsBoolAnswer::Yes) => {
           AsBoolAnswer::Yes
         }
-      }
-    }),
+      },
+    ),
     PostScriptOp::If(program) => return branch(stack, program, None),
     PostScriptOp::IfElse(yes, no) => return branch(stack, yes, Some(no)),
     PostScriptOp::Copy => copy(stack),
@@ -392,9 +396,7 @@ fn operands(
   Ok(below.map(|left| [left, right]))
 }
 
-fn numbers(
-  stack: &mut InterpreterStack,
-) -> Result<Option<[f32; 2]>, console_core_never::Never> {
+fn numbers(stack: &mut InterpreterStack) -> Result<Option<[f32; 2]>, console_core_never::Never> {
   let Ok(popped) = operands(stack);
   let [left, right] = match popped {
     Some(pair) => pair,
@@ -466,9 +468,7 @@ fn binary_logic(
   stack.push(result)
 }
 
-fn integer_divide(
-  stack: &mut InterpreterStack,
-) -> Result<Option<()>, console_core_never::Never> {
+fn integer_divide(stack: &mut InterpreterStack) -> Result<Option<()>, console_core_never::Never> {
   let Ok(popped) = numbers(stack);
   let [dividend, divisor] = match popped {
     Some(pair) => pair,
@@ -596,7 +596,10 @@ fn duplicate_at(stack: &mut InterpreterStack) -> Result<Option<()>, console_core
     None => return Ok(None),
   };
   let Ok(height) = stack.height();
-  let position = match depth.checked_add(1).and_then(|reach| height.checked_sub(reach)) {
+  let position = match depth
+    .checked_add(1)
+    .and_then(|reach| height.checked_sub(reach))
+  {
     Some(position) => position,
     None => return Ok(None),
   };

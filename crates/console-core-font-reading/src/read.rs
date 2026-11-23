@@ -9,19 +9,19 @@ pub trait FontRead<'a>: Sized {
 }
 
 pub trait ReadArgs {
-  type Args: Copy;
+  type Arguments: Copy;
 }
 
 pub trait FontReadWithArgs<'a>: Sized + ReadArgs {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError>;
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError>;
 }
 
 impl<'a, T: FontRead<'a>> ReadArgs for T {
-  type Args = ();
+  type Arguments = ();
 }
 
 impl<'a, T: FontRead<'a>> FontReadWithArgs<'a> for T {
-  fn read_with_args(data: FontData<'a>, _args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, _args: &Self::Arguments) -> Result<Self, ReadError> {
     Self::read(data)
   }
 }
@@ -35,7 +35,7 @@ pub trait Discriminant {
 }
 
 pub trait ComputeSize: ReadArgs {
-  fn compute_size(args: &Self::Args) -> Result<u64, ReadError>;
+  fn compute_size(args: &Self::Arguments) -> Result<u64, ReadError>;
 }
 
 pub trait VarSize {

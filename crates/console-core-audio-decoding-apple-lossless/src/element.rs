@@ -12,7 +12,7 @@ use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
 use crate::cookie::{MAX_FRAME_LENGTH, MagicCookie};
-use crate::fault::Fault;
+use crate::fault::DecodeError;
 use crate::predictor::Predictor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,13 +57,13 @@ pub(crate) struct Scratch {
 }
 
 impl Header {
-  fn read<B: ReadBitsLtr>(bs: &mut B, config: &MagicCookie) -> Result<Header, Fault> {
+  fn read<B: ReadBitsLtr>(bs: &mut B, config: &MagicCookie) -> Result<Header, DecodeError> {
     let _instance_tag = bs.read_bits_leq32(4)?;
     let unused = bs.read_bits_leq32(12)?;
 
     match unused {
       0 => {}
-      _ => return Err(Fault::UnusedHeaderBits),
+      _ => return Err(DecodeError::UnusedHeaderBits),
     }
 
     let partial = bs.read_flag()?;
@@ -75,11 +75,11 @@ impl Header {
     match (shift, shift.cmp(&u32::from(config.bit_depth))) {
       (0..=23, Ordering::Less) => {}
       (24.., Ordering::Less | Ordering::Equal | Ordering::Greater)
-      | (0..=23, Ordering::Equal | Ordering::Greater) => return Err(Fault::Shift),
+      | (0..=23, Ordering::Equal | Ordering::Greater) => return Err(DecodeError::Shift),
     }
 
     let counted = match partial {
-      FlagBit::One => bs.read_bits_leq32(32).map_err(Fault::from),
+      FlagBit::One => bs.read_bits_leq32(32).map_err(DecodeError::from),
       FlagBit::Zero => Ok(config.frame_length),
     };
     let samples = counted?;
@@ -92,7 +92,7 @@ impl Header {
   }
 }
 
-fn read_tails<B: ReadBitsLtr>(bs: &mut B, shift: u32, tails: &mut [u16]) -> Result<(), Fault> {
+fn read_tails<B: ReadBitsLtr>(bs: &mut B, shift: u32, tails: &mut [u16]) -> Result<(), DecodeError> {
   match shift {
     0 => Ok(()),
     _ => {
@@ -164,14 +164,14 @@ fn compressed_single<B: ReadBitsLtr>(
   header: &Header,
   out: &mut [i32],
   tails: &mut [u16],
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   let pred_bits = u32::from(config.bit_depth).saturating_sub(header.shift);
   let mid_side_shift = bs.read_bits_leq32(8)?;
   let mid_side_weight = bs.read_bits_leq32_signed(8)?;
 
   match (mid_side_shift, mid_side_weight) {
     (0, 0) => {}
-    _ => return Err(Fault::Mixing),
+    _ => return Err(DecodeError::Mixing),
   }
 
   let mut predictor = Predictor::read(bs, config, pred_bits)?;
@@ -191,7 +191,7 @@ fn compressed_pair<B: ReadBitsLtr>(
   out0: &mut [i32],
   out1: &mut [i32],
   tails: &mut [u16],
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   let pred_bits = u32::from(config.bit_depth)
     .saturating_sub(header.shift)
     .saturating_add(1);
@@ -222,7 +222,7 @@ fn uncompressed_single<B: ReadBitsLtr>(
   bs: &mut B,
   config: &MagicCookie,
   out: &mut [i32],
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   for sample in out.iter_mut() {
     let value = bs.read_bits_leq32_signed(u32::from(config.bit_depth))?;
 
@@ -237,7 +237,7 @@ fn uncompressed_pair<B: ReadBitsLtr>(
   config: &MagicCookie,
   out0: &mut [i32],
   out1: &mut [i32],
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   for (s0, s1) in out0.iter_mut().zip(out1.iter_mut()) {
     let left = bs.read_bits_leq32_signed(u32::from(config.bit_depth))?;
     let right = bs.read_bits_leq32_signed(u32::from(config.bit_depth))?;
@@ -289,7 +289,7 @@ impl Scratch {
     bs: &mut B,
     config: &MagicCookie,
     coupling: Coupling,
-  ) -> Result<u32, Fault> {
+  ) -> Result<u32, DecodeError> {
     let header = Header::read(bs, config)?;
     let Ok(channels) = coupling.channels();
     let Ok(count) = index(header.samples);
@@ -307,7 +307,7 @@ impl Scratch {
       (Coupling::Pair, Some(out0), Some(out1), Some(tails)) => {
         Self::pair(bs, config, &header, out0, out1, tails)
       }
-      (Coupling::Single | Coupling::Pair, _, _, _) => Err(Fault::FrameLength),
+      (Coupling::Single | Coupling::Pair, _, _, _) => Err(DecodeError::FrameLength),
     };
 
     decoded?;
@@ -321,7 +321,7 @@ impl Scratch {
     header: &Header,
     out: &mut [i32],
     tails: &mut [u16],
-  ) -> Result<(), Fault> {
+  ) -> Result<(), DecodeError> {
     out.fill(0);
 
     match header.coding {
@@ -337,7 +337,7 @@ impl Scratch {
     out0: &mut [i32],
     out1: &mut [i32],
     tails: &mut [u16],
-  ) -> Result<(), Fault> {
+  ) -> Result<(), DecodeError> {
     out0.fill(0);
     out1.fill(0);
 

@@ -38,16 +38,11 @@ impl Shaping {
 
     {
       match self {
-        Self::Basic => match shape_skip(
-          font_system,
-          glyphs,
-          line,
-          attrs_list,
-          start_run,
-          end_run,
-        ) {
-          Ok(value) => value,
-        },
+        Self::Basic => {
+          match shape_skip(font_system, glyphs, line, attrs_list, start_run, end_run) {
+            Ok(value) => value,
+          }
+        }
         #[cfg(not(feature = "shape-run-cache"))]
         Self::Advanced => match shape_run(
           glyphs,
@@ -835,9 +830,11 @@ fn override_fake_italic(
 ) -> Result<CacheKeyFlags, console_core_never::Never> {
   {
     Ok(
-      match ::core::primitive::bool::then_some(!font.italic_or_oblique
-        && (attrs.style == Style::Italic || attrs.style == Style::Oblique), ())
-      {
+      match ::core::primitive::bool::then_some(
+        !font.italic_or_oblique
+          && (attrs.style == Style::Italic || attrs.style == Style::Oblique),
+        (),
+      ) {
         ::core::option::Option::Some(()) => cache_key_flags | CacheKeyFlags::FAKE_ITALIC,
         ::core::option::Option::None => cache_key_flags,
       },
@@ -880,16 +877,17 @@ impl ShapeGlyph {
   ) -> Result<f32, console_core_never::Never> {
     Ok(match (match_mono_em_width, self.font_monospace_em_width) {
       (Some(match_em_width), Some(glyph_em_width)) => {
-        match ::core::primitive::bool::then_some(<::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(
-          &glyph_em_width,
-          &match_em_width,
-        ) != ::core::option::Option::Some(::core::cmp::Ordering::Equal), ())
-        {
+        match ::core::primitive::bool::then_some(
+          <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(
+            &glyph_em_width,
+            &match_em_width,
+          ) != ::core::option::Option::Some(::core::cmp::Ordering::Equal),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             let glyph_to_match_factor = glyph_em_width / match_em_width;
-            let glyph_font_size = glyph_to_match_factor.round().max(1.0)
-              / glyph_to_match_factor
-              * font_size;
+            let glyph_font_size =
+              glyph_to_match_factor.round().max(1.0) / glyph_to_match_factor * font_size;
             console_core_logging::trace!(
               "Adjusted glyph font size ({font_size} => {glyph_font_size})"
             );
@@ -1011,7 +1009,10 @@ fn shape_ellipsis(
     );
     let mut glyphs = word.glyphs;
 
-    match ::core::primitive::bool::then_some(glyphs.is_empty() || glyphs.iter().all(|g| g.glyph_id == 0), ()) {
+    match ::core::primitive::bool::then_some(
+      glyphs.is_empty() || glyphs.iter().all(|g| g.glyph_id == 0),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(fallback) = ShapeWord::new(
           font_system,
@@ -1124,21 +1125,24 @@ impl ShapeWord {
       let is_simple_ascii =
         word.is_ascii() && !word.chars().any(|c| c.is_ascii_control() && c != '\t');
 
-      match ::core::primitive::bool::then_some(is_simple_ascii && !word.is_empty() && {
-        let Ok(attrs_start) = attrs_list.get_span(word_range.start);
-        match attrs_list.spans_iter() {
-          Ok(value) => value,
-        }
-        .all(|(other_range, other_attrs)| {
-          word_range.end <= other_range.start
-            || other_range.end <= word_range.start
-            || match attrs_start.compatible(&match other_attrs.as_attrs() {
-              Ok(value) => value,
-            }) {
-              Ok(value) => value,
-            } == crate::Compatibility::Compatible
-        })
-      }, ()) {
+      match ::core::primitive::bool::then_some(
+        is_simple_ascii && !word.is_empty() && {
+          let Ok(attrs_start) = attrs_list.get_span(word_range.start);
+          match attrs_list.spans_iter() {
+            Ok(value) => value,
+          }
+          .all(|(other_range, other_attrs)| {
+            word_range.end <= other_range.start
+              || other_range.end <= word_range.start
+              || match attrs_start.compatible(&match other_attrs.as_attrs() {
+                Ok(value) => value,
+              }) {
+                Ok(value) => value,
+              } == crate::Compatibility::Compatible
+          })
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           match shaping.run(
             &mut glyphs,
@@ -1155,12 +1159,18 @@ impl ShapeWord {
           };
         }
         ::core::option::Option::None => {
-          let Ok(()) = Self::shape_word_runs(&mut glyphs, font_system, line, attrs_list, WordShaping {
-            word_range,
-            level,
-            whitespace,
-            shaping,
-          });
+          let Ok(()) = Self::shape_word_runs(
+            &mut glyphs,
+            font_system,
+            line,
+            attrs_list,
+            WordShaping {
+              word_range,
+              level,
+              whitespace,
+              shaping,
+            },
+          );
         }
       }
 
@@ -2142,7 +2152,10 @@ impl ShapeLine {
     let congruent = congruence == crate::RunAlignment::Congruent;
 
     {
-      match ::core::primitive::bool::then_some(span_index != start.span || word_idx_2 != start.word, ()) {
+      match ::core::primitive::bool::then_some(
+        span_index != start.span || word_idx_2 != start.word,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok((
             0,
@@ -2154,14 +2167,15 @@ impl ShapeLine {
         ::core::option::Option::None => {}
       }
 
-      let (start_glyph_pos, end_glyph_pos) = match ::core::primitive::bool::then_some(congruent, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(length) = console_core_number_conversion::fitted::<_, u32>(word.glyphs.len());
+      let (start_glyph_pos, end_glyph_pos) =
+        match ::core::primitive::bool::then_some(congruent, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(length) = console_core_number_conversion::fitted::<_, u32>(word.glyphs.len());
 
-          (start.glyph, length)
-        }
-        ::core::option::Option::None => (0, start.glyph),
-      };
+            (start.glyph, length)
+          }
+          ::core::option::Option::None => (0, start.glyph),
+        };
       Ok((start_glyph_pos, end_glyph_pos))
     }
   }
@@ -2751,7 +2765,10 @@ impl ShapeLine {
           Ok(value) => value,
         };
 
-        match ::core::primitive::bool::then_some((test_line.elision == Elision::Full) && test_line.w.0 <= width_2, ()) {
+        match ::core::primitive::bool::then_some(
+          (test_line.elision == Elision::Full) && test_line.w.0 <= width_2,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             *current_visual_line = test_line;
             return Ok(());
@@ -2874,24 +2891,26 @@ impl ShapeLine {
 
   fn get_span_words(&self, span_index: u32) -> Result<&[ShapeWord], console_core_never::Never> {
     {
-      Ok(match ::core::primitive::bool::then_some(span_index == ELLIPSIS_SPAN, ()) {
-        ::core::option::Option::Some(()) => {
-          &(match self.ellipsis_span.as_ref() {
-            Some(present) => present,
-            None => return Ok(&[]),
-          })
-          .words
-        }
-        ::core::option::Option::None => {
-          &((match (self.spans).get(match console_core_number_conversion::index(span_index) {
-            Ok(position) => position,
-          }) {
-            Some(value) => value,
-            None => return Ok(&[]),
-          })
-          .words)
-        }
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(span_index == ELLIPSIS_SPAN, ()) {
+          ::core::option::Option::Some(()) => {
+            &(match self.ellipsis_span.as_ref() {
+              Some(present) => present,
+              None => return Ok(&[]),
+            })
+            .words
+          }
+          ::core::option::Option::None => {
+            &((match (self.spans).get(match console_core_number_conversion::index(span_index) {
+              Ok(position) => position,
+            }) {
+              Some(value) => value,
+              None => return Ok(&[]),
+            })
+            .words)
+          }
+        },
+      )
     }
   }
 
@@ -2966,10 +2985,12 @@ impl ShapeLine {
         }
       }
 
-      Ok(match ::core::primitive::bool::then_some(min_byte <= max_byte, ()) {
-        ::core::option::Option::Some(()) => Some((min_byte, max_byte)),
-        ::core::option::Option::None => None,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(min_byte <= max_byte, ()) {
+          ::core::option::Option::Some(()) => Some((min_byte, max_byte)),
+          ::core::option::Option::None => None,
+        },
+      )
     }
   }
 

@@ -19,7 +19,10 @@ impl Charmap {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Charmap::from_glyph_names` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Charmap::from_glyph_names` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_glyph_names<'a>(pairs: impl Iterator<Item = (GlyphId, &'a str)>) -> Self {
     #[derive(Copy, Clone, PartialEq)]
@@ -33,7 +36,9 @@ impl Charmap {
     let mut mapping = Vec::new();
 
     for (gid, name) in pairs {
-      let extra = EXTRA_GLYPH_LIST.iter().zip(&mut extra_glyphs)
+      let extra = EXTRA_GLYPH_LIST
+        .iter()
+        .zip(&mut extra_glyphs)
         .find(|((_, extra_name), _)| name == *extra_name);
 
       match extra.map(|(_, entry)| entry) {
@@ -60,7 +65,9 @@ impl Charmap {
         ::core::option::Option::None => {}
       }
 
-      let matching_base = EXTRA_GLYPH_LIST.iter().zip(&mut extra_glyphs)
+      let matching_base = EXTRA_GLYPH_LIST
+        .iter()
+        .zip(&mut extra_glyphs)
         .find(|((extra_ch, _), _)| ch == *extra_ch);
 
       match matching_base {
@@ -96,7 +103,10 @@ impl Charmap {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Charmap::map` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Charmap::map` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn map(&self, ch: impl Into<u32>) -> Option<GlyphId> {
     let ch_2 = <_ as ::core::convert::Into<::core::primitive::u32>>::into(ch);
@@ -147,7 +157,10 @@ impl Charmap {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Charmap::iter` method returns `Iter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Charmap::iter` method returns `Iter` directly in the existing parser interface"
+    )
   )]
   pub fn iter(&self) -> Iter<'_> {
     Iter(self.mapping.iter().copied())

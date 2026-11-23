@@ -227,14 +227,16 @@ impl Pattern {
 
         Ok(Clicked::Traced(drawn))
       }
-      (Touch::Up, Some(_)) => match ::core::primitive::bool::then_some(self.path.is_empty(), ()) {
-        ::core::option::Option::Some(()) => Ok(Clicked::Traced(lifted)),
-        ::core::option::Option::None => {
-          let Ok(secret) = secret_from(&self.path);
+      (Touch::Up, Some(_)) => {
+        match ::core::primitive::bool::then_some(self.path.is_empty(), ()) {
+          ::core::option::Option::Some(()) => Ok(Clicked::Traced(lifted)),
+          ::core::option::Option::None => {
+            let Ok(secret) = secret_from(&self.path);
 
-          Ok(Clicked::Submitted(secret))
+            Ok(Clicked::Submitted(secret))
+          }
         }
-      },
+      }
       (Touch::Moved(_) | Touch::Up, None) => Ok(Clicked::Traced(lifted)),
     }
   }
@@ -352,7 +354,9 @@ fn passed_over(path: &[u32], from: Point<i32>, to: Point<i32>) -> Result<Vec<u32
         y: f64::from(dot.centre.y) - start.y,
       };
       let along = match ::core::primitive::bool::then_some(long > 0.0, ()) {
-        ::core::option::Option::Some(()) => ((there.x * run.x + there.y * run.y) / long).clamp(0.0, 1.0),
+        ::core::option::Option::Some(()) => {
+          ((there.x * run.x + there.y * run.y) / long).clamp(0.0, 1.0)
+        }
         ::core::option::Option::None => 0.0,
       };
       let off = Point {
@@ -360,7 +364,8 @@ fn passed_over(path: &[u32], from: Point<i32>, to: Point<i32>) -> Result<Vec<u32
         y: there.y - along * run.y,
       };
 
-      match ::core::primitive::bool::then_some(off.x * off.x + off.y * off.y <= REACH * REACH, ()) {
+      match ::core::primitive::bool::then_some(off.x * off.x + off.y * off.y <= REACH * REACH, ())
+      {
         ::core::option::Option::Some(()) => Some((along, at)),
         ::core::option::Option::None => None,
       }
@@ -443,7 +448,9 @@ fn cost(here: Point<i32>, there: Point<i32>, direction: Direction) -> Result<Opt
   };
 
   Ok(match ::core::primitive::bool::then_some(along > 0, ()) {
-    ::core::option::Option::Some(()) => Some(along.saturating_add(off.saturating_abs().saturating_mul(2))),
+    ::core::option::Option::Some(()) => {
+      Some(along.saturating_add(off.saturating_abs().saturating_mul(2)))
+    }
     ::core::option::Option::None => None,
   })
 }

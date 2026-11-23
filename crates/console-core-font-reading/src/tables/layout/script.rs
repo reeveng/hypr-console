@@ -14,7 +14,10 @@ impl<'a> ScriptList<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ScriptList::index_for_tag` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ScriptList::index_for_tag` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn index_for_tag(&self, tag: Tag) -> Option<u16> {
     let Ok(script_records) = self.script_records();
@@ -28,7 +31,10 @@ impl<'a> ScriptList<'a> {
       .map(|index| {
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(index);
         migrated_value
-      }) { Ok(value) => Some(value), Err(_insertion_position) => None }
+      }) {
+      Ok(value) => Some(value),
+      Err(_insertion_position) => None,
+    }
   }
 
   pub fn get(&self, index: u16) -> Result<TaggedElement<Script<'a>>, ReadError> {
@@ -56,7 +62,10 @@ impl<'a> ScriptList<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ScriptList::select` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ScriptList::select` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn select(&self, tags: &[Tag]) -> Option<SelectedScript> {
     for &tag in tags {
@@ -101,7 +110,10 @@ impl<'a> Script<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Script::lang_sys_index_for_tag` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Script::lang_sys_index_for_tag` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn lang_sys_index_for_tag(&self, tag: Tag) -> Option<u16> {
     let Ok(lang_sys_records) = self.lang_sys_records();
@@ -115,7 +127,10 @@ impl<'a> Script<'a> {
       .map(|index| {
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(index);
         migrated_value
-      }) { Ok(value) => Some(value), Err(_insertion_position) => None }
+      }) {
+      Ok(value) => Some(value),
+      Err(_insertion_position) => None,
+    }
   }
 
   pub fn lang_sys(&self, index: u16) -> Result<TaggedElement<LangSys<'a>>, ReadError> {
@@ -145,7 +160,10 @@ impl LangSys<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `LangSys::feature_index_for_tag` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `LangSys::feature_index_for_tag` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn feature_index_for_tag(&self, list: &FeatureList, tag: Tag) -> Option<u16> {
     let Ok(records) = list.feature_records();
@@ -183,7 +201,10 @@ impl ScriptTags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ScriptTags::from_unicode` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ScriptTags::from_unicode` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_unicode(unicode_script: Tag) -> Self {
     let Ok(old_tag) = old_tag_from_unicode(unicode_script);
@@ -192,28 +213,40 @@ impl ScriptTags {
 
     match new_tag {
       Some(tag) => match (tag == myanmar).then_some(()) {
-        Some(()) => Self { tags: [tag, old_tag, Tag::default()], len: 2 },
+        Some(()) => Self {
+          tags: [tag, old_tag, Tag::default()],
+          len: 2,
+        },
         None => {
           let Ok([script_a, script_b, script_c, _version]) = tag.to_be_bytes();
           let Ok(version_three) = Tag::new(&[script_a, script_b, script_c, b'3']);
-          Self { tags: [version_three, tag, old_tag], len: 3 }
+          Self {
+            tags: [version_three, tag, old_tag],
+            len: 3,
+          }
         }
       },
-      None => Self { tags: [old_tag, Tag::default(), Tag::default()], len: 1 },
+      None => Self {
+        tags: [old_tag, Tag::default(), Tag::default()],
+        len: 1,
+      },
     }
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ScriptTags::as_slice` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ScriptTags::as_slice` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn as_slice(&self) -> &[Tag] {
     let Ok(range) = console_core_number_conversion::indices_to(..self.len);
 
     match self.tags.get(range) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => &[],
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => &[],
     }
   }
 }
@@ -233,36 +266,38 @@ impl std::fmt::Debug for ScriptTags {
 }
 
 #[must_use]
-fn old_tag_from_unicode(unicode_script: Tag) -> core::result::Result<Tag, console_core_never::Never> {
-    let Ok(value_25) = unicode_script.to_be_bytes();
+fn old_tag_from_unicode(
+  unicode_script: Tag,
+) -> core::result::Result<Tag, console_core_never::Never> {
+  let Ok(value_25) = unicode_script.to_be_bytes();
 
-    let mut bytes = value_25;
-    let tag_bytes = match &bytes {
-      b"Zmth" => b"math",
+  let mut bytes = value_25;
+  let tag_bytes = match &bytes {
+    b"Zmth" => b"math",
 
-      b"Hira" => b"kana",
+    b"Hira" => b"kana",
 
-      b"Laoo" => b"lao ",
-      b"Yiii" => b"yi  ",
+    b"Laoo" => b"lao ",
+    b"Yiii" => b"yi  ",
 
-      b"Nkoo" => b"nko ",
+    b"Nkoo" => b"nko ",
 
-      b"Vaii" => b"vai ",
-      _ => {
-        *{
-          let [_explicit_part, ..] = &mut bytes;
-          _explicit_part
-        } = (*match &bytes {
-          [element, ..] => element,
-        })
-        .to_ascii_lowercase();
+    b"Vaii" => b"vai ",
+    _ => {
+      *{
+        let [_explicit_part, ..] = &mut bytes;
+        _explicit_part
+      } = (*match &bytes {
+        [element, ..] => element,
+      })
+      .to_ascii_lowercase();
 
-        &bytes
-      }
-    };
-    let Ok(value_7) = Tag::new(tag_bytes);
+      &bytes
+    }
+  };
+  let Ok(value_7) = Tag::new(tag_bytes);
 
-    Ok(value_7)
+  Ok(value_7)
 }
 
 #[doc(hidden)]
@@ -340,15 +375,30 @@ pub const UNICODE_TO_NEW_OPENTYPE_SCRIPT_TAGS: &[(&[u8; 4], Tag)] = &[
 ];
 
 #[must_use]
-fn new_tag_from_unicode(unicode_script: Tag) -> core::result::Result<Option<Tag>, console_core_never::Never> {
-    let Ok(value_26) = unicode_script.to_be_bytes();
+fn new_tag_from_unicode(
+  unicode_script: Tag,
+) -> core::result::Result<Option<Tag>, console_core_never::Never> {
+  let Ok(value_26) = unicode_script.to_be_bytes();
 
-    let ::core::result::Result::Ok(ix) = ::console_core_number_conversion::fixed_index(match match UNICODE_TO_NEW_OPENTYPE_SCRIPT_TAGS
-      .binary_search_by_key(&value_26, |entry| *entry.0) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None } { Some(explicit_value) => explicit_value, None => return Ok(None) });
+  let ::core::result::Result::Ok(ix) = ::console_core_number_conversion::fixed_index(
+    match match UNICODE_TO_NEW_OPENTYPE_SCRIPT_TAGS
+      .binary_search_by_key(&value_26, |entry| *entry.0)
+    {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    },
+  );
 
-    Ok(UNICODE_TO_NEW_OPENTYPE_SCRIPT_TAGS
-      .get(match ::console_core_number_conversion::index(ix) { ::core::result::Result::Ok(native_position) => native_position })
-      .map(|entry| entry.1))
+  Ok(
+    UNICODE_TO_NEW_OPENTYPE_SCRIPT_TAGS
+      .get(match ::console_core_number_conversion::index(ix) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      })
+      .map(|entry| entry.1),
+  )
 }
 
 #[cfg(test)]
@@ -358,9 +408,13 @@ mod tests {
 
   #[test]
   fn script_index_for_tag() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS),
+      "fixture value",
+    )?;
     let fixture_value = crate::test_support::fixture_value(font.gsub(), "fixture value")?;
-    let gsub_scripts = crate::test_support::fixture_value(fixture_value.script_list(), "fixture value")?;
+    let gsub_scripts =
+      crate::test_support::fixture_value(fixture_value.script_list(), "fixture value")?;
     let ordered_scripts = [b"DFLT", b"cyrl", b"grek", b"hebr", b"latn"];
 
     for (index, tag) in ordered_scripts.into_iter().enumerate() {
@@ -373,7 +427,6 @@ mod tests {
         })
       );
     }
-  ;
 
     Ok(())
   }
@@ -456,15 +509,19 @@ mod tests {
     let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS)?;
     let gsub_scripts = match font.gsub() {
       ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
+      ::core::result::Result::Err(read_error) => {
+        return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+      }
     }
     .script_list()?;
 
-    let hebr = crate::test_support::fixture_value(gsub_scripts
-      .select(&ScriptTags::from_unicode({
+    let hebr = crate::test_support::fixture_value(
+      gsub_scripts.select(&ScriptTags::from_unicode({
         let Ok(explicit_value) = Tag::new(b"Hebr");
         explicit_value
-      })), "fixture value")?;
+      })),
+      "fixture value",
+    )?;
     assert_eq!(
       hebr,
       SelectedScript {
@@ -477,11 +534,13 @@ mod tests {
       }
     );
 
-    let beng = crate::test_support::fixture_value(gsub_scripts
-      .select(&ScriptTags::from_unicode({
+    let beng = crate::test_support::fixture_value(
+      gsub_scripts.select(&ScriptTags::from_unicode({
         let Ok(explicit_value) = Tag::new(b"Beng");
         explicit_value
-      })), "fixture value")?;
+      })),
+      "fixture value",
+    )?;
     assert_eq!(
       beng,
       SelectedScript {
@@ -505,7 +564,8 @@ mod tests {
     let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)?;
     let gsub = font.gsub()?;
     let script_list = gsub.script_list()?;
-    let latn_script_index = crate::test_support::fixture_value(script_list.index_for_tag(LATN), "fixture value")?;
+    let latn_script_index =
+      crate::test_support::fixture_value(script_list.index_for_tag(LATN), "fixture value")?;
     assert_eq!(latn_script_index, 1);
     let script = script_list.get(latn_script_index)?;
     assert_eq!(script.tag, LATN);
@@ -522,7 +582,8 @@ mod tests {
     let gsub = font.gsub()?;
     let script_list = gsub.script_list()?;
     let script = script_list.get(1)?;
-    let lang_sys_index = crate::test_support::fixture_value(script.lang_sys_index_for_tag(TRK), "fixture value")?;
+    let lang_sys_index =
+      crate::test_support::fixture_value(script.lang_sys_index_for_tag(TRK), "fixture value")?;
     assert_eq!(lang_sys_index, 0);
     assert_eq!(
       match script.lang_sys(lang_sys_index) {
@@ -538,17 +599,22 @@ mod tests {
 
   #[test]
   fn feature_index_for_tag() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET),
+      "fixture value",
+    )?;
     let gsub = crate::test_support::fixture_value(font.gsub(), "fixture value")?;
     let script_list = crate::test_support::fixture_value(gsub.script_list(), "fixture value")?;
     let feature_list = crate::test_support::fixture_value(gsub.feature_list(), "fixture value")?;
-    let fixture_value = crate::test_support::fixture_value(script_list
-      .get(1), "fixture value")?;
-    let lang_sys = crate::test_support::fixture_value({
-      let default_language_system = crate::test_support::fixture_value(fixture_value
-      .default_lang_sys(), "fixture value")?;
-      default_language_system
-    }, "fixture value")?;
+    let fixture_value = crate::test_support::fixture_value(script_list.get(1), "fixture value")?;
+    let lang_sys = crate::test_support::fixture_value(
+      {
+        let default_language_system =
+          crate::test_support::fixture_value(fixture_value.default_lang_sys(), "fixture value")?;
+        default_language_system
+      },
+      "fixture value",
+    )?;
     assert_eq!(
       lang_sys.feature_index_for_tag(&feature_list, {
         let Ok(explicit_value) = Tag::new(b"rclt");
@@ -573,7 +639,6 @@ mod tests {
         None
       );
     }
-  ;
 
     Ok(())
   }

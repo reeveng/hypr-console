@@ -117,7 +117,8 @@ fn still_holding(stage: &str) -> Result<Vec<String>, Never> {
       None => continue,
     };
 
-    match ::core::primitive::bool::then_some(pid.chars().all(|digit| digit.is_ascii_digit()), ()) {
+    match ::core::primitive::bool::then_some(pid.chars().all(|digit| digit.is_ascii_digit()), ())
+    {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => continue,
     }

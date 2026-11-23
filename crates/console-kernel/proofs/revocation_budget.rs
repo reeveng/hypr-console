@@ -75,10 +75,12 @@ impl Pending {
       }
     }
 
-    Ok(match ::core::primitive::bool::then_some(self.0.iter().all(|units| *units == 0), ()) {
-      ::core::option::Option::Some(()) => Progress::Complete,
-      ::core::option::Option::None => Progress::Yield,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.0.iter().all(|units| *units == 0), ()) {
+        ::core::option::Option::Some(()) => Progress::Complete,
+        ::core::option::Option::None => Progress::Yield,
+      },
+    )
   }
 }
 

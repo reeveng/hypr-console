@@ -17,14 +17,16 @@ use crate::src::looprestoration::{
   Rav1dLoopRestorationDSPContext, RestorationKernel, RestorationPadding, RestorationRequest,
   SgrSelection, loop_restoration_filter,
 };
-use console_core_never::Never;
-use console_core_number_conversion::{fixed_offset, index, wrapped, wrapped_index, wrapped_offset};
-use console_core_geometry::{Point, Size};
-use core::num::NonZeroU32;
-use core::cmp::Ordering;
 use crate::src::strided::Strided as _;
 use crate::src::tables::dav1d_sgr_params;
 use aligned::Aligned;
+use console_core_geometry::{Point, Size};
+use console_core_never::Never;
+use console_core_number_conversion::{
+  fixed_offset, index, wrapped, wrapped_index, wrapped_offset,
+};
+use core::cmp::Ordering;
+use core::num::NonZeroU32;
 
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
@@ -87,7 +89,9 @@ fn select_stripe_filter<BD: BitDepth>(
       Ok(StripeFilter {
         function,
         kernel: RestorationKernel::Wiener,
-        parameters: LooprestorationParams { filter: [horizontal, vertical] },
+        parameters: LooprestorationParams {
+          filter: [horizontal, vertical],
+        },
       })
     }
     sgr @ Rav1dRestorationType::SgrProj(_) => {
@@ -111,7 +115,11 @@ fn select_stripe_filter<BD: BitDepth>(
         w1: 128_i16.wrapping_sub(w0.wrapping_add(supplied_w1)),
       };
 
-      Ok(StripeFilter { function, kernel: RestorationKernel::SelfGuided(selection), parameters })
+      Ok(StripeFilter {
+        function,
+        kernel: RestorationKernel::SelfGuided(selection),
+        parameters,
+      })
     }
     Rav1dRestorationType::None | Rav1dRestorationType::Switchable => Err(EINVAL),
   }
@@ -149,21 +157,33 @@ fn restoration_line<BD: BitDepth>(
     1 | 2 => chroma,
     _outside_planes => return Err(EINVAL),
   };
-  let vertical_shift = u32::from(stripe.plane != 0 && f.sr_cur.p.p.layout == Rav1dPixelLayout::I420);
+  let vertical_shift =
+    u32::from(stripe.plane != 0 && f.sr_cur.p.p.layout == Rav1dPixelLayout::I420);
   let margin = match stripe.origin.y {
     0 => 0,
     _later_rows => 8_i32.wrapping_shl(vertical_shift),
   };
-  let row_shift = 6_u32.wrapping_sub(vertical_shift).wrapping_add(superblock_shift);
+  let row_shift = 6_u32
+    .wrapping_sub(vertical_shift)
+    .wrapping_add(superblock_shift);
   let superblock_row = stripe.origin.y.wrapping_add(margin).wrapping_shr(row_shift);
   let Ok(plane) = wrapped_index(stripe.plane);
   let &origin = f.lf.lr_lpf_line.get(plane).ok_or(EINVAL)?;
   let base = i64::try_from(origin).map_err(|_invalid_line_origin| EINVAL)?;
-  let line = superblock_row.wrapping_mul(4_i32.wrapping_shl(superblock_shift)).wrapping_sub(4);
+  let line = superblock_row
+    .wrapping_mul(4_i32.wrapping_shl(superblock_shift))
+    .wrapping_sub(4);
   let stored_row = i64::from(i32::from(c.tc.len() > 1).wrapping_mul(line));
-  let offset = base.wrapping_add(stored_row.wrapping_mul(stride)).wrapping_add(i64::from(stripe.origin.x));
+  let offset = base
+    .wrapping_add(stored_row.wrapping_mul(stride))
+    .wrapping_add(i64::from(stripe.origin.x));
 
-  Ok(RestorationLine { offset, stride, superblock_row, vertical_shift })
+  Ok(RestorationLine {
+    offset,
+    stride,
+    superblock_row,
+    vertical_shift,
+  })
 }
 
 fn lr_stripe<BD: BitDepth>(
@@ -200,13 +220,23 @@ fn lr_stripe<BD: BitDepth>(
   for _ in 0..limit {
     let height = next_height.min(stripe.row_end.wrapping_sub(row));
     let following = row.wrapping_add(height);
-    edges.set(LrEdgeFlags::BOTTOM, line.superblock_row.wrapping_add(1) != f.sbh || following != stripe.row_end);
+    edges.set(
+      LrEdgeFlags::BOTTOM,
+      line.superblock_row.wrapping_add(1) != f.sbh || following != stripe.row_end,
+    );
     let height_bound = u64::try_from(height).map_err(|_height| EINVAL)?;
     filter.function.call(RestorationRequest {
       kernel: filter.kernel,
       padding: RestorationPadding {
-        picture, backup: left_rows, lines: &f.lf.lr_line_buf, offset: line_offset,
-        size: Size { width, height: height_bound }, edges,
+        picture,
+        backup: left_rows,
+        lines: &f.lf.lr_line_buf,
+        offset: line_offset,
+        size: Size {
+          width,
+          height: height_bound,
+        },
+        edges,
       },
       parameters: &filter.parameters,
       bitdepth,
@@ -267,7 +297,10 @@ struct RestorationMaskPosition {
   unit: i32,
 }
 
-fn restoration_unit(f: &Rav1dFrameData, position: RestorationMaskPosition) -> Rav1dResult<Av1RestorationUnit> {
+fn restoration_unit(
+  f: &Rav1dFrameData,
+  position: RestorationMaskPosition,
+) -> Rav1dResult<Av1RestorationUnit> {
   let Ok(block) = wrapped_index(position.block);
   let Ok(plane) = wrapped_index(position.plane);
   let Ok(unit) = wrapped_index(position.unit);
@@ -286,7 +319,10 @@ struct RestorationUnits {
   column_shift: u32,
 }
 
-fn restoration_units(f: &Rav1dFrameData, band: &RestorationBand) -> Rav1dResult<RestorationUnits> {
+fn restoration_units(
+  f: &Rav1dFrameData,
+  band: &RestorationBand,
+) -> Rav1dResult<RestorationUnits> {
   let frame = f.frame_hdr.as_ref().ok_or(EINVAL)?;
   let [luma, chroma] = frame.restoration.unit_size;
   let log_width = match band.plane {
@@ -297,13 +333,16 @@ fn restoration_units(f: &Rav1dFrameData, band: &RestorationBand) -> Rav1dResult<
   let width = 1_i32.wrapping_shl(u32::from(log_width));
   let half = width.wrapping_shr(1);
   let combined_width = width.wrapping_add(half);
-  let margin = 8_i32.wrapping_shr(band.sampling.y).wrapping_mul(i32::from(band.row_start != 0));
+  let margin = 8_i32
+    .wrapping_shr(band.sampling.y)
+    .wrapping_mul(i32::from(band.row_start != 0));
   let logical_row = band.row_start.wrapping_add(margin);
   let aligned = logical_row & !width.wrapping_sub(1);
-  let top = match (aligned != 0 && aligned.wrapping_add(half) > band.dimensions.height).then_some(()) {
-    Some(()) => aligned.wrapping_sub(width),
-    None => aligned,
-  };
+  let top =
+    match (aligned != 0 && aligned.wrapping_add(half) > band.dimensions.height).then_some(()) {
+      Some(()) => aligned.wrapping_sub(width),
+      None => aligned,
+    };
   let full_row = top.wrapping_shl(band.sampling.y);
   let first = RestorationMaskPosition {
     block: full_row.wrapping_shr(7).wrapping_mul(f.sr_sb128w),
@@ -330,7 +369,11 @@ fn lr_sbrow<BD: BitDepth>(
   let width = u32::try_from(units.width).map_err(|_negative| EINVAL)?;
   let step_width = NonZeroU32::new(width).ok_or(EINVAL)?;
   let Ok(step) = index(width);
-  let end = band.dimensions.width.wrapping_sub(units.combined_width).wrapping_add(1);
+  let end = band
+    .dimensions
+    .width
+    .wrapping_sub(units.combined_width)
+    .wrapping_add(1);
   let columns = end.max(0).cast_unsigned().div_ceil(step_width.get());
   let pixel = BD::Pixel::from(0_u8);
   let mut saved: Align16<_> = Aligned([[[pixel; 4]; 128 + 8]; 2]);
@@ -360,7 +403,9 @@ fn lr_sbrow<BD: BitDepth>(
 
     match next.r#type {
       Rav1dRestorationType::None => {}
-      Rav1dRestorationType::Switchable | Rav1dRestorationType::Wiener | Rav1dRestorationType::SgrProj(_) => {
+      Rav1dRestorationType::Switchable
+      | Rav1dRestorationType::Wiener
+      | Rav1dRestorationType::SgrProj(_) => {
         let before_boundary = picture + step.wrapping_sub(4);
         let rows = band.row_end.wrapping_sub(band.row_start);
         backup_4xu::<BD>(right, before_boundary, rows)?;
@@ -369,10 +414,19 @@ fn lr_sbrow<BD: BitDepth>(
 
     match active.r#type {
       Rav1dRestorationType::None => {}
-      Rav1dRestorationType::Switchable | Rav1dRestorationType::Wiener | Rav1dRestorationType::SgrProj(_) => {
+      Rav1dRestorationType::Switchable
+      | Rav1dRestorationType::Wiener
+      | Rav1dRestorationType::SgrProj(_) => {
         let stripe = RestorationStripe {
-          origin: Point { x: column, y: band.row_start }, plane: band.plane,
-          width: units.width, row_end: band.row_end, unit: active, edges,
+          origin: Point {
+            x: column,
+            y: band.row_start,
+          },
+          plane: band.plane,
+          width: units.width,
+          row_end: band.row_end,
+          unit: active,
+          edges,
         };
         lr_stripe::<BD>(c, f, picture, left, stripe)?;
       }
@@ -387,7 +441,9 @@ fn lr_sbrow<BD: BitDepth>(
 
   match active.r#type {
     Rav1dRestorationType::None => Ok(()),
-    Rav1dRestorationType::Switchable | Rav1dRestorationType::Wiener | Rav1dRestorationType::SgrProj(_) => {
+    Rav1dRestorationType::Switchable
+    | Rav1dRestorationType::Wiener
+    | Rav1dRestorationType::SgrProj(_) => {
       let [first, second] = &*saved;
       let left = match alternate.then_some(()) {
         Some(()) => first,
@@ -395,9 +451,15 @@ fn lr_sbrow<BD: BitDepth>(
       };
       edges.remove(LrEdgeFlags::RIGHT);
       let stripe = RestorationStripe {
-        origin: Point { x, y: band.row_start }, plane: band.plane,
-        width: band.dimensions.width.wrapping_sub(x), row_end: band.row_end,
-        unit: active, edges,
+        origin: Point {
+          x,
+          y: band.row_start,
+        },
+        plane: band.plane,
+        width: band.dimensions.width.wrapping_sub(x),
+        row_end: band.row_end,
+        unit: active,
+        edges,
       };
       lr_stripe::<BD>(c, f, picture, left, stripe)
     }
@@ -430,8 +492,14 @@ pub(crate) fn rav1d_lr_sbrow<BD: BitDepth>(
     };
     let frame = &f.sr_cur.p.p;
     let dimensions = Size {
-      width: frame.w.wrapping_add(sampling.x.cast_signed()).wrapping_shr(sampling.x),
-      height: frame.h.wrapping_add(sampling.y.cast_signed()).wrapping_shr(sampling.y),
+      width: frame
+        .w
+        .wrapping_add(sampling.x.cast_signed())
+        .wrapping_shr(sampling.x),
+      height: frame
+        .h
+        .wrapping_add(sampling.y.cast_signed())
+        .wrapping_shr(sampling.y),
     };
     let row_shift = shift.wrapping_sub(sampling.y);
     let margin = 8_i32.wrapping_shr(sampling.y);
@@ -439,7 +507,10 @@ pub(crate) fn rav1d_lr_sbrow<BD: BitDepth>(
     let band = RestorationBand {
       plane,
       row_start: superblock_row.wrapping_shl(row_shift).wrapping_sub(lead),
-      row_end: next_superblock.wrapping_shl(row_shift).wrapping_sub(below.wrapping_mul(margin)).min(dimensions.height),
+      row_end: next_superblock
+        .wrapping_shl(row_shift)
+        .wrapping_sub(below.wrapping_mul(margin))
+        .min(dimensions.height),
       dimensions,
       sampling,
     };

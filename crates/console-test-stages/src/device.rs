@@ -273,10 +273,12 @@ fn suggestions(table: &[(&str, &str)]) -> Result<String, Never> {
 fn menus_up(seen: &mut Device) -> Result<Ready, Never> {
   let Ok(menus) = seen.menus();
 
-  Ok(match ::core::primitive::bool::then_some(menus.is_empty(), ()) {
-    ::core::option::Option::Some(()) => Ready::NotYet,
-    ::core::option::Option::None => Ready::Yes,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(menus.is_empty(), ()) {
+      ::core::option::Option::Some(()) => Ready::NotYet,
+      ::core::option::Option::None => Ready::Yes,
+    },
+  )
 }
 
 pub use console_waiting::{Outcome, Ready};
@@ -621,7 +623,9 @@ impl<'watch> Device<'watch> {
 
     match ::core::primitive::bool::then_some((0.0..=1.0).contains(&amount), ()) {
       ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return failed(format!("a trigger is pulled between 0 and 1, not {amount}")),
+      ::core::option::Option::None => {
+        return failed(format!("a trigger is pulled between 0 and 1, not {amount}"));
+      }
     }
 
     let Ok(()) = self.pushed(Pushed::from(amount));
@@ -647,7 +651,9 @@ impl<'watch> Device<'watch> {
     for amount in [to.x, to.y] {
       match ::core::primitive::bool::then_some((-1.0..=1.0).contains(&amount), ()) {
         ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => return failed(format!("push a thumbstick between -1 and 1, not {amount}")),
+        ::core::option::Option::None => {
+          return failed(format!("push a thumbstick between -1 and 1, not {amount}"));
+        }
       }
     }
 
@@ -699,7 +705,9 @@ impl<'watch> Device<'watch> {
     let Ok(said) = self.ssh(&asked);
 
     match ::core::primitive::bool::then_some(said.contains("Call failed"), ()) {
-      ::core::option::Option::Some(()) => failed(format!("{capability} was not sent: {}", said.trim())),
+      ::core::option::Option::Some(()) => {
+        failed(format!("{capability} was not sent: {}", said.trim()))
+      }
       ::core::option::Option::None => Ok(()),
     }
   }
@@ -791,20 +799,24 @@ impl<'watch> Device<'watch> {
   pub fn home_awake(&mut self) -> Result<Ready, Never> {
     let Ok(said) = self.user("test -e \"$XDG_RUNTIME_DIR/console/home-awake\" && echo awake");
 
-    Ok(match ::core::primitive::bool::then_some(said.contains("awake"), ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(said.contains("awake"), ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   }
 
   pub fn home_carrying(&mut self) -> Result<Ready, Never> {
     let Ok(said) =
       self.user("test -e \"$XDG_RUNTIME_DIR/console/home-carrying\" && echo carrying");
 
-    Ok(match ::core::primitive::bool::then_some(said.contains("carrying"), ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(said.contains("carrying"), ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   }
 
   pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
@@ -895,10 +907,12 @@ impl<'watch> Device<'watch> {
       |seen| {
         let Ok(open) = seen.addresses();
 
-        Ok(match ::core::primitive::bool::then_some(open.contains(&going), ()) {
-          ::core::option::Option::Some(()) => Ready::NotYet,
-          ::core::option::Option::None => Ready::Yes,
-        })
+        Ok(
+          match ::core::primitive::bool::then_some(open.contains(&going), ()) {
+            ::core::option::Option::Some(()) => Ready::NotYet,
+            ::core::option::Option::None => Ready::Yes,
+          },
+        )
       },
       seconds,
     )
@@ -952,10 +966,12 @@ impl<'watch> Device<'watch> {
       |seen| {
         let Ok(now) = seen.workspace();
 
-        Ok(match ::core::primitive::bool::then_some(now == wanted, ()) {
-          ::core::option::Option::Some(()) => Ready::Yes,
-          ::core::option::Option::None => Ready::NotYet,
-        })
+        Ok(
+          match ::core::primitive::bool::then_some(now == wanted, ()) {
+            ::core::option::Option::Some(()) => Ready::Yes,
+            ::core::option::Option::None => Ready::NotYet,
+          },
+        )
       },
       A_MOMENT,
     )
@@ -988,7 +1004,11 @@ impl<'watch> Device<'watch> {
     })
   }
 
-  pub fn opening(&mut self, command: &str, seconds: impl Into<Wait>) -> Result<Option<String>, Never> {
+  pub fn opening(
+    &mut self,
+    command: &str,
+    seconds: impl Into<Wait>,
+  ) -> Result<Option<String>, Never> {
     match self.dry_run {
       DryRun::Pretend => {
         let Ok(_) = self.exec_cmd(command);
@@ -1183,7 +1203,9 @@ impl<'watch> Device<'watch> {
     let Ok(said) = self.chorded(&chord);
 
     match ::core::primitive::bool::then_some(said.contains("Call failed"), ()) {
-      ::core::option::Option::Some(()) => failed(format!("{chord:?} was not sent: {}", said.trim())),
+      ::core::option::Option::Some(()) => {
+        failed(format!("{chord:?} was not sent: {}", said.trim()))
+      }
       ::core::option::Option::None => Ok(()),
     }
   }
@@ -1208,10 +1230,12 @@ impl<'watch> Device<'watch> {
   pub fn keyboard(&mut self) -> Result<Ready, Never> {
     let Ok(said) = self.hypr("layers -j");
 
-    Ok(match ::core::primitive::bool::then_some(said.contains("console-keyboard"), ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(said.contains("console-keyboard"), ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   }
 
   pub fn profile(&mut self) -> Result<String, Never> {
@@ -1356,9 +1380,11 @@ impl<'watch> Device<'watch> {
     for layer in &surfaces {
       let namespace = layer.namespace.as_str();
 
-      match ::core::primitive::bool::then_some(console_input_controller::mode::SYSTEM_SURFACES.contains(&namespace)
-        || namespace == WALLPAPER_SURFACE, ())
-      {
+      match ::core::primitive::bool::then_some(
+        console_input_controller::mode::SYSTEM_SURFACES.contains(&namespace)
+          || namespace == WALLPAPER_SURFACE,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => named.push(namespace.to_string()),
       }
@@ -1528,10 +1554,12 @@ impl<'watch> Device<'watch> {
             let Ok(said) =
               seen.ssh("test -s /tmp/console-check.png && echo written || echo not-yet");
 
-            Ok(match ::core::primitive::bool::then_some(said.trim() == "written", ()) {
-              ::core::option::Option::Some(()) => Ready::Yes,
-              ::core::option::Option::None => Ready::NotYet,
-            })
+            Ok(
+              match ::core::primitive::bool::then_some(said.trim() == "written", ()) {
+                ::core::option::Option::Some(()) => Ready::Yes,
+                ::core::option::Option::None => Ready::NotYet,
+              },
+            )
           },
           A_PICTURE,
         );
@@ -1677,10 +1705,12 @@ impl<'watch> Device<'watch> {
           |seen| {
             let Ok(now) = seen.profile();
 
-            Ok(match ::core::primitive::bool::then_some(now == "Router", ()) {
-              ::core::option::Option::Some(()) => Ready::Yes,
-              ::core::option::Option::None => Ready::NotYet,
-            })
+            Ok(
+              match ::core::primitive::bool::then_some(now == "Router", ()) {
+                ::core::option::Option::Some(()) => Ready::Yes,
+                ::core::option::Option::None => Ready::NotYet,
+              },
+            )
           },
           A_MOMENT,
         );

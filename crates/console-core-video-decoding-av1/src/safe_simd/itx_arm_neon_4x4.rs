@@ -13,9 +13,7 @@ use console_core_never::Never;
 use console_core_pixel_buffers::RowLayout;
 use core::arch::aarch64::*;
 
-use super::itx_arm_neon_common::{
-  IADST4_COEFFS, IDCT_COEFFS, IDENTITY_SCALE, transpose_4x4h,
-};
+use super::itx_arm_neon_common::{IADST4_COEFFS, IDCT_COEFFS, IDENTITY_SCALE, transpose_4x4h};
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
 use crate::src::levels::{self, TxfmType};
 
@@ -34,7 +32,12 @@ fn idct_4h([first, second, third, fourth]: Lanes) -> Result<Lanes, Never> {
   let t2 = vqrshrn_n_s32::<12>(odd_difference);
   let t3 = vqrshrn_n_s32::<12>(odd_sum);
 
-  Ok([vqadd_s16(t0, t3), vqadd_s16(t1, t2), vqsub_s16(t1, t2), vqsub_s16(t0, t3)])
+  Ok([
+    vqadd_s16(t0, t3),
+    vqadd_s16(t1, t2),
+    vqsub_s16(t1, t2),
+    vqsub_s16(t0, t3),
+  ])
 }
 
 #[rite(neon)]
@@ -144,10 +147,22 @@ pub(crate) struct Transform4<'a> {
 }
 
 #[arcane]
-pub(crate) fn transform_4x4_neon(_token: Arm64, block: Transform4<'_>, kind: TxfmType) -> Rav1dResult {
+pub(crate) fn transform_4x4_neon(
+  _token: Arm64,
+  block: Transform4<'_>,
+  kind: TxfmType,
+) -> Rav1dResult {
   let passes = axes(kind)?;
   let (base, pitch) = block.origin;
-  let layout = RowLayout::new(Size { width: 4, height: 4 }, base, pitch).map_err(|_extent| EINVAL)?;
+  let layout = RowLayout::new(
+    Size {
+      width: 4,
+      height: 4,
+    },
+    base,
+    pitch,
+  )
+  .map_err(|_extent| EINVAL)?;
   let mut rows = layout.rows_mut(block.pixels).map_err(|_bounds| EINVAL)?;
   let first = rows.next().and_then(<[_]>::first_chunk_mut).ok_or(EINVAL)?;
   let second = rows.next().and_then(<[_]>::first_chunk_mut).ok_or(EINVAL)?;
@@ -168,7 +183,12 @@ pub(crate) fn transform_4x4_neon(_token: Arm64, block: Transform4<'_>, kind: Txf
       let coefficients = block.coefficients.first_chunk_mut::<16>().ok_or(EINVAL)?;
       let (groups, _unused) = coefficients.as_chunks::<4>();
       let input = match groups {
-        [g0, g1, g2, g3] => [safe_simd::vld1_s16(g0), safe_simd::vld1_s16(g1), safe_simd::vld1_s16(g2), safe_simd::vld1_s16(g3)],
+        [g0, g1, g2, g3] => [
+          safe_simd::vld1_s16(g0),
+          safe_simd::vld1_s16(g1),
+          safe_simd::vld1_s16(g2),
+          safe_simd::vld1_s16(g3),
+        ],
         _wrong_shape => return Err(EINVAL),
       };
       let Ok([r0, r1, r2, r3]) = apply_axis(input, passes.row);
@@ -197,12 +217,19 @@ pub(super) fn benchmark<const KIND: TxfmType>() -> Result<
   ),
   Never,
 > {
-  Ok(|token, pixels: &mut [u8], base, stride, coefficients: &mut [i16], eob, _bitdepth| {
-    let Ok(first) = console_core_number_conversion::fixed_index(base);
-    let Ok(pitch) = console_core_number_conversion::fixed_offset(stride);
-    let block = Transform4 { pixels, origin: (first, pitch), coefficients, eob };
-    assert_eq!(transform_4x4_neon(token, block, KIND), Ok(()));
-  })
+  Ok(
+    |token, pixels: &mut [u8], base, stride, coefficients: &mut [i16], eob, _bitdepth| {
+      let Ok(first) = console_core_number_conversion::fixed_index(base);
+      let Ok(pitch) = console_core_number_conversion::fixed_offset(stride);
+      let block = Transform4 {
+        pixels,
+        origin: (first, pitch),
+        coefficients,
+        eob,
+      };
+      assert_eq!(transform_4x4_neon(token, block, KIND), Ok(()));
+    },
+  )
 }
 
 #[cfg(test)]
@@ -245,7 +272,12 @@ mod tests {
       };
       transform_4x4_neon(token, request, kind)?;
 
-      for (output, reference) in actual.as_chunks::<16>().0.iter().zip(expected.as_chunks::<16>().0) {
+      for (output, reference) in actual
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<16>().0)
+      {
         let [a, b, c, d, ..] = output;
         let [e, f, g, h, ..] = reference;
 
@@ -263,82 +295,130 @@ mod tests {
 
   #[test]
   fn test_dct_dct_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::DCT_DCT, super::super::itx_arm::inv_txfm_add_dct_dct_4x4_8bpc_inner)
+    compare(
+      levels::DCT_DCT,
+      super::super::itx_arm::inv_txfm_add_dct_dct_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_adst_adst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::ADST_ADST, super::super::itx_arm::inv_txfm_add_adst_adst_4x4_8bpc_inner)
+    compare(
+      levels::ADST_ADST,
+      super::super::itx_arm::inv_txfm_add_adst_adst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_flipadst_flipadst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::FLIPADST_FLIPADST, super::super::itx_arm::inv_txfm_add_flipadst_flipadst_4x4_8bpc_inner)
+    compare(
+      levels::FLIPADST_FLIPADST,
+      super::super::itx_arm::inv_txfm_add_flipadst_flipadst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_identity_identity_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::IDTX, super::super::itx_arm::inv_txfm_add_identity_identity_4x4_8bpc_inner)
+    compare(
+      levels::IDTX,
+      super::super::itx_arm::inv_txfm_add_identity_identity_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_dct_adst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::ADST_DCT, super::super::itx_arm::inv_txfm_add_dct_adst_4x4_8bpc_inner)
+    compare(
+      levels::ADST_DCT,
+      super::super::itx_arm::inv_txfm_add_dct_adst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_adst_dct_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::DCT_ADST, super::super::itx_arm::inv_txfm_add_adst_dct_4x4_8bpc_inner)
+    compare(
+      levels::DCT_ADST,
+      super::super::itx_arm::inv_txfm_add_adst_dct_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_dct_flipadst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::FLIPADST_DCT, super::super::itx_arm::inv_txfm_add_dct_flipadst_4x4_8bpc_inner)
+    compare(
+      levels::FLIPADST_DCT,
+      super::super::itx_arm::inv_txfm_add_dct_flipadst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_flipadst_dct_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::DCT_FLIPADST, super::super::itx_arm::inv_txfm_add_flipadst_dct_4x4_8bpc_inner)
+    compare(
+      levels::DCT_FLIPADST,
+      super::super::itx_arm::inv_txfm_add_flipadst_dct_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_adst_flipadst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::FLIPADST_ADST, super::super::itx_arm::inv_txfm_add_adst_flipadst_4x4_8bpc_inner)
+    compare(
+      levels::FLIPADST_ADST,
+      super::super::itx_arm::inv_txfm_add_adst_flipadst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_flipadst_adst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::ADST_FLIPADST, super::super::itx_arm::inv_txfm_add_flipadst_adst_4x4_8bpc_inner)
+    compare(
+      levels::ADST_FLIPADST,
+      super::super::itx_arm::inv_txfm_add_flipadst_adst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_dct_identity_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::H_DCT, super::super::itx_arm::inv_txfm_add_dct_identity_4x4_8bpc_inner)
+    compare(
+      levels::H_DCT,
+      super::super::itx_arm::inv_txfm_add_dct_identity_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_identity_dct_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::V_DCT, super::super::itx_arm::inv_txfm_add_identity_dct_4x4_8bpc_inner)
+    compare(
+      levels::V_DCT,
+      super::super::itx_arm::inv_txfm_add_identity_dct_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_adst_identity_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::H_ADST, super::super::itx_arm::inv_txfm_add_adst_identity_4x4_8bpc_inner)
+    compare(
+      levels::H_ADST,
+      super::super::itx_arm::inv_txfm_add_adst_identity_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_identity_adst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::V_ADST, super::super::itx_arm::inv_txfm_add_identity_adst_4x4_8bpc_inner)
+    compare(
+      levels::V_ADST,
+      super::super::itx_arm::inv_txfm_add_identity_adst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_flipadst_identity_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::H_FLIPADST, super::super::itx_arm::inv_txfm_add_flipadst_identity_4x4_8bpc_inner)
+    compare(
+      levels::H_FLIPADST,
+      super::super::itx_arm::inv_txfm_add_flipadst_identity_4x4_8bpc_inner,
+    )
   }
 
   #[test]
   fn test_identity_flipadst_4x4_neon_matches_scalar() -> Rav1dResult {
-    compare(levels::V_FLIPADST, super::super::itx_arm::inv_txfm_add_identity_flipadst_4x4_8bpc_inner)
+    compare(
+      levels::V_FLIPADST,
+      super::super::itx_arm::inv_txfm_add_identity_flipadst_4x4_8bpc_inner,
+    )
   }
 
   #[test]
@@ -353,7 +433,12 @@ mod tests {
       let [first, ..] = &mut coefficients;
       *first = dc;
       let mut pixels = [128_u8; 64];
-      let request = Transform4 { pixels: &mut pixels, origin: (0, 16), coefficients: &mut coefficients, eob: 0 };
+      let request = Transform4 {
+        pixels: &mut pixels,
+        origin: (0, 16),
+        coefficients: &mut coefficients,
+        eob: 0,
+      };
       transform_4x4_neon(token, request, levels::DCT_DCT)?;
       let [expected, ..] = pixels;
 

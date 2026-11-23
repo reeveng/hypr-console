@@ -12,7 +12,7 @@ use console_core_audio_decoding_interfaces::errors::Error;
 use console_core_never::Never;
 
 #[derive(Debug)]
-pub(crate) enum Fault {
+pub(crate) enum DecodeError {
   CodecType,
   MissingExtraData,
   CookieSize,
@@ -36,58 +36,58 @@ pub(crate) enum Fault {
   Output(Error),
 }
 
-impl Fault {
+impl DecodeError {
   fn sentence(&self) -> Result<&'static str, Never> {
     Ok(match self {
-      Fault::CodecType => "alac: invalid codec type",
-      Fault::MissingExtraData => "alac: missing extra data",
-      Fault::CookieSize => "alac: invalid magic cookie size",
-      Fault::Version => "alac: not compatible with alac version 0",
-      Fault::BitDepth => "alac: invalid bit depth",
-      Fault::ChannelCount => "alac: more than 8 channels",
-      Fault::LayoutSize => "alac: invalid channel layout info size",
-      Fault::LayoutId => "alac: invalid channel layout info id",
-      Fault::LayoutVersion => "alac: invalid channel layout info version",
-      Fault::LayoutTag => "alac: invalid channel layout tag",
-      Fault::LayoutChannels => "alac: the number of channels differs from the channel layout",
-      Fault::LayoutReserved => "alac: reserved values in channel layout info are not 0",
-      Fault::UnusedHeaderBits => "alac: unused header bits not 0",
-      Fault::Shift => "alac: invalid shift value",
-      Fault::Mixing => "alac: invalid mixing information for mono channel",
-      Fault::Mode => "alac: invalid mode",
-      Fault::Element => "alac: unsupported element",
-      Fault::Channel => "alac: element has no channel to decode into",
-      Fault::FrameLength => "alac: frame does not fit the frame length",
-      Fault::Stream(_) => "alac: stream could not be read",
-      Fault::Output(_) => "alac: output buffer could not be rendered",
+      DecodeError::CodecType => "alac: invalid codec type",
+      DecodeError::MissingExtraData => "alac: missing extra data",
+      DecodeError::CookieSize => "alac: invalid magic cookie size",
+      DecodeError::Version => "alac: not compatible with alac version 0",
+      DecodeError::BitDepth => "alac: invalid bit depth",
+      DecodeError::ChannelCount => "alac: more than 8 channels",
+      DecodeError::LayoutSize => "alac: invalid channel layout info size",
+      DecodeError::LayoutId => "alac: invalid channel layout info id",
+      DecodeError::LayoutVersion => "alac: invalid channel layout info version",
+      DecodeError::LayoutTag => "alac: invalid channel layout tag",
+      DecodeError::LayoutChannels => "alac: the number of channels differs from the channel layout",
+      DecodeError::LayoutReserved => "alac: reserved values in channel layout info are not 0",
+      DecodeError::UnusedHeaderBits => "alac: unused header bits not 0",
+      DecodeError::Shift => "alac: invalid shift value",
+      DecodeError::Mixing => "alac: invalid mixing information for mono channel",
+      DecodeError::Mode => "alac: invalid mode",
+      DecodeError::Element => "alac: unsupported element",
+      DecodeError::Channel => "alac: element has no channel to decode into",
+      DecodeError::FrameLength => "alac: frame does not fit the frame length",
+      DecodeError::Stream(_) => "alac: stream could not be read",
+      DecodeError::Output(_) => "alac: output buffer could not be rendered",
     })
   }
 }
 
-impl fmt::Display for Fault {
+impl fmt::Display for DecodeError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Fault::Stream(source) => source.fmt(f),
-      Fault::Output(inner) => inner.fmt(f),
-      Fault::CodecType
-      | Fault::MissingExtraData
-      | Fault::CookieSize
-      | Fault::Version
-      | Fault::BitDepth
-      | Fault::ChannelCount
-      | Fault::LayoutSize
-      | Fault::LayoutId
-      | Fault::LayoutVersion
-      | Fault::LayoutTag
-      | Fault::LayoutChannels
-      | Fault::LayoutReserved
-      | Fault::UnusedHeaderBits
-      | Fault::Shift
-      | Fault::Mixing
-      | Fault::Mode
-      | Fault::Element
-      | Fault::Channel
-      | Fault::FrameLength => {
+      DecodeError::Stream(source) => source.fmt(f),
+      DecodeError::Output(inner) => inner.fmt(f),
+      DecodeError::CodecType
+      | DecodeError::MissingExtraData
+      | DecodeError::CookieSize
+      | DecodeError::Version
+      | DecodeError::BitDepth
+      | DecodeError::ChannelCount
+      | DecodeError::LayoutSize
+      | DecodeError::LayoutId
+      | DecodeError::LayoutVersion
+      | DecodeError::LayoutTag
+      | DecodeError::LayoutChannels
+      | DecodeError::LayoutReserved
+      | DecodeError::UnusedHeaderBits
+      | DecodeError::Shift
+      | DecodeError::Mixing
+      | DecodeError::Mode
+      | DecodeError::Element
+      | DecodeError::Channel
+      | DecodeError::FrameLength => {
         let Ok(sentence) = self.sentence();
 
         f.write_str(sentence)
@@ -96,44 +96,44 @@ impl fmt::Display for Fault {
   }
 }
 
-impl From<io::Error> for Fault {
+impl From<io::Error> for DecodeError {
   fn from(fault: io::Error) -> Self {
-    Fault::Stream(fault)
+    DecodeError::Stream(fault)
   }
 }
 
-impl From<Error> for Fault {
+impl From<Error> for DecodeError {
   fn from(fault: Error) -> Self {
-    Fault::Output(fault)
+    DecodeError::Output(fault)
   }
 }
 
-impl From<Fault> for Error {
-  fn from(fault: Fault) -> Self {
+impl From<DecodeError> for Error {
+  fn from(fault: DecodeError) -> Self {
     let Ok(sentence) = fault.sentence();
 
     match fault {
-      Fault::Stream(source) => Error::IoError(source),
-      Fault::Output(inner) => inner,
-      Fault::CodecType
-      | Fault::MissingExtraData
-      | Fault::CookieSize
-      | Fault::Version
-      | Fault::ChannelCount => Error::Unsupported(sentence),
-      Fault::BitDepth
-      | Fault::LayoutSize
-      | Fault::LayoutId
-      | Fault::LayoutVersion
-      | Fault::LayoutTag
-      | Fault::LayoutChannels
-      | Fault::LayoutReserved
-      | Fault::UnusedHeaderBits
-      | Fault::Shift
-      | Fault::Mixing
-      | Fault::Mode
-      | Fault::Element
-      | Fault::Channel
-      | Fault::FrameLength => Error::DecodeError(sentence),
+      DecodeError::Stream(source) => Error::IoError(source),
+      DecodeError::Output(inner) => inner,
+      DecodeError::CodecType
+      | DecodeError::MissingExtraData
+      | DecodeError::CookieSize
+      | DecodeError::Version
+      | DecodeError::ChannelCount => Error::Unsupported(sentence),
+      DecodeError::BitDepth
+      | DecodeError::LayoutSize
+      | DecodeError::LayoutId
+      | DecodeError::LayoutVersion
+      | DecodeError::LayoutTag
+      | DecodeError::LayoutChannels
+      | DecodeError::LayoutReserved
+      | DecodeError::UnusedHeaderBits
+      | DecodeError::Shift
+      | DecodeError::Mixing
+      | DecodeError::Mode
+      | DecodeError::Element
+      | DecodeError::Channel
+      | DecodeError::FrameLength => Error::DecodeError(sentence),
     }
   }
 }

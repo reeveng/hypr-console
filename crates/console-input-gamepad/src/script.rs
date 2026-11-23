@@ -79,10 +79,12 @@ fn word(rest: &[&str], at: u32, what: &'static str) -> Result<String, GamepadErr
 }
 
 fn thumbstick_named(said: &str) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(said.ends_with("-stick"), ()) {
-    ::core::option::Option::Some(()) => said.to_string(),
-    ::core::option::Option::None => format!("{said}-stick"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.ends_with("-stick"), ()) {
+      ::core::option::Option::Some(()) => said.to_string(),
+      ::core::option::Option::None => format!("{said}-stick"),
+    },
+  )
 }
 
 impl Step {
@@ -203,16 +205,18 @@ impl Step {
 
         Ok(())
       }
-      Step::Release(buttons) => match ::core::primitive::bool::then_some(buttons.is_empty(), ()) {
-        ::core::option::Option::Some(()) => go.release_all(),
-        ::core::option::Option::None => {
-          for button in buttons {
-            go.release(button)?;
-          }
+      Step::Release(buttons) => {
+        match ::core::primitive::bool::then_some(buttons.is_empty(), ()) {
+          ::core::option::Option::Some(()) => go.release_all(),
+          ::core::option::Option::None => {
+            for button in buttons {
+              go.release(button)?;
+            }
 
-          Ok(())
+            Ok(())
+          }
         }
-      },
+      }
       Step::Thumbstick { which, to } => go.thumbstick(which, *to),
       Step::Center(which) => go.center(which),
       Step::Trigger { which, amount } => go.trigger(which, TriggerTravel(*amount)),

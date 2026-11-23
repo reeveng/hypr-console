@@ -7,25 +7,37 @@ use types::BoundingBox;
 pub trait OutlinePen {
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the published OutlinePen move callback accepts f32 contour coordinates in the caller drawing space")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the published OutlinePen move callback accepts f32 contour coordinates in the caller drawing space"
+    )
   )]
   fn move_to(&mut self, x: f32, y: f32);
 
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the published OutlinePen line callback accepts f32 contour coordinates in the caller drawing space")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the published OutlinePen line callback accepts f32 contour coordinates in the caller drawing space"
+    )
   )]
   fn line_to(&mut self, x: f32, y: f32);
 
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the published OutlinePen quadratic callback accepts f32 control point and endpoint coordinates")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the published OutlinePen quadratic callback accepts f32 control point and endpoint coordinates"
+    )
   )]
   fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32);
 
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the published OutlinePen cubic callback accepts two f32 control points and an endpoint")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the published OutlinePen cubic callback accepts two f32 control points and an endpoint"
+    )
   )]
   fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32);
 
@@ -109,7 +121,10 @@ impl SvgPen {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SvgPen::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SvgPen::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new() -> Self {
     Self::default()
@@ -118,7 +133,10 @@ impl SvgPen {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SvgPen::with_precision` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SvgPen::with_precision` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn with_precision(precision: u64) -> Self {
     Self(String::default(), Some(precision))
@@ -126,7 +144,10 @@ impl SvgPen {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SvgPen::clear` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SvgPen::clear` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn clear(&mut self) {
     self.0.clear();
@@ -248,7 +269,10 @@ impl ControlBoundsPen {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ControlBoundsPen::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ControlBoundsPen::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new() -> Self {
     Self(None)
@@ -257,7 +281,10 @@ impl ControlBoundsPen {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ControlBoundsPen::bounding_box` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ControlBoundsPen::bounding_box` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn bounding_box(&self) -> Option<BoundingBox<f32>> {
     self.0

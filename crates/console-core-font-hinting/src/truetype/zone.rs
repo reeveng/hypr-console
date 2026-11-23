@@ -42,7 +42,6 @@ pub enum PointTouch {
   Untouched,
 }
 
-
 impl TryFrom<i32> for ZonePointer {
   type Error = HintErrorKind;
 
@@ -368,7 +367,10 @@ impl<'a> Zone<'a> {
       reference,
     } = region;
 
-    match ::core::primitive::bool::then_some(start > end || start > reference || reference > end, ()) {
+    match ::core::primitive::bool::then_some(
+      start > end || start > reference || reference > end,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(()),
       ::core::option::Option::None => {}
     }
@@ -416,7 +418,10 @@ impl<'a> Zone<'a> {
     } = region;
     let Ok(max_points) = console_core_number_conversion::fitted::<_, u64>(self.points.len());
 
-    match ::core::primitive::bool::then_some(start > end || ref1 >= max_points || ref2 >= max_points, ()) {
+    match ::core::primitive::bool::then_some(
+      start > end || ref1 >= max_points || ref2 >= max_points,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(()),
       ::core::option::Option::None => {}
     }
@@ -479,18 +484,21 @@ impl<'a> GraphicsState<'a> {
     pairs: [(ZonePointer, u64); N],
   ) -> Result<crate::PointBounds, Never> {
     for (zp, index) in pairs {
-      match ::core::primitive::bool::then_some(index
-        > ({
-          let Ok(value) = console_core_number_conversion::fitted::<_, u64>(
-            {
-              let Ok(value) = self.zone(zp);
-              value
-            }
-            .points
-            .len(),
-          );
-          value
-        }), ()) {
+      match ::core::primitive::bool::then_some(
+        index
+          > ({
+            let Ok(value) = console_core_number_conversion::fitted::<_, u64>(
+              {
+                let Ok(value) = self.zone(zp);
+                value
+              }
+              .points
+              .len(),
+            );
+            value
+          }),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(crate::PointBounds::Outside);
         }
@@ -671,7 +679,9 @@ impl GraphicsState<'_> {
           (0, _) | (_, true) => {}
           (multiplier, false) => {
             let Ok(delta) = displacement_on_axis(math::ProductRatio {
-              value: bits, multiplier, divisor: self.fdotp,
+              value: bits,
+              multiplier,
+              divisor: self.fdotp,
             });
             point.x += delta;
           }
@@ -687,7 +697,9 @@ impl GraphicsState<'_> {
           (multiplier, false) => {
             let current = target.point_mut(point_ix)?;
             let Ok(delta) = displacement_on_axis(math::ProductRatio {
-              value: bits, multiplier, divisor: self.fdotp,
+              value: bits,
+              multiplier,
+              divisor: self.fdotp,
             });
             current.y += delta;
           }
@@ -719,7 +731,10 @@ impl GraphicsState<'_> {
 
     match ::core::primitive::bool::then_some(fv.x != 0, ()) {
       ::core::option::Option::Some(()) => {
-        match ::core::primitive::bool::then_some(!matches!(back_compat, crate::BackwardCompatibility::Enabled), ()) {
+        match ::core::primitive::bool::then_some(
+          !matches!(back_compat, crate::BackwardCompatibility::Enabled),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             {
               let answer = zone.point_mut(point_ix)?;
@@ -734,7 +749,7 @@ impl GraphicsState<'_> {
           crate::truetype::graphics::Touch::Mark => {
             zone.touch(point_ix, CoordAxis::X)?;
           }
-          crate::truetype::graphics::Touch::Keep => {}
+          crate::truetype::graphics::Touch::Retain => {}
         }
       }
       ::core::option::Option::None => {}
@@ -757,7 +772,7 @@ impl GraphicsState<'_> {
           crate::truetype::graphics::Touch::Mark => {
             zone.touch(point_ix, CoordAxis::Y)?;
           }
-          crate::truetype::graphics::Touch::Keep => {}
+          crate::truetype::graphics::Touch::Retain => {}
         }
       }
       ::core::option::Option::None => {}
@@ -829,17 +844,21 @@ impl CoordAxis {
 }
 
 fn scaled_coordinate(point: Point<F26Dot6>, axis: CoordAxis) -> Result<F26Dot6, Never> {
-  Ok(match ::core::primitive::bool::then_some(axis == CoordAxis::X, ()) {
-    ::core::option::Option::Some(()) => point.x,
-    ::core::option::Option::None => point.y,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(axis == CoordAxis::X, ()) {
+      ::core::option::Option::Some(()) => point.x,
+      ::core::option::Option::None => point.y,
+    },
+  )
 }
 
 fn unscaled_coordinate(point: Point<i32>, axis: CoordAxis) -> Result<i32, Never> {
-  Ok(match ::core::primitive::bool::then_some(axis == CoordAxis::X, ()) {
-    ::core::option::Option::Some(()) => point.x,
-    ::core::option::Option::None => point.y,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(axis == CoordAxis::X, ()) {
+      ::core::option::Option::Some(()) => point.x,
+      ::core::option::Option::None => point.y,
+    },
+  )
 }
 
 fn set_scaled_coordinate(
@@ -880,7 +899,10 @@ impl CoordinateInterpolation {
   fn new(anchors: CoordinateAnchors) -> Result<Self, Never> {
     let [current1, current2] = anchors.current;
     let [unscaled1, unscaled2] = anchors.unscaled;
-    let scale = match ::core::primitive::bool::then_some(current1 == current2 || unscaled1 == unscaled2, ()) {
+    let scale = match ::core::primitive::bool::then_some(
+      current1 == current2 || unscaled1 == unscaled2,
+      (),
+    ) {
       ::core::option::Option::Some(()) => CoordinateScale::Constant,
       ::core::option::Option::None => {
         let Ok(numerator) = (current2 - current1).to_bits();
@@ -898,26 +920,30 @@ impl CoordinateInterpolation {
   fn apply(&self, sample: CoordinateSample) -> Result<F26Dot6, Never> {
     let [original1, original2] = self.anchors.original;
     let [current1, current2] = self.anchors.current;
-    Ok(match ::core::primitive::bool::then_some(sample.original <= original1, ()) {
-      ::core::option::Option::Some(()) => sample.original + (current1 - original1),
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(sample.original >= original2, ()) {
-        ::core::option::Option::Some(()) => sample.original + (current2 - original2),
-        ::core::option::Option::None => match self.scale {
-          CoordinateScale::Constant => current1,
-          CoordinateScale::Scaled(scale) => {
-            let Ok(delta) = math::mul(math::Product {
-              left: {
-                let [unscaled1, _unscaled2] = self.anchors.unscaled;
-                sample.unscaled.wrapping_sub(unscaled1)
-              },
-              right: scale,
-            });
-            let Ok(delta_2) = F26Dot6::from_bits(delta);
-            current1 + delta_2
+    Ok(
+      match ::core::primitive::bool::then_some(sample.original <= original1, ()) {
+        ::core::option::Option::Some(()) => sample.original + (current1 - original1),
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(sample.original >= original2, ()) {
+            ::core::option::Option::Some(()) => sample.original + (current2 - original2),
+            ::core::option::Option::None => match self.scale {
+              CoordinateScale::Constant => current1,
+              CoordinateScale::Scaled(scale) => {
+                let Ok(delta) = math::mul(math::Product {
+                  left: {
+                    let [unscaled1, _unscaled2] = self.anchors.unscaled;
+                    sample.unscaled.wrapping_sub(unscaled1)
+                  },
+                  right: scale,
+                });
+                let Ok(delta_2) = F26Dot6::from_bits(delta);
+                current1 + delta_2
+              }
+            },
           }
-        },
+        }
       },
-    })
+    )
   }
 }
 
@@ -1381,7 +1407,7 @@ mod tests {
       dy,
       match ::core::primitive::bool::then_some(false, ()) {
         ::core::option::Option::Some(()) => crate::truetype::graphics::Touch::Mark,
-        ::core::option::Option::None => crate::truetype::graphics::Touch::Keep,
+        ::core::option::Option::None => crate::truetype::graphics::Touch::Retain,
       },
     )
     .required()?;
@@ -1401,7 +1427,7 @@ mod tests {
       dy,
       match ::core::primitive::bool::then_some(false, ()) {
         ::core::option::Option::Some(()) => crate::truetype::graphics::Touch::Mark,
-        ::core::option::Option::None => crate::truetype::graphics::Touch::Keep,
+        ::core::option::Option::None => crate::truetype::graphics::Touch::Retain,
       },
     )
     .required()?;

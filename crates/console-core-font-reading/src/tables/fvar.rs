@@ -32,60 +32,70 @@ fn normalize_user_coords<T>(
   user_coords: impl IntoIterator<Item = (Tag, Fixed)>,
   coords: &mut [T],
   convert: impl Fn(Fixed) -> T,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    for user_coord in user_coords {
+      for (axis, coord) in axes.iter().zip(coords.iter_mut()).filter(|(axis, _)| {
+        let Ok(axis_tag) = axis.axis_tag();
 
-) -> core::result::Result<(), console_core_never::Never> { {
-  for user_coord in user_coords {
-    for (axis, coord) in axes.iter().zip(coords.iter_mut()).filter(|(axis, _)| {
-      let Ok(axis_tag) = axis.axis_tag();
-
-      axis_tag == user_coord.0
-    }) {
-      *coord = convert(axis.normalize(user_coord.1));
+        axis_tag == user_coord.0
+      }) {
+        *coord = convert(axis.normalize(user_coord.1));
+      }
     }
-  }
-}; Ok(()) }
+  };
+  Ok(())
+}
 
 fn apply_avar_mappings<T>(
   avar: Option<&Avar>,
   coords: &mut [T],
   to_fixed: impl Fn(&T) -> Fixed,
   from_fixed: impl Fn(Fixed) -> T,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    let avar_mappings = avar.map(|avar_2| {
+      let Ok(maps) = avar_2.axis_segment_maps();
 
-) -> core::result::Result<(), console_core_never::Never> { {
-  let avar_mappings = avar.map(|avar_2| {
-    let Ok(maps) = avar_2.axis_segment_maps();
+      maps
+    });
 
-    maps
-  });
+    for (i, coord) in coords.iter_mut().enumerate() {
+      match avar_mappings
+        .as_ref()
+        .and_then(|mappings| {
+          let Ok(value_9) = console_core_number_conversion::fitted::<_, u64>(i);
 
-  for (i, coord) in coords.iter_mut().enumerate() {
-    match avar_mappings
-      .as_ref()
-      .and_then(|mappings| {
-        let Ok(value_9) = console_core_number_conversion::fitted::<_, u64>(i);
-
-        match mappings.get(value_9) {
-          ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-          ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+          match mappings.get(value_9) {
+            ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+            ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+          }
+        })
+        .flatten()
+      {
+        Some(mapping) => {
+          *coord = from_fixed(mapping.apply(to_fixed(coord)));
         }
-      })
-      .flatten()
-    {
-      Some(mapping) => {
-        *coord = from_fixed(mapping.apply(to_fixed(coord)));
+        None => {}
       }
-      None => {}
     }
-  }
-}; Ok(()) }
+  };
+  Ok(())
+}
 
-fn to_normalized_coords(fixed_coords: &[Fixed], normalized_coords: &mut [F2Dot14]) -> core::result::Result<(), console_core_never::Never> { {
-  for (target_coord, coord) in normalized_coords.iter_mut().zip(fixed_coords.iter()) {
-    let Ok(value_2) = coord.to_f2dot14();
+fn to_normalized_coords(
+  fixed_coords: &[Fixed],
+  normalized_coords: &mut [F2Dot14],
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    for (target_coord, coord) in normalized_coords.iter_mut().zip(fixed_coords.iter()) {
+      let Ok(value_2) = coord.to_f2dot14();
 
-    *target_coord = value_2;
-  }
-}; Ok(()) }
+      *target_coord = value_2;
+    }
+  };
+  Ok(())
+}
 
 impl<'a> Fvar<'a> {
   pub fn axes(&self) -> Result<&'a [VariationAxisRecord], ReadError> {
@@ -104,7 +114,10 @@ impl<'a> Fvar<'a> {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Fvar::user_to_normalized` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Fvar::user_to_normalized` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn user_to_normalized(
     &self,
@@ -121,8 +134,8 @@ impl<'a> Fvar<'a> {
     let Ok(output_length) = console_core_number_conversion::fixed_index(normalized_coords.len());
     let Ok(actual_len) = console_core_number_conversion::index(axis_length.min(output_length));
     let normalized = match normalized_coords.get_mut(..actual_len) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => &mut [],
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => &mut [],
     };
     let mut stack_fixed_coords: Avar2InlineAxes<Fixed> = [Fixed::ZERO; _];
     let mut heap_fixed_coords = Vec::new();
@@ -196,7 +209,10 @@ impl<'a> Fvar<'a> {
           Ok(index) => index,
           Err(_invalid_variation_map_index) => continue,
         },
-        None => DeltaSetIndex { outer: 0, inner: axis },
+        None => DeltaSetIndex {
+          outer: 0,
+          inner: axis,
+        },
       };
       let delta = match varstore.compute_float_delta(var_index, coords_2dot14) {
         Ok(delta) => delta,
@@ -214,7 +230,10 @@ impl VariationAxisRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VariationAxisRecord::normalize` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VariationAxisRecord::normalize` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn normalize(&self, mut value: Fixed) -> Fixed {
     use core::cmp::Ordering::*;
@@ -253,11 +272,16 @@ mod tests {
     let font = FontRef::new(font_test_data::VAZIRMATN_VAR)?;
     let fvar = font.fvar()?;
     assert_eq!(fvar.axis_count(), Ok(1));
-    let fixture_value = crate::test_support::fixture_value(match fvar.axes() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }
-    .first(), "fixture value")?;
+    let fixture_value = crate::test_support::fixture_value(
+      match fvar.axes() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      }
+      .first(),
+      "fixture value",
+    )?;
     let wght = &fixture_value;
     assert_eq!(
       wght.axis_tag(),
@@ -300,7 +324,10 @@ mod tests {
 
   #[test]
   fn instances() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::VAZIRMATN_VAR), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::VAZIRMATN_VAR),
+      "fixture value",
+    )?;
     let fvar = crate::test_support::fixture_value(font.fvar(), "fixture value")?;
     assert_eq!(fvar.instance_count(), Ok(9));
 
@@ -317,7 +344,8 @@ mod tests {
       assert_eq!(instance.coordinates.len(), 1);
       assert_eq!(
         ({
-          let fixture_value = crate::test_support::fixture_value(instance.coordinates.first(), "fixture value")?;
+          let fixture_value =
+            crate::test_support::fixture_value(instance.coordinates.first(), "fixture value")?;
           let Ok(value_2) = fixture_value.get();
           value_2
         }),
@@ -329,14 +357,16 @@ mod tests {
       assert_eq!(instance.subfamily_name_id, name_id);
       assert_eq!(instance.post_script_name_id, None);
     }
-  ;
 
     Ok(())
   }
 
   #[test]
   fn normalize() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::VAZIRMATN_VAR), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::VAZIRMATN_VAR),
+      "fixture value",
+    )?;
     let fvar = crate::test_support::fixture_value(font.fvar(), "fixture value")?;
     let fixture_value = crate::test_support::fixture_value(fvar.axes(), "fixture value")?;
     let axis = crate::test_support::fixture_value(fixture_value.first(), "fixture value")?;
@@ -355,7 +385,6 @@ mod tests {
         })
       );
     }
-  ;
 
     Ok(())
   }
@@ -399,9 +428,15 @@ mod tests {
 
   #[test]
   fn user_to_normalized() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::from_index(font_test_data::VAZIRMATN_VAR, 0), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::from_index(font_test_data::VAZIRMATN_VAR, 0),
+      "fixture value",
+    )?;
     let fvar = crate::test_support::fixture_value(font.fvar(), "fixture value")?;
-    let avar = match font.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None };
+    let avar = match font.avar() {
+      Ok(value) => Some(value),
+      Err(_unavailable_axis_variations) => None,
+    };
     let wght = {
       let Ok(value) = Tag::new(b"wght");
       value
@@ -456,15 +491,20 @@ mod tests {
         })
       );
     }
-  ;
 
     Ok(())
   }
 
   #[test]
   fn avar2() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::AVAR2_CHECKER), "fixture value")?;
-    let avar = match font.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None };
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::AVAR2_CHECKER),
+      "fixture value",
+    )?;
+    let avar = match font.avar() {
+      Ok(value) => Some(value),
+      Err(_unavailable_axis_variations) => None,
+    };
     let fvar = crate::test_support::fixture_value(font.fvar(), "fixture value")?;
     let avar_axis = {
       let Ok(value) = Tag::new(b"AVAR");
@@ -515,7 +555,6 @@ mod tests {
         })
       );
     }
-  ;
 
     Ok(())
   }
@@ -524,7 +563,10 @@ mod tests {
   fn avar2_no_panic_with_wrong_size_coords_array()
   -> ::core::result::Result<(), crate::read::ReadError> {
     let font = FontRef::new(font_test_data::AVAR2_CHECKER)?;
-    let avar = match font.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None };
+    let avar = match font.avar() {
+      Ok(value) => Some(value),
+      Err(_unavailable_axis_variations) => None,
+    };
     let fvar = font.fvar()?;
 
     let mut normalized_coords = [F2Dot14::default(); 1];
@@ -540,7 +582,10 @@ mod tests {
     let Ok(coord) = Fixed::from_bits(3);
     assert_eq!(
       ({
-        let Ok(apply_avar2_delta) = super::apply_avar2_delta(coord, crate::tables::variations::FloatItemDelta::FIXTURE_HALF_DELTA);
+        let Ok(apply_avar2_delta) = super::apply_avar2_delta(
+          coord,
+          crate::tables::variations::FloatItemDelta::FIXTURE_HALF_DELTA,
+        );
         let Ok(value) = apply_avar2_delta.to_f2dot14();
         value
       }),
@@ -555,7 +600,10 @@ mod tests {
   fn avar2_clamps_hidden_axis_for_amstelvar_repro()
   -> ::core::result::Result<(), crate::read::ReadError> {
     let font = FontRef::new(font_test_data::AMSTELVAR_AVAR2_A)?;
-    let avar = match font.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None };
+    let avar = match font.avar() {
+      Ok(value) => Some(value),
+      Err(_unavailable_axis_variations) => None,
+    };
     let fvar = font.fvar()?;
     let mut normalized_coords = [F2Dot14::ZERO; 12];
 

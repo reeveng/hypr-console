@@ -32,7 +32,7 @@ pub enum Delimiters {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Modification {
-  Changed,
+  Different,
   Unchanged,
 }
 

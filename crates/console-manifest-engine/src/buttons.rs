@@ -42,10 +42,12 @@ pub struct Standing {
 
 impl Standing {
   pub fn up_to_date(&self) -> Result<UpToDate, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.missing.is_empty(), ()) {
-      ::core::option::Option::Some(()) => UpToDate::Yes,
-      ::core::option::Option::None => UpToDate::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.missing.is_empty(), ()) {
+        ::core::option::Option::Some(()) => UpToDate::Yes,
+        ::core::option::Option::None => UpToDate::No,
+      },
+    )
   }
 
   pub fn summary(&self) -> Result<String, Never> {

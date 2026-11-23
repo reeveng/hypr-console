@@ -27,8 +27,8 @@ use console_input_controller::actions::Table;
 use console_input_controller::mode::Mode;
 use console_onscreen::PadInput;
 use console_test_flows::screens;
-use console_test_stages::device::TriggerTravel;
 use console_test_stages::device::Ready;
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::here::{Here, TURNS};
 
 type Failure = Box<dyn Error>;

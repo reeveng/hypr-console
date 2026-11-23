@@ -8,7 +8,7 @@ pub enum OperandEncoding {
   #[default]
   NoInlineOperands,
   Bytes,
-  Words,
+  WordArray,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -538,7 +538,10 @@ impl Opcode {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Opcode::from_byte` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Opcode::from_byte` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_byte(byte: u8) -> Self {
     use Opcode::*;
@@ -806,15 +809,18 @@ impl Opcode {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Opcode::name` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Opcode::name` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn name(self) -> &'static str {
     let Ok(byte) = self.to_byte();
     let Ok(value_1) = console_core_number_conversion::index(byte);
 
     match OPCODE_NAMES.get(value_1).copied() {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => "",
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => "",
     }
   }
 
@@ -822,14 +828,17 @@ impl Opcode {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Opcode::operand_encoding` method returns `OperandEncoding` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Opcode::operand_encoding` method returns `OperandEncoding` directly in the existing parser interface"
+    )
   )]
   pub fn operand_encoding(self) -> OperandEncoding {
     let Ok(byte) = self.to_byte();
 
     match byte {
       0x40 | 0xB0..=0xB7 => OperandEncoding::Bytes,
-      0x41 | 0xB8..=0xBF => OperandEncoding::Words,
+      0x41 | 0xB8..=0xBF => OperandEncoding::WordArray,
       _ => OperandEncoding::NoInlineOperands,
     }
   }
@@ -840,8 +849,8 @@ impl Opcode {
     let Ok(value_2) = console_core_number_conversion::index(byte);
 
     Ok(match OPCODE_LENGTHS.get(value_2).copied().map(i32::from) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => 0,
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => 0,
     })
   }
 }

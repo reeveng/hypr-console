@@ -36,7 +36,7 @@ pub fn copy_text(input: impl std::io::Read) -> std::io::Result<()> {
   let reply = ipc::ask(Request::CopyText(text))?;
 
   match reply {
-    Reply::Done => Ok(()),
+    Reply::Finished => Ok(()),
     Reply::List { .. } | Reply::Unavailable => {
       Err(std::io::Error::other("clipboard service refused the text"))
     }
@@ -62,7 +62,7 @@ fn privacy(capture: Capture) -> Result<Row, Never> {
     let Ok(reply) = panel_reply(Request::Pause(next));
 
     match reply {
-      Some(Reply::Done) => showing.replace(0),
+      Some(Reply::Finished) => showing.replace(0),
       Some(Reply::List { .. } | Reply::Unavailable) | None => {
         showing.note("Couldn’t change clipboard privacy");
       }
@@ -82,7 +82,7 @@ fn rows(paste: &SyncSender<String>) -> Result<Vec<Row>, Never> {
   let Ok(reply) = panel_reply(Request::List);
   let (capture, entries) = match reply {
     Some(Reply::List { paused, entries }) => (paused, entries),
-    Some(Reply::Done | Reply::Unavailable) | None => {
+    Some(Reply::Finished | Reply::Unavailable) | None => {
       let Ok(unavailable) = Row::placeholder("Clipboard history is unavailable");
       return Ok(vec![unavailable]);
     }
@@ -134,7 +134,7 @@ fn restore_row(entry: Preview, paste: SyncSender<String>) -> Result<Row, Never> 
     let Ok(reply) = panel_reply(Request::Restore(entry.id));
 
     match reply {
-      Some(Reply::Done) => {
+      Some(Reply::Finished) => {
         match target {
           Some(address) => {
             let _queued = paste.try_send(address);
@@ -166,7 +166,7 @@ fn clear_row() -> Result<Row, Never> {
         let Ok(reply) = panel_reply(Request::Clear);
 
         match reply {
-          Some(Reply::Done) => confirming.replace(0),
+          Some(Reply::Finished) => confirming.replace(0),
           Some(Reply::List { .. } | Reply::Unavailable) | None => {
             confirming.note("Couldn’t clear clipboard history");
           }

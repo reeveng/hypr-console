@@ -135,7 +135,10 @@ impl<B: ReadBitsLtr> Reading<'_, B> {
       }
       ::core::option::Option::None => {
         'pairs: for _ in 0..288u32 {
-          match ::core::primitive::bool::then_some(self.position < end && self.bits_read < self.limit, ()) {
+          match ::core::primitive::bool::then_some(
+            self.position < end && self.bits_read < self.limit,
+            (),
+          ) {
             ::core::option::Option::Some(()) => self.pair(codebook, linbits)?,
             ::core::option::Option::None => break 'pairs,
           }
@@ -173,7 +176,10 @@ impl<B: ReadBitsLtr> Reading<'_, B> {
 
   fn quads(&mut self, codebook: &Codebook<Entry16x16>) -> Result<()> {
     'quads: for _ in 0..144u32 {
-      match ::core::primitive::bool::then_some(self.position <= LAST_QUAD_START && self.bits_read < self.limit, ()) {
+      match ::core::primitive::bool::then_some(
+        self.position <= LAST_QUAD_START && self.bits_read < self.limit,
+        (),
+      ) {
         ::core::option::Option::Some(()) => self.quad(codebook)?,
         ::core::option::Option::None => break 'quads,
       }

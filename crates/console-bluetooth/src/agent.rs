@@ -234,7 +234,9 @@ pub fn request(asked: &Message) -> Result<Request, RequestError> {
 
   match ::core::primitive::bool::then_some(interface == INTERFACE, ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(RequestError::UnknownInterface(interface.to_string())),
+    ::core::option::Option::None => {
+      return Err(RequestError::UnknownInterface(interface.to_string()));
+    }
   }
 
   let Ok(named) = Method::from_name(member);

@@ -80,10 +80,12 @@ pub enum Error {
 
 impl Notification {
   pub fn wrong(&self) -> Result<Error, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.urgency == Urgency::Critical, ()) {
-      ::core::option::Option::Some(()) => Error::Yes,
-      ::core::option::Option::None => Error::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.urgency == Urgency::Critical, ()) {
+        ::core::option::Option::Some(()) => Error::Yes,
+        ::core::option::Option::None => Error::No,
+      },
+    )
   }
 
   pub fn says(&self) -> Result<String, Never> {
@@ -207,7 +209,10 @@ pub fn read(said: &str) -> Result<Vec<Notification>, Never> {
 fn read_stored<T: DeserializeOwned>(said: &str) -> Result<Option<T>, Never> {
   let Ok(bytes) = console_core_number_conversion::fitted::<_, u64>(said.len());
 
-  match ::core::primitive::bool::then_some(bytes <= u64::from(console_core_atomic_writes::MAX_TEXT_BYTES), ()) {
+  match ::core::primitive::bool::then_some(
+    bytes <= u64::from(console_core_atomic_writes::MAX_TEXT_BYTES),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(None),
   }

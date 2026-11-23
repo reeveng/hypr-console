@@ -16,17 +16,20 @@ use crate::{Emptiness, FontData, FontRead, ReadError};
 #[derive(Clone)]
 #[cfg_attr(
   dylint_lib = "explicit065_checked_constructors",
-  expect(explicit065_checked_constructors, reason = "the published ComputedArray Default contains no records and cannot request a record width or arguments")
+  expect(
+    explicit065_checked_constructors,
+    reason = "the published ComputedArray Default contains no records and cannot request a record width or arguments"
+  )
 )]
 pub struct ComputedArray<'a, T: ReadArgs> {
   item_len: u64,
   len: u64,
   data: FontData<'a>,
-  args: T::Args,
+  args: T::Arguments,
 }
 
 impl<'a, T: ComputeSize> ComputedArray<'a, T> {
-  pub fn new(data: FontData<'a>, args: T::Args) -> Result<Self, ReadError> {
+  pub fn new(data: FontData<'a>, args: T::Arguments) -> Result<Self, ReadError> {
     let item_len = T::compute_size(&args)?;
     let Ok(bytes) = data.len();
     let len = match bytes.checked_div(item_len) {
@@ -55,14 +58,14 @@ impl<'a, T: ComputeSize> ComputedArray<'a, T> {
 }
 
 impl<T: ReadArgs> ReadArgs for ComputedArray<'_, T> {
-  type Args = T::Args;
+  type Arguments = T::Arguments;
 }
 
 impl<'a, T> FontReadWithArgs<'a> for ComputedArray<'a, T>
 where
   T: ComputeSize + FontReadWithArgs<'a>,
 {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     Self::new(data, *args)
   }
 }
@@ -70,14 +73,14 @@ where
 impl<T> Default for ComputedArray<'_, T>
 where
   T: ReadArgs,
-  T::Args: Default,
+  T::Arguments: Default,
 {
   fn default() -> Self {
     Self {
       item_len: 0,
       len: 0,
       data: FontData::EMPTY,
-      args: T::Args::default(),
+      args: T::Arguments::default(),
     }
   }
 }
@@ -85,7 +88,7 @@ where
 impl<'a, T> ComputedArray<'a, T>
 where
   T: FontReadWithArgs<'a>,
-  T::Args: 'static,
+  T::Arguments: 'static,
 {
   pub fn iter(
     &self,
@@ -233,7 +236,7 @@ impl<T> Default for VarLenArray<'_, T> {
 }
 
 impl<T: AnyBitPattern> ReadArgs for &[T] {
-  type Args = u16;
+  type Arguments = u16;
 }
 
 impl<'a, T: AnyBitPattern + FixedSize> FontReadWithArgs<'a> for &'a [T] {

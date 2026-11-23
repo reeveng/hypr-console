@@ -61,15 +61,17 @@ impl Destination {
     let mut endpoint = Url::parse(dsn).or_else(|_invalid| invalid_dsn())?;
     let key = endpoint.username().to_string();
 
-    match ::core::primitive::bool::then_some(endpoint.scheme() == "https"
-      && endpoint.has_host()
-      && endpoint.path().trim_end_matches('/') == "/errors/1"
-      && endpoint.password().is_none()
-      && endpoint.query().is_none()
-      && endpoint.fragment().is_none()
-      && !key.is_empty()
-      && key.bytes().all(|byte| byte.is_ascii_hexdigit()), ())
-    {
+    match ::core::primitive::bool::then_some(
+      endpoint.scheme() == "https"
+        && endpoint.has_host()
+        && endpoint.path().trim_end_matches('/') == "/errors/1"
+        && endpoint.password().is_none()
+        && endpoint.query().is_none()
+        && endpoint.fragment().is_none()
+        && !key.is_empty()
+        && key.bytes().all(|byte| byte.is_ascii_hexdigit()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return invalid_dsn(),
     }
@@ -149,7 +151,10 @@ impl Outbox {
 
           match save(&self.state, &envelope) {
             Ok(()) => fs::remove_file(report)?,
-            Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::StorageFull, ()) {
+            Err(fault) => match ::core::primitive::bool::then_some(
+              fault.kind() == io::ErrorKind::StorageFull,
+              (),
+            ) {
               ::core::option::Option::Some(()) => break,
               ::core::option::Option::None => return Err(fault),
             },
@@ -177,10 +182,12 @@ fn private_directory(directory: &Path) -> io::Result<()> {
     .create(directory)?;
   let metadata = fs::symlink_metadata(directory)?;
 
-  match ::core::primitive::bool::then_some(metadata.is_dir()
-    && metadata.mode() & 0o077 == 0
-    && metadata.uid() == rustix::process::geteuid().as_raw(), ())
-  {
+  match ::core::primitive::bool::then_some(
+    metadata.is_dir()
+      && metadata.mode() & 0o077 == 0
+      && metadata.uid() == rustix::process::geteuid().as_raw(),
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ok(()),
     ::core::option::Option::None => Err(io::Error::new(
       io::ErrorKind::PermissionDenied,
@@ -209,18 +216,25 @@ fn save(directory: &Path, envelope: &[u8]) -> io::Result<()> {
   for slot in candidates {
     match fs::symlink_metadata(&slot) {
       Ok(_occupied) => continue,
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => return Err(fault),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => return Err(fault),
+        }
+      }
     }
 
     match whole_without_overwriting(&slot, envelope) {
       Ok(()) => return Ok(()),
-      Err(Unwritten::Moving(at, fault)) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::AlreadyExists, ()) {
-        ::core::option::Option::Some(()) => continue,
-        ::core::option::Option::None => return Err(io::Error::other(Unwritten::Moving(at, fault))),
-      },
+      Err(Unwritten::Moving(at, fault)) => {
+        match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::AlreadyExists, ())
+        {
+          ::core::option::Option::Some(()) => continue,
+          ::core::option::Option::None => {
+            return Err(io::Error::other(Unwritten::Moving(at, fault)));
+          }
+        }
+      }
       Err(fault) => return Err(io::Error::other(fault)),
     }
   }

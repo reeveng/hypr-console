@@ -115,8 +115,15 @@ const ELEMENTS = {
     },
     {
       "data": {
+        "id": "crate:console-browser-window",
+        "label": "console-browser-window\nkeeps a clock: deadline",
+        "type": "crate"
+      }
+    },
+    {
+      "data": {
         "id": "crate:console-bus",
-        "label": "console-bus",
+        "label": "console-bus\nkeeps a clock: deadline",
         "type": "crate"
       }
     },
@@ -124,6 +131,20 @@ const ELEMENTS = {
       "data": {
         "id": "crate:console-calendar",
         "label": "console-calendar",
+        "type": "crate"
+      }
+    },
+    {
+      "data": {
+        "id": "crate:console-capture",
+        "label": "console-capture",
+        "type": "crate"
+      }
+    },
+    {
+      "data": {
+        "id": "crate:console-clipboard",
+        "label": "console-clipboard\nkeeps a clock: deadline",
         "type": "crate"
       }
     },
@@ -263,7 +284,7 @@ const ELEMENTS = {
     {
       "data": {
         "id": "crate:console-media-viewer",
-        "label": "console-media-viewer",
+        "label": "console-media-viewer\nkeeps a clock: recv_timeout",
         "type": "crate"
       }
     },
@@ -368,7 +389,7 @@ const ELEMENTS = {
     {
       "data": {
         "id": "crate:console-resume",
-        "label": "console-resume",
+        "label": "console-resume\nkeeps a clock: recv_timeout",
         "type": "crate"
       }
     },
@@ -397,6 +418,20 @@ const ELEMENTS = {
       "data": {
         "id": "crate:console-status-bar",
         "label": "console-status-bar\nkeeps a clock: deadline",
+        "type": "crate"
+      }
+    },
+    {
+      "data": {
+        "id": "crate:console-syncthing",
+        "label": "console-syncthing",
+        "type": "crate"
+      }
+    },
+    {
+      "data": {
+        "id": "crate:console-task-manager",
+        "label": "console-task-manager",
         "type": "crate"
       }
     },
@@ -431,7 +466,7 @@ const ELEMENTS = {
     {
       "data": {
         "id": "crate:console-wallpaper",
-        "label": "console-wallpaper\nkeeps a clock: contract",
+        "label": "console-wallpaper",
         "type": "crate"
       }
     },
@@ -521,6 +556,13 @@ const ELEMENTS = {
     },
     {
       "data": {
+        "id": "internal:Bar",
+        "label": "Bar",
+        "type": "internal"
+      }
+    },
+    {
+      "data": {
         "id": "internal:Bluetooth",
         "label": "Bluetooth",
         "type": "internal"
@@ -570,6 +612,20 @@ const ELEMENTS = {
     },
     {
       "data": {
+        "id": "internal:Camera",
+        "label": "Camera",
+        "type": "internal"
+      }
+    },
+    {
+      "data": {
+        "id": "internal:Clipboard",
+        "label": "Clipboard",
+        "type": "internal"
+      }
+    },
+    {
+      "data": {
         "id": "internal:Confirm",
         "label": "Confirm",
         "type": "internal"
@@ -579,6 +635,13 @@ const ELEMENTS = {
       "data": {
         "id": "internal:ConsoleSay",
         "label": "ConsoleSay",
+        "type": "internal"
+      }
+    },
+    {
+      "data": {
+        "id": "internal:ControlCenter",
+        "label": "ControlCenter",
         "type": "internal"
       }
     },
@@ -738,6 +801,13 @@ const ELEMENTS = {
     },
     {
       "data": {
+        "id": "internal:Notify",
+        "label": "Notify",
+        "type": "internal"
+      }
+    },
+    {
+      "data": {
         "id": "internal:Overview",
         "label": "Overview",
         "type": "internal"
@@ -796,6 +866,13 @@ const ELEMENTS = {
       "data": {
         "id": "internal:SettingsPanel",
         "label": "SettingsPanel",
+        "type": "internal"
+      }
+    },
+    {
+      "data": {
+        "id": "internal:TaskManager",
+        "label": "TaskManager",
         "type": "internal"
       }
     },
@@ -873,6 +950,13 @@ const ELEMENTS = {
       "data": {
         "id": "program:Cat",
         "label": "cat",
+        "type": "program"
+      }
+    },
+    {
+      "data": {
+        "id": "program:Chromium",
+        "label": "chromium",
         "type": "program"
       }
     },
@@ -1123,6 +1207,20 @@ const ELEMENTS = {
     },
     {
       "data": {
+        "id": "program:Pgrep",
+        "label": "pgrep",
+        "type": "program"
+      }
+    },
+    {
+      "data": {
+        "id": "program:Pkexec",
+        "label": "pkexec",
+        "type": "program"
+      }
+    },
+    {
+      "data": {
         "id": "program:Pkill",
         "label": "pkill",
         "type": "program"
@@ -1228,8 +1326,22 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "program:Su",
-        "label": "su",
+        "id": "program:Steam",
+        "label": "steam",
+        "type": "program"
+      }
+    },
+    {
+      "data": {
+        "id": "program:SteamSetSession",
+        "label": "steamsetsession",
+        "type": "program"
+      }
+    },
+    {
+      "data": {
+        "id": "program:StockSessionSelect",
+        "label": "stocksessionselect",
         "type": "program"
       }
     },
@@ -1237,6 +1349,13 @@ const ELEMENTS = {
       "data": {
         "id": "program:Sudo",
         "label": "sudo",
+        "type": "program"
+      }
+    },
+    {
+      "data": {
+        "id": "program:Syncthing",
+        "label": "syncthing",
         "type": "program"
       }
     },
@@ -1349,6 +1468,13 @@ const ELEMENTS = {
       "data": {
         "id": "unit:console-bar.service",
         "label": "console-bar.service",
+        "type": "unit"
+      }
+    },
+    {
+      "data": {
+        "id": "unit:console-clipboard.service",
+        "label": "console-clipboard.service",
         "type": "unit"
       }
     },
@@ -1482,6 +1608,20 @@ const ELEMENTS = {
       "data": {
         "id": "unit:console-session.service",
         "label": "console-session.service",
+        "type": "unit"
+      }
+    },
+    {
+      "data": {
+        "id": "unit:console-upload-errors.service",
+        "label": "console-upload-errors.service",
+        "type": "unit"
+      }
+    },
+    {
+      "data": {
+        "id": "unit:console-upload-errors.timer",
+        "label": "console-upload-errors.timer",
         "type": "unit"
       }
     },
@@ -1667,6 +1807,15 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e15",
+        "source": "crate:console-browser-window",
+        "target": "program:Chromium",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e16",
         "source": "crate:console-bus",
         "target": "a unix socket",
         "label": "connects",
@@ -1675,7 +1824,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e16",
+        "id": "e17",
         "source": "crate:console-calendar",
         "target": "program:Cal",
         "label": "runs",
@@ -1684,7 +1833,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e17",
+        "id": "e18",
         "source": "crate:console-calendar",
         "target": "program:Date",
         "label": "runs",
@@ -1693,7 +1842,61 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e18",
+        "id": "e19",
+        "source": "crate:console-capture",
+        "target": "internal:Camera",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e20",
+        "source": "crate:console-capture",
+        "target": "program:Date",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e21",
+        "source": "crate:console-capture",
+        "target": "program:Ffmpeg",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e22",
+        "source": "crate:console-capture",
+        "target": "program:Grim",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e23",
+        "source": "crate:console-clipboard",
+        "target": "a unix socket",
+        "label": "binds",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e24",
+        "source": "crate:console-clipboard",
+        "target": "a unix socket",
+        "label": "connects",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e25",
         "source": "crate:console-compositor",
         "target": "a unix socket",
         "label": "connects",
@@ -1702,7 +1905,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e19",
+        "id": "e26",
+        "source": "crate:console-control-center",
+        "target": "internal:Clipboard",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e27",
         "source": "crate:console-control-center",
         "target": "internal:PutAway",
         "label": "starts",
@@ -1711,16 +1923,34 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e20",
+        "id": "e28",
         "source": "crate:console-control-center",
-        "target": "internal:Screenshot",
-        "label": "starts",
+        "target": "program:Grim",
+        "label": "runs",
         "type": "dependency"
       }
     },
     {
       "data": {
-        "id": "e21",
+        "id": "e29",
+        "source": "crate:console-control-center",
+        "target": "program:NotifySend",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e30",
+        "source": "crate:console-control-center",
+        "target": "program:Tesseract",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e31",
         "source": "crate:console-default-applications",
         "target": "program:Gio",
         "label": "runs",
@@ -1729,7 +1959,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e22",
+        "id": "e32",
         "source": "crate:console-default-applications",
         "target": "program:XdgOpen",
         "label": "runs",
@@ -1738,7 +1968,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e23",
+        "id": "e33",
         "source": "crate:console-default-applications",
         "target": "program:XdgSettings",
         "label": "runs",
@@ -1747,7 +1977,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e24",
+        "id": "e34",
+        "source": "crate:console-device",
+        "target": "a unix socket",
+        "label": "binds",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e35",
         "source": "crate:console-device",
         "target": "internal:Confirm",
         "label": "starts",
@@ -1756,7 +1995,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e25",
+        "id": "e36",
         "source": "crate:console-device",
         "target": "program:Cargo",
         "label": "runs",
@@ -1765,7 +2004,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e26",
+        "id": "e37",
         "source": "crate:console-device",
         "target": "program:Date",
         "label": "runs",
@@ -1774,7 +2013,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e27",
+        "id": "e38",
         "source": "crate:console-device",
         "target": "program:Env",
         "label": "runs",
@@ -1783,7 +2022,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e28",
+        "id": "e39",
         "source": "crate:console-device",
         "target": "program:Git",
         "label": "runs",
@@ -1792,7 +2031,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e29",
+        "id": "e40",
         "source": "crate:console-device",
         "target": "program:Just",
         "label": "runs",
@@ -1801,7 +2040,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e30",
+        "id": "e41",
         "source": "crate:console-device",
         "target": "program:Runuser",
         "label": "runs",
@@ -1810,7 +2049,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e31",
+        "id": "e42",
         "source": "crate:console-device",
         "target": "program:Ssh",
         "label": "runs",
@@ -1819,7 +2058,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e32",
+        "id": "e43",
         "source": "crate:console-device",
         "target": "program:True",
         "label": "runs",
@@ -1828,7 +2067,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e33",
+        "id": "e44",
         "source": "crate:console-downloads",
         "target": "internal:DownloadsFind",
         "label": "starts",
@@ -1837,7 +2076,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e34",
+        "id": "e45",
         "source": "crate:console-downloads",
         "target": "internal:DownloadsGet",
         "label": "starts",
@@ -1846,7 +2085,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e35",
+        "id": "e46",
         "source": "crate:console-downloads",
         "target": "program:Curl",
         "label": "runs",
@@ -1855,7 +2094,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e36",
+        "id": "e47",
         "source": "crate:console-downloads",
         "target": "program:Ffprobe",
         "label": "runs",
@@ -1864,7 +2103,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e37",
+        "id": "e48",
         "source": "crate:console-downloads",
         "target": "program:NotifySend",
         "label": "runs",
@@ -1873,7 +2112,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e38",
+        "id": "e49",
         "source": "crate:console-downloads",
         "target": "program:XdgOpen",
         "label": "runs",
@@ -1882,7 +2121,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e39",
+        "id": "e50",
         "source": "crate:console-downloads",
         "target": "program:YtDlp",
         "label": "runs",
@@ -1891,7 +2130,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e40",
+        "id": "e51",
         "source": "crate:console-events",
         "target": "a unix socket",
         "label": "binds",
@@ -1900,7 +2139,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e41",
+        "id": "e52",
         "source": "crate:console-events",
         "target": "a unix socket",
         "label": "connects",
@@ -1909,7 +2148,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e42",
+        "id": "e53",
         "source": "crate:console-events",
         "target": "compositor events",
         "label": "names the socket",
@@ -1918,109 +2157,10 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e43",
-        "source": "crate:console-events",
-        "target": "event-group:Battery",
-        "label": "sources",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e44",
-        "source": "crate:console-events",
-        "target": "event-group:Battery",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e45",
-        "source": "crate:console-events",
-        "target": "event-group:Bluetooth",
-        "label": "sources",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e46",
-        "source": "crate:console-events",
-        "target": "event-group:Bluetooth",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e47",
-        "source": "crate:console-events",
-        "target": "event-group:Compositor",
-        "label": "sources",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e48",
-        "source": "crate:console-events",
-        "target": "event-group:Compositor",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e49",
-        "source": "crate:console-events",
-        "target": "event-group:Network",
-        "label": "sources",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e50",
-        "source": "crate:console-events",
-        "target": "event-group:Network",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e51",
-        "source": "crate:console-events",
-        "target": "event-group:Notifications",
-        "label": "sources",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e52",
-        "source": "crate:console-events",
-        "target": "event-group:Notifications",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e53",
-        "source": "crate:console-events",
-        "target": "event-group:Path",
-        "label": "sources",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
         "id": "e54",
         "source": "crate:console-events",
-        "target": "event-group:Path",
-        "label": "subscribes",
+        "target": "event-group:Battery",
+        "label": "sources",
         "type": "dependency"
       }
     },
@@ -2028,8 +2168,8 @@ const ELEMENTS = {
       "data": {
         "id": "e55",
         "source": "crate:console-events",
-        "target": "event-group:Player",
-        "label": "sources",
+        "target": "event-group:Battery",
+        "label": "subscribes",
         "type": "dependency"
       }
     },
@@ -2037,8 +2177,8 @@ const ELEMENTS = {
       "data": {
         "id": "e56",
         "source": "crate:console-events",
-        "target": "event-group:Player",
-        "label": "subscribes",
+        "target": "event-group:Bluetooth",
+        "label": "sources",
         "type": "dependency"
       }
     },
@@ -2046,8 +2186,8 @@ const ELEMENTS = {
       "data": {
         "id": "e57",
         "source": "crate:console-events",
-        "target": "event-group:Sound",
-        "label": "sources",
+        "target": "event-group:Bluetooth",
+        "label": "subscribes",
         "type": "dependency"
       }
     },
@@ -2055,6 +2195,105 @@ const ELEMENTS = {
       "data": {
         "id": "e58",
         "source": "crate:console-events",
+        "target": "event-group:Compositor",
+        "label": "sources",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e59",
+        "source": "crate:console-events",
+        "target": "event-group:Compositor",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e60",
+        "source": "crate:console-events",
+        "target": "event-group:Network",
+        "label": "sources",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e61",
+        "source": "crate:console-events",
+        "target": "event-group:Network",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e62",
+        "source": "crate:console-events",
+        "target": "event-group:Notifications",
+        "label": "sources",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e63",
+        "source": "crate:console-events",
+        "target": "event-group:Notifications",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e64",
+        "source": "crate:console-events",
+        "target": "event-group:Path",
+        "label": "sources",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e65",
+        "source": "crate:console-events",
+        "target": "event-group:Path",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e66",
+        "source": "crate:console-events",
+        "target": "event-group:Player",
+        "label": "sources",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e67",
+        "source": "crate:console-events",
+        "target": "event-group:Player",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e68",
+        "source": "crate:console-events",
+        "target": "event-group:Sound",
+        "label": "sources",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e69",
+        "source": "crate:console-events",
         "target": "event-group:Sound",
         "label": "subscribes",
         "type": "dependency"
@@ -2062,7 +2301,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e59",
+        "id": "e70",
         "source": "crate:console-events",
         "target": "event-group:Wifi",
         "label": "sources",
@@ -2071,7 +2310,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e60",
+        "id": "e71",
         "source": "crate:console-events",
         "target": "event-group:Wifi",
         "label": "subscribes",
@@ -2080,7 +2319,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e61",
+        "id": "e72",
         "source": "crate:console-events",
         "target": "program:Busctl",
         "label": "runs",
@@ -2089,7 +2328,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e62",
+        "id": "e73",
         "source": "crate:console-events",
         "target": "program:Gdbus",
         "label": "runs",
@@ -2098,7 +2337,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e63",
+        "id": "e74",
         "source": "crate:console-events",
         "target": "program:Nmcli",
         "label": "runs",
@@ -2107,7 +2346,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e64",
+        "id": "e75",
         "source": "crate:console-events",
         "target": "program:Pactl",
         "label": "runs",
@@ -2116,7 +2355,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e65",
+        "id": "e76",
         "source": "crate:console-events",
         "target": "program:Stdbuf",
         "label": "runs",
@@ -2125,7 +2364,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e66",
+        "id": "e77",
         "source": "crate:console-events",
         "target": "program:Udevadm",
         "label": "runs",
@@ -2134,7 +2373,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e67",
+        "id": "e78",
         "source": "crate:console-files",
         "target": "internal:DownloadsFormat",
         "label": "starts",
@@ -2143,7 +2382,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e68",
+        "id": "e79",
         "source": "crate:console-files",
         "target": "internal:FilesThumbnails",
         "label": "starts",
@@ -2152,7 +2391,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e69",
+        "id": "e80",
         "source": "crate:console-files",
         "target": "internal:FilesUnzip",
         "label": "starts",
@@ -2161,7 +2400,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e70",
+        "id": "e81",
         "source": "crate:console-files",
         "target": "internal:WallpaperRender",
         "label": "starts",
@@ -2170,7 +2409,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e71",
+        "id": "e82",
         "source": "crate:console-files",
         "target": "program:Alacritty",
         "label": "runs",
@@ -2179,7 +2418,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e72",
+        "id": "e83",
         "source": "crate:console-files",
         "target": "program:Cp",
         "label": "runs",
@@ -2188,25 +2427,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e73",
-        "source": "crate:console-files",
-        "target": "program:Date",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e74",
-        "source": "crate:console-files",
-        "target": "program:Grim",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e75",
+        "id": "e84",
         "source": "crate:console-files",
         "target": "program:Mkdir",
         "label": "runs",
@@ -2215,7 +2436,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e76",
+        "id": "e85",
         "source": "crate:console-files",
         "target": "program:Mv",
         "label": "runs",
@@ -2224,7 +2445,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e77",
+        "id": "e86",
         "source": "crate:console-files",
         "target": "program:SevenZip",
         "label": "runs",
@@ -2233,7 +2454,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e78",
+        "id": "e87",
         "source": "crate:console-files",
         "target": "program:XdgOpen",
         "label": "runs",
@@ -2242,7 +2463,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e79",
+        "id": "e88",
         "source": "crate:console-home-screen",
         "target": "a unix socket",
         "label": "binds",
@@ -2251,7 +2472,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e80",
+        "id": "e89",
         "source": "crate:console-home-screen",
         "target": "event-group:Compositor",
         "label": "subscribes",
@@ -2260,7 +2481,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e81",
+        "id": "e90",
         "source": "crate:console-input-controller",
         "target": "compositor",
         "label": "asks",
@@ -2269,7 +2490,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e82",
+        "id": "e91",
         "source": "crate:console-input-controller",
         "target": "event-group:Compositor",
         "label": "subscribes",
@@ -2278,90 +2499,9 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e83",
-        "source": "crate:console-input-controller",
-        "target": "internal:Brightness",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e84",
-        "source": "crate:console-input-controller",
-        "target": "internal:Browser",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e85",
-        "source": "crate:console-input-controller",
-        "target": "internal:Dictate",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e86",
-        "source": "crate:console-input-controller",
-        "target": "internal:Downloads",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e87",
-        "source": "crate:console-input-controller",
-        "target": "internal:Files",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e88",
-        "source": "crate:console-input-controller",
-        "target": "internal:KeyboardToggle",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e89",
-        "source": "crate:console-input-controller",
-        "target": "internal:Launcher",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e90",
-        "source": "crate:console-input-controller",
-        "target": "internal:MappingPanel",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e91",
-        "source": "crate:console-input-controller",
-        "target": "internal:MusicPanel",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
         "id": "e92",
         "source": "crate:console-input-controller",
-        "target": "internal:NotificationsPanel",
+        "target": "internal:Bar",
         "label": "starts",
         "type": "dependency"
       }
@@ -2370,7 +2510,7 @@ const ELEMENTS = {
       "data": {
         "id": "e93",
         "source": "crate:console-input-controller",
-        "target": "internal:Overview",
+        "target": "internal:Brightness",
         "label": "starts",
         "type": "dependency"
       }
@@ -2379,7 +2519,7 @@ const ELEMENTS = {
       "data": {
         "id": "e94",
         "source": "crate:console-input-controller",
-        "target": "internal:PutAway",
+        "target": "internal:Browser",
         "label": "starts",
         "type": "dependency"
       }
@@ -2388,7 +2528,7 @@ const ELEMENTS = {
       "data": {
         "id": "e95",
         "source": "crate:console-input-controller",
-        "target": "internal:Screenshot",
+        "target": "internal:Clipboard",
         "label": "starts",
         "type": "dependency"
       }
@@ -2397,7 +2537,7 @@ const ELEMENTS = {
       "data": {
         "id": "e96",
         "source": "crate:console-input-controller",
-        "target": "internal:SessionDesktop",
+        "target": "internal:ControlCenter",
         "label": "starts",
         "type": "dependency"
       }
@@ -2406,7 +2546,7 @@ const ELEMENTS = {
       "data": {
         "id": "e97",
         "source": "crate:console-input-controller",
-        "target": "internal:SessionGame",
+        "target": "internal:Dictate",
         "label": "starts",
         "type": "dependency"
       }
@@ -2415,7 +2555,7 @@ const ELEMENTS = {
       "data": {
         "id": "e98",
         "source": "crate:console-input-controller",
-        "target": "internal:SettingsPanel",
+        "target": "internal:Downloads",
         "label": "starts",
         "type": "dependency"
       }
@@ -2424,7 +2564,7 @@ const ELEMENTS = {
       "data": {
         "id": "e99",
         "source": "crate:console-input-controller",
-        "target": "internal:Volume",
+        "target": "internal:Files",
         "label": "starts",
         "type": "dependency"
       }
@@ -2433,6 +2573,132 @@ const ELEMENTS = {
       "data": {
         "id": "e100",
         "source": "crate:console-input-controller",
+        "target": "internal:KeyboardToggle",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e101",
+        "source": "crate:console-input-controller",
+        "target": "internal:Launcher",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e102",
+        "source": "crate:console-input-controller",
+        "target": "internal:MappingPanel",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e103",
+        "source": "crate:console-input-controller",
+        "target": "internal:MusicPanel",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e104",
+        "source": "crate:console-input-controller",
+        "target": "internal:NotificationsPanel",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e105",
+        "source": "crate:console-input-controller",
+        "target": "internal:Notify",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e106",
+        "source": "crate:console-input-controller",
+        "target": "internal:Overview",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e107",
+        "source": "crate:console-input-controller",
+        "target": "internal:PutAway",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e108",
+        "source": "crate:console-input-controller",
+        "target": "internal:Screenshot",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e109",
+        "source": "crate:console-input-controller",
+        "target": "internal:SessionDesktop",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e110",
+        "source": "crate:console-input-controller",
+        "target": "internal:SessionGame",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e111",
+        "source": "crate:console-input-controller",
+        "target": "internal:SettingsPanel",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e112",
+        "source": "crate:console-input-controller",
+        "target": "internal:TaskManager",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e113",
+        "source": "crate:console-input-controller",
+        "target": "internal:Volume",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e114",
+        "source": "crate:console-input-controller",
         "target": "program:Alacritty",
         "label": "runs",
         "type": "dependency"
@@ -2440,7 +2706,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e101",
+        "id": "e115",
         "source": "crate:console-input-controller",
         "target": "program:Busctl",
         "label": "runs",
@@ -2449,7 +2715,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e102",
+        "id": "e116",
         "source": "crate:console-input-dictation",
         "target": "internal:ConsoleSay",
         "label": "starts",
@@ -2458,7 +2724,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e103",
+        "id": "e117",
         "source": "crate:console-input-dictation",
         "target": "internal:Dictate",
         "label": "starts",
@@ -2467,7 +2733,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e104",
+        "id": "e118",
         "source": "crate:console-input-dictation",
         "target": "program:Cmake",
         "label": "runs",
@@ -2476,7 +2742,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e105",
+        "id": "e119",
         "source": "crate:console-input-dictation",
         "target": "program:Cp",
         "label": "runs",
@@ -2485,7 +2751,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e106",
+        "id": "e120",
         "source": "crate:console-input-dictation",
         "target": "program:Curl",
         "label": "runs",
@@ -2494,7 +2760,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e107",
+        "id": "e121",
         "source": "crate:console-input-dictation",
         "target": "program:Date",
         "label": "runs",
@@ -2503,7 +2769,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e108",
+        "id": "e122",
         "source": "crate:console-input-dictation",
         "target": "program:Git",
         "label": "runs",
@@ -2512,7 +2778,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e109",
+        "id": "e123",
         "source": "crate:console-input-dictation",
         "target": "program:Mkdir",
         "label": "runs",
@@ -2521,7 +2787,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e110",
+        "id": "e124",
         "source": "crate:console-input-dictation",
         "target": "program:Mv",
         "label": "runs",
@@ -2530,7 +2796,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e111",
+        "id": "e125",
         "source": "crate:console-input-dictation",
         "target": "program:NotifySend",
         "label": "runs",
@@ -2539,7 +2805,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e112",
+        "id": "e126",
         "source": "crate:console-input-dictation",
         "target": "program:PwRecord",
         "label": "runs",
@@ -2548,7 +2814,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e113",
+        "id": "e127",
         "source": "crate:console-input-dictation",
         "target": "program:Rm",
         "label": "runs",
@@ -2557,7 +2823,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e114",
+        "id": "e128",
         "source": "crate:console-input-dictation",
         "target": "program:WhisperCli",
         "label": "runs",
@@ -2566,7 +2832,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e115",
+        "id": "e129",
         "source": "crate:console-input-dictation",
         "target": "program:Wtype",
         "label": "runs",
@@ -2575,7 +2841,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e116",
+        "id": "e130",
         "source": "crate:console-input-gamepad",
         "target": "program:Busctl",
         "label": "runs",
@@ -2584,7 +2850,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e117",
+        "id": "e131",
         "source": "crate:console-input-gamepad",
         "target": "program:Ls",
         "label": "runs",
@@ -2593,7 +2859,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e118",
+        "id": "e132",
         "source": "crate:console-input-gamepad",
         "target": "program:Modprobe",
         "label": "runs",
@@ -2602,7 +2868,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e119",
+        "id": "e133",
         "source": "crate:console-input-gamepad",
         "target": "program:Udevadm",
         "label": "runs",
@@ -2611,7 +2877,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e120",
+        "id": "e134",
         "source": "crate:console-input-gamepad",
         "target": "program:Usermod",
         "label": "runs",
@@ -2620,7 +2886,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e121",
+        "id": "e135",
         "source": "crate:console-input-keyboard",
         "target": "a unix socket",
         "label": "binds",
@@ -2629,7 +2895,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e122",
+        "id": "e136",
         "source": "crate:console-input-language",
         "target": "compositor",
         "label": "asks",
@@ -2638,7 +2904,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e123",
+        "id": "e137",
+        "source": "crate:console-input-mapping",
+        "target": "compositor",
+        "label": "asks",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e138",
         "source": "crate:console-input-mapping",
         "target": "internal:Asking",
         "label": "starts",
@@ -2647,7 +2922,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e124",
+        "id": "e139",
         "source": "crate:console-launcher",
         "target": "program:XdgOpen",
         "label": "runs",
@@ -2656,7 +2931,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e125",
+        "id": "e140",
         "source": "crate:console-login-window",
         "target": "internal:LoginGreeter",
         "label": "starts",
@@ -2665,7 +2940,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e126",
+        "id": "e141",
         "source": "crate:console-login-window",
         "target": "internal:LoginWindow",
         "label": "starts",
@@ -2674,7 +2949,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e127",
+        "id": "e142",
         "source": "crate:console-login-window",
         "target": "program:Systemctl",
         "label": "runs",
@@ -2683,7 +2958,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e128",
+        "id": "e143",
         "source": "crate:console-manifest-engine",
         "target": "a unix socket",
         "label": "binds",
@@ -2692,7 +2967,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e129",
+        "id": "e144",
+        "source": "crate:console-manifest-engine",
+        "target": "program:Awww",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e145",
         "source": "crate:console-manifest-engine",
         "target": "program:Bootctl",
         "label": "runs",
@@ -2701,7 +2985,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e130",
+        "id": "e146",
         "source": "crate:console-manifest-engine",
         "target": "program:Cargo",
         "label": "runs",
@@ -2710,7 +2994,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e131",
+        "id": "e147",
         "source": "crate:console-manifest-engine",
         "target": "program:Date",
         "label": "runs",
@@ -2719,7 +3003,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e132",
+        "id": "e148",
         "source": "crate:console-manifest-engine",
         "target": "program:Df",
         "label": "runs",
@@ -2728,7 +3012,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e133",
+        "id": "e149",
         "source": "crate:console-manifest-engine",
         "target": "program:Du",
         "label": "runs",
@@ -2737,7 +3021,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e134",
+        "id": "e150",
         "source": "crate:console-manifest-engine",
         "target": "program:Env",
         "label": "runs",
@@ -2746,7 +3030,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e135",
+        "id": "e151",
         "source": "crate:console-manifest-engine",
         "target": "program:Git",
         "label": "runs",
@@ -2755,7 +3039,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e136",
+        "id": "e152",
         "source": "crate:console-manifest-engine",
         "target": "program:Id",
         "label": "runs",
@@ -2764,7 +3048,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e137",
+        "id": "e153",
         "source": "crate:console-manifest-engine",
         "target": "program:Mv",
         "label": "runs",
@@ -2773,7 +3057,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e138",
+        "id": "e154",
         "source": "crate:console-manifest-engine",
         "target": "program:Pacman",
         "label": "runs",
@@ -2782,7 +3066,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e139",
+        "id": "e155",
         "source": "crate:console-manifest-engine",
         "target": "program:Pkill",
         "label": "runs",
@@ -2791,7 +3075,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e140",
+        "id": "e156",
         "source": "crate:console-manifest-engine",
         "target": "program:Runuser",
         "label": "runs",
@@ -2800,7 +3084,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e141",
+        "id": "e157",
         "source": "crate:console-manifest-engine",
         "target": "program:Snapper",
         "label": "runs",
@@ -2809,16 +3093,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e142",
-        "source": "crate:console-manifest-engine",
-        "target": "program:Su",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e143",
+        "id": "e158",
         "source": "crate:console-manifest-engine",
         "target": "program:Systemctl",
         "label": "runs",
@@ -2827,7 +3102,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e144",
+        "id": "e159",
         "source": "crate:console-manifest-publish",
         "target": "program:Cargo",
         "label": "runs",
@@ -2836,7 +3111,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e145",
+        "id": "e160",
         "source": "crate:console-manifest-publish",
         "target": "program:Hostname",
         "label": "runs",
@@ -2845,7 +3120,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e146",
+        "id": "e161",
         "source": "crate:console-manifest-publish",
         "target": "program:Id",
         "label": "runs",
@@ -2854,7 +3129,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e147",
+        "id": "e162",
         "source": "crate:console-manifest-publish",
         "target": "program:Ssh",
         "label": "runs",
@@ -2863,7 +3138,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e148",
+        "id": "e163",
         "source": "crate:console-media-viewer",
         "target": "internal:Files",
         "label": "starts",
@@ -2872,7 +3147,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e149",
+        "id": "e164",
         "source": "crate:console-music",
         "target": "event-group:Compositor",
         "label": "subscribes",
@@ -2881,7 +3156,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e150",
+        "id": "e165",
         "source": "crate:console-music",
         "target": "event-group:Player",
         "label": "subscribes",
@@ -2890,7 +3165,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e151",
+        "id": "e166",
         "source": "crate:console-music",
         "target": "internal:Files",
         "label": "starts",
@@ -2899,7 +3174,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e152",
+        "id": "e167",
         "source": "crate:console-music",
         "target": "internal:MusicIndex",
         "label": "starts",
@@ -2908,7 +3183,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e153",
+        "id": "e168",
         "source": "crate:console-music",
         "target": "internal:MusicOnward",
         "label": "starts",
@@ -2917,7 +3192,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e154",
+        "id": "e169",
         "source": "crate:console-music",
         "target": "program:Busctl",
         "label": "runs",
@@ -2926,7 +3201,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e155",
+        "id": "e170",
         "source": "crate:console-music",
         "target": "program:Sh",
         "label": "runs",
@@ -2935,7 +3210,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e156",
+        "id": "e171",
         "source": "crate:console-music-player",
         "target": "program:PwCat",
         "label": "runs",
@@ -2944,7 +3219,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e157",
+        "id": "e172",
         "source": "crate:console-notes",
         "target": "internal:KeyboardShow",
         "label": "starts",
@@ -2953,7 +3228,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e158",
+        "id": "e173",
         "source": "crate:console-notes",
         "target": "internal:Notes",
         "label": "starts",
@@ -2962,7 +3237,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e159",
+        "id": "e174",
         "source": "crate:console-notes",
         "target": "program:Gio",
         "label": "runs",
@@ -2971,7 +3246,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e160",
+        "id": "e175",
         "source": "crate:console-notifications",
         "target": "event-group:Notifications",
         "label": "subscribes",
@@ -2980,7 +3255,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e161",
+        "id": "e176",
         "source": "crate:console-notifications",
         "target": "program:Busctl",
         "label": "runs",
@@ -2989,7 +3264,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e162",
+        "id": "e177",
+        "source": "crate:console-notifications",
+        "target": "program:Curl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e178",
         "source": "crate:console-notifications",
         "target": "program:Logger",
         "label": "runs",
@@ -2998,7 +3282,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e163",
+        "id": "e179",
         "source": "crate:console-notifications",
         "target": "program:Systemctl",
         "label": "runs",
@@ -3007,143 +3291,8 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e164",
+        "id": "e180",
         "source": "crate:console-onscreen",
-        "target": "compositor events",
-        "label": "names the socket",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e165",
-        "source": "crate:console-operating-system-linux",
-        "target": "a unix socket",
-        "label": "connects",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e166",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Battery",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e167",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Bluetooth",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e168",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Compositor",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e169",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Network",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e170",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Notifications",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e171",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Path",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e172",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Player",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e173",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Sound",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e174",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Units",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e175",
-        "source": "crate:console-operating-system-linux",
-        "target": "event-group:Wifi",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e176",
-        "source": "crate:console-operating-system-linux",
-        "target": "program:NotifySend",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e177",
-        "source": "crate:console-operating-system-linux",
-        "target": "program:Systemctl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e178",
-        "source": "crate:console-operating-system-linux",
-        "target": "program:SystemdRun",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e179",
-        "source": "crate:console-overview",
         "target": "a unix socket",
         "label": "binds",
         "type": "dependency"
@@ -3151,17 +3300,8 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e180",
-        "source": "crate:console-overview",
-        "target": "compositor",
-        "label": "asks",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
         "id": "e181",
-        "source": "crate:console-panel",
+        "source": "crate:console-onscreen",
         "target": "a unix socket",
         "label": "connects",
         "type": "dependency"
@@ -3170,6 +3310,159 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e182",
+        "source": "crate:console-onscreen",
+        "target": "compositor events",
+        "label": "names the socket",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e183",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Battery",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e184",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Bluetooth",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e185",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Compositor",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e186",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Network",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e187",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Notifications",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e188",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Path",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e189",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Player",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e190",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Sound",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e191",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Units",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e192",
+        "source": "crate:console-operating-system-linux",
+        "target": "event-group:Wifi",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e193",
+        "source": "crate:console-operating-system-linux",
+        "target": "program:NotifySend",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e194",
+        "source": "crate:console-operating-system-linux",
+        "target": "program:Systemctl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e195",
+        "source": "crate:console-operating-system-linux",
+        "target": "program:SystemdRun",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e196",
+        "source": "crate:console-overview",
+        "target": "a unix socket",
+        "label": "binds",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e197",
+        "source": "crate:console-overview",
+        "target": "compositor",
+        "label": "asks",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e198",
+        "source": "crate:console-panel",
+        "target": "a unix socket",
+        "label": "connects",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e199",
         "source": "crate:console-panel",
         "target": "compositor",
         "label": "asks",
@@ -3178,7 +3471,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e183",
+        "id": "e200",
         "source": "crate:console-panel",
         "target": "event-group:Path",
         "label": "subscribes",
@@ -3187,7 +3480,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e184",
+        "id": "e201",
         "source": "crate:console-panel",
         "target": "internal:ConsoleSay",
         "label": "starts",
@@ -3196,7 +3489,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e185",
+        "id": "e202",
         "source": "crate:console-panel",
         "target": "internal:PanelPictures",
         "label": "starts",
@@ -3205,7 +3498,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e186",
+        "id": "e203",
         "source": "crate:console-panel",
         "target": "program:Gio",
         "label": "runs",
@@ -3214,7 +3507,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e187",
+        "id": "e204",
         "source": "crate:console-panels",
         "target": "a unix socket",
         "label": "binds",
@@ -3223,7 +3516,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e188",
+        "id": "e205",
         "source": "crate:console-panels",
         "target": "a unix socket",
         "label": "connects",
@@ -3232,7 +3525,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e189",
+        "id": "e206",
         "source": "crate:console-panels",
         "target": "internal:Calculator",
         "label": "starts",
@@ -3241,7 +3534,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e190",
+        "id": "e207",
         "source": "crate:console-panels",
         "target": "internal:CalendarPanel",
         "label": "starts",
@@ -3250,7 +3543,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e191",
+        "id": "e208",
+        "source": "crate:console-panels",
+        "target": "internal:Clipboard",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e209",
         "source": "crate:console-panels",
         "target": "internal:ForecastPanel",
         "label": "starts",
@@ -3259,7 +3561,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e192",
+        "id": "e210",
         "source": "crate:console-panels",
         "target": "internal:Launcher",
         "label": "starts",
@@ -3268,7 +3570,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e193",
+        "id": "e211",
         "source": "crate:console-panels",
         "target": "internal:MappingPanel",
         "label": "starts",
@@ -3277,7 +3579,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e194",
+        "id": "e212",
         "source": "crate:console-panels",
         "target": "internal:MusicPanel",
         "label": "starts",
@@ -3286,7 +3588,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e195",
+        "id": "e213",
         "source": "crate:console-panels",
         "target": "internal:NotificationsPanel",
         "label": "starts",
@@ -3295,7 +3597,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e196",
+        "id": "e214",
         "source": "crate:console-panels",
         "target": "internal:SettingsPanel",
         "label": "starts",
@@ -3304,7 +3606,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e197",
+        "id": "e215",
+        "source": "crate:console-panels",
+        "target": "internal:TaskManager",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e216",
         "source": "crate:console-pictures",
         "target": "program:Ffmpeg",
         "label": "runs",
@@ -3313,7 +3624,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e198",
+        "id": "e217",
         "source": "crate:console-pictures",
         "target": "program:Ffprobe",
         "label": "runs",
@@ -3322,7 +3633,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e199",
+        "id": "e218",
         "source": "crate:console-recovery",
         "target": "program:Bootctl",
         "label": "runs",
@@ -3331,7 +3642,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e200",
+        "id": "e219",
         "source": "crate:console-recovery",
         "target": "program:Cat",
         "label": "runs",
@@ -3340,7 +3651,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e201",
+        "id": "e220",
         "source": "crate:console-recovery",
         "target": "program:Systemctl",
         "label": "runs",
@@ -3349,7 +3660,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e202",
+        "id": "e221",
         "source": "crate:console-rename",
         "target": "program:Git",
         "label": "runs",
@@ -3358,7 +3669,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e203",
+        "id": "e222",
         "source": "crate:console-repository",
         "target": "program:Git",
         "label": "runs",
@@ -3367,7 +3678,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e204",
+        "id": "e223",
         "source": "crate:console-resource-usage",
         "target": "program:Systemctl",
         "label": "runs",
@@ -3376,7 +3687,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e205",
+        "id": "e224",
         "source": "crate:console-resume",
         "target": "compositor",
         "label": "asks",
@@ -3385,7 +3696,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e206",
+        "id": "e225",
         "source": "crate:console-resume",
         "target": "event-group:Compositor",
         "label": "subscribes",
@@ -3394,7 +3705,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e207",
+        "id": "e226",
         "source": "crate:console-session",
         "target": "internal:Scale",
         "label": "starts",
@@ -3403,7 +3714,43 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e208",
+        "id": "e227",
+        "source": "crate:console-session",
+        "target": "program:Hyprctl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e228",
+        "source": "crate:console-session",
+        "target": "program:Id",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e229",
+        "source": "crate:console-session",
+        "target": "program:Pgrep",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e230",
+        "source": "crate:console-session",
+        "target": "program:Pkexec",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e231",
         "source": "crate:console-session",
         "target": "program:Runuser",
         "label": "runs",
@@ -3412,7 +3759,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e209",
+        "id": "e232",
         "source": "crate:console-session",
         "target": "program:Sh",
         "label": "runs",
@@ -3421,216 +3768,9 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e210",
-        "source": "crate:console-session",
-        "target": "program:Systemctl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e211",
-        "source": "crate:console-settings",
-        "target": "compositor",
-        "label": "asks",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e212",
-        "source": "crate:console-settings",
-        "target": "event-group:Sound",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e213",
-        "source": "crate:console-settings",
-        "target": "event-group:Wifi",
-        "label": "subscribes",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e214",
-        "source": "crate:console-settings",
-        "target": "internal:Brightness",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e215",
-        "source": "crate:console-settings",
-        "target": "internal:LanguageSwitch",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e216",
-        "source": "crate:console-settings",
-        "target": "internal:MappingPanel",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e217",
-        "source": "crate:console-settings",
-        "target": "internal:NightShift",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e218",
-        "source": "crate:console-settings",
-        "target": "internal:Scale",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e219",
-        "source": "crate:console-settings",
-        "target": "internal:SessionGame",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e220",
-        "source": "crate:console-settings",
-        "target": "internal:SettingsLoginPattern",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e221",
-        "source": "crate:console-settings",
-        "target": "internal:Wallpaper",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e222",
-        "source": "crate:console-settings",
-        "target": "internal:WallpaperRender",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e223",
-        "source": "crate:console-settings",
-        "target": "program:Awww",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e224",
-        "source": "crate:console-settings",
-        "target": "program:Busctl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e225",
-        "source": "crate:console-settings",
-        "target": "program:Hostnamectl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e226",
-        "source": "crate:console-settings",
-        "target": "program:Iw",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e227",
-        "source": "crate:console-settings",
-        "target": "program:Locale",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e228",
-        "source": "crate:console-settings",
-        "target": "program:LocaleGen",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e229",
-        "source": "crate:console-settings",
-        "target": "program:Localectl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e230",
-        "source": "crate:console-settings",
-        "target": "program:Loginctl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e231",
-        "source": "crate:console-settings",
-        "target": "program:Nmcli",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e232",
-        "source": "crate:console-settings",
-        "target": "program:Pactl",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
         "id": "e233",
-        "source": "crate:console-settings",
-        "target": "program:Powerprofilesctl",
+        "source": "crate:console-session",
+        "target": "program:Steam",
         "label": "runs",
         "type": "dependency"
       }
@@ -3638,8 +3778,8 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e234",
-        "source": "crate:console-settings",
-        "target": "program:Sudo",
+        "source": "crate:console-session",
+        "target": "program:SteamSetSession",
         "label": "runs",
         "type": "dependency"
       }
@@ -3647,8 +3787,8 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e235",
-        "source": "crate:console-settings",
-        "target": "program:Systemctl",
+        "source": "crate:console-session",
+        "target": "program:StockSessionSelect",
         "label": "runs",
         "type": "dependency"
       }
@@ -3656,8 +3796,8 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e236",
-        "source": "crate:console-settings",
-        "target": "program:Timedatectl",
+        "source": "crate:console-session",
+        "target": "program:Systemctl",
         "label": "runs",
         "type": "dependency"
       }
@@ -3666,6 +3806,240 @@ const ELEMENTS = {
       "data": {
         "id": "e237",
         "source": "crate:console-settings",
+        "target": "compositor",
+        "label": "asks",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e238",
+        "source": "crate:console-settings",
+        "target": "event-group:Sound",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e239",
+        "source": "crate:console-settings",
+        "target": "event-group:Wifi",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e240",
+        "source": "crate:console-settings",
+        "target": "internal:Brightness",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e241",
+        "source": "crate:console-settings",
+        "target": "internal:LanguageSwitch",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e242",
+        "source": "crate:console-settings",
+        "target": "internal:MappingPanel",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e243",
+        "source": "crate:console-settings",
+        "target": "internal:NightShift",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e244",
+        "source": "crate:console-settings",
+        "target": "internal:Scale",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e245",
+        "source": "crate:console-settings",
+        "target": "internal:SessionGame",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e246",
+        "source": "crate:console-settings",
+        "target": "internal:SettingsLoginPattern",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e247",
+        "source": "crate:console-settings",
+        "target": "internal:Wallpaper",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e248",
+        "source": "crate:console-settings",
+        "target": "internal:WallpaperRender",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e249",
+        "source": "crate:console-settings",
+        "target": "program:Awww",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e250",
+        "source": "crate:console-settings",
+        "target": "program:Busctl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e251",
+        "source": "crate:console-settings",
+        "target": "program:Hostnamectl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e252",
+        "source": "crate:console-settings",
+        "target": "program:Iw",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e253",
+        "source": "crate:console-settings",
+        "target": "program:Locale",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e254",
+        "source": "crate:console-settings",
+        "target": "program:LocaleGen",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e255",
+        "source": "crate:console-settings",
+        "target": "program:Localectl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e256",
+        "source": "crate:console-settings",
+        "target": "program:Loginctl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e257",
+        "source": "crate:console-settings",
+        "target": "program:Nmcli",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e258",
+        "source": "crate:console-settings",
+        "target": "program:Pactl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e259",
+        "source": "crate:console-settings",
+        "target": "program:Powerprofilesctl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e260",
+        "source": "crate:console-settings",
+        "target": "program:Sudo",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e261",
+        "source": "crate:console-settings",
+        "target": "program:Systemctl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e262",
+        "source": "crate:console-settings",
+        "target": "program:Timedatectl",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e263",
+        "source": "crate:console-settings",
         "target": "program:XdgMime",
         "label": "runs",
         "type": "dependency"
@@ -3673,7 +4047,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e238",
+        "id": "e264",
         "source": "crate:console-settings",
         "target": "program:XdgSettings",
         "label": "runs",
@@ -3682,7 +4056,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e239",
+        "id": "e265",
         "source": "crate:console-sound-effects",
         "target": "program:PwCat",
         "label": "runs",
@@ -3691,7 +4065,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e240",
+        "id": "e266",
         "source": "crate:console-status-bar",
         "target": "compositor",
         "label": "asks",
@@ -3700,7 +4074,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e241",
+        "id": "e267",
         "source": "crate:console-status-bar",
         "target": "event-group:Battery",
         "label": "subscribes",
@@ -3709,7 +4083,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e242",
+        "id": "e268",
         "source": "crate:console-status-bar",
         "target": "event-group:Bluetooth",
         "label": "subscribes",
@@ -3718,7 +4092,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e243",
+        "id": "e269",
         "source": "crate:console-status-bar",
         "target": "event-group:Compositor",
         "label": "subscribes",
@@ -3727,7 +4101,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e244",
+        "id": "e270",
         "source": "crate:console-status-bar",
         "target": "event-group:Network",
         "label": "subscribes",
@@ -3736,7 +4110,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e245",
+        "id": "e271",
         "source": "crate:console-status-bar",
         "target": "event-group:Notifications",
         "label": "subscribes",
@@ -3745,7 +4119,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e246",
+        "id": "e272",
         "source": "crate:console-status-bar",
         "target": "event-group:Player",
         "label": "subscribes",
@@ -3754,7 +4128,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e247",
+        "id": "e273",
         "source": "crate:console-status-bar",
         "target": "event-group:Sound",
         "label": "subscribes",
@@ -3763,7 +4137,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e248",
+        "id": "e274",
         "source": "crate:console-status-bar",
         "target": "internal:CalendarPanel",
         "label": "starts",
@@ -3772,7 +4146,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e249",
+        "id": "e275",
+        "source": "crate:console-status-bar",
+        "target": "internal:Clipboard",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e276",
         "source": "crate:console-status-bar",
         "target": "internal:KeyboardToggle",
         "label": "starts",
@@ -3781,7 +4164,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e250",
+        "id": "e277",
         "source": "crate:console-status-bar",
         "target": "internal:Launcher",
         "label": "starts",
@@ -3790,7 +4173,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e251",
+        "id": "e278",
         "source": "crate:console-status-bar",
         "target": "internal:MusicPanel",
         "label": "starts",
@@ -3799,7 +4182,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e252",
+        "id": "e279",
         "source": "crate:console-status-bar",
         "target": "internal:NotificationsPanel",
         "label": "starts",
@@ -3808,7 +4191,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e253",
+        "id": "e280",
         "source": "crate:console-status-bar",
         "target": "internal:SettingsPanel",
         "label": "starts",
@@ -3817,7 +4200,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e254",
+        "id": "e281",
         "source": "crate:console-status-bar",
         "target": "internal:Volume",
         "label": "starts",
@@ -3826,7 +4209,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e255",
+        "id": "e282",
         "source": "crate:console-status-bar",
         "target": "program:Date",
         "label": "runs",
@@ -3835,7 +4218,16 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e256",
+        "id": "e283",
+        "source": "crate:console-status-bar",
+        "target": "program:Gio",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e284",
         "source": "crate:console-status-bar",
         "target": "program:Nmcli",
         "label": "runs",
@@ -3844,7 +4236,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e257",
+        "id": "e285",
         "source": "crate:console-status-bar",
         "target": "program:Systemctl",
         "label": "runs",
@@ -3853,7 +4245,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e258",
+        "id": "e286",
         "source": "crate:console-status-bar",
         "target": "program:Wpctl",
         "label": "runs",
@@ -3862,7 +4254,34 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e259",
+        "id": "e287",
+        "source": "crate:console-syncthing",
+        "target": "program:Syncthing",
+        "label": "runs",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e288",
+        "source": "crate:console-task-manager",
+        "target": "compositor",
+        "label": "asks",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e289",
+        "source": "crate:console-task-manager",
+        "target": "event-group:Compositor",
+        "label": "subscribes",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e290",
         "source": "crate:console-tasks",
         "target": "program:Cargo",
         "label": "runs",
@@ -3871,7 +4290,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e260",
+        "id": "e291",
         "source": "crate:console-tasks",
         "target": "program:Dot",
         "label": "runs",
@@ -3880,7 +4299,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e261",
+        "id": "e292",
         "source": "crate:console-tasks",
         "target": "program:Git",
         "label": "runs",
@@ -3889,7 +4308,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e262",
+        "id": "e293",
         "source": "crate:console-tasks",
         "target": "program:Rustup",
         "label": "runs",
@@ -3898,7 +4317,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e263",
+        "id": "e294",
         "source": "crate:console-tasks",
         "target": "program:SystemdRun",
         "label": "runs",
@@ -3907,7 +4326,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e264",
+        "id": "e295",
         "source": "crate:console-test-checks",
         "target": "program:Alacritty",
         "label": "runs",
@@ -3916,7 +4335,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e265",
+        "id": "e296",
         "source": "crate:console-test-checks",
         "target": "program:NotifySend",
         "label": "runs",
@@ -3925,7 +4344,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e266",
+        "id": "e297",
         "source": "crate:console-test-checks",
         "target": "program:Ps",
         "label": "runs",
@@ -3934,7 +4353,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e267",
+        "id": "e298",
         "source": "crate:console-test-checks",
         "target": "program:SevenZip",
         "label": "runs",
@@ -3943,7 +4362,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e268",
+        "id": "e299",
         "source": "crate:console-test-checks",
         "target": "program:Ss",
         "label": "runs",
@@ -3952,7 +4371,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e269",
+        "id": "e300",
         "source": "crate:console-test-checks",
         "target": "program:Systemctl",
         "label": "runs",
@@ -3961,7 +4380,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e270",
+        "id": "e301",
         "source": "crate:console-test-desktop",
         "target": "compositor",
         "label": "asks",
@@ -3970,7 +4389,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e271",
+        "id": "e302",
         "source": "crate:console-test-desktop",
         "target": "program:Awww",
         "label": "runs",
@@ -3979,7 +4398,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e272",
+        "id": "e303",
         "source": "crate:console-test-desktop",
         "target": "program:AwwwDaemon",
         "label": "runs",
@@ -3988,7 +4407,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e273",
+        "id": "e304",
         "source": "crate:console-test-desktop",
         "target": "program:Hyprctl",
         "label": "runs",
@@ -3997,7 +4416,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e274",
+        "id": "e305",
         "source": "crate:console-test-desktop",
         "target": "program:Hyprland",
         "label": "runs",
@@ -4006,7 +4425,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e275",
+        "id": "e306",
         "source": "crate:console-test-desktop",
         "target": "program:Sh",
         "label": "runs",
@@ -4015,7 +4434,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e276",
+        "id": "e307",
         "source": "crate:console-test-stages",
         "target": "program:DbusDaemon",
         "label": "runs",
@@ -4024,7 +4443,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e277",
+        "id": "e308",
         "source": "crate:console-test-stages",
         "target": "program:Scp",
         "label": "runs",
@@ -4033,16 +4452,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e278",
-        "source": "crate:console-test-stages",
-        "target": "program:Sh",
-        "label": "runs",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e279",
+        "id": "e309",
         "source": "crate:console-test-stages",
         "target": "program:Ssh",
         "label": "runs",
@@ -4051,7 +4461,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e280",
+        "id": "e310",
         "source": "crate:console-wallpaper",
         "target": "event-group:Compositor",
         "label": "subscribes",
@@ -4060,7 +4470,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e281",
+        "id": "e311",
         "source": "crate:console-wallpaper",
         "target": "program:Awww",
         "label": "runs",
@@ -4069,7 +4479,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e282",
+        "id": "e312",
         "source": "crate:console-wallpaper",
         "target": "program:Curl",
         "label": "runs",
@@ -4078,7 +4488,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e283",
+        "id": "e313",
         "source": "crate:console-wallpaper",
         "target": "program:Ffmpeg",
         "label": "runs",
@@ -4087,7 +4497,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e284",
+        "id": "e314",
         "source": "crate:console-weather",
         "target": "program:Curl",
         "label": "runs",
@@ -4096,7 +4506,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e285",
+        "id": "e315",
         "source": "unit:console-bar.service",
         "target": "crate:console-status-bar",
         "label": "console-bar",
@@ -4105,7 +4515,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e286",
+        "id": "e316",
         "source": "unit:console-bar.service",
         "target": "unit:console.target",
         "label": "part of",
@@ -4114,287 +4524,17 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e287",
-        "source": "unit:console-control-center.service",
-        "target": "crate:console-control-center",
-        "label": "console-control-center",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e288",
-        "source": "unit:console-control-center.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e289",
-        "source": "unit:console-events.service",
-        "target": "crate:console-events",
-        "label": "console-events",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e290",
-        "source": "unit:console-events.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e291",
-        "source": "unit:console-health.service",
-        "target": "crate:console-manifest-engine",
-        "label": "console",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e292",
-        "source": "unit:console-health.service",
-        "target": "unit:console-bar.service",
-        "label": "after",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e293",
-        "source": "unit:console-health.service",
-        "target": "unit:console-input-controller.service",
-        "label": "after",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e294",
-        "source": "unit:console-health.service",
-        "target": "unit:console-wallpaper.service",
-        "label": "after",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e295",
-        "source": "unit:console-health.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e296",
-        "source": "unit:console-health.timer",
-        "target": "unit:console-health.service",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e297",
-        "source": "unit:console-health.timer",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e298",
-        "source": "unit:console-home.service",
-        "target": "crate:console-home-screen",
-        "label": "console-home",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e299",
-        "source": "unit:console-home.service",
-        "target": "unit:console-bar.service",
-        "label": "after",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e300",
-        "source": "unit:console-home.service",
-        "target": "unit:console-paper.service",
-        "label": "after",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e301",
-        "source": "unit:console-home.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e302",
-        "source": "unit:console-idle.service",
-        "target": "binary:hypridle",
-        "label": "starts",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e303",
-        "source": "unit:console-idle.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e304",
-        "source": "unit:console-input-controller.service",
-        "target": "crate:console-input-controller",
-        "label": "controller-desktop",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e305",
-        "source": "unit:console-input-controller.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e306",
-        "source": "unit:console-input-keyboard.service",
-        "target": "crate:console-input-keyboard",
-        "label": "console-keyboard",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e307",
-        "source": "unit:console-input-keyboard.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e308",
-        "source": "unit:console-light.service",
-        "target": "crate:console-settings",
-        "label": "console-brightness",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e309",
-        "source": "unit:console-light.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e310",
-        "source": "unit:console-lock.service",
-        "target": "crate:console-lock-screen",
-        "label": "lock-screen",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e311",
-        "source": "unit:console-notify.service",
-        "target": "crate:console-notifications",
-        "label": "console-notify",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e312",
-        "source": "unit:console-notify.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e313",
-        "source": "unit:console-overview.service",
-        "target": "crate:console-overview",
-        "label": "console-overview",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e314",
-        "source": "unit:console-overview.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
-        "id": "e315",
-        "source": "unit:console-panels.service",
-        "target": "crate:console-panels",
-        "label": "console-panels",
-        "type": "dependency"
-      }
-    },
-    {
-      "data": {
-        "id": "e316",
-        "source": "unit:console-panels.service",
-        "target": "unit:console.target",
-        "label": "part of",
-        "type": "ordering"
-      }
-    },
-    {
-      "data": {
         "id": "e317",
-        "source": "unit:console-paper.service",
-        "target": "binary:awww-daemon",
-        "label": "starts",
+        "source": "unit:console-clipboard.service",
+        "target": "crate:console-clipboard",
+        "label": "console-clipboard",
         "type": "dependency"
       }
     },
     {
       "data": {
         "id": "e318",
-        "source": "unit:console-paper.service",
+        "source": "unit:console-clipboard.service",
         "target": "unit:console.target",
         "label": "part of",
         "type": "ordering"
@@ -4403,16 +4543,16 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e319",
-        "source": "unit:console-polkit.service",
-        "target": "binary:polkit-kde-authentication-agent-1",
-        "label": "starts",
+        "source": "unit:console-control-center.service",
+        "target": "crate:console-control-center",
+        "label": "console-control-center",
         "type": "dependency"
       }
     },
     {
       "data": {
         "id": "e320",
-        "source": "unit:console-polkit.service",
+        "source": "unit:console-control-center.service",
         "target": "unit:console.target",
         "label": "part of",
         "type": "ordering"
@@ -4421,16 +4561,16 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e321",
-        "source": "unit:console-resource-usage.service",
-        "target": "crate:console-resource-usage",
-        "label": "console-resource-usage",
+        "source": "unit:console-events.service",
+        "target": "crate:console-events",
+        "label": "console-events",
         "type": "dependency"
       }
     },
     {
       "data": {
         "id": "e322",
-        "source": "unit:console-resource-usage.service",
+        "source": "unit:console-events.service",
         "target": "unit:console.target",
         "label": "part of",
         "type": "ordering"
@@ -4439,6 +4579,294 @@ const ELEMENTS = {
     {
       "data": {
         "id": "e323",
+        "source": "unit:console-health.service",
+        "target": "crate:console-manifest-engine",
+        "label": "console",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e324",
+        "source": "unit:console-health.service",
+        "target": "unit:console-bar.service",
+        "label": "after",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e325",
+        "source": "unit:console-health.service",
+        "target": "unit:console-input-controller.service",
+        "label": "after",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e326",
+        "source": "unit:console-health.service",
+        "target": "unit:console-wallpaper.service",
+        "label": "after",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e327",
+        "source": "unit:console-health.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e328",
+        "source": "unit:console-health.timer",
+        "target": "unit:console-health.service",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e329",
+        "source": "unit:console-health.timer",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e330",
+        "source": "unit:console-home.service",
+        "target": "crate:console-home-screen",
+        "label": "console-home",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e331",
+        "source": "unit:console-home.service",
+        "target": "unit:console-bar.service",
+        "label": "after",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e332",
+        "source": "unit:console-home.service",
+        "target": "unit:console-paper.service",
+        "label": "after",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e333",
+        "source": "unit:console-home.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e334",
+        "source": "unit:console-idle.service",
+        "target": "binary:hypridle",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e335",
+        "source": "unit:console-idle.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e336",
+        "source": "unit:console-input-controller.service",
+        "target": "crate:console-input-controller",
+        "label": "controller-desktop",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e337",
+        "source": "unit:console-input-controller.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e338",
+        "source": "unit:console-input-keyboard.service",
+        "target": "crate:console-input-keyboard",
+        "label": "console-keyboard",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e339",
+        "source": "unit:console-input-keyboard.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e340",
+        "source": "unit:console-light.service",
+        "target": "crate:console-settings",
+        "label": "console-brightness",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e341",
+        "source": "unit:console-light.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e342",
+        "source": "unit:console-lock.service",
+        "target": "crate:console-lock-screen",
+        "label": "lock-screen",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e343",
+        "source": "unit:console-notify.service",
+        "target": "crate:console-notifications",
+        "label": "console-notify",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e344",
+        "source": "unit:console-notify.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e345",
+        "source": "unit:console-overview.service",
+        "target": "crate:console-overview",
+        "label": "console-overview",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e346",
+        "source": "unit:console-overview.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e347",
+        "source": "unit:console-panels.service",
+        "target": "crate:console-panels",
+        "label": "console-panels",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e348",
+        "source": "unit:console-panels.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e349",
+        "source": "unit:console-paper.service",
+        "target": "binary:awww-daemon",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e350",
+        "source": "unit:console-paper.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e351",
+        "source": "unit:console-polkit.service",
+        "target": "binary:polkit-kde-authentication-agent-1",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e352",
+        "source": "unit:console-polkit.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e353",
+        "source": "unit:console-resource-usage.service",
+        "target": "crate:console-resource-usage",
+        "label": "console-resource-usage",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e354",
+        "source": "unit:console-resource-usage.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e355",
         "source": "unit:console-resource-usage.timer",
         "target": "unit:console-resource-usage.service",
         "label": "starts",
@@ -4447,7 +4875,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e324",
+        "id": "e356",
         "source": "unit:console-resource-usage.timer",
         "target": "unit:console.target",
         "label": "part of",
@@ -4456,7 +4884,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e325",
+        "id": "e357",
         "source": "unit:console-return.service",
         "target": "crate:console-input-controller",
         "label": "controller-game",
@@ -4465,7 +4893,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e326",
+        "id": "e358",
         "source": "unit:console-return.service",
         "target": "unit:gamescope-session.service",
         "label": "part of",
@@ -4474,7 +4902,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e327",
+        "id": "e359",
         "source": "unit:console-session.service",
         "target": "crate:console-resume",
         "label": "console-resume",
@@ -4483,7 +4911,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e328",
+        "id": "e360",
         "source": "unit:console-session.service",
         "target": "unit:console.target",
         "label": "part of",
@@ -4492,7 +4920,43 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e329",
+        "id": "e361",
+        "source": "unit:console-upload-errors.service",
+        "target": "crate:console-notifications",
+        "label": "console-upload-errors",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e362",
+        "source": "unit:console-upload-errors.service",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e363",
+        "source": "unit:console-upload-errors.timer",
+        "target": "unit:console-upload-errors.service",
+        "label": "starts",
+        "type": "dependency"
+      }
+    },
+    {
+      "data": {
+        "id": "e364",
+        "source": "unit:console-upload-errors.timer",
+        "target": "unit:console.target",
+        "label": "part of",
+        "type": "ordering"
+      }
+    },
+    {
+      "data": {
+        "id": "e365",
         "source": "unit:console-wallpaper.service",
         "target": "crate:console-wallpaper",
         "label": "console-wallpaper",
@@ -4501,7 +4965,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e330",
+        "id": "e366",
         "source": "unit:console-wallpaper.service",
         "target": "unit:console-paper.service",
         "label": "after",
@@ -4510,7 +4974,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e331",
+        "id": "e367",
         "source": "unit:console-wallpaper.service",
         "target": "unit:console-paper.service",
         "label": "requires",
@@ -4519,7 +4983,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e332",
+        "id": "e368",
         "source": "unit:console-wallpaper.service",
         "target": "unit:console.target",
         "label": "part of",
@@ -4528,7 +4992,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e333",
+        "id": "e369",
         "source": "unit:console-warm.service",
         "target": "binary:hyprsunset",
         "label": "starts",
@@ -4537,7 +5001,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e334",
+        "id": "e370",
         "source": "unit:console-warm.service",
         "target": "unit:console.target",
         "label": "part of",
@@ -4546,7 +5010,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e335",
+        "id": "e371",
         "source": "unit:console-wifi.service",
         "target": "crate:console-settings",
         "label": "console-wifi",
@@ -4555,7 +5019,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e336",
+        "id": "e372",
         "source": "unit:console-wifi.service",
         "target": "unit:console.target",
         "label": "part of",
@@ -4564,7 +5028,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e337",
+        "id": "e373",
         "source": "unit:syncthing.service",
         "target": "binary:syncthing",
         "label": "starts",
@@ -4573,7 +5037,7 @@ const ELEMENTS = {
     },
     {
       "data": {
-        "id": "e338",
+        "id": "e374",
         "source": "unit:syncthing.service",
         "target": "unit:console.target",
         "label": "part of",

@@ -33,10 +33,12 @@ pub fn allowed(name: &str) -> Result<Allowed, Never> {
   let Ok(written) = console_core_number_conversion::fitted::<_, u32>(name.chars().count());
   let room = (1..=LONGEST).contains(&written);
 
-  Ok(match ::core::primitive::bool::then_some(letters && room && !ends, ()) {
-    ::core::option::Option::Some(()) => Allowed::Yes,
-    ::core::option::Option::None => Allowed::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(letters && room && !ends, ()) {
+      ::core::option::Option::Some(()) => Allowed::Yes,
+      ::core::option::Option::None => Allowed::No,
+    },
+  )
 }
 
 #[cfg(test)]

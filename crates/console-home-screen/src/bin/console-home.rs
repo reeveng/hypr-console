@@ -504,12 +504,12 @@ impl Screen {
     };
 
     let target = {
-        let Ok(optional_target) = activation.resolve(|| Some(self.here), Some);
+      let Ok(optional_target) = activation.resolve(|| Some(self.here), Some);
 
-        match optional_target {
-            Some(matched_target) => matched_target,
-            ::core::option::Option::None => return Ok(()),
-        }
+      match optional_target {
+        Some(matched_target) => matched_target,
+        ::core::option::Option::None => return Ok(()),
+      }
     };
 
     self.here = target;

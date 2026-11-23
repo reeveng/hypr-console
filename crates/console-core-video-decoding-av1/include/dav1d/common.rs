@@ -128,8 +128,8 @@ impl Rav1dDataProps {
   )
 )]
 mod data_abi {
-  use super::{Dav1dDataProps, Dav1dUserData, NativeSize};
   use super::super::data::Dav1dData;
+  use super::{Dav1dDataProps, Dav1dUserData, NativeSize};
   use core::mem::{align_of, offset_of, size_of};
 
   const POINTER_BYTES: NativeSize = size_of::<*const u8>();
@@ -139,9 +139,8 @@ mod data_abi {
     .wrapping_add(POINTER_BYTES.wrapping_mul(2))
     .next_multiple_of(PROPS_ALIGN);
   const PACKET_REF: NativeSize = POINTER_BYTES.wrapping_mul(2);
-  const PACKET_PROPERTIES: NativeSize = POINTER_BYTES
-    .wrapping_mul(3)
-    .next_multiple_of(PROPS_ALIGN);
+  const PACKET_PROPERTIES: NativeSize =
+    POINTER_BYTES.wrapping_mul(3).next_multiple_of(PROPS_ALIGN);
   const PACKET_BYTES: NativeSize = PACKET_PROPERTIES.wrapping_add(PROPS_BYTES);
 
   const _: () = {

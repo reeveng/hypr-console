@@ -72,10 +72,12 @@ impl NonZeroF32 {
     )
   )]
   pub fn new(n: f32) -> core::result::Result<Option<Self>, console_core_never::Never> {
-    Ok(match ::core::primitive::bool::then_some(n.approx_eq_ulps(&0.0, 4), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => Some(NonZeroF32(n)),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(n.approx_eq_ulps(&0.0, 4), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(NonZeroF32(n)),
+      },
+    )
   }
 
   #[inline]
@@ -99,8 +101,7 @@ impl std::fmt::Display for Units {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub(crate) enum Visibility {
   #[default]
   Visible,
@@ -117,9 +118,7 @@ impl From<bool> for Visibility {
   }
 }
 
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum ShapeRendering {
   OptimizeSpeed,
   CrispEdges,
@@ -132,20 +131,22 @@ impl ShapeRendering {
     self,
   ) -> core::result::Result<crate::UseShapeAntialiasingAnswer, console_core_never::Never> {
     Ok(
-      match ::core::primitive::bool::then_some({
-        match self {
-          ShapeRendering::OptimizeSpeed => false,
-          ShapeRendering::CrispEdges => false,
-          ShapeRendering::GeometricPrecision => true,
-        }
-      }, ()) {
+      match ::core::primitive::bool::then_some(
+        {
+          match self {
+            ShapeRendering::OptimizeSpeed => false,
+            ShapeRendering::CrispEdges => false,
+            ShapeRendering::GeometricPrecision => true,
+          }
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => crate::UseShapeAntialiasingAnswer::Yes,
         ::core::option::Option::None => crate::UseShapeAntialiasingAnswer::No,
       },
     )
   }
 }
-
 
 impl std::str::FromStr for ShapeRendering {
   type Err = &'static str;
@@ -160,15 +161,13 @@ impl std::str::FromStr for ShapeRendering {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum TextRendering {
   OptimizeSpeed,
   #[default]
   OptimizeLegibility,
   GeometricPrecision,
 }
-
 
 impl std::str::FromStr for TextRendering {
   type Err = &'static str;
@@ -183,8 +182,7 @@ impl std::str::FromStr for TextRendering {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum ImageRendering {
   #[default]
   OptimizeQuality,
@@ -195,7 +193,6 @@ pub enum ImageRendering {
   CrispEdges,
   Pixelated,
 }
-
 
 impl std::str::FromStr for ImageRendering {
   type Err = &'static str;
@@ -213,8 +210,7 @@ impl std::str::FromStr for ImageRendering {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum BlendMode {
   #[default]
   Normal,
@@ -234,7 +230,6 @@ pub enum BlendMode {
   Color,
   Luminosity,
 }
-
 
 impl Display for BlendMode {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -260,15 +255,13 @@ impl Display for BlendMode {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum SpreadMethod {
   #[default]
   Pad,
   Reflect,
   Repeat,
 }
-
 
 #[derive(Debug)]
 pub struct BaseGradient {
@@ -451,10 +444,12 @@ impl StrokeMiterlimit {
     )
   )]
   pub fn new(ratio: f32) -> core::result::Result<Self, console_core_never::Never> {
-    Ok(Self(match ::core::primitive::bool::then_some(ratio.is_finite() && ratio >= 1.0, ()) {
-      ::core::option::Option::Some(()) => ratio,
-      ::core::option::Option::None => 1.0,
-    }))
+    Ok(Self(
+      match ::core::primitive::bool::then_some(ratio.is_finite() && ratio >= 1.0, ()) {
+        ::core::option::Option::Some(()) => ratio,
+        ::core::option::Option::None => 1.0,
+      },
+    ))
   }
 
   #[inline]
@@ -488,8 +483,7 @@ impl PartialEq for StrokeMiterlimit {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum LineCap {
   #[default]
   Butt,
@@ -497,9 +491,7 @@ pub enum LineCap {
   Square,
 }
 
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum LineJoin {
   #[default]
   Miter,
@@ -507,7 +499,6 @@ pub enum LineJoin {
   Round,
   Bevel,
 }
-
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(
@@ -592,7 +583,8 @@ impl Stroke {
 
     match self.dasharray {
       Some(ref list) => {
-        let Ok(stroke_dash) = console_core_paths::StrokeDash::new(list.clone(), self.dashoffset.0);
+        let Ok(stroke_dash) =
+          console_core_paths::StrokeDash::new(list.clone(), self.dashoffset.0);
         stroke.dash = stroke_dash;
       }
       None => {}
@@ -602,14 +594,12 @@ impl Stroke {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum FillRule {
   #[default]
   NonZero,
   EvenOdd,
 }
-
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ContextElement {
@@ -777,15 +767,13 @@ impl ClipPath {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum MaskType {
   #[default]
   Luminance,
 
   Alpha,
 }
-
 
 #[derive(Debug)]
 #[cfg_attr(
@@ -870,7 +858,7 @@ impl Node {
     })
   }
 
-  pub fn bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(bounding_box) = group.bounding_box();
@@ -895,7 +883,7 @@ impl Node {
     })
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(abs_bounding_box) = group.abs_bounding_box();
@@ -920,7 +908,7 @@ impl Node {
     })
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(stroke_bounding_box) = group.stroke_bounding_box();
@@ -946,7 +934,7 @@ impl Node {
     })
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(abs_stroke_bounding_box) = group.abs_stroke_bounding_box();
@@ -1060,10 +1048,10 @@ pub struct Group {
   pub(crate) paint_context: GroupPaintContext,
   pub(crate) mask: Option<Arc<Mask>>,
   pub(crate) filters: Vec<Arc<filter::Filter>>,
-  pub(crate) bounding_box: Rect,
-  pub(crate) abs_bounding_box: Rect,
-  pub(crate) stroke_bounding_box: Rect,
-  pub(crate) abs_stroke_bounding_box: Rect,
+  pub(crate) bounding_box: FloatRectangle,
+  pub(crate) abs_bounding_box: FloatRectangle,
+  pub(crate) stroke_bounding_box: FloatRectangle,
+  pub(crate) abs_stroke_bounding_box: FloatRectangle,
   pub(crate) layer_bounding_box: NonZeroRect,
   pub(crate) abs_layer_bounding_box: NonZeroRect,
   pub(crate) children: Vec<Node>,
@@ -1078,7 +1066,7 @@ impl Group {
     )
   )]
   pub(crate) fn empty() -> core::result::Result<Self, console_core_never::Never> {
-    let Ok(rect) = Rect::from_xywh(0.0, 0.0, 0.0, 0.0);
+    let Ok(rect) = FloatRectangle::from_xywh(0.0, 0.0, 0.0, 0.0);
     let dummy = rect.expect("The origin admits a zero-area SVG bounding box");
     let Ok(unit_rect) = NonZeroRect::from_xywh(0.0, 0.0, 1.0, 1.0);
     let layer = unit_rect.expect("The unit layer box has strictly positive bounds");
@@ -1149,19 +1137,19 @@ impl Group {
     Ok(&self.filters)
   }
 
-  pub fn bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.bounding_box)
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_bounding_box)
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.stroke_bounding_box)
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_stroke_bounding_box)
   }
 
@@ -1185,13 +1173,15 @@ impl Group {
     &self,
   ) -> core::result::Result<crate::ShouldIsolateAnswer, console_core_never::Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self.isolation == crate::IsolateAnswer::Yes
-        || self.opacity != Opacity::ONE
-        || self.clip_path.is_some()
-        || self.mask.is_some()
-        || !self.filters.is_empty()
-        || self.blend_mode != BlendMode::Normal, ())
-      {
+      match ::core::primitive::bool::then_some(
+        self.isolation == crate::IsolateAnswer::Yes
+          || self.opacity != Opacity::ONE
+          || self.clip_path.is_some()
+          || self.mask.is_some()
+          || !self.filters.is_empty()
+          || self.blend_mode != BlendMode::Normal,
+        (),
+      ) {
         ::core::option::Option::Some(()) => crate::ShouldIsolateAnswer::Yes,
         ::core::option::Option::None => crate::ShouldIsolateAnswer::No,
       },
@@ -1199,10 +1189,12 @@ impl Group {
   }
 
   pub fn has_children(&self) -> core::result::Result<crate::Presence, console_core_never::Never> {
-    Ok(match ::core::primitive::bool::then_some(!self.children.is_empty(), ()) {
-      ::core::option::Option::Some(()) => crate::Presence::Present,
-      ::core::option::Option::None => crate::Presence::Absent,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(!self.children.is_empty(), ()) {
+        ::core::option::Option::Some(()) => crate::Presence::Present,
+        ::core::option::Option::None => crate::Presence::Absent,
+      },
+    )
   }
 
   pub fn filters_bounding_box(
@@ -1283,14 +1275,12 @@ impl Group {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum PaintOrder {
   #[default]
   FillAndStroke,
   StrokeAndFill,
 }
-
 
 #[derive(Clone, Debug)]
 #[cfg_attr(
@@ -1309,10 +1299,10 @@ pub struct Path {
   pub(crate) rendering_mode: ShapeRendering,
   pub(crate) data: Arc<console_core_paths::Path>,
   pub(crate) abs_transform: Transform,
-  pub(crate) bounding_box: Rect,
-  pub(crate) abs_bounding_box: Rect,
-  pub(crate) stroke_bounding_box: Rect,
-  pub(crate) abs_stroke_bounding_box: Rect,
+  pub(crate) bounding_box: FloatRectangle,
+  pub(crate) abs_bounding_box: FloatRectangle,
+  pub(crate) stroke_bounding_box: FloatRectangle,
+  pub(crate) abs_stroke_bounding_box: FloatRectangle,
 }
 
 impl Path {
@@ -1347,7 +1337,10 @@ impl Path {
       reason = "Shape, fill and stroke nodes can keep a single immutable outline alongside separate paint properties"
     )
   )]
-  #[expect(clippy::too_many_arguments, reason = "Path construction requires the outline, paint and placement together to validate bounds")]
+  #[expect(
+    clippy::too_many_arguments,
+    reason = "Path construction requires the outline, paint and placement together to validate bounds"
+  )]
   pub(crate) fn new(
     id: String,
     visible: Visibility,
@@ -1369,8 +1362,8 @@ impl Path {
       ::core::option::Option::None => bounding_box,
     };
 
-    let abs_bounding_box: Rect;
-    let abs_stroke_bounding_box: Rect;
+    let abs_bounding_box: FloatRectangle;
+    let abs_stroke_bounding_box: FloatRectangle;
 
     let Ok(has_skew) = abs_transform.has_skew();
 
@@ -1465,26 +1458,26 @@ impl Path {
     Ok(self.abs_transform)
   }
 
-  pub fn bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.bounding_box)
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_bounding_box)
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.stroke_bounding_box)
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_stroke_bounding_box)
   }
 
   fn calculate_stroke_bbox(
     stroke: Option<&Stroke>,
     path: &console_core_paths::Path,
-  ) -> core::result::Result<Option<Rect>, console_core_never::Never> {
+  ) -> core::result::Result<Option<FloatRectangle>, console_core_never::Never> {
     let Ok(mut stroke_2) = match stroke {
       Some(value) => value,
       None => return Ok(None),
@@ -1538,7 +1531,10 @@ impl Path {
     reason = "The public raster variants retain reusable immutable encoded bytes for multiple image nodes"
   )
 )]
-#[expect(clippy::large_enum_variant, reason = "The public image variants preserve their existing byte and tree representations")]
+#[expect(
+  clippy::large_enum_variant,
+  reason = "The public image variants preserve their existing byte and tree representations"
+)]
 pub enum ImageKind {
   JPEG(Arc<Vec<u8>>),
 
@@ -1567,8 +1563,10 @@ impl ImageKind {
             return Ok(None);
           }
         };
-        let Ok(width) = console_core_number_conversion::nearest_f32_from_u64(u64::from(dimensions.width));
-        let Ok(height) = console_core_number_conversion::nearest_f32_from_u64(u64::from(dimensions.height));
+        let Ok(width) =
+          console_core_number_conversion::nearest_f32_from_u64(u64::from(dimensions.width));
+        let Ok(height) =
+          console_core_number_conversion::nearest_f32_from_u64(u64::from(dimensions.height));
         let Ok(size) = Size::from_wh(width, height);
 
         size.log_none(|| console_core_logging::warn!("SVG image has invalid size"))
@@ -1640,13 +1638,13 @@ impl Image {
       reason = "Size validates finite positive dimensions and an origin at zero leaves those dimensions representable"
     )
   )]
-  pub fn bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     let Ok(rect) = self.size.to_rect(0.0, 0.0);
 
     Ok(rect.expect("The validated image size is representable at the origin"))
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     let Ok(rect) = self.abs_bounding_box.to_rect();
 
     Ok(rect)
@@ -1722,10 +1720,15 @@ impl Tree {
   ) -> core::result::Result<crate::HasTextNodesAnswer, console_core_never::Never> {
     let Ok(mut nodes) = TreeNodes::new(&self.root, TreeWalk::References);
 
-    Ok(match ::core::primitive::bool::then_some(nodes.any(|node| matches!(node, Node::Text(_))), ()) {
-      ::core::option::Option::Some(()) => crate::HasTextNodesAnswer::Yes,
-      ::core::option::Option::None => crate::HasTextNodesAnswer::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        nodes.any(|node| matches!(node, Node::Text(_))),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => crate::HasTextNodesAnswer::Yes,
+        ::core::option::Option::None => crate::HasTextNodesAnswer::No,
+      },
+    )
   }
 
   pub fn has_defs_nodes(
@@ -1734,33 +1737,35 @@ impl Tree {
     let Ok(linear_gradients) = self.linear_gradients();
 
     Ok(
-      match ::core::primitive::bool::then_some(!linear_gradients.is_empty()
-        || !({
-          let Ok(explicit_value) = self.radial_gradients();
-          explicit_value
-        })
-        .is_empty()
-        || !({
-          let Ok(explicit_value) = self.patterns();
-          explicit_value
-        })
-        .is_empty()
-        || !({
-          let Ok(explicit_value) = self.filters();
-          explicit_value
-        })
-        .is_empty()
-        || !({
-          let Ok(explicit_value) = self.clip_paths();
-          explicit_value
-        })
-        .is_empty()
-        || !({
-          let Ok(explicit_value) = self.masks();
-          explicit_value
-        })
-        .is_empty(), ())
-      {
+      match ::core::primitive::bool::then_some(
+        !linear_gradients.is_empty()
+          || !({
+            let Ok(explicit_value) = self.radial_gradients();
+            explicit_value
+          })
+          .is_empty()
+          || !({
+            let Ok(explicit_value) = self.patterns();
+            explicit_value
+          })
+          .is_empty()
+          || !({
+            let Ok(explicit_value) = self.filters();
+            explicit_value
+          })
+          .is_empty()
+          || !({
+            let Ok(explicit_value) = self.clip_paths();
+            explicit_value
+          })
+          .is_empty()
+          || !({
+            let Ok(explicit_value) = self.masks();
+            explicit_value
+          })
+          .is_empty(),
+        (),
+      ) {
         ::core::option::Option::Some(()) => crate::HasDefsNodesAnswer::Yes,
         ::core::option::Option::None => crate::HasDefsNodesAnswer::No,
       },
@@ -1850,7 +1855,10 @@ impl Tree {
   )]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "Font consumers borrow the existing shared catalogue through this public accessor")
+    expect(
+      explicit002_infallible_result,
+      reason = "Font consumers borrow the existing shared catalogue through this public accessor"
+    )
   )]
   pub fn console_core_font_database(&self) -> &Arc<console_core_font_database::Database> {
     &self.console_core_font_database
@@ -2076,7 +2084,10 @@ impl<'a> Iterator for TreeNodes<'a> {
     while let Some(frame) = self.pending.pop() {
       let mut children = match frame {
         PendingGroup::Children(children) => children,
-        PendingGroup::Unvisited(group) => match ::core::primitive::bool::then_some(self.visited.insert(std::ptr::from_ref(group)), ()) {
+        PendingGroup::Unvisited(group) => match ::core::primitive::bool::then_some(
+          self.visited.insert(std::ptr::from_ref(group)),
+          (),
+        ) {
           ::core::option::Option::Some(()) => group.children.iter(),
           ::core::option::Option::None => continue,
         },
@@ -2097,7 +2108,7 @@ impl<'a> Iterator for TreeNodes<'a> {
   }
 }
 
-fn child_effect_bounds(child: &Node, bounds: Rect) -> Result<Rect, console_core_never::Never> {
+fn child_effect_bounds(child: &Node, bounds: FloatRectangle) -> Result<FloatRectangle, console_core_never::Never> {
   match child {
     Node::Group(group) => match bounds.transform(group.transform) {
       Ok(Some(mapped)) => Ok(mapped),

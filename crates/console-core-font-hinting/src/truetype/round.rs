@@ -165,16 +165,22 @@ impl RoundState {
       ::core::option::Option::Some(()) => aligned.wrapping_add(self.phase),
       ::core::option::Option::None => aligned.wrapping_neg().wrapping_sub(self.phase),
     };
-    Ok(match ::core::primitive::bool::then_some(distance >= 0, ()) {
-      ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(result < 0, ()) {
-        ::core::option::Option::Some(()) => self.phase,
-        ::core::option::Option::None => result,
+    Ok(
+      match ::core::primitive::bool::then_some(distance >= 0, ()) {
+        ::core::option::Option::Some(()) => {
+          match ::core::primitive::bool::then_some(result < 0, ()) {
+            ::core::option::Option::Some(()) => self.phase,
+            ::core::option::Option::None => result,
+          }
+        }
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(result > 0, ()) {
+            ::core::option::Option::Some(()) => self.phase.wrapping_neg(),
+            ::core::option::Option::None => result,
+          }
+        }
       },
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(result > 0, ()) {
-        ::core::option::Option::Some(()) => self.phase.wrapping_neg(),
-        ::core::option::Option::None => result,
-      },
-    })
+    )
   }
 }
 

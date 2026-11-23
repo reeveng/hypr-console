@@ -26,7 +26,9 @@ pub(crate) struct PathCubics<'a> {
 }
 
 impl<'a> PathCubics<'a> {
-  pub(crate) fn new(path: &'a console_core_paths::Path) -> Result<Self, console_core_never::Never> {
+  pub(crate) fn new(
+    path: &'a console_core_paths::Path,
+  ) -> Result<Self, console_core_never::Never> {
     let Ok(segments) = path.segments();
     let Ok(points) = path.points();
     let first = match points.first() {
@@ -38,7 +40,11 @@ impl<'a> PathCubics<'a> {
       }
     };
 
-    Ok(Self { segments, previous: first, subpath_start: first })
+    Ok(Self {
+      segments,
+      previous: first,
+      subpath_start: first,
+    })
   }
 }
 
@@ -93,12 +99,19 @@ impl Iterator for PathCubics<'_> {
   }
 }
 
-fn kurbo_point(point: console_core_paths::Point) -> Result<kurbo::Point, console_core_never::Never> {
+fn kurbo_point(
+  point: console_core_paths::Point,
+) -> Result<kurbo::Point, console_core_never::Never> {
   Ok(kurbo::Point::new(f64::from(point.x), f64::from(point.y)))
 }
 
 fn cubic_line(line: kurbo::Line) -> Result<kurbo::CubicBez, console_core_never::Never> {
   use kurbo::ParamCurve;
 
-  Ok(kurbo::CubicBez::new(line.p0, line.eval(0.33), line.eval(0.66), line.p1))
+  Ok(kurbo::CubicBez::new(
+    line.p0,
+    line.eval(0.33),
+    line.eval(0.66),
+    line.p1,
+  ))
 }

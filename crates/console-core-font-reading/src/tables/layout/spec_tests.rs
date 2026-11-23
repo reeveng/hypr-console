@@ -61,7 +61,9 @@ fn example_2_scripts_and_langs() -> ::core::result::Result<(), crate::test_suppo
   let urdu_record = &*match <[_]>::get(&*lang_sys_records, 0) {
     ::core::option::Option::Some(indexed_value) => indexed_value,
     ::core::option::Option::None => {
-      return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds));
+      return ::core::result::Result::Err(crate::test_support::Failure::from(
+        crate::read::ReadError::OutOfBounds,
+      ));
     }
   };
   let Ok(value_4) = Tag::new(b"URD ");

@@ -325,7 +325,7 @@ fn decrypt_aes256(
     None => return Ok(None),
   };
 
-  let Ok(decrypt_cbc) = cipher.decrypt_cbc(data_2, &iv_2, Padding::Strip);
+  let Ok(decrypt_cbc) = cipher.decrypt_cbc(data_2, &iv_2, Padding::Remove);
 
   Ok(Some(decrypt_cbc))
 }
@@ -345,7 +345,7 @@ fn decrypt_aes128(
         ::core::result::Result::Err(_wrong_slice_length) => ::core::option::Option::None,
       }?;
 
-      let Ok(decrypt_cbc) = cipher.decrypt_cbc(data_2, &iv_2, Padding::Strip);
+      let Ok(decrypt_cbc) = cipher.decrypt_cbc(data_2, &iv_2, Padding::Remove);
 
       Some(decrypt_cbc)
     });
@@ -853,6 +853,6 @@ fn decryption_key_rev56(
 
   let Ok(cipher) = AES256Cipher::new(&encryption_key);
   let aes = cipher.ok_or(InvalidEncryption)?;
-  let Ok(decrypted_key) = aes.decrypt_cbc(&encrypted_key, &[0; 16], Padding::Keep);
+  let Ok(decrypted_key) = aes.decrypt_cbc(&encrypted_key, &[0; 16], Padding::Retain);
   Ok(decrypted_key)
 }

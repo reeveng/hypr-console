@@ -65,8 +65,9 @@ fn apply_segment_map(maps: &[AxisValueMap], coordinate: Fixed) -> Result<Fixed, 
       };
       let Ok(second_coordinate) = AxisMapping::read(second);
 
-      let duplicates_lower_marker =
-        lower.from == negative_limit && lower.to == negative_limit && second_coordinate.from == negative_limit;
+      let duplicates_lower_marker = lower.from == negative_limit
+        && lower.to == negative_limit
+        && second_coordinate.from == negative_limit;
 
       match duplicates_lower_marker.then_some(lower) {
         Some(marker) => (Some(marker), rest),
@@ -82,8 +83,9 @@ fn apply_segment_map(maps: &[AxisValueMap], coordinate: Fixed) -> Result<Fixed, 
       let Ok(upper) = AxisMapping::read(last);
       let Ok(previous_coordinate) = AxisMapping::read(previous);
 
-      let duplicates_upper_marker =
-        upper.from == positive_limit && upper.to == positive_limit && previous_coordinate.from == positive_limit;
+      let duplicates_upper_marker = upper.from == positive_limit
+        && upper.to == positive_limit
+        && previous_coordinate.from == positive_limit;
 
       match duplicates_upper_marker.then_some(rest) {
         Some(without_upper_marker) => without_upper_marker,
@@ -278,10 +280,12 @@ mod tests {
     let Ok(value_35) = axis_segment_maps.iter();
 
     let segment_maps = value_35
-      .map(|segment_map| segment_map.map(|map| {
-        let Ok(axis_values) = map.axis_value_maps();
-        axis_values.to_owned()
-      }))
+      .map(|segment_map| {
+        segment_map.map(|map| {
+          let Ok(axis_values) = map.axis_value_maps();
+          axis_values.to_owned()
+        })
+      })
       .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(segment_maps, expected_segment_maps);
     ::core::result::Result::Ok(())
@@ -327,31 +331,29 @@ mod tests {
     let fixture_value = crate::test_support::fixture_value(
       match avar_axis_segment_maps.get(0) {
         ::core::result::Result::Ok(read_value) => read_value,
-        ::core::result::Result::Err(read_error) =>
-          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
       },
-      "fixture value"
+      "fixture value",
     )?;
-    assert_eq!(
-      fixture_value
-      .axis_value_maps,
-      segment_one_maps,
-    );
+    assert_eq!(fixture_value.axis_value_maps, segment_one_maps,);
     assert_eq!(
       {
         let second_axis_map = crate::test_support::fixture_value(
-        match ({
-          let Ok(explicit_value) = avar.axis_segment_maps();
-          explicit_value
-        })
-        .get(1)
-        {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) =>
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-        },
-        "fixture value"
-      )?;
+          match ({
+            let Ok(explicit_value) = avar.axis_segment_maps();
+            explicit_value
+          })
+          .get(1)
+          {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
+          },
+          "fixture value",
+        )?;
         second_axis_map
       }
       .axis_value_maps,

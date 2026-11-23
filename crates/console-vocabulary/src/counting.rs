@@ -151,10 +151,12 @@ enum Walk {
 
 fn walk_decision(at: &Path) -> Result<Walk, Never> {
   Ok(match at.file_name().and_then(OsStr::to_str) {
-    Some(named) => match ::core::primitive::bool::then_some(named == TARGET || named.starts_with('.'), ()) {
-      ::core::option::Option::Some(()) => Walk::Past,
-      ::core::option::Option::None => Walk::Into,
-    },
+    Some(named) => {
+      match ::core::primitive::bool::then_some(named == TARGET || named.starts_with('.'), ()) {
+        ::core::option::Option::Some(()) => Walk::Past,
+        ::core::option::Option::None => Walk::Into,
+      }
+    }
     None => Walk::Past,
   })
 }
@@ -173,7 +175,10 @@ pub fn under(root: &Path) -> Result<Vec<PathBuf>, Unread> {
   for entry in listing {
     let at = entry.map_err(|unlisted| Unread::Listing(unlisted.directory, unlisted.fault))?;
 
-    match ::core::primitive::bool::then_some(at.extension().and_then(OsStr::to_str) == Some(RUST), ()) {
+    match ::core::primitive::bool::then_some(
+      at.extension().and_then(OsStr::to_str) == Some(RUST),
+      (),
+    ) {
       ::core::option::Option::None => continue,
       ::core::option::Option::Some(()) => {}
     }
@@ -317,7 +322,10 @@ fn countable_word(word: &str) -> Result<Option<String>, Never> {
   let Ok(long) = fitted::<_, u32>(word.len());
 
   Ok(
-    match ::core::primitive::bool::then_some(long >= SHORTEST && word.chars().all(|letter| letter.is_ascii_alphabetic()), ()) {
+    match ::core::primitive::bool::then_some(
+      long >= SHORTEST && word.chars().all(|letter| letter.is_ascii_alphabetic()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Some(word.to_string()),
       ::core::option::Option::None => None,
     },
@@ -331,14 +339,16 @@ enum Starting {
 }
 
 fn word_start(held: &str, letter: char) -> Result<Starting, Never> {
-  Ok(match ::core::primitive::bool::then_some(letter.is_ascii_uppercase(), ()) {
-    ::core::option::Option::Some(()) => match held.chars().last() {
-      Some(last) => match ::core::primitive::bool::then_some(last.is_ascii_uppercase(), ()) {
-        ::core::option::Option::Some(()) => Starting::No,
-        ::core::option::Option::None => Starting::Yes,
+  Ok(
+    match ::core::primitive::bool::then_some(letter.is_ascii_uppercase(), ()) {
+      ::core::option::Option::Some(()) => match held.chars().last() {
+        Some(last) => match ::core::primitive::bool::then_some(last.is_ascii_uppercase(), ()) {
+          ::core::option::Option::Some(()) => Starting::No,
+          ::core::option::Option::None => Starting::Yes,
+        },
+        None => Starting::No,
       },
-      None => Starting::No,
+      ::core::option::Option::None => Starting::No,
     },
-    ::core::option::Option::None => Starting::No,
-  })
+  )
 }

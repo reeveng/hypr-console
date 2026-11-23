@@ -51,14 +51,20 @@ impl<U> AsPrimitive for U {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the numeric adapters include the machine-native slice size and offset conversions")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the numeric adapters include the machine-native slice size and offset conversions"
+  )
 )]
 mod primitive_casts {
   use super::FromPrimitive;
 
   #[cfg_attr(
     dylint_lib = "explicit080_macro_budget",
-    expect(explicit080_macro_budget, reason = "the primitive adapter uses one uniform conversion rule for each source and destination type")
+    expect(
+      explicit080_macro_budget,
+      reason = "the primitive adapter uses one uniform conversion rule for each source and destination type"
+    )
   )]
   macro_rules! impl_FromPrimitive {
       ($T:ty => $U:ty) => {
@@ -111,7 +117,10 @@ impl BPC {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the backend selects its existing bit-depth enum directly from the codec pixel bound")
+    expect(
+      explicit002_infallible_result,
+      reason = "the backend selects its existing bit-depth enum directly from the codec pixel bound"
+    )
   )]
   pub fn from_bitdepth_max(bitdepth_max: c_int) -> Self {
     match bitdepth_max {
@@ -123,7 +132,10 @@ impl BPC {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the const mask sizes and DSP interfaces use this fixed bit count directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the const mask sizes and DSP interfaces use this fixed bit count directly"
+    )
   )]
   pub const fn bitdepth(&self) -> u8 {
     match self {
@@ -137,7 +149,10 @@ impl BPC {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "coefficient and pixel row addressing uses the existing scalar output of this stride adapter")
+    expect(
+      explicit002_infallible_result,
+      reason = "coefficient and pixel row addressing uses the existing scalar output of this stride adapter"
+    )
   )]
   pub fn pxstride<T>(&self, n: T) -> T
   where
@@ -147,7 +162,10 @@ impl BPC {
       Self::BPC8 => 1,
       Self::BPC16 => 2,
     });
-    assert!(n % scale == T::from(0), "pixel stride must be a whole number of samples");
+    assert!(
+      n % scale == T::from(0),
+      "pixel stride must be a whole number of samples"
+    );
     n / scale
   }
 
@@ -156,7 +174,10 @@ impl BPC {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "coefficient row addressing uses the existing scalar output of this stride adapter")
+    expect(
+      explicit002_infallible_result,
+      reason = "coefficient row addressing uses the existing scalar output of this stride adapter"
+    )
   )]
   pub fn coef_stride<T>(&self, n: T) -> T
   where
@@ -166,7 +187,10 @@ impl BPC {
       Self::BPC8 => 2,
       Self::BPC16 => 4,
     });
-    assert!(n % scale == T::from(0), "coefficient stride must be a whole number of samples");
+    assert!(
+      n % scale == T::from(0),
+      "coefficient stride must be a whole number of samples"
+    );
     n / scale
   }
 }
@@ -228,7 +252,10 @@ pub trait BitDepth: Clone + Copy {
   const SCALING_BITS: u32;
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this associated constant is the Rust array length of the per-depth scaling lookup")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this associated constant is the Rust array length of the per-depth scaling lookup"
+    )
   )]
   const SCALING_SIZE: usize = 1_usize.wrapping_shl(Self::SCALING_BITS);
 
@@ -250,7 +277,10 @@ pub trait BitDepth: Clone + Copy {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the public DSP erasure converts each bit depth directly to its existing C bound")
+    expect(
+      explicit002_infallible_result,
+      reason = "the public DSP erasure converts each bit depth directly to its existing C bound"
+    )
   )]
   fn into_c(self) -> c_int {
     <Self::Pixel as Into<c_int>>::into(self.bitdepth_max())
@@ -258,15 +288,24 @@ pub trait BitDepth: Clone + Copy {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the existing DSP copy adapter receives the already checked native slice span")
+    expect(
+      explicit002_infallible_result,
+      reason = "the existing DSP copy adapter receives the already checked native slice span"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit004_no_panic",
-    expect(explicit004_no_panic, reason = "the existing DSP copy contract refuses a disputed slice span before changing the destination")
+    expect(
+      explicit004_no_panic,
+      reason = "the existing DSP copy contract refuses a disputed slice span before changing the destination"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the DSP copy receives an existing native Rust slice length")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the DSP copy receives an existing native Rust slice length"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit056_no_hidden_panic_api",
@@ -287,15 +326,24 @@ pub trait BitDepth: Clone + Copy {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the existing DSP fill adapter receives the already checked native slice span")
+    expect(
+      explicit002_infallible_result,
+      reason = "the existing DSP fill adapter receives the already checked native slice span"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit004_no_panic",
-    expect(explicit004_no_panic, reason = "the existing DSP fill contract refuses a disputed slice span before changing the destination")
+    expect(
+      explicit004_no_panic,
+      reason = "the existing DSP fill contract refuses a disputed slice span before changing the destination"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the DSP fill receives an existing native Rust slice length")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the DSP fill receives an existing native Rust slice length"
+    )
   )]
   fn pixel_set(dest: &mut [Self::Pixel], val: Self::Pixel, n: usize) {
     match dest.get_mut(..n) {
@@ -309,7 +357,10 @@ pub trait BitDepth: Clone + Copy {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the clipping primitive supplies a bounded pixel directly to the existing DSP arithmetic")
+    expect(
+      explicit002_infallible_result,
+      reason = "the clipping primitive supplies a bounded pixel directly to the existing DSP arithmetic"
+    )
   )]
   fn iclip_pixel<T>(&self, pixel: T) -> Self::Pixel
   where
@@ -322,7 +373,10 @@ pub trait BitDepth: Clone + Copy {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the DSP trait exposes the existing scalar stride result for checked picture layouts")
+    expect(
+      explicit002_infallible_result,
+      reason = "the DSP trait exposes the existing scalar stride result for checked picture layouts"
+    )
   )]
   fn pxstride<T>(n: T) -> T
   where
@@ -342,7 +396,10 @@ pub trait BitDepth: Clone + Copy {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the fixed bias is used directly within established fixed-point sample arithmetic")
+    expect(
+      explicit002_infallible_result,
+      reason = "the fixed bias is used directly within established fixed-point sample arithmetic"
+    )
   )]
   fn sub_prep_bias(pixel: i32) -> i16 {
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(

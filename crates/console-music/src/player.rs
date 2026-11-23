@@ -111,10 +111,12 @@ pub enum Order {
 pub fn about() -> Result<About, Never> {
   let Ok(listed) = run_output(Program::Busctl, &["--user", "--no-legend", "list"]);
 
-  Ok(match ::core::primitive::bool::then_some(listed.contains(NAME), ()) {
-    ::core::option::Option::Some(()) => About::Yes,
-    ::core::option::Option::None => About::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(listed.contains(NAME), ()) {
+      ::core::option::Option::Some(()) => About::Yes,
+      ::core::option::Option::None => About::No,
+    },
+  )
 }
 
 pub fn worth_asking_after(line: &str) -> Result<Worth, Never> {

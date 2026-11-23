@@ -14,7 +14,7 @@ use console_core_iteration::Endless;
 use console_core_words::Words;
 
 #[derive(Debug, Clone, Copy, Words)]
-pub(crate) enum Missing {
+pub(crate) enum MissingElement {
   #[words(said = "mkv: missing vorbis identification packet")]
   VorbisIdentification,
   #[words(said = "mkv: missing vorbis setup packet")]
@@ -88,55 +88,55 @@ pub(crate) enum Unsupported {
 }
 
 #[derive(Debug)]
-pub(crate) enum Fault {
+pub(crate) enum DecodeError {
   Io(io::Error),
   Foreign(Error),
   Seek(SeekErrorKind),
   EndOfStream,
-  Missing(Missing),
+  Absent(MissingElement),
   Invalid(Invalid),
   Unsupported(Unsupported),
 }
 
-impl From<io::Error> for Fault {
+impl From<io::Error> for DecodeError {
   fn from(fault: io::Error) -> Self {
-    Fault::Io(fault)
+    DecodeError::Io(fault)
   }
 }
 
-impl From<Error> for Fault {
+impl From<Error> for DecodeError {
   fn from(fault: Error) -> Self {
-    Fault::Foreign(fault)
+    DecodeError::Foreign(fault)
   }
 }
 
-impl From<Endless> for Fault {
+impl From<Endless> for DecodeError {
   fn from(_never_ended: Endless) -> Self {
-    Fault::Invalid(Invalid::Endless)
+    DecodeError::Invalid(Invalid::Endless)
   }
 }
 
-impl From<Fault> for Error {
-  fn from(fault: Fault) -> Self {
+impl From<DecodeError> for Error {
+  fn from(fault: DecodeError) -> Self {
     match fault {
-      Fault::Io(fault_2) => Error::IoError(fault_2),
-      Fault::Foreign(fault_3) => fault_3,
-      Fault::Seek(kind) => Error::SeekError(kind),
-      Fault::EndOfStream => Error::IoError(io::Error::new(
+      DecodeError::Io(fault_2) => Error::IoError(fault_2),
+      DecodeError::Foreign(fault_3) => fault_3,
+      DecodeError::Seek(kind) => Error::SeekError(kind),
+      DecodeError::EndOfStream => Error::IoError(io::Error::new(
         io::ErrorKind::UnexpectedEof,
         "end of stream",
       )),
-      Fault::Missing(missing) => {
+      DecodeError::Absent(missing) => {
         let Ok(said) = missing.said();
 
         Error::DecodeError(said)
       }
-      Fault::Invalid(invalid) => {
+      DecodeError::Invalid(invalid) => {
         let Ok(said) = invalid.said();
 
         Error::DecodeError(said)
       }
-      Fault::Unsupported(unsupported) => {
+      DecodeError::Unsupported(unsupported) => {
         let Ok(said) = unsupported.said();
 
         Error::Unsupported(said)

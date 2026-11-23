@@ -179,7 +179,11 @@ impl ChannelPair {
     for window in 0..windows {
       let grouping = match window {
         0 => Ok(Grouping::SameGroup),
-        1.. => self.ics0.info.scale_factor_grouping.at(window.saturating_sub(1)),
+        1.. => self
+          .ics0
+          .info
+          .scale_factor_grouping
+          .at(window.saturating_sub(1)),
       }?;
 
       match grouping {

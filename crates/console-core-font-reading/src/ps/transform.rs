@@ -9,7 +9,10 @@ pub type FontMatrix = types::Matrix<Fixed>;
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the published `combine_scaled` function returns `FontMatrix` directly in the existing parser interface")
+  expect(
+    explicit002_infallible_result,
+    reason = "the published `combine_scaled` function returns `FontMatrix` directly in the existing parser interface"
+  )
 )]
 pub fn combine_scaled(a: &FontMatrix, b: &FontMatrix, scale: i32) -> FontMatrix {
   let Ok([a_xx, a_yx, a_xy, a_yy, _a_dx, _a_dy]) = a.elements();
@@ -44,7 +47,9 @@ pub(crate) enum MatrixCondition {
   Usable,
 }
 
-pub(crate) fn matrix_condition(matrix: &FontMatrix) -> Result<MatrixCondition, console_core_never::Never> {
+pub(crate) fn matrix_condition(
+  matrix: &FontMatrix,
+) -> Result<MatrixCondition, console_core_never::Never> {
   let Ok(elements) = matrix.elements();
   let [xx, yx, xy, yy, ..] = elements.map(|coordinate| {
     let Ok(bits) = coordinate.to_bits();
@@ -60,10 +65,16 @@ pub(crate) fn matrix_condition(matrix: &FontMatrix) -> Result<MatrixCondition, c
   let Ok(bits) = console_core_number_conversion::wrapped::<_, i32>(magnitude);
   let highest_bit = 31u32.wrapping_sub(bits.leading_zeros());
   let shift = highest_bit.saturating_sub(12);
-  let [xx_bits, yx_bits, xy_bits, yy_bits] = [xx, yx, xy, yy].map(|value| value.wrapping_shr(shift));
-  let determinant = xx_bits.wrapping_mul(yy_bits).wrapping_sub(xy_bits.wrapping_mul(yx_bits));
-  let limit = [xx_bits, yx_bits, xy_bits, yy_bits].into_iter()
-    .fold(0i64, |sum, value| sum.wrapping_add(value.wrapping_mul(value)));
+  let [xx_bits, yx_bits, xy_bits, yy_bits] =
+    [xx, yx, xy, yy].map(|value| value.wrapping_shr(shift));
+  let determinant = xx_bits
+    .wrapping_mul(yy_bits)
+    .wrapping_sub(xy_bits.wrapping_mul(yx_bits));
+  let limit = [xx_bits, yx_bits, xy_bits, yy_bits]
+    .into_iter()
+    .fold(0i64, |sum, value| {
+      sum.wrapping_add(value.wrapping_mul(value))
+    });
   Ok(match determinant.abs().wrapping_mul(32).cmp(&limit) {
     core::cmp::Ordering::Greater => MatrixCondition::Usable,
     core::cmp::Ordering::Less | core::cmp::Ordering::Equal => MatrixCondition::Degenerate,
@@ -85,11 +96,17 @@ impl Transform {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Transform::compute_scale` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Transform::compute_scale` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the public scale helper accepts pixels per em with binary32 precision")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the public scale helper accepts pixels per em with binary32 precision"
+    )
   )]
   pub fn compute_scale(ppem: f32, upem: i32) -> Fixed {
     let Ok(value_2) = Fixed::from_bits({
@@ -105,7 +122,10 @@ impl Transform {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Transform::transform_h_metric` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Transform::transform_h_metric` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn transform_h_metric(&self, metric: Fixed) -> Fixed {
     let Ok(value_4) = metric.to_i32();
@@ -149,114 +169,132 @@ pub struct ScaledFontMatrix {
 }
 
 impl ScaledFontMatrix {
-  pub(crate) fn parse(cursor: &mut Cursor) -> core::result::Result<Option<Self>, console_core_never::Never> {
-      let mut values = [Fixed::ZERO; 6];
-      let mut scalings = [0i32; 6];
-      let mut max_scaling = i32::MIN;
-      let mut min_scaling = i32::MAX;
+  pub(crate) fn parse(
+    cursor: &mut Cursor,
+  ) -> core::result::Result<Option<Self>, console_core_never::Never> {
+    let mut values = [Fixed::ZERO; 6];
+    let mut scalings = [0i32; 6];
+    let mut max_scaling = i32::MIN;
+    let mut min_scaling = i32::MAX;
 
-      for (value, scaling) in values.iter_mut().zip(&mut scalings) {
-        let (v, s) = match match num::parse_fixed_dynamic(cursor) { Ok(value_2) => Some(value_2), Err(_invalid_transform_component) => None } { Some(explicit_value) => explicit_value, None => return Ok(None) };
+    for (value, scaling) in values.iter_mut().zip(&mut scalings) {
+      let (v, s) = match match num::parse_fixed_dynamic(cursor) {
+        Ok(value_2) => Some(value_2),
+        Err(_invalid_transform_component) => None,
+      } {
+        Some(explicit_value) => explicit_value,
+        None => return Ok(None),
+      };
 
-        match ::core::primitive::bool::then_some(v != Fixed::ZERO, ()) {
-          ::core::option::Option::Some(()) => {
-            max_scaling = max_scaling.max(s);
-            min_scaling = min_scaling.min(s);
-          }
-          ::core::option::Option::None => {}
+      match ::core::primitive::bool::then_some(v != Fixed::ZERO, ()) {
+        ::core::option::Option::Some(()) => {
+          max_scaling = max_scaling.max(s);
+          min_scaling = min_scaling.min(s);
         }
-
-        *value = v;
-        *scaling = s;
+        ::core::option::Option::None => {}
       }
 
-      match ::core::primitive::bool::then_some(!(-9..=0).contains(&max_scaling)
+      *value = v;
+      *scaling = s;
+    }
+
+    match ::core::primitive::bool::then_some(
+      !(-9..=0).contains(&max_scaling)
         || (::core::primitive::i32::wrapping_sub(max_scaling, min_scaling) < 0)
-        || ::core::primitive::i32::wrapping_sub(max_scaling, min_scaling) > 9, ())
-      {
+        || ::core::primitive::i32::wrapping_sub(max_scaling, min_scaling) > 9,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    for (value, scaling) in values.iter_mut().zip(scalings) {
+      match ::core::primitive::bool::then_some(*value == Fixed::ZERO, ()) {
         ::core::option::Option::Some(()) => {
-          return Ok(None);
+          continue;
         }
         ::core::option::Option::None => {}
       }
 
-      for (value, scaling) in values.iter_mut().zip(scalings) {
-        match ::core::primitive::bool::then_some(*value == Fixed::ZERO, ()) {
-          ::core::option::Option::Some(()) => {
-            continue;
-          }
-          ::core::option::Option::None => {}
-        }
-
-        let Ok(value_25) = console_core_number_conversion::index({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-            ::core::primitive::i32::wrapping_sub(max_scaling, scaling),
-          );
-          migrated_value
-        });
-
-        let divisor = match num::BCD_POWER_TENS.get(value_25).copied() {
-          Some(divisor) => divisor,
-          None => return Ok(None),
-        };
-        let half_divisor = divisor.wrapping_shr(1);
-        let Ok(bits) = value.to_bits();
-        let biased = match bits.cmp(&0) {
-          core::cmp::Ordering::Less => bits.saturating_sub(half_divisor),
-          core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
-            bits.saturating_add(half_divisor)
-          }
-        };
-        let scaled = match biased.checked_div(divisor) {
-          Some(quotient) => quotient,
-          None => return Ok(None),
-        };
-        let Ok(component) = Fixed::from_bits(scaled);
-        *value = component;
-      }
-
-      let Ok(matrix) = FontMatrix::from_elements(values);
-
-      match ::core::primitive::bool::then_some(matches!(matrix_condition(&matrix), Ok(MatrixCondition::Degenerate)), ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(None);
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(value_26) = console_core_number_conversion::index({
+      let Ok(value_25) = console_core_number_conversion::index({
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-          ::core::primitive::i32::wrapping_neg(max_scaling),
+          ::core::primitive::i32::wrapping_sub(max_scaling, scaling),
         );
         migrated_value
       });
 
-      let scale = match num::BCD_POWER_TENS.get(value_26).copied() {
-        Some(scale) => scale,
+      let divisor = match num::BCD_POWER_TENS.get(value_25).copied() {
+        Some(divisor) => divisor,
         None => return Ok(None),
       };
-      let value_13 = matrix;
+      let half_divisor = divisor.wrapping_shr(1);
+      let Ok(bits) = value.to_bits();
+      let biased = match bits.cmp(&0) {
+        core::cmp::Ordering::Less => bits.saturating_sub(half_divisor),
+        core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
+          bits.saturating_add(half_divisor)
+        }
+      };
+      let scaled = match biased.checked_div(divisor) {
+        Some(quotient) => quotient,
+        None => return Ok(None),
+      };
+      let Ok(component) = Fixed::from_bits(scaled);
+      *value = component;
+    }
 
-      Ok(Some(Self {
-        matrix: value_13,
-        scale,
-      }))
+    let Ok(matrix) = FontMatrix::from_elements(values);
+
+    match ::core::primitive::bool::then_some(
+      matches!(matrix_condition(&matrix), Ok(MatrixCondition::Degenerate)),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(value_26) = console_core_number_conversion::index({
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
+        ::core::primitive::i32::wrapping_neg(max_scaling),
+      );
+      migrated_value
+    });
+
+    let scale = match num::BCD_POWER_TENS.get(value_26).copied() {
+      Some(scale) => scale,
+      None => return Ok(None),
+    };
+    let value_13 = matrix;
+
+    Ok(Some(Self {
+      matrix: value_13,
+      scale,
+    }))
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ScaledFontMatrix::normalize` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ScaledFontMatrix::normalize` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn normalize(&self) -> Self {
     let Ok(value_50) = self.matrix.elements();
 
     let mut matrix = value_50;
     let mut scaled_upem = self.scale;
-    let Ok(factor) = match ::core::primitive::bool::then_some(*match &matrix {
-      [_, _, _, element_2, ..] => element_2,
-    } != Fixed::ZERO, ())
-    {
+    let Ok(factor) = match ::core::primitive::bool::then_some(
+      *match &matrix {
+        [_, _, _, element_2, ..] => element_2,
+      } != Fixed::ZERO,
+      (),
+    ) {
       ::core::option::Option::Some(()) => (*match &matrix {
         [_, _, _, element_2, ..] => element_2,
       })

@@ -32,7 +32,10 @@ impl Stack {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new() -> Self {
     Self {
@@ -45,7 +48,10 @@ impl Stack {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::is_empty` method returns `Emptiness` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::is_empty` method returns `Emptiness` directly in the existing parser interface"
+    )
   )]
   pub fn is_empty(&self) -> Emptiness {
     match self.top {
@@ -57,7 +63,10 @@ impl Stack {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn len(&self) -> u64 {
     self.top
@@ -80,7 +89,10 @@ impl Stack {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::operand_parity` method returns `OperandParity` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::operand_parity` method returns `OperandParity` directly in the existing parser interface"
+    )
   )]
   pub fn operand_parity(&self) -> OperandParity {
     match self.top & 1 {
@@ -91,7 +103,10 @@ impl Stack {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::clear` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::clear` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn clear(&mut self) {
     self.top = 0;
@@ -99,7 +114,10 @@ impl Stack {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::reverse` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::reverse` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn reverse(&mut self) {
     let Ok(used) = index(self.top);
@@ -131,7 +149,8 @@ impl Stack {
   }
 
   pub fn push(&mut self, number: impl Into<Number>) -> Result<(), Error> {
-    let Ok((value, kind)) = <_ as ::core::convert::Into<crate::ps::cff::stack::Number>>::into(number).into_storage();
+    let Ok((value, kind)) =
+      <_ as ::core::convert::Into<crate::ps::cff::stack::Number>>::into(number).into_storage();
     self.write_slot(self.top, value, kind)?;
 
     self.top = self.top.wrapping_add(1);
@@ -147,14 +166,18 @@ impl Stack {
       ::core::option::Option::None => {}
     }
 
-    let Ok((value, kind)) = <_ as ::core::convert::Into<crate::ps::cff::stack::Number>>::into(number).into_storage();
+    let Ok((value, kind)) =
+      <_ as ::core::convert::Into<crate::ps::cff::stack::Number>>::into(number).into_storage();
 
     self.write_slot(index, value, kind)
   }
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::drop` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::drop` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn drop(&mut self, n: u64) {
     self.top = self.top.saturating_sub(n);
@@ -196,7 +219,10 @@ impl Stack {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::fixed_values` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::fixed_values` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn fixed_values(&self) -> impl Iterator<Item = Fixed> + '_ {
     let numbers = self.number_values();
@@ -222,7 +248,10 @@ impl Stack {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::number_values` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::number_values` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn number_values(&self) -> impl Iterator<Item = Number> + '_ {
     let Ok(used) = index(self.top);
@@ -241,7 +270,10 @@ impl Stack {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Stack::apply_delta_prefix_sum` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Stack::apply_delta_prefix_sum` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn apply_delta_prefix_sum(&mut self) {
     match ::core::primitive::bool::then_some(self.top > 1, ()) {
@@ -569,7 +601,10 @@ mod tests {
       let Ok(value) = Fixed::from_f64(42.42);
       value
     })?;
-    assert!(matches!(stack.pop_i32(), Err(Error::ExpectedI32StackEntry(_))));
+    assert!(matches!(
+      stack.pop_i32(),
+      Err(Error::ExpectedI32StackEntry(_))
+    ));
     ::core::result::Result::Ok(())
   }
 
@@ -669,7 +704,9 @@ mod tests {
     let ivs_data = &*match <[_]>::get(&*font_test_data::cff2::EXAMPLE, 18..) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
-        return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds));
+        return ::core::result::Result::Err(crate::test_support::Failure::from(
+          crate::read::ReadError::OutOfBounds,
+        ));
       }
     };
     let ivs = ItemVariationStore::read({

@@ -66,7 +66,8 @@ fn draws(stage: &mut Desktop) -> CheckResult {
 }
 
 fn here(_stage: &mut Here) -> CheckResult {
-  let at = console_core_temporary_directories::private("unzipping").map_err(Unchecked::Temporary)?;
+  let at =
+    console_core_temporary_directories::private("unzipping").map_err(Unchecked::Temporary)?;
   let checked = unzip_fixture(&at);
 
   after_removal(checked, &at, std::fs::remove_dir_all(&at))
@@ -117,7 +118,9 @@ fn there(stage: &mut Device) -> CheckResult {
 
   match ::core::primitive::bool::then_some(made.lines().any(|line| line.trim() == "made"), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return failed(format!("nothing made an archive to unzip: {made}")),
+    ::core::option::Option::None => {
+      return failed(format!("nothing made an archive to unzip: {made}"));
+    }
   }
 
   let Ok(_) = stage.user(&format!("{UNZIPS_WITH} {AT}/{WRAPPED}.zip"));
@@ -176,13 +179,15 @@ fn zipped(holding: &Path, into: &Path) -> Result<Ran, Never> {
     }
   };
 
-  Ok(match ::core::primitive::bool::then_some(done.status.success(), ()) {
-    ::core::option::Option::Some(()) => Ran::Fine,
-    ::core::option::Option::None => match String::from_utf8(done.stderr) {
-      Ok(text) => Ran::Badly(text.trim().to_string()),
-      Err(fault) => Ran::Badly(format!("7z wrote invalid UTF-8: {fault}")),
+  Ok(
+    match ::core::primitive::bool::then_some(done.status.success(), ()) {
+      ::core::option::Option::Some(()) => Ran::Fine,
+      ::core::option::Option::None => match String::from_utf8(done.stderr) {
+        Ok(text) => Ran::Badly(text.trim().to_string()),
+        Err(fault) => Ran::Badly(format!("7z wrote invalid UTF-8: {fault}")),
+      },
     },
-  })
+  )
 }
 
 fn list_names(folder: &Path) -> Result<Vec<OsString>, Never> {

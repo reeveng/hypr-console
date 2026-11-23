@@ -76,14 +76,14 @@ impl Output {
   fn next(&mut self, target: &mut [u8], wait: Duration) -> io::Result<Option<u32>> {
     let [stdout_ready, stderr_ready] = match (&self.stdout, &self.stderr) {
       (Some(stdout), Some(stderr)) => stdout.ready_with(stderr, wait)?,
-      (Some(_), None) => [PipeReady::Readable, PipeReady::Quiet],
-      (None, Some(_)) => [PipeReady::Quiet, PipeReady::Readable],
+      (Some(_), None) => [PipeReady::Readable, PipeReady::Pending],
+      (None, Some(_)) => [PipeReady::Pending, PipeReady::Readable],
       (None, None) => return Ok(Some(0)),
     };
 
     match stderr_ready {
       PipeReady::Readable => self.drain(wait)?,
-      PipeReady::Quiet => {}
+      PipeReady::Pending => {}
     }
 
     match stdout_ready {
@@ -91,7 +91,7 @@ impl Output {
         let count = read_from(&mut self.stdout, target, wait)?;
         Ok((count != 0).then_some(count))
       }
-      PipeReady::Quiet => Ok(None),
+      PipeReady::Pending => Ok(None),
     }
   }
 

@@ -6,7 +6,10 @@ impl AxisValue<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `AxisValue::value` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `AxisValue::value` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn value(&self) -> Option<Fixed> {
     match self {
@@ -30,7 +33,10 @@ impl AxisValue<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `AxisValue::linked_value` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `AxisValue::linked_value` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn linked_value(&self) -> Option<Fixed> {
     match self {
@@ -46,7 +52,10 @@ impl AxisValue<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `AxisValue::axis_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `AxisValue::axis_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn axis_index(&self) -> Option<u16> {
     match self {
@@ -105,7 +114,8 @@ mod tests {
     assert_eq!(axis_record.axis_ordering(), Ok(0));
     let axis_values = crate::test_support::fixture_value(
       {
-        let axis_values_offset = crate::test_support::fixture_value(table.offset_to_axis_values(), "fixture value")?;
+        let axis_values_offset =
+          crate::test_support::fixture_value(table.offset_to_axis_values(), "fixture value")?;
         axis_values_offset
       },
       "fixture value",

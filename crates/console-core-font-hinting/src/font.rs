@@ -108,7 +108,10 @@ impl<'a> FontProgram<'a> {
       Err(ReadError::TableIsMissing(_tag)) => 0,
       Err(fault) => return Err(fault),
     };
-    let instructions = match ::core::primitive::bool::then_some(max_instructions == 0 && fpgm.is_empty() && prep.is_empty(), ()) {
+    let instructions = match ::core::primitive::bool::then_some(
+      max_instructions == 0 && fpgm.is_empty() && prep.is_empty(),
+      (),
+    ) {
       ::core::option::Option::Some(()) => crate::InstructionPresence::Absent,
       ::core::option::Option::None => crate::InstructionPresence::Present,
     };

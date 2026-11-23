@@ -22,7 +22,10 @@ use zerocopy::KnownLayout;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "these are metadata type numbers carried in AV1 OBUs")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "these are metadata type numbers carried in AV1 OBUs"
+  )
 )]
 pub enum ObuMetaType {
   HdrCll = 1,
@@ -35,7 +38,10 @@ pub enum ObuMetaType {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, EnumCount, FromRepr, Default, Debug)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the AV1 transform size order indexes the scan, transform and probability tables")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the AV1 transform size order indexes the scan, transform and probability tables"
+  )
 )]
 pub enum TxfmSize {
   #[default]
@@ -69,7 +75,10 @@ impl TxfmSize {
 
   #[cfg_attr(
     dylint_lib = "explicit011_no_as_cast",
-    expect(explicit011_no_as_cast, reason = "all transform size discriminants fit in a byte and this is their exact ordinal in the codec tables")
+    expect(
+      explicit011_no_as_cast,
+      reason = "all transform size discriminants fit in a byte and this is their exact ordinal in the codec tables"
+    )
   )]
   pub(crate) const fn ordinal(self) -> Result<u8, console_core_never::Never> {
     Ok(self as u8)
@@ -95,10 +104,23 @@ impl TxfmSize {
   #[must_use]
   pub(crate) const fn shape(self) -> Result<TransformShape, console_core_never::Never> {
     Ok(match self {
-      Self::S4x4 | Self::S8x8 | Self::S16x16 | Self::S32x32 | Self::S64x64 => TransformShape::Square,
-      Self::R4x8 | Self::R8x4 | Self::R8x16 | Self::R16x8 | Self::R16x32 | Self::R32x16
-      | Self::R32x64 | Self::R64x32 | Self::R4x16 | Self::R16x4 | Self::R8x32 | Self::R32x8
-      | Self::R16x64 | Self::R64x16 => TransformShape::Rectangular,
+      Self::S4x4 | Self::S8x8 | Self::S16x16 | Self::S32x32 | Self::S64x64 => {
+        TransformShape::Square
+      }
+      Self::R4x8
+      | Self::R8x4
+      | Self::R8x16
+      | Self::R16x8
+      | Self::R16x32
+      | Self::R32x16
+      | Self::R32x64
+      | Self::R64x32
+      | Self::R4x16
+      | Self::R16x4
+      | Self::R8x32
+      | Self::R32x8
+      | Self::R16x64
+      | Self::R64x16 => TransformShape::Rectangular,
     })
   }
 
@@ -134,7 +156,10 @@ impl TxfmSize {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, EnumCount)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the subdivision levels index the block partition and dimension tables in descending size order")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the subdivision levels index the block partition and dimension tables in descending size order"
+  )
 )]
 pub enum BlockLevel {
   #[default]
@@ -235,7 +260,10 @@ pub const DC_PRED: IntraPredMode = 0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, EnumCount, Default)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the entropy decoder maps the coded AV1 inter-intra symbol directly to this mode")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the entropy decoder maps the coded AV1 inter-intra symbol directly to this mode"
+  )
 )]
 pub enum InterIntraPredMode {
   #[default]
@@ -259,7 +287,10 @@ impl InterIntraPredMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, FromRepr, EnumCount)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the coded AV1 partition symbol selects this case and indexes the partition probability tables")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the coded AV1 partition symbol selects this case and indexes the partition probability tables"
+  )
 )]
 pub enum BlockPartition {
   #[default]
@@ -298,7 +329,10 @@ impl BlockPartition {
 #[derive(Clone, Copy, PartialEq, Eq, FromRepr, EnumCount, FromZeros)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the coded block size numbering indexes the AV1 dimension, wedge and context tables")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the coded block size numbering indexes the AV1 dimension, wedge and context tables"
+  )
 )]
 pub enum BlockSize {
   Bs128x128 = 0,
@@ -328,7 +362,10 @@ pub enum BlockSize {
 impl BlockSize {
   #[cfg_attr(
     dylint_lib = "explicit011_no_as_cast",
-    expect(explicit011_no_as_cast, reason = "the block size is a repr(u8) enum with the exact ordinals required by the codec tables")
+    expect(
+      explicit011_no_as_cast,
+      reason = "the block size is a repr(u8) enum with the exact ordinals required by the codec tables"
+    )
   )]
   pub(crate) const fn ordinal(self) -> Result<u8, console_core_never::Never> {
     Ok(self as u8)
@@ -338,7 +375,10 @@ impl BlockSize {
 #[derive(Clone, Copy, PartialEq, Eq, EnumCount, Default, FromRepr)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the filter pair numbering is shared by the AV1 interpolation mapping and dense DSP dispatch tables")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the filter pair numbering is shared by the AV1 interpolation mapping and dense DSP dispatch tables"
+  )
 )]
 pub enum Filter2d {
   #[default]
@@ -510,7 +550,10 @@ impl Neg for Mv {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr, Default)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "the coded AV1 motion mode numbers select translation, overlapped motion compensation and warp")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the coded AV1 motion mode numbers select translation, overlapped motion compensation and warp"
+  )
 )]
 pub enum MotionMode {
   #[default]

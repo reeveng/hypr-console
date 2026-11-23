@@ -193,9 +193,7 @@ fn whose_here(stage: &mut Here) -> CheckResult {
 
   let Ok(written) = stage.written();
 
-  empty(written, || {
-    "A was still the pointer's button".to_string()
-  })?;
+  empty(written, || "A was still the pointer's button".to_string())?;
 
   let Ok(()) = stage.fresh();
 
@@ -311,10 +309,15 @@ fn cleared(stage: &mut Device) -> CheckResult {
       let Ok(menus) = seen.menus();
       let Ok(worn) = seen.profile();
 
-      Ok(match ::core::primitive::bool::then_some(menus.is_empty() && worn == crate::picker::WORN, ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(
+          menus.is_empty() && worn == crate::picker::WORN,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   );
@@ -533,10 +536,12 @@ fn wait_for_menu(stage: &mut Device, namespace: &str) -> Result<Outcome, Never> 
 }
 
 fn on_screen(up: &[String], namespace: &str) -> Result<Ready, Never> {
-  Ok(match ::core::primitive::bool::then_some(up.iter().any(|name| name == namespace), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(up.iter().any(|name| name == namespace), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 const STANDING: &str = "mint";
@@ -613,10 +618,12 @@ fn newly(
         ::core::option::Option::None => Lit::Somewhere,
       };
 
-      Ok(match ::core::primitive::bool::then_some(lighting == want, ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(lighting == want, ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   )?;
@@ -698,10 +705,12 @@ enum Under {
 }
 
 fn under(reaches: (u32, u32), at: u32) -> Result<Under, Never> {
-  Ok(match ::core::primitive::bool::then_some(reaches.0 <= at && at <= reaches.1, ()) {
-    ::core::option::Option::Some(()) => Under::ThePointer,
-    ::core::option::Option::None => Under::SomewhereElse,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(reaches.0 <= at && at <= reaches.1, ()) {
+      ::core::option::Option::Some(()) => Under::ThePointer,
+      ::core::option::Option::None => Under::SomewhereElse,
+    },
+  )
 }
 
 fn stood_on(reaches: (u32, u32), at: (u32, u32), wide: u32) -> CheckResult {

@@ -142,7 +142,10 @@ impl Touch {
     self.owed.0 += f64::from(across) * GAIN;
     self.owed.1 += f64::from(down) * GAIN;
 
-    match ::core::primitive::bool::then_some(self.owed.0.abs() < 1.0 && self.owed.1.abs() < 1.0, ()) {
+    match ::core::primitive::bool::then_some(
+      self.owed.0.abs() < 1.0 && self.owed.1.abs() < 1.0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(Vec::new()),
       ::core::option::Option::None => {}
     }

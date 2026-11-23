@@ -20,25 +20,32 @@ impl Engine<'_> {
       ::core::option::Option::None => {}
     }
 
-    match ::core::primitive::bool::then_some((selector & GLYPH_ROTATED_SELECTOR_BIT) != 0
-      && matches!(self.graphics.is_rotated, crate::Rotation::Rotated), ())
-    {
+    match ::core::primitive::bool::then_some(
+      (selector & GLYPH_ROTATED_SELECTOR_BIT) != 0
+        && matches!(self.graphics.is_rotated, crate::Rotation::Rotated),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         result |= GLYPH_ROTATED_RESULT_BIT;
       }
       ::core::option::Option::None => {}
     }
 
-    match ::core::primitive::bool::then_some((selector & GLYPH_STRETCHED_SELECTOR_BIT) != 0
-      && matches!(self.graphics.is_stretched, crate::Stretch::Stretched), ())
-    {
+    match ::core::primitive::bool::then_some(
+      (selector & GLYPH_STRETCHED_SELECTOR_BIT) != 0
+        && matches!(self.graphics.is_stretched, crate::Stretch::Stretched),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         result |= GLYPH_STRETCHED_RESULT_BIT;
       }
       ::core::option::Option::None => {}
     }
 
-    match ::core::primitive::bool::then_some((selector & FONT_VARIATIONS_SELECTOR_BIT) != 0 && self.axis_count != 0, ()) {
+    match ::core::primitive::bool::then_some(
+      (selector & FONT_VARIATIONS_SELECTOR_BIT) != 0 && self.axis_count != 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         result |= FONT_VARIATIONS_RESULT_BIT;
       }
@@ -70,35 +77,50 @@ impl Engine<'_> {
 
     match ::core::primitive::bool::then_some(is_smooth, ()) {
       ::core::option::Option::Some(()) => {
-        match ::core::primitive::bool::then_some((selector & SUBPIXEL_HINTING_SELECTOR_BIT) != 0, ()) {
+        match ::core::primitive::bool::then_some(
+          (selector & SUBPIXEL_HINTING_SELECTOR_BIT) != 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             result |= SUBPIXEL_HINTING_RESULT_BIT;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((selector & VERTICAL_LCD_SELECTOR_BIT) != 0 && is_vertical_lcd, ()) {
+        match ::core::primitive::bool::then_some(
+          (selector & VERTICAL_LCD_SELECTOR_BIT) != 0 && is_vertical_lcd,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             result |= VERTICAL_LCD_RESULT_BIT;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((selector & SUBPIXEL_POSITIONED_SELECTOR_BIT) != 0, ()) {
+        match ::core::primitive::bool::then_some(
+          (selector & SUBPIXEL_POSITIONED_SELECTOR_BIT) != 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             result |= SUBPIXEL_POSITIONED_RESULT_BIT;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((selector & SYMMETRICAL_SMOOTHING_SELECTOR_BIT) != 0 && symmetric_rendering, ()) {
+        match ::core::primitive::bool::then_some(
+          (selector & SYMMETRICAL_SMOOTHING_SELECTOR_BIT) != 0 && symmetric_rendering,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             result |= SYMMETRICAL_SMOOTHING_RESULT_BIT;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((selector & GRAYSCALE_CLEARTYPE_SELECTOR_BIT) != 0 && is_grayscale_cleartype, ()) {
+        match ::core::primitive::bool::then_some(
+          (selector & GRAYSCALE_CLEARTYPE_SELECTOR_BIT) != 0 && is_grayscale_cleartype,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             result |= GRAYSCALE_CLEARTYPE_RESULT_BIT;
           }

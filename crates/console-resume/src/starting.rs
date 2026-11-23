@@ -46,18 +46,22 @@ pub fn on_path(command: &str) -> Result<Installed, Never> {
 pub fn quote_word(word: &str) -> Result<String, Never> {
   let safe = |letter: char| letter.is_ascii_alphanumeric() || "-_./:=@+,".contains(letter);
 
-  Ok(match ::core::primitive::bool::then_some(!word.is_empty() && word.chars().all(safe), ()) {
-    ::core::option::Option::Some(()) => word.to_string(),
-    ::core::option::Option::None => format!("'{}'", word.replace('\'', r"'\''")),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(!word.is_empty() && word.chars().all(safe), ()) {
+      ::core::option::Option::Some(()) => word.to_string(),
+      ::core::option::Option::None => format!("'{}'", word.replace('\'', r"'\''")),
+    },
+  )
 }
 
 fn separate_words(arguments: &[String]) -> Result<Vec<String>, Never> {
   Ok(match arguments {
-    [only] => match ::core::primitive::bool::then_some(only.split_whitespace().nth(1).is_some(), ()) {
-      ::core::option::Option::Some(()) => only.split_whitespace().map(str::to_string).collect(),
-      ::core::option::Option::None => arguments.to_vec(),
-    },
+    [only] => {
+      match ::core::primitive::bool::then_some(only.split_whitespace().nth(1).is_some(), ()) {
+        ::core::option::Option::Some(()) => only.split_whitespace().map(str::to_string).collect(),
+        ::core::option::Option::None => arguments.to_vec(),
+      }
+    }
     every => every.to_vec(),
   })
 }

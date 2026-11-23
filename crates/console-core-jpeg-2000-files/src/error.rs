@@ -38,7 +38,7 @@ pub enum MarkerError {
 
   Expected(&'static str),
 
-  Missing(&'static str),
+  Absent(&'static str),
 
   ParseFailure(&'static str),
 }
@@ -138,7 +138,7 @@ impl fmt::Display for MarkerError {
       Self::Invalid => write!(f, "invalid marker"),
       Self::Unsupported => write!(f, "unsupported marker"),
       Self::Expected(marker) => write!(f, "expected {marker} marker"),
-      Self::Missing(marker) => write!(f, "missing {marker} marker"),
+      Self::Absent(marker) => write!(f, "missing {marker} marker"),
       Self::ParseFailure(marker) => write!(f, "failed to parse {marker} marker"),
     }
   }

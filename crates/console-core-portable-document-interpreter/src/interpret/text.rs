@@ -75,12 +75,12 @@ pub(crate) fn next_line(ctx: &mut Context<'_>, offset: Vec2) -> Result<(), Never
 }
 
 #[derive(Clone, Copy)]
-enum Painted {
+enum Rendered {
   Fill,
   Stroke,
   FillAndStroke,
   Invisible,
-  Nothing,
+  Absent,
 }
 
 #[derive(Clone, Copy)]
@@ -123,21 +123,21 @@ pub(crate) fn show_glyph<'a>(
   let Ok(stroke) = get_paint(ctx, PaintOperation::Stroke);
 
   match painted {
-    Painted::Fill => device.draw_glyph(
+    Rendered::Fill => device.draw_glyph(
       glyph,
       transform,
       glyph_transform,
       &fill,
       &GlyphDrawMode::Fill,
     ),
-    Painted::Stroke => device.draw_glyph(
+    Rendered::Stroke => device.draw_glyph(
       glyph,
       transform,
       glyph_transform,
       &stroke,
       &GlyphDrawMode::Stroke(stroke_props),
     ),
-    Painted::FillAndStroke => {
+    Rendered::FillAndStroke => {
       device.draw_glyph(
         glyph,
         transform,
@@ -153,14 +153,14 @@ pub(crate) fn show_glyph<'a>(
         &GlyphDrawMode::Stroke(stroke_props),
       );
     }
-    Painted::Invisible => device.draw_glyph(
+    Rendered::Invisible => device.draw_glyph(
       glyph,
       transform,
       glyph_transform,
       &fill,
       &GlyphDrawMode::Invisible,
     ),
-    Painted::Nothing => {}
+    Rendered::Absent => {}
   }
 
   Ok(())
@@ -209,16 +209,16 @@ pub(crate) enum TextRenderingMode {
 }
 
 impl TextRenderingMode {
-  fn parts(self) -> Result<(Painted, Clipped), Never> {
+  fn parts(self) -> Result<(Rendered, Clipped), Never> {
     Ok(match self {
-      Self::Fill => (Painted::Fill, Clipped::Unclipped),
-      Self::Stroke => (Painted::Stroke, Clipped::Unclipped),
-      Self::FillStroke => (Painted::FillAndStroke, Clipped::Unclipped),
-      Self::Invisible => (Painted::Invisible, Clipped::Unclipped),
-      Self::FillAndClip => (Painted::Fill, Clipped::Clipped),
-      Self::StrokeAndClip => (Painted::Stroke, Clipped::Clipped),
-      Self::FillAndStrokeAndClip => (Painted::FillAndStroke, Clipped::Clipped),
-      Self::Clip => (Painted::Nothing, Clipped::Clipped),
+      Self::Fill => (Rendered::Fill, Clipped::Unclipped),
+      Self::Stroke => (Rendered::Stroke, Clipped::Unclipped),
+      Self::FillStroke => (Rendered::FillAndStroke, Clipped::Unclipped),
+      Self::Invisible => (Rendered::Invisible, Clipped::Unclipped),
+      Self::FillAndClip => (Rendered::Fill, Clipped::Clipped),
+      Self::StrokeAndClip => (Rendered::Stroke, Clipped::Clipped),
+      Self::FillAndStrokeAndClip => (Rendered::FillAndStroke, Clipped::Clipped),
+      Self::Clip => (Rendered::Absent, Clipped::Clipped),
     })
   }
 }

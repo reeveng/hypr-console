@@ -171,10 +171,11 @@ pub fn rows(text: &str, wrap: Wrap<'_>) -> Result<Vec<Row>, Never> {
   let mut found = Vec::new();
   let mut from = 0_u32;
 
-  let trailing = match ::core::primitive::bool::then_some(text.is_empty() || text.ends_with('\n'), ()) {
-    ::core::option::Option::Some(()) => Some(""),
-    ::core::option::Option::None => None,
-  };
+  let trailing =
+    match ::core::primitive::bool::then_some(text.is_empty() || text.ends_with('\n'), ()) {
+      ::core::option::Option::Some(()) => Some(""),
+      ::core::option::Option::None => None,
+    };
   let paragraphs = text.split_inclusive('\n').chain(trailing);
 
   for (paragraph, line) in (0_u32..).zip(paragraphs) {
@@ -226,7 +227,10 @@ fn starts(said: &str, pieces: &[String], long: u32) -> Result<Vec<u32>, Never> {
     let Ok(letters) = boundaries::at_or_after(said, after);
     let Ok(wide) = fitted::<_, u32>(piece.len());
 
-    match ::core::primitive::bool::then_some(letters < long && found.last().is_some_and(|previous| *previous < letters), ()) {
+    match ::core::primitive::bool::then_some(
+      letters < long && found.last().is_some_and(|previous| *previous < letters),
+      (),
+    ) {
       ::core::option::Option::Some(()) => found.push(letters),
       ::core::option::Option::None => {}
     }

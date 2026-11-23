@@ -1,8 +1,8 @@
 //! TrueType bytecode decoder.
 
-use super::{InlineOperands, Instruction, Opcode};
 #[cfg(test)]
 use super::OperandEncoding;
+use super::{InlineOperands, Instruction, Opcode};
 
 #[derive(Copy, Clone, Debug)]
 pub struct DecodeError;
@@ -23,7 +23,10 @@ impl<'a> Decoder<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Decoder::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Decoder::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(bytecode: &'a [u8], pc: u64) -> Self {
     Self { bytecode, pc }
@@ -31,11 +34,17 @@ impl<'a> Decoder<'a> {
 
   #[cfg_attr(
     dylint_lib = "explicit048_no_unreal_state",
-    expect(explicit048_no_unreal_state, reason = "the public decoder uses the same end-of-stream and per-instruction error contract as its Iterator implementation")
+    expect(
+      explicit048_no_unreal_state,
+      reason = "the public decoder uses the same end-of-stream and per-instruction error contract as its Iterator implementation"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Decoder::decode` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Decoder::decode` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn decode(&mut self) -> Option<Result<Instruction<'a>, DecodeError>> {
     let Ok(value_1) = console_core_number_conversion::index(self.pc);
@@ -124,7 +133,10 @@ impl<'a> Iterator for Decoder<'a> {
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the published `decode_all` function returns its iterator or trait value directly for existing callers to compose")
+  expect(
+    explicit002_infallible_result,
+    reason = "the published `decode_all` function returns its iterator or trait value directly for existing callers to compose"
+  )
 )]
 pub fn decode_all(
   bytecode: &[u8],
@@ -173,7 +185,8 @@ mod tests {
     }
 
     let instructions = super::decode_all(&enc.0, 0).collect::<Result<Vec<_>, _>>();
-    let all_ins = crate::test_support::fixture_value(instructions, "encoded bytecode instructions")?;
+    let all_ins =
+      crate::test_support::fixture_value(instructions, "encoded bytecode instructions")?;
 
     for (ins, (expected_opcode, expected_values)) in all_ins.iter().zip(cases) {
       assert_eq!(ins.opcode, *expected_opcode);
@@ -194,13 +207,20 @@ mod tests {
   #[test]
   fn non_push_ops() -> Result<(), super::DecodeError> {
     let non_push_ops: Vec<_> = (0..=255)
-      .filter(|b| matches!(Opcode::from_byte(*b).operand_encoding(), OperandEncoding::NoInlineOperands))
+      .filter(|b| {
+        matches!(
+          Opcode::from_byte(*b).operand_encoding(),
+          OperandEncoding::NoInlineOperands
+        )
+      })
       .collect();
     let decoded: Vec<_> = super::decode_all(&non_push_ops, 0)
-      .map(|instruction| instruction.map(|ins| {
-        let Ok(byte) = ins.opcode.to_byte();
-        byte
-      }))
+      .map(|instruction| {
+        instruction.map(|ins| {
+          let Ok(byte) = ins.opcode.to_byte();
+          byte
+        })
+      })
       .collect::<Result<_, _>>()?;
     assert_eq!(non_push_ops, decoded);
     Ok(())
@@ -241,7 +261,11 @@ mod tests {
 
   impl Encoder {
     fn encode(&mut self, opcode: Opcode) -> Result<(), console_core_never::Never> {
-      assert_eq!(opcode.operand_encoding(), OperandEncoding::NoInlineOperands, "use the encode_push method instead");
+      assert_eq!(
+        opcode.operand_encoding(),
+        OperandEncoding::NoInlineOperands,
+        "use the encode_push method instead"
+      );
       let Ok(raw) = opcode.to_byte();
       self.0.push(raw);
       Ok(())
@@ -256,9 +280,16 @@ mod tests {
       }
 
       #[derive(Clone, Copy)]
-      enum PushWidth { Byte, Word }
+      enum PushWidth {
+        Byte,
+        Word,
+      }
 
-      let encoding = match crate::Presence::from(values.iter().all(|value| (0..=i16::from(u8::MAX)).contains(value))) {
+      let encoding = match crate::Presence::from(
+        values
+          .iter()
+          .all(|value| (0..=i16::from(u8::MAX)).contains(value)),
+      ) {
         crate::Presence::Present => PushWidth::Byte,
         crate::Presence::Absent => PushWidth::Word,
       };
@@ -280,7 +311,9 @@ mod tests {
           let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(value);
           byte
         })),
-        PushWidth::Word => self.0.extend(values.iter().flat_map(|value| value.to_be_bytes())),
+        PushWidth::Word => self
+          .0
+          .extend(values.iter().flat_map(|value| value.to_be_bytes())),
       }
 
       Ok(())

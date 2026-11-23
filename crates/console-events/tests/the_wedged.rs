@@ -48,10 +48,12 @@ enum Connection {
 
 fn to_the_end(heard: &Receiver<Received>) -> Result<Delivered, Never> {
   let Ok(ended) = heard_before(heard, BEFORE_LONG, |received| match received {
-    Received::Event(change) => match ::core::primitive::bool::then_some(change.text == LAST, ()) {
-      ::core::option::Option::Some(()) => Some(Delivered::TheLastWord),
-      ::core::option::Option::None => None,
-    },
+    Received::Event(change) => {
+      match ::core::primitive::bool::then_some(change.text == LAST, ()) {
+        ::core::option::Option::Some(()) => Some(Delivered::TheLastWord),
+        ::core::option::Option::None => None,
+      }
+    }
     Received::Connected => None,
   });
 

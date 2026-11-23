@@ -55,7 +55,7 @@ mod tests {
         UpToGrid => engine.op_rutg().required()?,
         Off => engine.op_roff().required()?,
         Super | Super45 => {
-          return Err(crate::TestFailure::Fault(alloc::boxed::Box::new(mode)));
+          return Err(crate::TestFailure::Error(alloc::boxed::Box::new(mode)));
         }
       }
 

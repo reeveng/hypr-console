@@ -178,7 +178,12 @@ fn read_format0(
   for offset in 0..stride {
     let vector = codebook.read_vector(bs)?;
 
-    for (sample, scalar) in out.iter_mut().skip(offset).step_by(stride.max(1)).zip(vector.iter()) {
+    for (sample, scalar) in out
+      .iter_mut()
+      .skip(offset)
+      .step_by(stride.max(1))
+      .zip(vector.iter())
+    {
       *sample += *scalar;
     }
   }

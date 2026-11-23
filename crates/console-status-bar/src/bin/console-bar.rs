@@ -306,7 +306,7 @@ mod content_tests {
       preferences.placement = Placement::Left;
       let Ok(()) = preferences.toggle_applet("example");
     })?;
-    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Heard));
+    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
     let Ok(()) = files.read(&mut content);
     assert_eq!(content.preferences.placement, Placement::Left);
     assert_eq!(content.slots.len(), 1);
@@ -314,12 +314,12 @@ mod content_tests {
     std::fs::create_dir_all(&live)?;
     let status = live.join("example.txt");
     console_core_atomic_writes::whole(&status, b"")?;
-    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Heard));
+    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
     let Ok(()) = files.read(&mut content);
     assert!(content.slots.is_empty());
 
     console_core_atomic_writes::whole(&status, b"Visible again")?;
-    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Heard));
+    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
     let Ok(()) = files.read(&mut content);
     assert_eq!(content.slots.len(), 1);
 
@@ -406,19 +406,19 @@ enum LayerMode {
 
 #[derive(Debug, PartialEq, Eq)]
 enum FileEvents {
-  Heard,
-  Quiet,
+  Received,
+  Idle,
 }
 
 enum AppletChange {
-  Changed,
+  Different,
   Same,
 }
 
 impl From<bool> for AppletChange {
   fn from(changed: bool) -> Self {
     match changed {
-      true => Self::Changed,
+      true => Self::Different,
       false => Self::Same,
     }
   }
@@ -717,8 +717,8 @@ fn reload_content(turning: &mut Turning, files: &ContentFiles) -> Result<(), Nev
   let Ok(events) = heard_again(&files.hearing);
 
   match events {
-    FileEvents::Quiet => return Ok(()),
-    FileEvents::Heard => {}
+    FileEvents::Idle => return Ok(()),
+    FileEvents::Received => {}
   }
 
   let Ok(target) = turning.selection.target();
@@ -734,7 +734,7 @@ fn reload_content(turning: &mut Turning, files: &ContentFiles) -> Result<(), Nev
       let Ok(()) = files.read(&mut turning.content);
 
       match AppletChange::from(turning.content.applets.get(offset) != previous.as_ref()) {
-        AppletChange::Changed => turning.selection = Selection::Idle,
+        AppletChange::Different => turning.selection = Selection::Idle,
         AppletChange::Same => {}
       }
     }
@@ -1004,12 +1004,12 @@ fn watch_folders(hearing: &OwnedFd, folders: &[PathBuf]) -> Result<(), Never> {
 
 fn heard_again(hearing: &OwnedFd) -> Result<FileEvents, Never> {
   let mut buffer = [0_u8; 4096];
-  let mut events = FileEvents::Quiet;
+  let mut events = FileEvents::Idle;
 
   for _ in 0..16 {
     match rustix::io::read(hearing, &mut buffer) {
       Ok(0) | Err(Errno::AGAIN) => break,
-      Ok(_events) => events = FileEvents::Heard,
+      Ok(_events) => events = FileEvents::Received,
       Err(Errno::INTR) => continue,
       Err(fault) => {
         eprintln!("console-bar: could not read file changes: {fault}");

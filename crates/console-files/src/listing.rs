@@ -60,10 +60,15 @@ impl Entry {
   }
 
   pub fn a_picture(&self) -> Result<Still, Never> {
-    Ok(match ::core::primitive::bool::then_some(!self.folder && self.kind.starts_with("image/"), ()) {
-      ::core::option::Option::Some(()) => Still::APicture,
-      ::core::option::Option::None => Still::NotOne,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        !self.folder && self.kind.starts_with("image/"),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Still::APicture,
+        ::core::option::Option::None => Still::NotOne,
+      },
+    )
   }
 }
 
@@ -105,10 +110,12 @@ pub fn wants_room(things: &[Entry]) -> Result<Room, Never> {
 }
 
 pub fn visibility(name: &str) -> Result<Shown, Never> {
-  Ok(match ::core::primitive::bool::then_some(name.starts_with('.'), ()) {
-    ::core::option::Option::Some(()) => Shown::No,
-    ::core::option::Option::None => Shown::Yes,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(name.starts_with('.'), ()) {
+      ::core::option::Option::Some(()) => Shown::No,
+      ::core::option::Option::None => Shown::Yes,
+    },
+  )
 }
 
 pub fn sorted(mut things: Vec<Entry>) -> Result<Vec<Entry>, Never> {
@@ -150,10 +157,12 @@ pub fn format_size(bytes: u64) -> Result<String, Never> {
 
   let Ok(whole) = whole_u64(much);
 
-  Ok(match ::core::primitive::bool::then_some(unit == "B" || much >= 10.0, ()) {
-    ::core::option::Option::Some(()) => format!("{whole} {unit}"),
-    ::core::option::Option::None => format!("{much:.1} {unit}"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(unit == "B" || much >= 10.0, ()) {
+      ::core::option::Option::Some(()) => format!("{whole} {unit}"),
+      ::core::option::Option::None => format!("{much:.1} {unit}"),
+    },
+  )
 }
 
 #[cfg(test)]

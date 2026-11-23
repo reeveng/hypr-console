@@ -215,21 +215,21 @@ enum Showing {
 
 enum MenuChange {
   Unchanged,
-  Changed,
+  Different,
 }
 
 impl From<bool> for MenuChange {
   fn from(unchanged: bool) -> Self {
     match bool::then_some(unchanged, ()) {
       Some(()) => Self::Unchanged,
-      None => Self::Changed,
+      None => Self::Different,
     }
   }
 }
 
 fn showing(before: &Menu, after: &Menu, event: &Event<ButtonPress>) -> Result<Showing, Never> {
   Ok(match MenuChange::from(before == after) {
-    MenuChange::Changed => Showing::Again,
+    MenuChange::Different => Showing::Again,
     MenuChange::Unchanged => match event {
       Event::Opened => Showing::Again,
       Event::Custom(_)

@@ -37,7 +37,7 @@ const CLOSE: Rectangle<i32> = Rectangle {
 };
 const RING: Point<i32> = Point { x: 40, y: 88 };
 
-type Fault = Box<dyn Error>;
+type DialogError = Box<dyn Error>;
 
 enum Choice {
   Continue,
@@ -74,7 +74,7 @@ fn main() -> ExitCode {
   }
 }
 
-fn approve(tag: &str) -> Result<(), Fault> {
+fn approve(tag: &str) -> Result<(), DialogError> {
   let wearing = Wearing::worn()?;
   let mut feedback = "";
   loop {
@@ -103,7 +103,7 @@ fn approve(tag: &str) -> Result<(), Fault> {
   }
 }
 
-fn submit(tag: &str, secret: &Secret) -> Result<Output, Fault> {
+fn submit(tag: &str, secret: &Secret) -> Result<Output, DialogError> {
   let mut child = Command::new("/usr/bin/sudo")
     .args([
       "-n",
@@ -132,7 +132,7 @@ fn notice(title: &str, message: &str) {
   let _status = Command::new("notify-send").args([title, message]).status();
 }
 
-fn prompt(tag: &str, wearing: &Wearing, feedback: &'static str) -> Result<Option<Secret>, Fault> {
+fn prompt(tag: &str, wearing: &Wearing, feedback: &'static str) -> Result<Option<Secret>, DialogError> {
   let mut surface = Surface::connect()?;
   surface.show(&Wanted {
     namespace: WHO.to_owned(),
@@ -523,7 +523,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn a_scaled_dialog_closes_only_at_the_close_button() -> Result<(), Fault> {
+  fn a_scaled_dialog_closes_only_at_the_close_button() -> Result<(), DialogError> {
     let layout = Layout::centred(Size {
       width: 400,
       height: 420,

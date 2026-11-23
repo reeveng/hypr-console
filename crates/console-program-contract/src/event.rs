@@ -48,7 +48,7 @@ use std::path::PathBuf;
 
 use console_core_never::Never;
 
-use crate::effect::{Command, Job};
+use crate::effect::{Command, Task};
 use crate::subscription::Timer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +87,7 @@ pub enum EventGroup {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
-  pub job: Option<Job>,
+  pub job: Option<Task>,
   pub command: Command,
   pub output: String,
   pub error_output: String,

@@ -159,7 +159,11 @@ impl Frames {
 
         self.slowest_paint = self.slowest_paint.max(painted);
 
-        Some(Committed { painted, at, input: self.input.take() })
+        Some(Committed {
+          painted,
+          at,
+          input: self.input.take(),
+        })
       }
       (None, _) | (_, None) => None,
     })
@@ -195,7 +199,10 @@ impl Frames {
       self.slowest_response = self.slowest_response.max(response);
       if response > RESPONSE_BUDGET {
         self.over_budget = self.over_budget.saturating_add(1);
-        let handling = committed.at.saturating_sub(input).saturating_sub(timed.painted);
+        let handling = committed
+          .at
+          .saturating_sub(input)
+          .saturating_sub(timed.painted);
         let Ok(()) = written_down(Record {
           who: self.who.clone(),
           what: "interaction".to_owned(),
@@ -246,9 +253,18 @@ impl Frames {
         ("held".to_string(), Value::Count(self.held)),
         ("responses".to_string(), Value::Count(self.responses)),
         ("over_50_ms".to_string(), Value::Count(self.over_budget)),
-        ("input_without_frame".to_string(), Value::Count(self.without_frame)),
-        ("discarded_responses".to_string(), Value::Count(self.discarded_responses)),
-        ("slowest_response_microseconds".to_string(), Value::Count(slowest_response)),
+        (
+          "input_without_frame".to_string(),
+          Value::Count(self.without_frame),
+        ),
+        (
+          "discarded_responses".to_string(),
+          Value::Count(self.discarded_responses),
+        ),
+        (
+          "slowest_response_microseconds".to_string(),
+          Value::Count(slowest_response),
+        ),
         (
           "slowest_paint_microseconds".to_string(),
           Value::Count(slowest_paint),
@@ -399,7 +415,10 @@ mod tests {
     let Ok(()) = frames.presented(committed, at_budget);
     assert_eq!((frames.responses, frames.over_budget), (1, 0));
 
-    let late = Presented { at: Duration::from_millis(63), ..at_budget };
+    let late = Presented {
+      at: Duration::from_millis(63),
+      ..at_budget
+    };
     let Ok(()) = frames.presented(committed, late);
     assert_eq!((frames.responses, frames.over_budget), (2, 1));
     assert_eq!(frames.slowest_response, Duration::from_millis(63));

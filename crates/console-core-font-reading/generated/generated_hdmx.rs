@@ -24,7 +24,7 @@ impl TopLevelTable for Hdmx<'_> {
 }
 
 impl ReadArgs for Hdmx<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for Hdmx<'a> {

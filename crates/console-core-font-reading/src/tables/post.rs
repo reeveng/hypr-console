@@ -6,7 +6,10 @@ impl<'a> Post<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Post::num_names` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Post::num_names` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn num_names(&self) -> u64 {
     let Ok(read_version) = self.version();
@@ -34,7 +37,10 @@ impl<'a> Post<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Post::glyph_name` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Post::glyph_name` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn glyph_name(&self, glyph_id: GlyphId16) -> Option<&str> {
     let Ok(value_1) = glyph_id.to_u16();
@@ -108,7 +114,10 @@ impl<'a> PString<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PString::as_str` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PString::as_str` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn as_str(&self) -> &'a str {
     self.0
@@ -279,7 +288,8 @@ mod tests {
 
   #[test]
   fn parse_versioned_fields_v1() -> ::core::result::Result<(), crate::read::ReadError> {
-    let ::core::result::Result::Ok(buf) = make_basic_post(Version16Dot16::VERSION_1_0, crate::Presence::Present);
+    let ::core::result::Result::Ok(buf) =
+      make_basic_post(Version16Dot16::VERSION_1_0, crate::Presence::Present);
     let postv1 = Post::read(<crate::font_data::FontData<'_> as ::core::convert::From<
       &[::core::primitive::u8],
     >>::from(&*buf))?;
@@ -289,14 +299,16 @@ mod tests {
 
   #[test]
   fn parse_versioned_fields_v2() -> ::core::result::Result<(), crate::read::ReadError> {
-    let ::core::result::Result::Ok(buf) = make_basic_post(Version16Dot16::VERSION_2_0, crate::Presence::Absent);
+    let ::core::result::Result::Ok(buf) =
+      make_basic_post(Version16Dot16::VERSION_2_0, crate::Presence::Absent);
     let postv2 = Post::read(<crate::font_data::FontData<'_> as ::core::convert::From<
       &[::core::primitive::u8],
     >>::from(&*buf))?;
 
     assert!(matches!(postv2.num_glyphs(), Ok(None)));
 
-    let ::core::result::Result::Ok(buf_2) = make_basic_post(Version16Dot16::VERSION_2_0, crate::Presence::Present);
+    let ::core::result::Result::Ok(buf_2) =
+      make_basic_post(Version16Dot16::VERSION_2_0, crate::Presence::Present);
     let postv2_2 = Post::read(<crate::font_data::FontData<'_> as ::core::convert::From<
       &[::core::primitive::u8],
     >>::from(&*buf_2))?;
@@ -307,7 +319,8 @@ mod tests {
 
   #[test]
   fn parse_versioned_fields_v3() -> ::core::result::Result<(), crate::read::ReadError> {
-    let ::core::result::Result::Ok(buf) = make_basic_post(Version16Dot16::VERSION_3_0, crate::Presence::Present);
+    let ::core::result::Result::Ok(buf) =
+      make_basic_post(Version16Dot16::VERSION_3_0, crate::Presence::Present);
     let postv3 = Post::read(<crate::font_data::FontData<'_> as ::core::convert::From<
       &[::core::primitive::u8],
     >>::from(&*buf))?;
@@ -318,7 +331,8 @@ mod tests {
   #[test]
   fn num_names_defaults_to_zero_without_num_glyphs()
   -> ::core::result::Result<(), crate::read::ReadError> {
-    let ::core::result::Result::Ok(buf) = make_basic_post(Version16Dot16::VERSION_2_0, crate::Presence::Absent);
+    let ::core::result::Result::Ok(buf) =
+      make_basic_post(Version16Dot16::VERSION_2_0, crate::Presence::Absent);
     let post = Post::read(<crate::font_data::FontData<'_> as ::core::convert::From<
       &[::core::primitive::u8],
     >>::from(&*buf))?;

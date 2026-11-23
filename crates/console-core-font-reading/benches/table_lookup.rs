@@ -8,9 +8,9 @@ use console_core_font_reading::{
     loca::Loca, maxp::Maxp,
   },
 };
+use console_core_never::Never;
 use core::hint::black_box;
 use criterion::Criterion;
-use console_core_never::Never;
 use font_types::BigEndian;
 
 const TEST_FONTS: &[(&str, &[u8])] = &[
@@ -121,7 +121,12 @@ impl<'a> OutlineTables<'a> {
       },
     };
 
-    Ok(Self { maxp, hmtx, hvar, format })
+    Ok(Self {
+      maxp,
+      hmtx,
+      hvar,
+      format,
+    })
   }
 }
 

@@ -656,7 +656,7 @@ fn parse_entity_decl<'input>(
       s.consume_spaces()?;
       EntityKind::Parameter
     }
-    crate::Consumption::Missing => EntityKind::General,
+    crate::Consumption::Absent => EntityKind::General,
   };
 
   let name = s.consume_name()?;
@@ -1189,7 +1189,7 @@ impl<'input> Stream<'input> {
 
         crate::Consumption::Consumed
       }
-      core::cmp::Ordering::Less | core::cmp::Ordering::Greater => crate::Consumption::Missing,
+      core::cmp::Ordering::Less | core::cmp::Ordering::Greater => crate::Consumption::Absent,
     })
   }
 
@@ -1374,7 +1374,7 @@ impl<'input> Stream<'input> {
     let Ok(ampersand) = self.try_consume_byte(b'&');
 
     match ampersand {
-      crate::Consumption::Missing => return Ok(None),
+      crate::Consumption::Absent => return Ok(None),
       crate::Consumption::Consumed => {}
     }
 
@@ -1388,7 +1388,7 @@ impl<'input> Stream<'input> {
 
             (digits, 16)
           }
-          crate::Consumption::Missing => {
+          crate::Consumption::Absent => {
             let digits = self.consume_bytes(|byte| Scan::from(byte.is_ascii_digit()))?;
 
             (digits, 10)
@@ -1406,7 +1406,7 @@ impl<'input> Stream<'input> {
           XmlCharacter::Forbidden => return Err(Error::MalformedEntityReference(position)),
         }
       }
-      crate::Consumption::Missing => {
+      crate::Consumption::Absent => {
         let name = self
           .consume_name()
           .map_err(|_invalid_name| Error::MalformedEntityReference(position))?;

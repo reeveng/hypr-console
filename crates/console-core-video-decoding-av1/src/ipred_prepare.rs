@@ -4,16 +4,16 @@ use crate::include::common::bitdepth::BitDepth;
 use crate::src::align::AlignedVec64;
 use crate::src::disjoint_mut::DisjointMut;
 use crate::src::env::{BlockContext, read_context};
+use crate::src::error::{Rav1dError, Rav1dResult};
 use crate::src::intra_edge::{EdgeAvailability, EdgeFlags};
 use crate::src::levels::DC_128_PRED;
 use crate::src::levels::DC_PRED;
 use crate::src::levels::DIAG_DOWN_LEFT_PRED;
 use crate::src::levels::DIAG_DOWN_RIGHT_PRED;
-use crate::src::levels::HOR_DOWN_PRED;
-use crate::src::levels::HOR_UP_PRED;
-use crate::src::levels::VERT_RIGHT_PRED;
 use crate::src::levels::FILTER_PRED;
+use crate::src::levels::HOR_DOWN_PRED;
 use crate::src::levels::HOR_PRED;
+use crate::src::levels::HOR_UP_PRED;
 use crate::src::levels::IntraPredMode;
 use crate::src::levels::LEFT_DC_PRED;
 use crate::src::levels::PAETH_PRED;
@@ -23,20 +23,25 @@ use crate::src::levels::SMOOTH_V_PRED;
 use crate::src::levels::TOP_DC_PRED;
 use crate::src::levels::VERT_LEFT_PRED;
 use crate::src::levels::VERT_PRED;
+use crate::src::levels::VERT_RIGHT_PRED;
 use crate::src::levels::Z1_PRED;
 use crate::src::levels::Z2_PRED;
 use crate::src::levels::Z3_PRED;
 use crate::src::owned_recon::ReconSrc;
-use crate::src::error::{Rav1dError, Rav1dResult};
 use console_core_geometry::{Point, Size};
-use console_core_number_conversion::{fixed_index, fixed_offset, index, indices, wrapped, wrapped_offset};
+use console_core_number_conversion::{
+  fixed_index, fixed_offset, index, indices, wrapped, wrapped_offset,
+};
 use core::ops::Range;
 use std::ffi::c_int;
 
 #[inline]
 fn smooth(m: u8) -> core::result::Result<c_int, console_core_never::Never> {
   Ok({
-    match ::core::primitive::bool::then_some(m == SMOOTH_PRED || m == SMOOTH_H_PRED || m == SMOOTH_V_PRED, ()) {
+    match ::core::primitive::bool::then_some(
+      m == SMOOTH_PRED || m == SMOOTH_H_PRED || m == SMOOTH_V_PRED,
+      (),
+    ) {
       ::core::option::Option::Some(()) => 512,
       ::core::option::Option::None => 0,
     }
@@ -93,7 +98,7 @@ pub(crate) struct IntraEdgePreparation<'buffer> {
 }
 
 pub(crate) enum AboveEdge<'buffer> {
-  Missing,
+  Absent,
   Reconstructed,
   Prefiltered(PrefilteredTop<'buffer>),
 }
@@ -104,7 +109,7 @@ impl<'buffer> AboveEdge<'buffer> {
     prefiltered: Option<PrefilteredTop<'buffer>>,
   ) -> Result<Self, console_core_never::Never> {
     Ok(match (availability, prefiltered) {
-      (EdgeAvailability::Missing, _) => Self::Missing,
+      (EdgeAvailability::Absent, _) => Self::Absent,
       (EdgeAvailability::Present, None) => Self::Reconstructed,
       (EdgeAvailability::Present, Some(edge)) => Self::Prefiltered(edge),
     })
@@ -130,7 +135,7 @@ fn prepare_intra_mode(
   mut mode: IntraPredMode,
   angle: &mut c_int,
 ) -> Result<IntraPredMode, console_core_never::Never> {
-  let has_top = !matches!(&config.above, AboveEdge::Missing);
+  let has_top = !matches!(&config.above, AboveEdge::Absent);
   let has_left = config.has_left;
 
   match mode {
@@ -188,9 +193,14 @@ struct EdgeSamples<'source, Pixel> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "The reconstruction source presents a native stride at this boundary")
+  expect(
+    explicit051_no_machine_width,
+    reason = "The reconstruction source presents a native stride at this boundary"
+  )
 )]
-fn fixed_pixel_pitch<BD: BitDepth>(source: &ReconSrc<'_>) -> Result<i64, console_core_never::Never> {
+fn fixed_pixel_pitch<BD: BitDepth>(
+  source: &ReconSrc<'_>,
+) -> Result<i64, console_core_never::Never> {
   let Ok(pitch) = source.pixel_stride::<BD>();
   fixed_offset(pitch)
 }
@@ -202,7 +212,9 @@ fn left_source<BD: BitDepth>(source: &ReconSrc<'_>) -> Rav1dResult<BD::Pixel> {
 }
 
 fn copy_padded_row<Pixel: Copy>(output: &mut [Pixel], input: &[Pixel]) -> Rav1dResult {
-  let (visible, padding) = output.split_at_mut_checked(input.len()).ok_or(Rav1dError::EINVAL)?;
+  let (visible, padding) = output
+    .split_at_mut_checked(input.len())
+    .ok_or(Rav1dError::EINVAL)?;
   let fill = input.last().copied().ok_or(Rav1dError::EINVAL)?;
 
   for (destination, &sample) in visible.iter_mut().zip(input) {
@@ -224,17 +236,23 @@ fn copy_reverse_column<BD: BitDepth>(
   source: &[u8],
   column: EdgeColumn,
 ) -> Rav1dResult {
-  let pixels: &[BD::Pixel] = zerocopy::FromBytes::ref_from_bytes(source)
-    .map_err(|_| Rav1dError::EINVAL)?;
+  let pixels: &[BD::Pixel] =
+    zerocopy::FromBytes::ref_from_bytes(source).map_err(|_| Rav1dError::EINVAL)?;
   let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
   let Ok(output_height) = fixed_index(output.len());
-  let padding_rows = output_height.checked_sub(column.height).ok_or(Rav1dError::EINVAL)?;
+  let padding_rows = output_height
+    .checked_sub(column.height)
+    .ok_or(Rav1dError::EINVAL)?;
   let Ok(padding_count) = index(padding_rows);
-  let (padding, visible) = output.split_at_mut_checked(padding_count).ok_or(Rav1dError::EINVAL)?;
+  let (padding, visible) = output
+    .split_at_mut_checked(padding_count)
+    .ok_or(Rav1dError::EINVAL)?;
 
   for (destination, row) in visible.iter_mut().rev().zip(0..column.height) {
     let Ok(row_offset) = wrapped::<_, i64>(row);
-    let byte = column.base.wrapping_add_signed(row_offset.wrapping_mul(column.pitch));
+    let byte = column
+      .base
+      .wrapping_add_signed(row_offset.wrapping_mul(column.pitch));
     let sample = byte.checked_div(sample_size).ok_or(Rav1dError::EINVAL)?;
     let Ok(sample_index) = index(sample);
     let value = pixels.get(sample_index).ok_or(Rav1dError::EINVAL)?;
@@ -255,7 +273,15 @@ fn read_left_column<BD: BitDepth>(
     Size { width: 1, height },
     output,
     |column, bytes, base, pitch| {
-      copy_reverse_column::<BD>(column, bytes, EdgeColumn { height, base, pitch })
+      copy_reverse_column::<BD>(
+        column,
+        bytes,
+        EdgeColumn {
+          height,
+          base,
+          pitch,
+        },
+      )
     },
   );
   result
@@ -275,7 +301,10 @@ fn prepare_left<BD: BitDepth>(
   required: u8,
 ) -> Rav1dResult {
   let length = geometry.output;
-  let left_start = output.center.checked_sub(length).ok_or(Rav1dError::EINVAL)?;
+  let left_start = output
+    .center
+    .checked_sub(length)
+    .ok_or(Rav1dError::EINVAL)?;
   let left = edge_range(output.samples, left_start..output.center)?;
 
   match config.has_left.then_some(()) {
@@ -284,7 +313,7 @@ fn prepare_left<BD: BitDepth>(
       read_left_column::<BD>(&column, left, length.min(geometry.available))?;
     }
     None => {
-      let fill = match (!matches!(&config.above, AboveEdge::Missing)).then_some(()) {
+      let fill = match (!matches!(&config.above, AboveEdge::Absent)).then_some(()) {
         Some(()) => {
           let sample = edge_sample(input.above)?;
           sample
@@ -316,7 +345,9 @@ fn extend_left<BD: BitDepth>(
   let present = config.has_left
     && geometry.available > geometry.output
     && matches!(
-      config.available.availability(EdgeFlags::I444_LEFT_HAS_BOTTOM),
+      config
+        .available
+        .availability(EdgeFlags::I444_LEFT_HAS_BOTTOM),
       Ok(EdgeAvailability::Present)
     );
 
@@ -349,7 +380,7 @@ fn prepare_top<BD: BitDepth>(
   let top = edge_range(output.samples, start..end)?;
   let shift = u64::from(u8::from(config.has_left));
 
-  match (!matches!(&config.above, AboveEdge::Missing)).then_some(()) {
+  match (!matches!(&config.above, AboveEdge::Absent)).then_some(()) {
     Some(()) => {
       let count = geometry.output.min(geometry.available);
       let Ok(visible) = indices(shift..shift.wrapping_add(count));
@@ -385,7 +416,7 @@ fn extend_top<Pixel: Copy>(
   geometry: EdgeExtent,
   repeat: Pixel,
 ) -> Rav1dResult {
-  let present = !matches!(&config.above, AboveEdge::Missing)
+  let present = !matches!(&config.above, AboveEdge::Absent)
     && geometry.available > geometry.output
     && matches!(
       config.available.availability(EdgeFlags::I444_TOP_HAS_RIGHT),
@@ -396,7 +427,9 @@ fn extend_top<Pixel: Copy>(
     Some(()) => {
       let available = geometry.available.wrapping_sub(geometry.output);
       let count = geometry.output.min(available);
-      let start = geometry.output.wrapping_add(u64::from(u8::from(config.has_left)));
+      let start = geometry
+        .output
+        .wrapping_add(u64::from(u8::from(config.has_left)));
       let Ok(visible) = indices(start..start.wrapping_add(count));
       let above = input.above.get(visible).ok_or(Rav1dError::EINVAL)?;
       copy_padded_row(top_right, above)
@@ -420,7 +453,10 @@ fn prepare_corner<BD: BitDepth>(
   let corner: &mut [BD::Pixel; 3] = neighborhood.try_into().map_err(|_| Rav1dError::EINVAL)?;
   let [left, center, right] = corner;
 
-  *center = match (!matches!(&config.above, AboveEdge::Missing), config.has_left) {
+  *center = match (
+    !matches!(&config.above, AboveEdge::Absent),
+    config.has_left,
+  ) {
     (true, _) => {
       let above = edge_sample(input.above)?;
       above
@@ -441,7 +477,10 @@ fn prepare_corner<BD: BitDepth>(
       let ends = (*left).as_::<c_int>().wrapping_add((*right).as_::<c_int>());
       let sides = ends.wrapping_mul(5);
       let center_weighted = (*center).as_::<c_int>().wrapping_mul(6);
-      let filtered = sides.wrapping_add(center_weighted).wrapping_add(8).wrapping_shr(4);
+      let filtered = sides
+        .wrapping_add(center_weighted)
+        .wrapping_add(8)
+        .wrapping_shr(4);
       *center = filtered.as_::<BD::Pixel>();
     }
     None => {}
@@ -473,8 +512,9 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
   let Ok(available_y) = wrapped::<_, u64>(span_y);
   let Ok(width) = wrapped::<_, u64>(config.transform.width.wrapping_mul(4));
   let Ok(height) = wrapped::<_, u64>(config.transform.height.wrapping_mul(4));
-  let need_top = !matches!(&config.above, AboveEdge::Missing)
-    && (required & (TOP_EDGE | CORNER_EDGE) != 0 || required & LEFT_EDGE != 0 && !config.has_left);
+  let need_top = !matches!(&config.above, AboveEdge::Absent)
+    && (required & (TOP_EDGE | CORNER_EDGE) != 0
+      || required & LEFT_EDGE != 0 && !config.has_left);
   let dst_top: &[BD::Pixel] = match need_top.then_some(()) {
     Some(()) => {
       let shift = u64::from(u8::from(config.has_left));
@@ -483,7 +523,9 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
       match &config.above {
         AboveEdge::Prefiltered(top) => {
           let Ok(column) = wrapped::<_, u64>(x.wrapping_mul(4));
-          let offset = column.wrapping_sub(shift).wrapping_add_signed(top.row_start);
+          let offset = column
+            .wrapping_sub(shift)
+            .wrapping_add_signed(top.row_start);
           let Ok(start) = index(offset);
           &*top.samples.slice_as((start.., ..count))
         }
@@ -498,7 +540,7 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
             samples
           }
         }
-        AboveEdge::Missing => return Err(Rav1dError::EINVAL),
+        AboveEdge::Absent => return Err(Rav1dError::EINVAL),
       }
     }
     None => &[],
@@ -515,7 +557,10 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
       source,
       &input,
       &config,
-      EdgeExtent { output: height, available: available_y },
+      EdgeExtent {
+        output: height,
+        available: available_y,
+      },
       required,
     )?,
     None => {}
@@ -527,7 +572,10 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
       source,
       &input,
       &config,
-      EdgeExtent { output: width, available: available_x },
+      EdgeExtent {
+        output: width,
+        available: available_x,
+      },
       required,
     )?,
     None => {}

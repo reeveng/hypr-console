@@ -34,10 +34,13 @@ fn every_place_the_readme_links_to_is_in_the_tree() -> Result<(), Box<dyn std::e
 
     match opened {
       Ok(_file) => {}
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => missing.push(target),
-        ::core::option::Option::None => return Err(Box::new(fault)),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => missing.push(target),
+          ::core::option::Option::None => return Err(Box::new(fault)),
+        }
+      }
     }
   }
 

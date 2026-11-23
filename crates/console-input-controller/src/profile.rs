@@ -642,13 +642,19 @@ mod tests {
   }
 
   #[test]
-  fn only_a_failed_read_while_switching_profiles_schedules_a_retry()
-  -> Result<(), ValidationError> {
+  fn only_a_failed_read_while_switching_profiles_schedules_a_retry() -> Result<(), ValidationError>
+  {
     let pad = switch(&[], Has::Yes)?;
     let game = switch(&["game"], Has::Yes)?;
     let Ok(refused) = answered_with(ExitStatus::Failure(Some(1)), "");
     let tick = Event::Tick(AGAIN, Duration::from_secs(1));
-    let unrelated = Event::Tick(Timer { name: "other", ..AGAIN }, Duration::from_secs(1));
+    let unrelated = Event::Tick(
+      Timer {
+        name: "other",
+        ..AGAIN
+      },
+      Duration::from_secs(1),
+    );
 
     let Ok(asking) = run::<Profile>(&pad, &[Event::Opened, refused.clone()]);
     let Ok(loading) = run::<Profile>(
@@ -666,11 +672,16 @@ mod tests {
 
     assert!(asking.initialized.is_empty());
     assert!(loading.initialized.is_empty());
-    assert!(matches!(asking.on(1), Ok(Some([Effect::Stop(Exit::Failure(_))]))));
+    assert!(matches!(
+      asking.on(1),
+      Ok(Some([Effect::Stop(Exit::Failure(_))]))
+    ));
     assert_eq!(loading.on(1), Ok(Some([].as_slice())));
     assert_eq!(
       loading.on(2),
-      Ok(Some([Effect::Subscribe(Subscription::Once(AGAIN))].as_slice()))
+      Ok(Some(
+        [Effect::Subscribe(Subscription::Once(AGAIN))].as_slice()
+      ))
     );
     assert_eq!(loading.on(3), Ok(Some([].as_slice())));
     assert_eq!(loading.on(4), Ok(Some([].as_slice())));

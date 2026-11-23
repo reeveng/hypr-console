@@ -616,18 +616,18 @@ fn parsed(
     "APIC" => picture(reader, version).map(Some),
     "TXXX" => user_text(reader, version),
     "WXXX" => user_url(reader, version),
-    "COMM" => language(reader, version, Said::Comment),
-    "USLT" => language(reader, version, Said::Lyrics),
+    "COMM" => language(reader, version, Value::Comment),
+    "USLT" => language(reader, version, Value::Lyrics),
     "TIPL" | "TMCL" => involved(reader, version),
     "UFID" | "RVA2" | "OWNE" | "ETCO" | "PRIV" | "POPM" | "CHAP" | "CTOC" => {
-      rest(reader, Kept::Opaque).map(Some)
+      rest(reader, Retained::Opaque).map(Some)
     }
     "TDEN" | "TDOR" | "TDRC" | "TDRL" | "TDTG" => timestamp(reader),
     "GRP1" | "MVNM" | "MVIN" => text(reader, version),
     other => match other.as_bytes() {
       [b'T', ..] => text(reader, version),
       [b'W', ..] => url(reader).map(Some),
-      _binary => rest(reader, Kept::Binary).map(Some),
+      _binary => rest(reader, Retained::Binary).map(Some),
     },
   };
 
@@ -640,23 +640,23 @@ fn parsed(
   }))
 }
 
-enum Kept {
+enum Retained {
   Opaque,
   Binary,
 }
 
-enum Said {
+enum Value {
   Comment,
   Lyrics,
 }
 
-fn rest(reader: &mut Cursor<'_>, kept: Kept) -> Result<Body, Malformed> {
+fn rest(reader: &mut Cursor<'_>, kept: Retained) -> Result<Body, Malformed> {
   let Ok(bytes) = reader.rest();
   let Ok(()) = reader.finish();
 
   Ok(match kept {
-    Kept::Opaque => Body::Opaque(bytes.to_vec()),
-    Kept::Binary => Body::Binary(bytes.to_vec()),
+    Retained::Opaque => Body::Opaque(bytes.to_vec()),
+    Retained::Binary => Body::Binary(bytes.to_vec()),
   })
 }
 
@@ -741,7 +741,7 @@ fn user_url(reader: &mut Cursor<'_>, version: Version) -> Result<Option<Body>, M
 fn language(
   reader: &mut Cursor<'_>,
   version: Version,
-  said: Said,
+  said: Value,
 ) -> Result<Option<Body>, Malformed> {
   let byte = match reader.byte() {
     Ok(byte) => byte,
@@ -769,13 +769,13 @@ fn language(
   let description = described.text;
 
   Ok(Some(match said {
-    Said::Comment => Body::Comment {
+    Value::Comment => Body::Comment {
       encoding,
       language,
       description,
       content: content_2,
     },
-    Said::Lyrics => Body::Lyrics {
+    Value::Lyrics => Body::Lyrics {
       encoding,
       language,
       description,

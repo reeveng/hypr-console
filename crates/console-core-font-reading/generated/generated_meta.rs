@@ -2,7 +2,7 @@
 
 use crate::codegen_prelude::*;
 
-impl<'a> MinByteRange<'a> for Meta<'a> {
+impl<'a> MinByteRange<'a> for MetadataTable<'a> {
     fn min_byte_range(&self) -> std::result::Result<Range<u64>, console_core_never::Never> {
         let Ok(data_maps_byte_range) = self.data_maps_byte_range();
 
@@ -19,11 +19,11 @@ impl<'a> MinByteRange<'a> for Meta<'a> {
     }
 }
 
-impl TopLevelTable for Meta<'_> {
+impl TopLevelTable for MetadataTable<'_> {
     const TAG: Tag = ({ let Ok(value) = Tag::new(b"meta"); value });
 }
 
-impl<'a> FontRead<'a> for Meta<'a> {
+impl<'a> FontRead<'a> for MetadataTable<'a> {
     fn read(data: FontData<'a>) -> Result<Self, ReadError> {
         let Ok(value_1) = data.len();
 
@@ -36,11 +36,11 @@ impl<'a> FontRead<'a> for Meta<'a> {
 }
 
 #[derive(Clone)]
-pub struct Meta<'a> {
+pub struct MetadataTable<'a> {
     data: FontData<'a>,
 }
 
-impl<'a> Meta<'a> {
+impl<'a> MetadataTable<'a> {
     pub const MIN_SIZE: u64 =
         (u32::RAW_BYTE_LEN + u32::RAW_BYTE_LEN + u32::RAW_BYTE_LEN + u32::RAW_BYTE_LEN);
     basic_table_impls!(impl_the_methods);
@@ -107,9 +107,9 @@ impl<'a> Meta<'a> {
     }
 }
 
-const _: () = assert!(({ let Ok(held) = FontData::default_data_long_enough(Meta::MIN_SIZE); held }));
+const _: () = assert!(({ let Ok(held) = FontData::default_data_long_enough(MetadataTable::MIN_SIZE); held }));
 
-impl Default for Meta<'_> {
+impl Default for MetadataTable<'_> {
     fn default() -> Self {
         let Ok(value_3) = FontData::default_table_data();
 
@@ -120,7 +120,7 @@ impl Default for Meta<'_> {
 }
 
 #[cfg(feature = "experimental_traverse")]
-impl<'a> SomeTable<'a> for Meta<'a> {
+impl<'a> SomeTable<'a> for MetadataTable<'a> {
     fn type_name(&self) -> Result<&str, Never> {
         Ok("Meta")
     }
@@ -145,7 +145,7 @@ impl<'a> SomeTable<'a> for Meta<'a> {
 }
 
 #[cfg(feature = "experimental_traverse")]
-impl<'a> std::fmt::Debug for Meta<'a> {
+impl<'a> std::fmt::Debug for MetadataTable<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         ::core::convert::identity::<&dyn SomeTable<'a>>(self).fmt(f)
     }

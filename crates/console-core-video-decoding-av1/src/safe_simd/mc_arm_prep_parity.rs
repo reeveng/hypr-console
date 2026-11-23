@@ -88,16 +88,29 @@ impl Report {
 
     match outcome.difference {
       Some(mismatch) => {
-        let FixtureCell { filter, bitdepth, sampling: UnscaledSampling { size, phase } } = cell;
+        let FixtureCell {
+          filter,
+          bitdepth,
+          sampling: UnscaledSampling { size, phase },
+        } = cell;
         let code = filter.ordinal();
-        let label = format!("prep bd={bitdepth} filter={code} {}x{} mx={} my={}", size.width, size.height, phase.x, phase.y);
+        let label = format!(
+          "prep bd={bitdepth} filter={code} {}x{} mx={} my={}",
+          size.width, size.height, phase.x, phase.y
+        );
 
         match &self.first {
           Some(_) => {}
           None => {
-            let PredictorDifference { position: Point { x, y }, neon, scalar } = mismatch;
+            let PredictorDifference {
+              position: Point { x, y },
+              neon,
+              scalar,
+            } = mismatch;
             let delta = i32::from(neon).wrapping_sub(i32::from(scalar));
-            self.first = Some(format!("{label}: at ({x},{y}) neon={neon} scalar={scalar} (diff {delta})"));
+            self.first = Some(format!(
+              "{label}: at ({x},{y}) neon={neon} scalar={scalar} (diff {delta})"
+            ));
           }
         }
 
@@ -116,11 +129,17 @@ impl Report {
       "{name}: only {} parameter cells ran (expected at least {minimum})",
       self.cells,
     );
-    assert_eq!(self.live, self.cells, "{name}: every cell must exercise the NEON path");
+    assert_eq!(
+      self.live, self.cells,
+      "{name}: every cell must exercise the NEON path"
+    );
     assert!(
       self.bad.is_empty(),
       "{name}: {} of {} parameter cells diverged.\nFirst mismatch: {:?}\nCells: {:?}",
-      self.bad.len(), self.cells, self.first, self.bad,
+      self.bad.len(),
+      self.cells,
+      self.first,
+      self.bad,
     );
     Ok(())
   }
@@ -152,8 +171,16 @@ impl FixturePlane {
     let count = width.checked_mul(height).ok_or(Rav1dError::EINVAL)?;
     let Ok(pixel_bytes) = fixed_index(core::mem::size_of::<Pixel>());
     let pixels_per_alignment = 64_u64.checked_div(pixel_bytes).ok_or(Rav1dError::EINVAL)?;
-    let padded_samples = stride.wrapping_mul(rows).checked_next_multiple_of(pixels_per_alignment).ok_or(Rav1dError::EINVAL)?;
-    Ok(Self { stride, origin, count, padded_samples })
+    let padded_samples = stride
+      .wrapping_mul(rows)
+      .checked_next_multiple_of(pixels_per_alignment)
+      .ok_or(Rav1dError::EINVAL)?;
+    Ok(Self {
+      stride,
+      origin,
+      count,
+      padded_samples,
+    })
   }
 }
 
@@ -177,16 +204,29 @@ where
   let Ok(length) = index(plane.count);
   let mut native_predictors = [0_i16; COMPINTER_LEN];
   let mut reference_predictors = [0_i16; COMPINTER_LEN];
-  let neon = native_predictors.get_mut(..length).ok_or(Rav1dError::EINVAL)?;
-  let scalar = reference_predictors.get_mut(..length).ok_or(Rav1dError::EINVAL)?;
-  let FixtureCell { filter, sampling, .. } = *cell;
+  let neon = native_predictors
+    .get_mut(..length)
+    .ok_or(Rav1dError::EINVAL)?;
+  let scalar = reference_predictors
+    .get_mut(..length)
+    .ok_or(Rav1dError::EINVAL)?;
+  let FixtureCell {
+    filter, sampling, ..
+  } = *cell;
   let UnscaledSampling { size, phase } = sampling;
   let native_outcome = {
     let Ok(mut pixels) = crate::src::safe_simd::aligned_plane(source);
     let component = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut pixels, stride);
     let at = component.with_offset::<BD>() + base;
     crate::src::safe_simd::mc_arm::mct_prep_dispatch::<BD>(
-      filter, neon, at, size.width, size.height, phase.x, phase.y, depth,
+      filter,
+      neon,
+      at,
+      size.width,
+      size.height,
+      phase.x,
+      phase.y,
+      depth,
     )
   };
 
@@ -203,23 +243,41 @@ where
   };
   let width = u64::try_from(size.width).map_err(|_| Rav1dError::EINVAL)?;
   let row_width = NonZeroU64::new(width).ok_or(Rav1dError::EINVAL)?;
-  let difference = (0..plane.count).zip(neon.iter().copied().zip(scalar.iter().copied()))
-    .find_map(|(ordinal, (actual, expected))| match actual.cmp(&expected) {
-      Ordering::Equal => None,
-      Ordering::Less | Ordering::Greater => Some(PredictorDifference {
-        position: Point { x: ordinal.wrapping_rem(row_width.get()), y: ordinal.wrapping_div(row_width.get()) },
-        neon: actual,
-        scalar: expected,
-      }),
-    });
+  let difference = (0..plane.count)
+    .zip(neon.iter().copied().zip(scalar.iter().copied()))
+    .find_map(
+      |(ordinal, (actual, expected))| match actual.cmp(&expected) {
+        Ordering::Equal => None,
+        Ordering::Less | Ordering::Greater => Some(PredictorDifference {
+          position: Point {
+            x: ordinal.wrapping_rem(row_width.get()),
+            y: ordinal.wrapping_div(row_width.get()),
+          },
+          neon: actual,
+          scalar: expected,
+        }),
+      },
+    );
 
   Ok(CellResult { path, difference })
 }
 
 #[doc = "Shapes used by the original NEON differential, including rectangular and maximum-size blocks."]
 const SIZES: [[u8; 2]; 14] = [
-  [4, 4], [4, 8], [8, 4], [8, 8], [8, 16], [16, 8], [16, 16],
-  [16, 32], [32, 16], [32, 32], [32, 64], [64, 32], [64, 64], [128, 128],
+  [4, 4],
+  [4, 8],
+  [8, 4],
+  [8, 8],
+  [8, 16],
+  [16, 8],
+  [16, 16],
+  [16, 32],
+  [32, 16],
+  [32, 32],
+  [32, 64],
+  [64, 32],
+  [64, 64],
+  [128, 128],
 ];
 
 #[doc = "These phases cover identity, horizontal, vertical and combined kernels."]
@@ -236,7 +294,12 @@ fn sweep<BD: BitDepth>(report: &mut Report, cases: FixtureSweep<BD>) -> Rav1dRes
 where
   BD::Pixel: Default,
 {
-  let FixtureSweep { depth, bitdepth, seed, filters } = cases;
+  let FixtureSweep {
+    depth,
+    bitdepth,
+    seed,
+    filters,
+  } = cases;
   let maximum = u64::try_from(depth.into_c()).map_err(|_| Rav1dError::EINVAL)?;
   let outcomes = NonZeroU64::new(maximum.wrapping_add(1)).ok_or(Rav1dError::EINVAL)?;
 
@@ -244,7 +307,10 @@ where
     let code = u64::from(filter.ordinal()).wrapping_shl(40);
 
     for [width, height] in SIZES {
-      let size = Size { width: i32::from(width), height: i32::from(height) };
+      let size = Size {
+        width: i32::from(width),
+        height: i32::from(height),
+      };
       let plane = FixturePlane::new::<BD::Pixel>(size)?;
       let mut rng = Rng(seed ^ code ^ plane.count);
       let mut samples = Vec::new();
@@ -257,8 +323,15 @@ where
       }
 
       for [x, y] in SUBPEL {
-        let sampling = UnscaledSampling { size, phase: Point { x, y } };
-        let cell = FixtureCell { filter, bitdepth, sampling };
+        let sampling = UnscaledSampling {
+          size,
+          phase: Point { x, y },
+        };
+        let cell = FixtureCell {
+          filter,
+          bitdepth,
+          sampling,
+        };
         let result = prep_cell(&cell, &plane, &samples, depth)?;
         let Ok(()) = report.record(&cell, result);
       }
@@ -283,10 +356,21 @@ fn prep_16bpc_matches_scalar() -> Rav1dResult {
   for (bitdepth, maximum) in [(10, 1023), (12, 4095)] {
     let seed = 0x5EED_0000_0000_0001 ^ u64::from(bitdepth).wrapping_shl(48);
     let depth = BitDepth16::new(maximum);
-    sweep(&mut report, FixtureSweep { depth, bitdepth, seed, filters: FILTERS })?;
+    sweep(
+      &mut report,
+      FixtureSweep {
+        depth,
+        bitdepth,
+        seed,
+        filters: FILTERS,
+      },
+    )?;
   }
 
-  let Ok(()) = report.finish(SweepExpectation { name: "aarch64 16bpc prep", minimum: 600 });
+  let Ok(()) = report.finish(SweepExpectation {
+    name: "aarch64 16bpc prep",
+    minimum: 600,
+  });
   Ok(())
 }
 
@@ -298,8 +382,23 @@ fn prep_8bpc_matches_scalar_control() -> Rav1dResult {
   let depth = BitDepth8::new(());
   let bitdepth = 8;
   let seed = 0xC0FF_EE00_0000_0002;
-  const FILTERS: &[Filter2d] = &[Filter2d::Regular8Tap, Filter2d::Sharp8Tap, Filter2d::Bilinear];
-  sweep(&mut report, FixtureSweep { depth, bitdepth, seed, filters: FILTERS })?;
-  let Ok(()) = report.finish(SweepExpectation { name: "aarch64 8bpc prep (control)", minimum: 200 });
+  const FILTERS: &[Filter2d] = &[
+    Filter2d::Regular8Tap,
+    Filter2d::Sharp8Tap,
+    Filter2d::Bilinear,
+  ];
+  sweep(
+    &mut report,
+    FixtureSweep {
+      depth,
+      bitdepth,
+      seed,
+      filters: FILTERS,
+    },
+  )?;
+  let Ok(()) = report.finish(SweepExpectation {
+    name: "aarch64 8bpc prep (control)",
+    minimum: 200,
+  });
   Ok(())
 }

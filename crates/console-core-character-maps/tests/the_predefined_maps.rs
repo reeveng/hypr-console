@@ -6,31 +6,31 @@ use console_core_never::Never;
 type Failure = Box<dyn std::error::Error>;
 
 #[derive(Debug)]
-enum Fault {
-  Missing(&'static str),
-  Unreadable(&'static str),
+enum Error {
+  Absent(&'static str),
+  Read(&'static str),
 }
 
-impl std::fmt::Display for Fault {
+impl std::fmt::Display for Error {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Fault::Missing(name) => write!(to, "{name} is not in the bundle"),
-      Fault::Unreadable(name) => write!(to, "{name} does not parse"),
+      Error::Absent(name) => write!(to, "{name} is not in the bundle"),
+      Error::Read(name) => write!(to, "{name} does not parse"),
     }
   }
 }
 
-impl std::error::Error for Fault {}
+impl std::error::Error for Error {}
 
 fn predefined(name: &'static str) -> Result<CMap, Failure> {
   let Ok(wanted) = CMapName::from_bytes(name.as_bytes());
   let Ok(found) = load_embedded(wanted);
-  let data = found.ok_or(Fault::Missing(name))?;
+  let data = found.ok_or(Error::Absent(name))?;
 
   CMap::parse(data, |base| match load_embedded(base) {
     Ok(embedded) => embedded,
   })
-  .map_err(|_unreadable| Failure::from(Fault::Unreadable(name)))
+  .map_err(|_unreadable| Failure::from(Error::Read(name)))
 }
 
 fn collection(family: CidFamily, supplement: i32) -> Result<Option<CharacterCollection>, Never> {
@@ -343,7 +343,7 @@ fn a_family_points_at_the_ucs2_map_the_bundle_holds() -> Result<(), Failure> {
   ] {
     let name = match family.ucs2_cmap() {
       Ok(Some(name)) => name,
-      Ok(None) => return Err(Failure::from(Fault::Missing("a ucs2 map"))),
+      Ok(None) => return Err(Failure::from(Error::Absent("a ucs2 map"))),
     };
 
     let Ok(found) = load_embedded(name);

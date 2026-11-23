@@ -18,6 +18,7 @@ use crate::allocator;
 use crate::display::{self, Opened};
 use crate::exceptions::{self, Breakpoint};
 use crate::firmware::{self, Status, SystemTable};
+use crate::generation;
 use crate::input;
 use crate::serial::{self, Serial};
 use crate::timer;
@@ -31,6 +32,7 @@ const HYPERVISOR_PRESENT: u32 = 1 << 31;
 const TICKS: u64 = 3;
 
 const SUCCESS: u32 = 0;
+const GENERATION_EXIT: u32 = 0x20;
 
 pub const FAILURE: u32 = 1;
 
@@ -50,7 +52,7 @@ pub extern "efiapi" fn efi_main(image: *const c_void, system: *const SystemTable
   let Ok(()) = say(&serial, format_args!("console-kernel: booted"));
 
   let Ok(()) = match opened {
-    Opened::Drawn(panel) => say(
+    Opened::Rendered(panel) => say(
       &serial,
       format_args!(
         "console-kernel: the panel is {} by {}, and boot progress is drawn on it",
@@ -63,7 +65,7 @@ pub extern "efiapi" fn efi_main(image: *const c_void, system: *const SystemTable
         "console-kernel: the firmware lent no panel, and the lines are on the serial port alone"
       ),
     ),
-    Opened::Refused(error) => say(
+    Opened::Rejected(error) => say(
       &serial,
       format_args!("console-kernel: the panel would not be drawn on: {error}"),
     ),
@@ -142,6 +144,22 @@ fn own(
   };
 
   let Ok(()) = count_ticks(serial);
+  match generation::CALCULATOR {
+    Some(calculator) => {
+      match reserved.prepare() {
+        Ok(()) => {}
+        Err(error) => stop(format_args!("could not prepare user memory: {error}")),
+      }
+
+      let Ok(machine) = machine();
+      match generation::run(acpi_root, machine, reserved, trap_stack, calculator) {
+        Ok(()) => exit(GENERATION_EXIT),
+        Err(error) => stop(format_args!("USB keyboard stopped: {error}")),
+      }
+    }
+    None => {}
+  }
+
   let pixels = match userspace::check(reserved, trap_stack) {
     Ok(pixels) => pixels,
     Err(error) => stop(format_args!("user tasks failed: {error}")),
@@ -274,9 +292,11 @@ fn heap_check(serial: &Serial) -> Result<(), Never> {
   for _ in 0..16 {
     let again = core::hint::black_box(alloc::vec![0x3c_u8; 1_048_576]);
 
-    match ::core::primitive::bool::then_some(u64::try_from(again.as_ptr().expose_provenance()) == address
-      && again.iter().all(|byte| *byte == 0x3c), ())
-    {
+    match ::core::primitive::bool::then_some(
+      u64::try_from(again.as_ptr().expose_provenance()) == address
+        && again.iter().all(|byte| *byte == 0x3c),
+      (),
+    ) {
       ::core::option::Option::Some(()) => drop(again),
       ::core::option::Option::None => {
         let Ok(()) = say(

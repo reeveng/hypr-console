@@ -12,7 +12,7 @@ use console_core_matroska_blocks::{BlockHeader, Frame as Laced, Lacing, parse_la
 use console_core_never::Never;
 use console_core_number_conversion::index;
 
-use crate::fault::{Fault, Invalid};
+use crate::fault::{DecodeError, Invalid};
 
 pub(crate) struct Frame {
   pub(crate) track: u32,
@@ -30,20 +30,20 @@ pub(crate) fn extract_frames(
   block_duration: Option<u64>,
   default_durations: &HashMap<u32, u64>,
   cluster: u64,
-) -> Result<Vec<Frame>, Fault> {
+) -> Result<Vec<Frame>, DecodeError> {
   let Ok(parsed) = BlockHeader::parse(block);
-  let header = parsed.ok_or(Fault::Invalid(Invalid::BlockHeader))?;
+  let header = parsed.ok_or(DecodeError::Invalid(Invalid::BlockHeader))?;
   let track = u32::try_from(header.track)
-    .map_err(|_wider_than_a_track_id| Fault::Invalid(Invalid::TrackNumber))?;
+    .map_err(|_wider_than_a_track_id| DecodeError::Invalid(Invalid::TrackNumber))?;
   let Ok(payload_at) = index(header.header_len);
   let payload = block
     .get(payload_at..)
-    .ok_or(Fault::Invalid(Invalid::BlockHeader))?;
+    .ok_or(DecodeError::Invalid(Invalid::BlockHeader))?;
   let Ok(lacing) = Lacing::from_flags(header.flags);
   let laced =
-    parse_lacing(lacing, payload).map_err(|_malformed_lace| Fault::Invalid(Invalid::Lacing))?;
+    parse_lacing(lacing, payload).map_err(|_malformed_lace| DecodeError::Invalid(Invalid::Lacing))?;
   let count =
-    u64::try_from(laced.len()).map_err(|_wider_than_a_count| Fault::Invalid(Invalid::Lacing))?;
+    u64::try_from(laced.len()).map_err(|_wider_than_a_count| DecodeError::Invalid(Invalid::Lacing))?;
   let duration = match block_duration.and_then(|whole| whole.checked_div(count)) {
     Some(each) => each,
     None => match default_durations.get(&track) {
@@ -64,7 +64,7 @@ pub(crate) fn extract_frames(
     })
     .map(|(timestamp, frame)| {
       let Ok(found) = bytes_of(payload, &frame);
-      let data = found.ok_or(Fault::Invalid(Invalid::Lacing))?;
+      let data = found.ok_or(DecodeError::Invalid(Invalid::Lacing))?;
 
       Ok(Frame {
         track,

@@ -144,42 +144,40 @@ impl Cache<'_> {
   pub(crate) fn gen_linear_gradient_id(
     &mut self,
   ) -> Result<NonEmptyString, console_core_never::Never> {
-    generate_id("linearGradient", &mut self.linear_gradient_index, &self.all_ids)
+    generate_id(
+      "linearGradient",
+      &mut self.linear_gradient_index,
+      &self.all_ids,
+    )
   }
 
   pub(crate) fn gen_radial_gradient_id(
     &mut self,
   ) -> Result<NonEmptyString, console_core_never::Never> {
-    generate_id("radialGradient", &mut self.radial_gradient_index, &self.all_ids)
+    generate_id(
+      "radialGradient",
+      &mut self.radial_gradient_index,
+      &self.all_ids,
+    )
   }
 
-  pub(crate) fn gen_pattern_id(
-    &mut self,
-  ) -> Result<NonEmptyString, console_core_never::Never> {
+  pub(crate) fn gen_pattern_id(&mut self) -> Result<NonEmptyString, console_core_never::Never> {
     generate_id("pattern", &mut self.pattern_index, &self.all_ids)
   }
 
-  pub(crate) fn gen_clip_path_id(
-    &mut self,
-  ) -> Result<NonEmptyString, console_core_never::Never> {
+  pub(crate) fn gen_clip_path_id(&mut self) -> Result<NonEmptyString, console_core_never::Never> {
     generate_id("clipPath", &mut self.clip_path_index, &self.all_ids)
   }
 
-  pub(crate) fn gen_mask_id(
-    &mut self,
-  ) -> Result<NonEmptyString, console_core_never::Never> {
+  pub(crate) fn gen_mask_id(&mut self) -> Result<NonEmptyString, console_core_never::Never> {
     generate_id("mask", &mut self.mask_index, &self.all_ids)
   }
 
-  pub(crate) fn gen_filter_id(
-    &mut self,
-  ) -> Result<NonEmptyString, console_core_never::Never> {
+  pub(crate) fn gen_filter_id(&mut self) -> Result<NonEmptyString, console_core_never::Never> {
     generate_id("filter", &mut self.filter_index, &self.all_ids)
   }
 
-  pub(crate) fn gen_image_id(
-    &mut self,
-  ) -> Result<NonEmptyString, console_core_never::Never> {
+  pub(crate) fn gen_image_id(&mut self) -> Result<NonEmptyString, console_core_never::Never> {
     generate_id("image", &mut self.image_index, &self.all_ids)
   }
 
@@ -196,9 +194,13 @@ impl Cache<'_> {
     font: ID,
     glyph: GlyphId,
   ) -> Result<Option<Node>, console_core_never::Never> {
-    Ok(self.cache_svg.entry((font, glyph))
-      .or_insert_with(|| self.console_core_font_database.svg(font, glyph))
-      .clone())
+    Ok(
+      self
+        .cache_svg
+        .entry((font, glyph))
+        .or_insert_with(|| self.console_core_font_database.svg(font, glyph))
+        .clone(),
+    )
   }
 
   #[cfg(feature = "text")]
@@ -207,9 +209,13 @@ impl Cache<'_> {
     font: ID,
     glyph: GlyphId,
   ) -> Result<Option<BitmapImage>, console_core_never::Never> {
-    Ok(self.cache_raster.entry((font, glyph))
-      .or_insert_with(|| self.console_core_font_database.raster(font, glyph))
-      .clone())
+    Ok(
+      self
+        .cache_raster
+        .entry((font, glyph))
+        .or_insert_with(|| self.console_core_font_database.raster(font, glyph))
+        .clone(),
+    )
   }
 
   #[cfg(feature = "text")]
@@ -221,9 +227,17 @@ impl Cache<'_> {
   ) -> Result<Option<console_core_paths::Path>, console_core_never::Never> {
     let key = (font, glyph, variations.to_vec());
 
-    Ok(self.cache_outline.entry(key)
-      .or_insert_with(|| self.console_core_font_database.outline(font, glyph, variations))
-      .clone())
+    Ok(
+      self
+        .cache_outline
+        .entry(key)
+        .or_insert_with(|| {
+          self
+            .console_core_font_database
+            .outline(font, glyph, variations)
+        })
+        .clone(),
+    )
   }
 
   #[cfg(feature = "text")]
@@ -242,9 +256,17 @@ impl Cache<'_> {
   ) -> Result<Option<Tree>, console_core_never::Never> {
     let key = (font, glyph, variations.to_vec());
 
-    Ok(self.cache_colr.entry(key)
-      .or_insert_with(|| self.console_core_font_database.colr(font, glyph, variations))
-      .clone())
+    Ok(
+      self
+        .cache_colr
+        .entry(key)
+        .or_insert_with(|| {
+          self
+            .console_core_font_database
+            .colr(font, glyph, variations)
+        })
+        .clone(),
+    )
   }
 
   #[cfg(feature = "text")]
@@ -252,12 +274,13 @@ impl Cache<'_> {
     &mut self,
     font: ID,
   ) -> Result<crate::Presence, console_core_never::Never> {
-    Ok(*self
-      .cache_optical_size_axis
-      .entry(font)
-      .or_insert_with(|| self.console_core_font_database.optical_size_axis(font)))
+    Ok(
+      *self
+        .cache_optical_size_axis
+        .entry(font)
+        .or_insert_with(|| self.console_core_font_database.optical_size_axis(font)),
+    )
   }
-
 }
 
 fn generate_id(
@@ -357,7 +380,8 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
     fallback: UserLength,
   ) -> Result<f32, console_core_never::Never> {
     let Ok(mut ancestors) = self.ancestors();
-    let source = ancestors.find(|node| matches!(node.has_attribute(aid), Ok(crate::Presence::Present)));
+    let source =
+      ancestors.find(|node| matches!(node.has_attribute(aid), Ok(crate::Presence::Present)));
     let node = match source {
       Some(node) => node,
       None => return Ok(fallback.0),
@@ -450,9 +474,9 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
 
     Ok(
       match {
-          let Ok(explicit_value) = ts_2.is_valid();
-          explicit_value
-        } {
+        let Ok(explicit_value) = ts_2.is_valid();
+        explicit_value
+      } {
         console_core_paths::IsValidAnswer::Yes => crate::HasValidTransformAnswer::Yes,
         console_core_paths::IsValidAnswer::No => crate::HasValidTransformAnswer::No,
       },
@@ -464,24 +488,27 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
     opt: &crate::Options,
   ) -> core::result::Result<crate::IsVisibleElementAnswer, console_core_never::Never> {
     Ok(
-      match ::core::primitive::bool::then_some(({
-        let Ok(explicit_value) = self.attribute(AId::Display);
-        explicit_value
-      }) != Some("none")
-        && matches!(
-          {
-            let Ok(explicit_value) = self.has_valid_transform(AId::Transform);
-            explicit_value
-          },
-          crate::HasValidTransformAnswer::Yes
-        )
-        && matches!(
-          {
-            let Ok(explicit_value) = super::switch::is_condition_passed(*self, opt);
-            explicit_value
-          },
-          crate::IsConditionPassedAnswer::Yes
-        ), ()) {
+      match ::core::primitive::bool::then_some(
+        ({
+          let Ok(explicit_value) = self.attribute(AId::Display);
+          explicit_value
+        }) != Some("none")
+          && matches!(
+            {
+              let Ok(explicit_value) = self.has_valid_transform(AId::Transform);
+              explicit_value
+            },
+            crate::HasValidTransformAnswer::Yes
+          )
+          && matches!(
+            {
+              let Ok(explicit_value) = super::switch::is_condition_passed(*self, opt);
+              explicit_value
+            },
+            crate::IsConditionPassedAnswer::Yes
+          ),
+        (),
+      ) {
         ::core::option::Option::Some(()) => crate::IsVisibleElementAnswer::Yes,
         ::core::option::Option::None => crate::IsVisibleElementAnswer::No,
       },
@@ -610,8 +637,13 @@ fn reserve_document_ids<'a>(
 
     match tag {
       Some(
-        EId::ClipPath | EId::Filter | EId::LinearGradient | EId::Mask | EId::Pattern
-        | EId::RadialGradient | EId::Image,
+        EId::ClipPath
+        | EId::Filter
+        | EId::LinearGradient
+        | EId::Mask
+        | EId::Pattern
+        | EId::RadialGradient
+        | EId::Image,
       ) => {
         let Ok(id) = node.element_id();
 
@@ -631,7 +663,8 @@ fn reserve_document_ids<'a>(
 
 fn document_background(
   svg: SvgNode,
-) -> Result<Option<console_core_scalable_vector_graphics_values::Color>, console_core_never::Never> {
+) -> Result<Option<console_core_scalable_vector_graphics_values::Color>, console_core_never::Never>
+{
   use console_core_scalable_vector_graphics_values::Paint as SvgPaint;
 
   let Ok(attribute) = svg.attribute::<&str>(AId::BackgroundColor);
@@ -643,8 +676,12 @@ fn document_background(
   match SvgPaint::from_str(source) {
     Ok(SvgPaint::Color(color)) => Ok(Some(color)),
     Ok(
-      SvgPaint::None | SvgPaint::Inherit | SvgPaint::CurrentColor | SvgPaint::FuncIRI(..)
-      | SvgPaint::ContextFill | SvgPaint::ContextStroke,
+      SvgPaint::None
+      | SvgPaint::Inherit
+      | SvgPaint::CurrentColor
+      | SvgPaint::FuncIRI(..)
+      | SvgPaint::ContextFill
+      | SvgPaint::ContextStroke,
     ) => Ok(None),
     Err(problem) => {
       console_core_logging::debug!("Ignoring SVG background color {source:?}: {problem}");
@@ -674,7 +711,8 @@ fn convert_document_root(
     (console_core_paths::IsIdentityAnswer::Yes, None) => {
       return convert_children(document_root, state, cache, root);
     }
-    (console_core_paths::IsIdentityAnswer::Yes | console_core_paths::IsIdentityAnswer::No, _) => {}
+    (console_core_paths::IsIdentityAnswer::Yes | console_core_paths::IsIdentityAnswer::No, _) => {
+    }
   }
 
   let Ok(mut group) = Group::empty();
@@ -740,7 +778,7 @@ fn finish_document(tree: &mut Tree, mut cache: Cache) -> Result<(), Error> {
 )]
 fn background_path(
   background_color: console_core_scalable_vector_graphics_values::Color,
-  area: Rect,
+  area: FloatRectangle,
 ) -> core::result::Result<Option<Path>, console_core_never::Never> {
   let path = {
     let Ok(explicit_value) = PathBuilder::from_rect(area);
@@ -817,11 +855,25 @@ fn resolve_svg_size(svg: SvgNode, opt: &Options) -> Result<(Size, ViewportSizing
   let (w, h, sizing) = match author_viewbox {
     Some(_) => {
       let Ok(w) = viewport_dimension(svg, AId::Width, width, UserLength(reference_width), &state);
-      let Ok(h) = viewport_dimension(svg, AId::Height, height, UserLength(reference_height), &state);
+      let Ok(h) = viewport_dimension(
+        svg,
+        AId::Height,
+        height,
+        UserLength(reference_height),
+        &state,
+      );
 
       match (author_width, author_height) {
-        (Some(_), None) => (w, reference_height * w / reference_width, ViewportSizing::Explicit),
-        (None, Some(_)) => (reference_width * h / reference_height, h, ViewportSizing::Explicit),
+        (Some(_), None) => (
+          w,
+          reference_height * w / reference_width,
+          ViewportSizing::Explicit,
+        ),
+        (None, Some(_)) => (
+          reference_width * h / reference_height,
+          h,
+          ViewportSizing::Explicit,
+        ),
         (_, _) => (w, h, ViewportSizing::Explicit),
       }
     }
@@ -855,9 +907,15 @@ fn viewport_dimension(
 
       Ok(reference.0 * (percentage / 100.0))
     }
-    Unit::None | Unit::Em | Unit::Ex | Unit::Px | Unit::In | Unit::Cm | Unit::Mm | Unit::Pt | Unit::Pc => {
-      units::convert_user_length(length, node, attribute, state)
-    }
+    Unit::None
+    | Unit::Em
+    | Unit::Ex
+    | Unit::Px
+    | Unit::Inches
+    | Unit::Cm
+    | Unit::Mm
+    | Unit::Pt
+    | Unit::Pc => units::convert_user_length(length, node, attribute, state),
   }
 }
 
@@ -941,27 +999,32 @@ pub(crate) fn convert_element(
     None => return Ok(()),
   };
 
-  match ::core::primitive::bool::then_some(!matches!(
-    {
-      let Ok(explicit_value) = tag_name.is_graphic();
-      explicit_value
-    },
-    crate::IsGraphicAnswer::Yes
-  ) && !matches!(tag_name, EId::G | EId::Switch | EId::Svg), ())
-  {
+  match ::core::primitive::bool::then_some(
+    !matches!(
+      {
+        let Ok(explicit_value) = tag_name.is_graphic();
+        explicit_value
+      },
+      crate::IsGraphicAnswer::Yes
+    ) && !matches!(tag_name, EId::G | EId::Switch | EId::Svg),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(());
     }
     ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some(!matches!(
-    {
-      let Ok(explicit_value) = node.is_visible_element(state.opt);
-      explicit_value
-    },
-    crate::IsVisibleElementAnswer::Yes
-  ), ()) {
+  match ::core::primitive::bool::then_some(
+    !matches!(
+      {
+        let Ok(explicit_value) = node.is_visible_element(state.opt);
+        explicit_value
+      },
+      crate::IsVisibleElementAnswer::Yes
+    ),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(());
     }
@@ -990,13 +1053,15 @@ pub(crate) fn convert_element(
     ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some(tag_name == EId::Svg
-    && ({
-      let Ok(explicit_value) = node.parent_element();
-      explicit_value
-    })
-    .is_some(), ())
-  {
+  match ::core::primitive::bool::then_some(
+    tag_name == EId::Svg
+      && ({
+        let Ok(explicit_value) = node.parent_element();
+        explicit_value
+      })
+      .is_some(),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       ({
         let Ok(explicit_value) = super::use_node::convert_svg(node, state, cache, parent);
@@ -1009,12 +1074,19 @@ pub(crate) fn convert_element(
   }
 
   match {
-    let Ok(explicit_value) = convert_group(node, state, GroupRequirement::AsNeeded, cache, parent, &|cache_2, g| {
-      ({
-        let Ok(explicit_value) = convert_element_impl(tag_name, node, state, cache_2, g);
-        explicit_value
-      });
-    });
+    let Ok(explicit_value) = convert_group(
+      node,
+      state,
+      GroupRequirement::AsNeeded,
+      cache,
+      parent,
+      &|cache_2, g| {
+        ({
+          let Ok(explicit_value) = convert_element_impl(tag_name, node, state, cache_2, g);
+          explicit_value
+        });
+      },
+    );
     explicit_value
   } {
     Some(g) => {
@@ -1036,7 +1108,10 @@ pub(crate) fn convert_element(
 )]
 #[cfg_attr(
   dylint_lib = "explicit016_no_wildcard_arm",
-  expect(explicit016_no_wildcard_arm, reason = "The drawing dispatch deliberately skips every tag outside the rendered element subset")
+  expect(
+    explicit016_no_wildcard_arm,
+    reason = "The drawing dispatch deliberately skips every tag outside the rendered element subset"
+  )
 )]
 fn convert_element_impl(
   tag_name: EId,
@@ -1046,7 +1121,7 @@ fn convert_element_impl(
   parent: &mut Group,
 ) -> core::result::Result<(), console_core_never::Never> {
   match tag_name {
-    EId::Rect
+    EId::Rectangle
     | EId::Circle
     | EId::Ellipse
     | EId::Line
@@ -1127,26 +1202,32 @@ pub(crate) fn convert_clip_path_elements(
       None => continue,
     };
 
-    match ::core::primitive::bool::then_some(!matches!(
-      {
-        let Ok(explicit_value) = tag_name.is_graphic();
-        explicit_value
-      },
-      crate::IsGraphicAnswer::Yes
-    ), ()) {
+    match ::core::primitive::bool::then_some(
+      !matches!(
+        {
+          let Ok(explicit_value) = tag_name.is_graphic();
+          explicit_value
+        },
+        crate::IsGraphicAnswer::Yes
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         continue;
       }
       ::core::option::Option::None => {}
     }
 
-    match ::core::primitive::bool::then_some(!matches!(
-      {
-        let Ok(explicit_value) = node.is_visible_element(state.opt);
-        explicit_value
-      },
-      crate::IsVisibleElementAnswer::Yes
-    ), ()) {
+    match ::core::primitive::bool::then_some(
+      !matches!(
+        {
+          let Ok(explicit_value) = node.is_visible_element(state.opt);
+          explicit_value
+        },
+        crate::IsVisibleElementAnswer::Yes
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         continue;
       }
@@ -1165,13 +1246,20 @@ pub(crate) fn convert_clip_path_elements(
     }
 
     match {
-      let Ok(explicit_value) = convert_group(node, state, GroupRequirement::AsNeeded, cache, parent, &|cache_2, g| {
-        ({
-          let Ok(explicit_value) =
-            convert_clip_path_elements_impl(tag_name, node, state, cache_2, g);
-          explicit_value
-        });
-      });
+      let Ok(explicit_value) = convert_group(
+        node,
+        state,
+        GroupRequirement::AsNeeded,
+        cache,
+        parent,
+        &|cache_2, g| {
+          ({
+            let Ok(explicit_value) =
+              convert_clip_path_elements_impl(tag_name, node, state, cache_2, g);
+            explicit_value
+          });
+        },
+      );
       explicit_value
     } {
       Some(g) => {
@@ -1194,7 +1282,10 @@ pub(crate) fn convert_clip_path_elements(
 )]
 #[cfg_attr(
   dylint_lib = "explicit016_no_wildcard_arm",
-  expect(explicit016_no_wildcard_arm, reason = "Every element outside the SVG clip content subset follows the same diagnostic path")
+  expect(
+    explicit016_no_wildcard_arm,
+    reason = "Every element outside the SVG clip content subset follows the same diagnostic path"
+  )
 )]
 fn convert_clip_path_elements_impl(
   tag_name: EId,
@@ -1204,7 +1295,7 @@ fn convert_clip_path_elements_impl(
   parent: &mut Group,
 ) -> core::result::Result<(), console_core_never::Never> {
   match tag_name {
-    EId::Rect | EId::Circle | EId::Ellipse | EId::Polyline | EId::Polygon | EId::Path => {
+    EId::Rectangle | EId::Circle | EId::Ellipse | EId::Polyline | EId::Polygon | EId::Path => {
       match {
         let Ok(explicit_value) = super::shapes::convert(node, state);
         explicit_value
@@ -1232,14 +1323,12 @@ fn convert_clip_path_elements_impl(
   Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 enum Isolation {
   #[default]
   Auto,
   Isolate,
 }
-
 
 impl<'a, 'input: 'a> FromValue<'a, 'input> for Isolation {
   fn parse(_: SvgNode, _: AId, value: &str) -> Option<Self> {
@@ -1346,21 +1435,24 @@ fn authored_group(
   };
   let Ok(empty) = Group::empty();
 
-  Ok((Group {
-    id,
-    transform,
-    abs_transform,
-    opacity,
-    blend_mode: match authored_blend {
-      Some(mode) => mode,
-      None => BlendMode::Normal,
+  Ok((
+    Group {
+      id,
+      transform,
+      abs_transform,
+      opacity,
+      blend_mode: match authored_blend {
+        Some(mode) => mode,
+        None => BlendMode::Normal,
+      },
+      isolation: match authored_isolation {
+        Some(Isolation::Isolate) => crate::IsolateAnswer::Yes,
+        Some(Isolation::Auto) | None => crate::IsolateAnswer::No,
+      },
+      ..empty
     },
-    isolation: match authored_isolation {
-      Some(Isolation::Isolate) => crate::IsolateAnswer::Yes,
-      Some(Isolation::Auto) | None => crate::IsolateAnswer::No,
-    },
-    ..empty
-  }, kind))
+    kind,
+  ))
 }
 
 enum GroupResources {
@@ -1416,7 +1508,9 @@ fn group_resources(
         match super::filter::convert(node, state, bounds, cache) {
           Ok(compiled) => group.filters = compiled,
           Err(problem) => {
-            console_core_logging::debug!("SVG element has no usable filter reference: {problem:?}");
+            console_core_logging::debug!(
+              "SVG element has no usable filter reference: {problem:?}"
+            );
             return Ok(GroupResources::InvalidReference);
           }
         }
@@ -1449,9 +1543,16 @@ fn convert_path(
   cache: &mut Cache,
   parent: &mut Group,
 ) -> core::result::Result<(), console_core_never::Never> {
-  let Ok(length) = ::console_core_number_conversion::fixed_index(match path.len() { ::core::result::Result::Ok(length) => length });
+  let Ok(length) = ::console_core_number_conversion::fixed_index(match path.len() {
+    ::core::result::Result::Ok(length) => length,
+  });
 
-  match ::core::primitive::bool::then_some((match ::console_core_number_conversion::index(length) { ::core::result::Result::Ok(native_position) => native_position }) < 2, ()) {
+  match ::core::primitive::bool::then_some(
+    (match ::console_core_number_conversion::index(length) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    }) < 2,
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Ok(()),
     ::core::option::Option::None => {}
   }
@@ -1472,9 +1573,9 @@ fn convert_path(
   let visibility: Visibility = match {
     let Ok(explicit_value) = node.find_attribute(AId::Visibility);
     explicit_value
-  }  {
-      ::core::option::Option::Some(option_value) => option_value,
-      ::core::option::Option::None => crate::tree::Visibility::Visible,
+  } {
+    ::core::option::Option::Some(option_value) => option_value,
+    ::core::option::Option::None => crate::tree::Visibility::Visible,
   };
   let mut paint_visibility = visibility;
   let Ok(authored_rendering) = node.find_attribute(AId::ShapeRendering);
@@ -1561,14 +1662,16 @@ fn convert_path(
 
   let mut marker = None;
 
-  match ::core::primitive::bool::then_some(matches!(
-    {
-      let Ok(explicit_value) = marker::is_valid(node);
-      explicit_value
-    },
-    crate::IsValidAnswer::Yes
-  ) && visibility == Visibility::Visible, ())
-  {
+  match ::core::primitive::bool::then_some(
+    matches!(
+      {
+        let Ok(explicit_value) = marker::is_valid(node);
+        explicit_value
+      },
+      crate::IsValidAnswer::Yes
+    ) && visibility == Visibility::Visible,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let mut marker_group = Group {
         abs_transform: parent.abs_transform,
@@ -1599,7 +1702,10 @@ fn convert_path(
         s
       });
 
-      marker_state.context_paint = ContextPaint { fill: fill_2, stroke: stroke_2 };
+      marker_state.context_paint = ContextPaint {
+        fill: fill_2,
+        stroke: stroke_2,
+      };
 
       ({
         let Ok(explicit_value) = marker::convert(
@@ -1689,7 +1795,8 @@ fn append_single_paint_path(
       }
       ::core::option::Option::None => {}
     },
-    PaintOrderKind::Stroke => match ::core::primitive::bool::then_some(path.stroke.is_some(), ()) {
+    PaintOrderKind::Stroke => match ::core::primitive::bool::then_some(path.stroke.is_some(), ())
+    {
       ::core::option::Option::Some(()) => {
         let mut stroke_path = path.clone();
         stroke_path.fill = None;

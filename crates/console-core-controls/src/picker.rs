@@ -131,10 +131,12 @@ impl Picker<'_> {
     };
 
     Ok(match (shared, segment_width) {
-      (Some(share), Some(segment)) => match ::core::primitive::bool::then_some(segment <= share, ()) {
-        ::core::option::Option::Some(()) => Form::Segmented,
-        ::core::option::Option::None => Form::Wheel,
-      },
+      (Some(share), Some(segment)) => {
+        match ::core::primitive::bool::then_some(segment <= share, ()) {
+          ::core::option::Option::Some(()) => Form::Segmented,
+          ::core::option::Option::None => Form::Wheel,
+        }
+      }
       (None, _) | (_, None) => Form::Wheel,
     })
   }

@@ -71,7 +71,7 @@ fn a_copy_fault_on_either_page_preserves_the_entire_destination() {
       assert_eq!(address, start + loaded as u64);
       let byte = input[loaded];
       if loaded == fault {
-        return Err(BufferError::Fault);
+        return Err(BufferError::MemoryAccess);
       }
       loaded += 1;
       Ok(byte)
@@ -80,7 +80,7 @@ fn a_copy_fault_on_either_page_preserves_the_entire_destination() {
   );
 
   if fault < 4 {
-    assert_eq!(result, Err(BufferError::Fault));
+    assert_eq!(result, Err(BufferError::MemoryAccess));
     assert_eq!(destination, before);
     assert_eq!(loaded, fault);
   } else {

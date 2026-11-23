@@ -114,11 +114,14 @@ pub(crate) fn convert(
     None => return Ok(None),
   };
 
-  match ::core::primitive::bool::then_some(!cacheable
-    && cache.clip_paths.contains_key({
-      let Ok(explicit_value) = id.get();
-      explicit_value
-    }), ()) {
+  match ::core::primitive::bool::then_some(
+    !cacheable
+      && cache.clip_paths.contains_key({
+        let Ok(explicit_value) = id.get();
+        explicit_value
+      }),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(gen_clip_path_id) = cache.gen_clip_path_id();
       id = gen_clip_path_id;
@@ -170,7 +173,10 @@ fn resolve_clip_path_transform(
   let ts = match console_core_scalable_vector_graphics_values::Transform::from_str(value) {
     Ok(v) => v,
     Err(problem) => {
-      console_core_logging::warn!("Failed to parse {} value {value:?}: {problem}", AId::Transform);
+      console_core_logging::warn!(
+        "Failed to parse {} value {value:?}: {problem}",
+        AId::Transform
+      );
       return Ok(None);
     }
   };
@@ -198,14 +204,12 @@ fn resolve_clip_path_transform(
 
   let Ok(is_valid) = ts_2.is_valid();
 
-  Ok(
-    match is_valid {
-      console_core_paths::IsValidAnswer::Yes => {
-        let Ok(resolve_transform) = node.resolve_transform(AId::Transform, state);
+  Ok(match is_valid {
+    console_core_paths::IsValidAnswer::Yes => {
+      let Ok(resolve_transform) = node.resolve_transform(AId::Transform, state);
 
-        Some(resolve_transform)
-      }
-      console_core_paths::IsValidAnswer::No => None,
-    },
-  )
+      Some(resolve_transform)
+    }
+    console_core_paths::IsValidAnswer::No => None,
+  })
 }

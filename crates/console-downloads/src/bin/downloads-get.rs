@@ -445,7 +445,8 @@ mod tests {
     let child = RelativePath::new(Path::new(OsStr::from_bytes(b"live\nset \xff [x].opus")))
       .map_err(io::Error::other)?;
     let at = folder.join(child);
-    console_core_atomic_writes::whole(&at, b"the downloaded contents").map_err(io::Error::other)?;
+    console_core_atomic_writes::whole(&at, b"the downloaded contents")
+      .map_err(io::Error::other)?;
     let mut reported = b"a status line\n".to_vec();
     reported.extend_from_slice(at.as_os_str().as_bytes());
     reported.push(b'\n');

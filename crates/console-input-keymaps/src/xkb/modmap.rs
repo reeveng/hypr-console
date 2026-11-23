@@ -25,7 +25,11 @@ pub(crate) struct Vmod {
 
 impl Vmodmap {
   pub(crate) fn insert(&mut self, name: Spanned<Interned>) -> Result<Option<&Vmod>, Never> {
-    match self.mods.iter().position(|modifier| modifier.name.val == name.val) {
+    match self
+      .mods
+      .iter()
+      .position(|modifier| modifier.name.val == name.val)
+    {
       Some(at) => return Ok(self.mods.get(at)),
       None => {}
     }
@@ -134,7 +138,11 @@ impl ModifierTree {
     left: Spanned<Self>,
     right: Spanned<Self>,
   ) -> Result<Self, Never> {
-    let node_count = left.val.node_count.saturating_add(right.val.node_count).saturating_add(1);
+    let node_count = left
+      .val
+      .node_count
+      .saturating_add(right.val.node_count)
+      .saturating_add(1);
     let l = Box::new(left);
     let r = Box::new(right);
     let root = match operator {
@@ -175,7 +183,10 @@ impl ModifierTree {
     Ok(eval)
   }
 
-  fn eval(&self, f: &impl Fn(ModifierIndex) -> ModifierMask) -> Result<(ModifierMask, bool), Never> {
+  fn eval(
+    &self,
+    f: &impl Fn(ModifierIndex) -> ModifierMask,
+  ) -> Result<(ModifierMask, bool), Never> {
     let steps = self.node_count.saturating_mul(3).saturating_add(1);
     let walked = (0..steps).try_fold((Vec::new(), Mode::Enter(self)), |(frames, mode), _| {
       let Ok(stepped) = step(frames, mode, f);

@@ -57,10 +57,15 @@ mod tests {
       explicit_value
     })?;
     assert_eq!(trak.version(), Ok(MajorMinor::VERSION_1_0));
-    let _ = crate::test_support::fixture_value(match trak.horiz() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let _ = crate::test_support::fixture_value(
+      match trak.horiz() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     assert!(
       match trak.vert() {
         ::core::result::Result::Ok(read_value) => read_value,
@@ -96,10 +101,15 @@ mod tests {
       assert_eq!(track.name_index(), Ok(expected_name));
       assert_eq!(track.offset(), Ok(offset));
       let values = track.per_size_values(offset_data, size_count)?;
-      assert!(values.iter().map(|value| {
-        let Ok(per_size_delta) = value.get();
-        per_size_delta
-      }).eq(per_size));
+      assert!(
+        values
+          .iter()
+          .map(|value| {
+            let Ok(per_size_delta) = value.get();
+            per_size_delta
+          })
+          .eq(per_size)
+      );
     }
 
     Ok(())
@@ -108,10 +118,13 @@ mod tests {
   #[test]
   fn parse_per_size_values() -> ::core::result::Result<(), crate::test_support::Failure> {
     let ::core::result::Result::Ok(table_data) = example_track_table();
-    let trak = crate::test_support::fixture_value(Trak::read({
-      let Ok(explicit_value) = FontData::new(&table_data);
-      explicit_value
-    }), "fixture value")?;
+    let trak = crate::test_support::fixture_value(
+      Trak::read({
+        let Ok(explicit_value) = FontData::new(&table_data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
     let fixture_value = crate::test_support::fixture_value(trak.horiz(), "fixture value")?;
     let horiz = crate::test_support::fixture_value(fixture_value, "fixture value")?;
     let Ok(track_table) = horiz.track_table();
@@ -119,28 +132,29 @@ mod tests {
 
     for (track, expected_values) in track_table.iter().zip(expected_per_size_tracking_values) {
       let values = {
-        let vertical_sizes = crate::test_support::fixture_value(track
-        .per_size_values(
-          {
-            let Ok(explicit_value) = trak.offset_data();
-            explicit_value
-          },
-          {
-            let Ok(explicit_value) = horiz.n_sizes();
-            explicit_value
-          },
-        ), "fixture value")?;
+        let vertical_sizes = crate::test_support::fixture_value(
+          track.per_size_values(
+            {
+              let Ok(explicit_value) = trak.offset_data();
+              explicit_value
+            },
+            {
+              let Ok(explicit_value) = horiz.n_sizes();
+              explicit_value
+            },
+          ),
+          "fixture value",
+        )?;
         vertical_sizes
       }
-        .iter()
-        .map(|v| {
-          let Ok(value) = v.get();
-          value
-        })
-        .collect::<Vec<_>>();
+      .iter()
+      .map(|v| {
+        let Ok(value) = v.get();
+        value
+      })
+      .collect::<Vec<_>>();
       assert_eq!(values, expected_values);
     }
-  ;
 
     Ok(())
   }
@@ -152,16 +166,23 @@ mod tests {
       let Ok(explicit_value) = FontData::new(&table_data);
       explicit_value
     })?;
-    let horiz = crate::test_support::fixture_value(match trak.horiz() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let horiz = crate::test_support::fixture_value(
+      match trak.horiz() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     let size_table = match horiz.size_table({
       let Ok(explicit_value) = trak.offset_data();
       explicit_value
     }) {
       ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
+      ::core::result::Result::Err(read_error) => {
+        return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+      }
     }
     .iter()
     .map(|v| {
@@ -188,10 +209,13 @@ mod tests {
     let ::core::result::Result::Ok(mut table_data) = example_track_table();
 
     table_data.pop();
-    let trak = crate::test_support::fixture_value(Trak::read({
-      let Ok(explicit_value) = FontData::new(&table_data);
-      explicit_value
-    }), "fixture value")?;
+    let trak = crate::test_support::fixture_value(
+      Trak::read({
+        let Ok(explicit_value) = FontData::new(&table_data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
     let fixture_value = crate::test_support::fixture_value(trak.horiz(), "fixture value")?;
     let horiz = crate::test_support::fixture_value(fixture_value, "fixture value")?;
     let Ok(track_table) = horiz.track_table();
@@ -199,32 +223,33 @@ mod tests {
     let expected_per_size_tracking_values = [Some([-15i16, -7]), None, Some([50, 20])];
 
     for (track, expected_values) in track_table.iter().zip(expected_per_size_tracking_values) {
-      let values = (match track
-        .per_size_values(
-          {
-            let Ok(explicit_value) = trak.offset_data();
-            explicit_value
-          },
-          {
-            let Ok(explicit_value) = horiz.n_sizes();
-            explicit_value
-          },
-        ) { Ok(value) => Some(value), Err(_invalid_track_values) => None })
-        .map(|values| {
-          values
-            .iter()
-            .map(|v| {
-              let Ok(value) = v.get();
-              value
-            })
-            .collect::<Vec<_>>()
-        });
+      let values = (match track.per_size_values(
+        {
+          let Ok(explicit_value) = trak.offset_data();
+          explicit_value
+        },
+        {
+          let Ok(explicit_value) = horiz.n_sizes();
+          explicit_value
+        },
+      ) {
+        Ok(value) => Some(value),
+        Err(_invalid_track_values) => None,
+      })
+      .map(|values| {
+        values
+          .iter()
+          .map(|v| {
+            let Ok(value) = v.get();
+            value
+          })
+          .collect::<Vec<_>>()
+      });
       assert_eq!(
         values,
         expected_values.map(|value| value.into_iter().collect())
       );
     }
-  ;
 
     Ok(())
   }
@@ -236,23 +261,32 @@ mod tests {
     *match <[_]>::get_mut(&mut table_data, 26) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
-        return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds));
+        return ::core::result::Result::Err(crate::test_support::Failure::from(
+          crate::read::ReadError::OutOfBounds,
+        ));
       }
     } = 255;
     let trak = Trak::read({
       let Ok(explicit_value) = FontData::new(&table_data);
       explicit_value
     })?;
-    let horiz = crate::test_support::fixture_value(match trak.horiz() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let horiz = crate::test_support::fixture_value(
+      match trak.horiz() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     let Ok(track_table) = horiz.track_table();
     assert!(matches!(
       (*match <[_]>::get(&*track_table, 0) {
         ::core::option::Option::Some(indexed_value) => indexed_value,
         ::core::option::Option::None =>
-          return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds)),
+          return ::core::result::Result::Err(crate::test_support::Failure::from(
+            crate::read::ReadError::OutOfBounds
+          )),
       })
       .per_size_values(
         {

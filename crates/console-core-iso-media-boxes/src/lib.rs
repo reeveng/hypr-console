@@ -87,12 +87,18 @@ impl BoxHeader {
   pub fn required_len(data: &[u8]) -> Result<u64, BoxError> {
     let opening = opened(data)?;
 
-    Ok(match (opening.size, UserTypeField::from(opening.kind == USER_TYPE)) {
-      (SizeField::Large, UserTypeField::Present) => Self::MAX_HEADER_LEN,
-      (SizeField::Large, UserTypeField::Absent) => Self::EXTENDED_HEADER_LEN,
-      (SizeField::ToTheEnd | SizeField::Compact(_), UserTypeField::Present) => USER_TYPE_HEADER_LEN,
-      (SizeField::ToTheEnd | SizeField::Compact(_), UserTypeField::Absent) => Self::BASE_HEADER_LEN,
-    })
+    Ok(
+      match (opening.size, UserTypeField::from(opening.kind == USER_TYPE)) {
+        (SizeField::Large, UserTypeField::Present) => Self::MAX_HEADER_LEN,
+        (SizeField::Large, UserTypeField::Absent) => Self::EXTENDED_HEADER_LEN,
+        (SizeField::ToTheEnd | SizeField::Compact(_), UserTypeField::Present) => {
+          USER_TYPE_HEADER_LEN
+        }
+        (SizeField::ToTheEnd | SizeField::Compact(_), UserTypeField::Absent) => {
+          Self::BASE_HEADER_LEN
+        }
+      },
+    )
   }
 
   pub fn parse(data: &[u8]) -> Result<Self, BoxError> {
@@ -293,9 +299,8 @@ fn stepped(rest: &[u8]) -> Result<Step<'_>, Never> {
 fn padding_or(rest: &[u8], fault: BoxError) -> Result<Step<'_>, Never> {
   let Ok(length) = fitted::<_, u64>(rest.len());
 
-  let trailing = TrailingData::from(
-    length < BoxHeader::BASE_HEADER_LEN && rest.iter().all(|byte| *byte == 0),
-  );
+  let trailing =
+    TrailingData::from(length < BoxHeader::BASE_HEADER_LEN && rest.iter().all(|byte| *byte == 0));
 
   Ok(match trailing {
     TrailingData::Padding => Step::End,

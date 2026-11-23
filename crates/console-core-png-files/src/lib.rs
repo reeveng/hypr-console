@@ -197,7 +197,10 @@ fn write_channels(header: &Header, raw: &[u8], text: &[Text<'_>]) -> Result<Vec<
   let Ok(length) = console_core_number_conversion::fixed_index(raw.len());
   let expected = row_bytes.checked_mul(u64::from(size.height));
 
-  match ::core::primitive::bool::then_some(expected == Some(length) && size.width > 0 && size.height > 0, ()) {
+  match ::core::primitive::bool::then_some(
+    expected == Some(length) && size.width > 0 && size.height > 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(PngError::Mismatched),
   }

@@ -16,12 +16,12 @@ use console_core_parallel_execution::Workers;
 
 use crate::HostWorkers;
 
-type Job = Box<dyn FnOnce() + Send>;
+type Task = Box<dyn FnOnce() + Send>;
 
 const QUEUED_PICTURES: u32 = 2;
 
 pub struct FifoPool {
-  jobs: mpsc::SyncSender<Job>,
+  jobs: mpsc::SyncSender<Task>,
 }
 
 impl FifoPool {
@@ -70,7 +70,7 @@ impl FifoPool {
   }
 }
 
-fn serve(queue: &Mutex<mpsc::Receiver<Job>>) -> Result<(), Endless> {
+fn serve(queue: &Mutex<mpsc::Receiver<Task>>) -> Result<(), Endless> {
   iterate(queue, |pending| {
     #[cfg_attr(
       dylint_lib = "explicit057_no_unbounded_wait",

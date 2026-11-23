@@ -42,7 +42,9 @@ fn pad(stage: &mut Device) -> CheckResult {
     .collect();
 
   match ::core::primitive::bool::then_some(nodes.is_empty(), ()) {
-    ::core::option::Option::Some(()) => return cannot("no controller is attached, so there is no pad to have claimed"),
+    ::core::option::Option::Some(()) => {
+      return cannot("no controller is attached, so there is no pad to have claimed");
+    }
     ::core::option::Option::None => {}
   }
 

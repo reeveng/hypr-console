@@ -73,12 +73,12 @@ impl Assembly {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Asked {
+enum Request {
   Read,
   Wanted,
 }
 
-impl From<bool> for Asked {
+impl From<bool> for Request {
   fn from(complete: bool) -> Self {
     match bool::then_some(complete, ()) {
       Some(()) => Self::Read,
@@ -125,9 +125,9 @@ impl Packets {
 
         let Ok(read) = assembly.count();
 
-        match Asked::from(read == count) {
-          Asked::Read => break 'pages,
-          Asked::Wanted => {}
+        match Request::from(read == count) {
+          Request::Read => break 'pages,
+          Request::Wanted => {}
         }
       }
 
@@ -136,11 +136,11 @@ impl Packets {
 
     let Ok(read) = assembly.count();
 
-    match Asked::from(read == count) {
-      Asked::Read => Ok(Packets {
+    match Request::from(read == count) {
+      Request::Read => Ok(Packets {
         packets: assembly.finished,
       }),
-      Asked::Wanted => Err(PageError::TooFewPackets),
+      Request::Wanted => Err(PageError::TooFewPackets),
     }
   }
 

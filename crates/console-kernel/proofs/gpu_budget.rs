@@ -37,14 +37,14 @@ struct Reservation {
   state: State,
 }
 
-struct Job {
+struct WorkItem {
   limits: Limits,
   slots: [Option<Reservation>; 2],
   charged: u64,
   next: BatchId,
 }
 
-impl Job {
+impl WorkItem {
   fn new(limits: Limits) -> Self {
     Self {
       limits,
@@ -112,16 +112,16 @@ struct Running {
 }
 
 struct Device {
-  interactive: Job,
-  background: Job,
+  interactive: WorkItem,
+  background: WorkItem,
   active: Option<Running>,
 }
 
 impl Device {
   fn new(limits: Limits) -> Self {
     Self {
-      interactive: Job::new(limits),
-      background: Job::new(limits),
+      interactive: WorkItem::new(limits),
+      background: WorkItem::new(limits),
       active: None,
     }
   }
@@ -176,7 +176,7 @@ fn gpu_reservations_bound_queue_space_bytes_and_batch_work() {
     batch_work: kani::any(),
   };
   let offered = [cost(), cost(), cost()];
-  let mut job = Job::new(limits);
+  let mut job = WorkItem::new(limits);
   let mut admitted = 0;
   let mut charged = 0_u128;
   for offer in offered {
@@ -200,7 +200,7 @@ fn gpu_reservations_bound_queue_space_bytes_and_batch_work() {
 #[kani::unwind(5)]
 fn completed_batches_hold_their_budget_until_the_matching_release() {
   let bytes = kani::any();
-  let mut job = Job::new(Limits {
+  let mut job = WorkItem::new(Limits {
     bytes,
     batch_work: 1,
   });

@@ -859,10 +859,12 @@ fn dropped_frames_restored(frame: u64, rate: NonZeroU64) -> Result<u64, Never> {
   };
 
   let later_minutes = match ::core::primitive::bool::then_some(within > dropped, ()) {
-    ::core::option::Option::Some(()) => match within.saturating_sub(dropped).checked_div(per_minute) {
-      Some(minutes) => dropped.saturating_mul(minutes),
-      None => 0,
-    },
+    ::core::option::Option::Some(()) => {
+      match within.saturating_sub(dropped).checked_div(per_minute) {
+        Some(minutes) => dropped.saturating_mul(minutes),
+        None => 0,
+      }
+    }
     ::core::option::Option::None => 0,
   };
 
@@ -1902,11 +1904,7 @@ mod tests {
     Ok(entry)
   }
 
-  fn picture(
-    format: &[u8; 4],
-    size: Size<u16>,
-    extensions: &[u8],
-  ) -> Result<Vec<u8>, Never> {
+  fn picture(format: &[u8; 4], size: Size<u16>, extensions: &[u8]) -> Result<Vec<u8>, Never> {
     let reference = [0_u8, 0, 0, 0, 0, 0, 0, 1];
     let Ok(header) = words(&[0, 0, 0, 0]);
     let Ok(resolution) = words(&[0x0048_0000, 0x0048_0000, 0]);

@@ -37,10 +37,6 @@ use super::itx_arm_neon_common::IDCT_COEFFS;
 #[cfg(target_arch = "aarch64")]
 type V16 = [int16x8_t; 16];
 
-
-
-
-
 /// IADST16 coefficients packed as two `int16x8_t` vectors.
 ///
 /// v0: [4091, 201, 3973, 995, 3703, 1751, 3290, 2440]
@@ -49,10 +45,6 @@ type V16 = [int16x8_t; 16];
 pub(crate) const IADST16_COEFFS_V0: [i16; 8] = [4091, 201, 3973, 995, 3703, 1751, 3290, 2440];
 #[cfg(target_arch = "aarch64")]
 pub(crate) const IADST16_COEFFS_V1: [i16; 8] = [2751, 3035, 2106, 3513, 1380, 3857, 601, 4052];
-
-
-
-
 
 /// 16-point inverse DCT on 16 int16x8_t vectors.
 ///
@@ -64,43 +56,187 @@ pub(crate) const IADST16_COEFFS_V1: [i16; 8] = [2751, 3035, 2106, 3513, 1380, 38
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn idct_16_q(v: V16) -> V16 {
-
-  let (e0, e1, e2, e3, e4, e5, e6, e7) =
-    idct_8_q(match v { [_explicit_element, ..] => _explicit_element }, match v { [_, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-
-
+  let (e0, e1, e2, e3, e4, e5, e6, e7) = idct_8_q(
+    match v {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+  );
 
   let c1 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IDCT_COEFFS[8..16]).unwrap());
 
-
-
-
-  let (lo, hi) = smull_smlsl_q(match v { [_, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 0, 1);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    c1,
+    0,
+    1,
+  );
   let t8a = sqrshrn_pair(lo, hi);
-  let (lo, hi) = smull_smlal_q(match v { [_, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 1, 0);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    c1,
+    1,
+    0,
+  );
   let t15a = sqrshrn_pair(lo, hi);
 
-
-
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 2, 3);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    2,
+    3,
+  );
   let t9a = sqrshrn_pair(lo, hi);
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 3, 2);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    3,
+    2,
+  );
   let t14a = sqrshrn_pair(lo, hi);
 
-
-
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 4, 5);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    4,
+    5,
+  );
   let t10a = sqrshrn_pair(lo, hi);
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 5, 4);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    5,
+    4,
+  );
   let t13a = sqrshrn_pair(lo, hi);
 
-
-
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _explicit_element, ..] => _explicit_element }, c1, 6, 7);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    6,
+    7,
+  );
   let t11a = sqrshrn_pair(lo, hi);
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _explicit_element, ..] => _explicit_element }, c1, 7, 6);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    7,
+    6,
+  );
   let t12a = sqrshrn_pair(lo, hi);
-
 
   let t9 = vqsubq_s16(t8a, t9a);
   let t8 = vqaddq_s16(t8a, t9a);
@@ -111,29 +247,18 @@ pub(crate) fn idct_16_q(v: V16) -> V16 {
   let t12 = vqaddq_s16(t12a, t13a);
   let t13 = vqsubq_s16(t12a, t13a);
 
-
   let c0 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IDCT_COEFFS[0..8]).unwrap());
-
-
 
   let (lo, hi) = smull_smlsl_q(t14, t9, c0, 2, 3);
   let t9a = sqrshrn_pair(lo, hi);
   let (lo, hi) = smull_smlal_q(t14, t9, c0, 3, 2);
   let t14a = sqrshrn_pair(lo, hi);
 
-
-
-
-
-
-
-
   let (lo, hi) = smull_smlsl_q(t13, t10, c0, 2, 3);
   let t13a = sqrshrn_pair(lo, hi);
   let (lo, hi) = smull_smlal_q(t13, t10, c0, 3, 2);
 
   let t10a = sqrshrn_pair(vnegq_s32(lo), vnegq_s32(hi));
-
 
   let t11a = vqsubq_s16(t8, t11);
   let t8a = vqaddq_s16(t8, t11);
@@ -144,37 +269,15 @@ pub(crate) fn idct_16_q(v: V16) -> V16 {
   let t13b = vqsubq_s16(t14a, t13a);
   let t14b = vqaddq_s16(t14a, t13a);
 
-
-
-
   let (lo, hi) = smull_smlsl_q(t12a, t11a, c0, 0, 0);
   let t11_final = sqrshrn_pair(lo, hi);
   let (lo, hi) = smull_smlal_q(t12a, t11a, c0, 0, 0);
   let t12_final = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlsl_q(t13b, t10b, c0, 0, 0);
   let t10a_final = sqrshrn_pair(lo, hi);
   let (lo, hi) = smull_smlal_q(t13b, t10b, c0, 0, 0);
   let t13a_final = sqrshrn_pair(lo, hi);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   [
     vqaddq_s16(e0, t15a),
@@ -196,10 +299,6 @@ pub(crate) fn idct_16_q(v: V16) -> V16 {
   ]
 }
 
-
-
-
-
 /// 16-point inverse ADST on 16 int16x8_t vectors.
 ///
 /// Direct port of the `iadst_16` assembly macro. This is the most complex
@@ -213,70 +312,288 @@ pub(crate) fn idct_16_q(v: V16) -> V16 {
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn iadst_16_q(v: V16) -> V16 {
-
   let c0 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IADST16_COEFFS_V0[..]).unwrap());
   let c1 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IADST16_COEFFS_V1[..]).unwrap());
 
-
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_explicit_element, ..] => _explicit_element }, c0, 0, 1);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    match v {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    0,
+    1,
+  );
   let t0 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_explicit_element, ..] => _explicit_element }, c0, 1, 0);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    match v {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    1,
+    0,
+  );
   let t1 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _explicit_element, ..] => _explicit_element }, c0, 2, 3);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    2,
+    3,
+  );
   let t2 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _explicit_element, ..] => _explicit_element }, c0, 3, 2);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    3,
+    2,
+  );
   let t3 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _explicit_element, ..] => _explicit_element }, c0, 4, 5);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    4,
+    5,
+  );
   let t4 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _explicit_element, ..] => _explicit_element }, c0, 5, 4);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    5,
+    4,
+  );
   let t5 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c0, 6, 7);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    6,
+    7,
+  );
   let t6 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c0, 7, 6);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c0,
+    7,
+    6,
+  );
   let t7 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 0, 1);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    0,
+    1,
+  );
   let t8 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 1, 0);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    1,
+    0,
+  );
   let t9 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 2, 3);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    2,
+    3,
+  );
   let t10 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 3, 2);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    3,
+    2,
+  );
   let t11 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 4, 5);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    4,
+    5,
+  );
   let t12 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 5, 4);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    c1,
+    5,
+    4,
+  );
   let t13 = sqrshrn_pair(lo, hi);
 
-
-  let (lo, hi) = smull_smlal_q(match v { [_, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 6, 7);
+  let (lo, hi) = smull_smlal_q(
+    match v {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    c1,
+    6,
+    7,
+  );
   let t14 = sqrshrn_pair(lo, hi);
 
-  let (lo, hi) = smull_smlsl_q(match v { [_, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, c1, 7, 6);
+  let (lo, hi) = smull_smlsl_q(
+    match v {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    c1,
+    7,
+    6,
+  );
   let t15 = sqrshrn_pair(lo, hi);
 
-
   let ci = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IDCT_COEFFS[0..8]).unwrap());
-
 
   let s8a = vqsubq_s16(t0, t8);
   let s0a = vqaddq_s16(t0, t8);
@@ -295,15 +612,11 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   let s7a = vqaddq_s16(t7, t15);
   let s15a = vqsubq_s16(t7, t15);
 
-
-
-
   let (lo, hi) = smull_smlal_q(s8a, s9a, ci, 5, 4);
   let u8_ = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlsl_q(s8a, s9a, ci, 4, 5);
   let u9 = sqrshrn_pair(lo, hi);
-
 
   let (lo, hi) = smull_smlal_q(s10a, s11a, ci, 7, 6);
   let u10 = sqrshrn_pair(lo, hi);
@@ -311,20 +624,17 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   let (lo, hi) = smull_smlsl_q(s10a, s11a, ci, 6, 7);
   let u11 = sqrshrn_pair(lo, hi);
 
-
   let (lo, hi) = smull_smlsl_q(s13a, s12a, ci, 5, 4);
   let u12 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlal_q(s13a, s12a, ci, 4, 5);
   let u13 = sqrshrn_pair(lo, hi);
 
-
   let (lo, hi) = smull_smlsl_q(s15a, s14a, ci, 7, 6);
   let u14 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlal_q(s15a, s14a, ci, 6, 7);
   let u15 = sqrshrn_pair(lo, hi);
-
 
   let w4 = vqsubq_s16(s0a, s4a);
   let w0 = vqaddq_s16(s0a, s4a);
@@ -343,14 +653,11 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   let w11a = vqaddq_s16(u11, u15);
   let w15a = vqsubq_s16(u11, u15);
 
-
-
   let (lo, hi) = smull_smlal_q(w4, w5, ci, 3, 2);
   let x4a = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlsl_q(w4, w5, ci, 2, 3);
   let x5a = sqrshrn_pair(lo, hi);
-
 
   let (lo, hi) = smull_smlsl_q(w7, w6, ci, 3, 2);
   let x6a = sqrshrn_pair(lo, hi);
@@ -358,22 +665,17 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   let (lo, hi) = smull_smlal_q(w7, w6, ci, 2, 3);
   let x7a = sqrshrn_pair(lo, hi);
 
-
   let (lo, hi) = smull_smlal_q(w12a, w13a, ci, 3, 2);
   let x12 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlsl_q(w12a, w13a, ci, 2, 3);
   let x13 = sqrshrn_pair(lo, hi);
 
-
   let (lo, hi) = smull_smlsl_q(w15a, w14a, ci, 3, 2);
   let x14 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlal_q(w15a, w14a, ci, 2, 3);
   let x15 = sqrshrn_pair(lo, hi);
-
-
-
 
   let t2a = vqsubq_s16(w0, w2);
 
@@ -383,7 +685,6 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
 
   let o15 = vqnegq_s16(vqaddq_s16(w1, w3));
 
-
   let t15a = vqsubq_s16(x13, x15);
 
   let o13 = vqnegq_s16(vqaddq_s16(x13, x15));
@@ -391,7 +692,6 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   let o2 = vqaddq_s16(x12, x14);
 
   let t14a = vqsubq_s16(x12, x14);
-
 
   let o1 = vqnegq_s16(vqaddq_s16(w8a, w10a));
 
@@ -401,7 +701,6 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
 
   let y11 = vqsubq_s16(w9a, w11a);
 
-
   let o3 = vqnegq_s16(vqaddq_s16(x4a, x6a));
 
   let y6 = vqsubq_s16(x4a, x6a);
@@ -410,14 +709,11 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
 
   let y7 = vqsubq_s16(x5a, x7a);
 
-
-
   let (lo, hi) = smull_smlsl_q(t2a, t3a, ci, 0, 0);
   let o8 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlal_q(t2a, t3a, ci, 0, 0);
   let o7_pre = sqrshrn_pair(lo, hi);
-
 
   let (lo, hi) = smull_smlal_q(t14a, t15a, ci, 0, 0);
   let o5_pre = sqrshrn_pair(lo, hi);
@@ -425,20 +721,17 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   let (lo, hi) = smull_smlsl_q(t14a, t15a, ci, 0, 0);
   let o10 = sqrshrn_pair(lo, hi);
 
-
   let (lo, hi) = smull_smlal_q(y6, y7, ci, 0, 0);
   let o4 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlsl_q(y6, y7, ci, 0, 0);
   let o11_pre = sqrshrn_pair(lo, hi);
 
-
   let (lo, hi) = smull_smlal_q(y10, y11, ci, 0, 0);
   let o6 = sqrshrn_pair(lo, hi);
 
   let (lo, hi) = smull_smlsl_q(y10, y11, ci, 0, 0);
   let o9_pre = sqrshrn_pair(lo, hi);
-
 
   let o7 = vqnegq_s16(o7_pre);
   let o5 = vqnegq_s16(o5_pre);
@@ -449,10 +742,6 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
     o0, o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12, o13, o14, o15,
   ]
 }
-
-
-
-
 
 /// 16-point identity transform on 16 int16x8_t vectors.
 ///
@@ -470,9 +759,16 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn identity_16_q(mut v: V16) -> V16 {
-
-
-  let scale = vdupq_n_s16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(::core::primitive::i32::wrapping_mul(::core::primitive::i32::wrapping_sub(5793, 4096) * 2, 8)) { ::core::result::Result::Ok(converted_position) => converted_position });
+  let scale = vdupq_n_s16(
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+      ::core::primitive::i32::wrapping_mul(
+        ::core::primitive::i32::wrapping_sub(5793, 4096) * 2,
+        8,
+      ),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
 
   for vi in v.iter_mut() {
     let t = vqrdmulhq_s16(*vi, scale);
@@ -482,10 +778,6 @@ pub(crate) fn identity_16_q(mut v: V16) -> V16 {
 
   v
 }
-
-
-
-
 
 /// Transpose a 16x16 matrix stored as two halves.
 ///
@@ -522,19 +814,63 @@ fn transpose_16x16_half(
   a: [int16x8_t; 8],
   b: [int16x8_t; 8],
 ) -> ([int16x8_t; 8], [int16x8_t; 8]) {
-  let (a0, a1, a2, a3, a4, a5, a6, a7) =
-    transpose_8x8h(match a { [_explicit_element, ..] => _explicit_element }, match a { [_, _explicit_element, ..] => _explicit_element }, match a { [_, _, _explicit_element, ..] => _explicit_element }, match a { [_, _, _, _explicit_element, ..] => _explicit_element }, match a { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match a { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match a { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match a { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-  let (b0, b1, b2, b3, b4, b5, b6, b7) =
-    transpose_8x8h(match b { [_explicit_element, ..] => _explicit_element }, match b { [_, _explicit_element, ..] => _explicit_element }, match b { [_, _, _explicit_element, ..] => _explicit_element }, match b { [_, _, _, _explicit_element, ..] => _explicit_element }, match b { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match b { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match b { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match b { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  let (a0, a1, a2, a3, a4, a5, a6, a7) = transpose_8x8h(
+    match a {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match a {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (b0, b1, b2, b3, b4, b5, b6, b7) = transpose_8x8h(
+    match b {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match b {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
   (
     [a0, a1, a2, a3, a4, a5, a6, a7],
     [b0, b1, b2, b3, b4, b5, b6, b7],
   )
 }
-
-
-
-
 
 /// Add 16 rows of 8 pixels to destination for 8bpc.
 ///
@@ -550,19 +886,14 @@ fn add_to_dst_8x16_8bpc(dst: &mut [u8], dst_base: usize, stride: isize, v: V16) 
   for (i, &row) in v.iter().enumerate() {
     let row_off = dst_base.wrapping_add_signed(::core::primitive::usize::cast_signed(i) * stride);
 
-
     let shifted = vrshrq_n_s16::<4>(row);
-
 
     let dst_bytes: [u8; 8] = dst[row_off..row_off + 8].try_into().unwrap();
     let dst_u8 = safe_simd::vld1_u8(&dst_bytes);
 
-
     let sum = vreinterpretq_s16_u16(vaddw_u8(vreinterpretq_u16_s16(shifted), dst_u8));
 
-
     let result = vqmovun_s16(sum);
-
 
     let mut out = [0u8; 8];
     safe_simd::vst1_u8(&mut out, result);
@@ -580,15 +911,17 @@ fn add_to_dst_8x16_16bpc(
   v: V16,
   bitdepth_max: i32,
 ) {
-  let bd_max = vdupq_n_s16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_max) { ::core::result::Result::Ok(converted_position) => converted_position });
+  let bd_max = vdupq_n_s16(
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_max) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
   let zero = vdupq_n_s16(0);
 
   for (i, &row) in v.iter().enumerate() {
     let row_off = dst_base.wrapping_add_signed(::core::primitive::usize::cast_signed(i) * stride);
 
-
     let shifted = vrshrq_n_s16::<4>(row);
-
 
     let dst_arr: [i16; 8] = {
       let mut tmp = [0i16; 8];
@@ -601,12 +934,9 @@ fn add_to_dst_8x16_16bpc(
     };
     let dst_vals = safe_simd::vld1q_s16(&dst_arr);
 
-
     let sum = vqaddq_s16(dst_vals, shifted);
 
-
     let clamped = vminq_s16(vmaxq_s16(sum, zero), bd_max);
-
 
     let mut out = [0i16; 8];
     safe_simd::vst1q_s16(&mut out, clamped);
@@ -616,10 +946,6 @@ fn add_to_dst_8x16_16bpc(
     }
   }
 }
-
-
-
-
 
 /// Row/column transform type for 16x16 blocks.
 #[cfg(target_arch = "aarch64")]
@@ -648,10 +974,6 @@ fn apply_tx16(tx: TxType16, v: V16) -> V16 {
   }
 }
 
-
-
-
-
 /// DC-only fast path for DCT_DCT 16x16 with eob=0.
 ///
 /// Algorithm (from assembly `idct_dc 16, 16, 2`):
@@ -671,7 +993,13 @@ fn dc_only_16x16_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff:
   let dc = coeff[0];
   coeff[0] = 0;
 
-  let scale = vdupq_n_s16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(::core::primitive::i32::wrapping_mul(2896, 8)) { ::core::result::Result::Ok(converted_position) => converted_position });
+  let scale = vdupq_n_s16(
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+      ::core::primitive::i32::wrapping_mul(2896, 8),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
 
   let v = vdupq_n_s16(dc);
   let v = vqrdmulhq_s16(v, scale);
@@ -679,10 +1007,12 @@ fn dc_only_16x16_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff:
   let v = vqrdmulhq_s16(v, scale);
   let v = vrshrq_n_s16::<4>(v);
 
-
   for i in 0..16 {
-    let row_off = dst_base.wrapping_add_signed((match ::console_core_number_conversion::wrapped_offset(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * dst_stride);
-
+    let row_off = dst_base.wrapping_add_signed(
+      (match ::console_core_number_conversion::wrapped_offset(i) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }) * dst_stride,
+    );
 
     let dst_bytes: [u8; 8] = dst[row_off..row_off + 8].try_into().unwrap();
     let dst_u8 = safe_simd::vld1_u8(&dst_bytes);
@@ -691,7 +1021,6 @@ fn dc_only_16x16_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff:
     let mut out = [0u8; 8];
     safe_simd::vst1_u8(&mut out, result);
     dst[row_off..row_off + 8].copy_from_slice(&out);
-
 
     let dst_bytes: [u8; 8] = dst[row_off + 8..row_off + 16].try_into().unwrap();
     let dst_u8 = safe_simd::vld1_u8(&dst_bytes);
@@ -716,20 +1045,54 @@ fn dc_only_16x16_16bpc(
   let dc_val = coeff[0];
   coeff[0] = 0;
 
-
   let scale = ::core::primitive::i32::wrapping_mul(2896i32, 8);
-  let mut dc = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(::core::primitive::i64::wrapping_shr(::core::primitive::i64::wrapping_add(<i64 as ::core::convert::From<::core::primitive::i32>>::from(dc_val) * <i64 as ::core::convert::From<::core::primitive::i32>>::from(scale), 16384), 15_u32)) { ::core::result::Result::Ok(converted_position) => converted_position };
+  let mut dc = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+    ::core::primitive::i64::wrapping_shr(
+      ::core::primitive::i64::wrapping_add(
+        <i64 as ::core::convert::From<::core::primitive::i32>>::from(dc_val)
+          * <i64 as ::core::convert::From<::core::primitive::i32>>::from(scale),
+        16384,
+      ),
+      15_u32,
+    ),
+  ) {
+    ::core::result::Result::Ok(converted_position) => converted_position,
+  };
   dc = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(dc, 2), 2_u32);
-  dc = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(::core::primitive::i64::wrapping_shr(::core::primitive::i64::wrapping_add(<i64 as ::core::convert::From<::core::primitive::i32>>::from(dc) * <i64 as ::core::convert::From<::core::primitive::i32>>::from(scale), 16384), 15_u32)) { ::core::result::Result::Ok(converted_position) => converted_position };
+  dc = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+    ::core::primitive::i64::wrapping_shr(
+      ::core::primitive::i64::wrapping_add(
+        <i64 as ::core::convert::From<::core::primitive::i32>>::from(dc)
+          * <i64 as ::core::convert::From<::core::primitive::i32>>::from(scale),
+        16384,
+      ),
+      15_u32,
+    ),
+  ) {
+    ::core::result::Result::Ok(converted_position) => converted_position,
+  };
   dc = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(dc, 8), 4_u32);
 
-  let dc = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(dc.clamp(<i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN), <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX))) { ::core::result::Result::Ok(converted_position) => converted_position };
+  let dc = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(dc.clamp(
+    <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN),
+    <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX),
+  )) {
+    ::core::result::Result::Ok(converted_position) => converted_position,
+  };
   let dc_vec = vdupq_n_s16(dc);
-  let bd_max = vdupq_n_s16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_max) { ::core::result::Result::Ok(converted_position) => converted_position });
+  let bd_max = vdupq_n_s16(
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_max) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
   let zero = vdupq_n_s16(0);
 
   for i in 0..16 {
-    let row_off = dst_base.wrapping_add_signed((match ::console_core_number_conversion::wrapped_offset(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * dst_stride);
+    let row_off = dst_base.wrapping_add_signed(
+      (match ::console_core_number_conversion::wrapped_offset(i) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }) * dst_stride,
+    );
 
     for half in 0..2 {
       let off = row_off + ::core::primitive::usize::wrapping_mul(half, 8);
@@ -752,10 +1115,6 @@ fn dc_only_16x16_16bpc(
   }
 }
 
-
-
-
-
 /// `eob` below which a 16x16 transform's rows 8..15 are guaranteed zero.
 ///
 /// From `src/arm/64/itx.S`, `def_fn_16x16 <txfm1>, <txfm2>, <eob_half>`:
@@ -773,7 +1132,6 @@ fn eob_half_16x16(row_tx: TxType16, col_tx: TxType16) -> i32 {
   use TxType16::Identity;
 
   match (row_tx, col_tx) {
-
     (Identity, Identity) => 36,
 
     (Identity, _) | (_, Identity) => 8,
@@ -812,114 +1170,164 @@ pub(crate) fn inv_txfm_add_16x16_8bpc_neon(
   row_tx: TxType16,
   col_tx: TxType16,
 ) {
-
   match {
-      ::core::primitive::bool::then_some(matches!(row_tx, TxType16::Dct) && matches!(col_tx, TxType16::Dct) && eob == 0, ())
+    ::core::primitive::bool::then_some(
+      matches!(row_tx, TxType16::Dct) && matches!(col_tx, TxType16::Dct) && eob == 0,
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        dc_only_16x16_8bpc(dst, dst_base, dst_stride, coeff);
-        return;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      dc_only_16x16_8bpc(dst, dst_base, dst_stride, coeff);
+      return;
+    }
+    ::core::option::Option::None => {}
   }
 
   let is_identity_row = matches!(row_tx, TxType16::Identity);
 
-
-
-
-
   let mut tmp = [0i16; 256];
-
-
-
-
-
-
-
-
-
 
   let eob_half = eob_half_16x16(row_tx, col_tx);
 
-
-
-
   for half in 0..2usize {
-
-    match {
-        ::core::primitive::bool::then_some(half == 1 && eob < eob_half, ())
-    } {
-        ::core::option::Option::Some(()) => {
-
-          break;
-        },
-        ::core::option::Option::None => {},
+    match { ::core::primitive::bool::then_some(half == 1 && eob < eob_half, ()) } {
+      ::core::option::Option::Some(()) => {
+        break;
+      }
+      ::core::option::Option::None => {}
     }
 
     let row_offset = half.wrapping_mul(8);
-
-
-
 
     let zero_vec = vdupq_n_s16(0);
     let mut v: V16 = [zero_vec; 16];
 
     for col in 0..16 {
-      let base = ::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(col, 16), row_offset);
+      let base = ::core::primitive::usize::wrapping_add(
+        ::core::primitive::usize::wrapping_mul(col, 16),
+        row_offset,
+      );
       let arr: [i16; 8] = coeff[base..base.wrapping_add(8)].try_into().unwrap();
       v[col] = safe_simd::vld1q_s16(&arr);
     }
 
-
     for col in 0..16 {
-      let base = ::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(col, 16), row_offset);
+      let base = ::core::primitive::usize::wrapping_add(
+        ::core::primitive::usize::wrapping_mul(col, 16),
+        row_offset,
+      );
       coeff[base..base.wrapping_add(8)].fill(0);
     }
 
     match ::core::primitive::bool::then_some(is_identity_row, ()) {
-        ::core::option::Option::Some(()) => {
+      ::core::option::Option::Some(()) => {
+        let scale =
+          vdupq_n_s16(::core::primitive::i32::wrapping_mul((5793 - 4096) * 2, 8) as i16);
 
+        for vi in v.iter_mut() {
+          let t = vqrdmulhq_s16(*vi, scale);
+          let t = vshrq_n_s16::<1>(t);
+          *vi = vrhaddq_s16(*vi, t);
+        }
+      }
+      ::core::option::Option::None => {
+        v = apply_tx16(row_tx, v);
 
-          let scale = vdupq_n_s16(::core::primitive::i32::wrapping_mul((5793 - 4096) * 2, 8) as i16);
-
-          for vi in v.iter_mut() {
-            let t = vqrdmulhq_s16(*vi, scale);
-            let t = vshrq_n_s16::<1>(t);
-            *vi = vrhaddq_s16(*vi, t);
-          }
-        },
-        ::core::option::Option::None => {
-
-          v = apply_tx16(row_tx, v);
-
-
-          for vi in v.iter_mut() {
-            *vi = vrshrq_n_s16::<2>(*vi);
-          }
-        },
+        for vi in v.iter_mut() {
+          *vi = vrshrq_n_s16::<2>(*vi);
+        }
+      }
     }
 
-
-
-
-
-
-    let top = [match v { [_explicit_element, ..] => _explicit_element }, match v { [_, _explicit_element, ..] => _explicit_element }, match v { [_, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
-    let bot = [match v { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
+    let top = [
+      match v {
+        [_explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+    ];
+    let bot = [
+      match v {
+        [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _explicit_element,
+          ..,
+        ] => _explicit_element,
+      },
+      match v {
+        [
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _explicit_element,
+          ..,
+        ] => _explicit_element,
+      },
+    ];
 
     let (top_t, bot_t) = transpose_16x16_half(top, bot);
-
-
-
-
-
-
-
-
-
-
-
 
     for i in 0..8 {
       let row = half.wrapping_mul(8) + i;
@@ -933,24 +1341,21 @@ pub(crate) fn inv_txfm_add_16x16_8bpc_neon(
     }
   }
 
-
-
-
-
   for half in 0..2usize {
     let col_offset = half.wrapping_mul(8);
     let zero_vec = vdupq_n_s16(0);
     let mut v: V16 = [zero_vec; 16];
 
     for row in 0..16 {
-      let off = ::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(row, 16), col_offset);
+      let off = ::core::primitive::usize::wrapping_add(
+        ::core::primitive::usize::wrapping_mul(row, 16),
+        col_offset,
+      );
       let arr: [i16; 8] = tmp[off..off.wrapping_add(8)].try_into().unwrap();
       v[row] = safe_simd::vld1q_s16(&arr);
     }
 
-
     v = apply_tx16(col_tx, v);
-
 
     add_to_dst_8x16_8bpc(dst, dst_base + col_offset, dst_stride, v);
   }
@@ -970,41 +1375,34 @@ pub(crate) fn inv_txfm_add_16x16_16bpc_neon(
   row_tx: TxType16,
   col_tx: TxType16,
 ) {
-
   match {
-      ::core::primitive::bool::then_some(matches!(row_tx, TxType16::Dct) && matches!(col_tx, TxType16::Dct) && eob == 0, ())
+    ::core::primitive::bool::then_some(
+      matches!(row_tx, TxType16::Dct) && matches!(col_tx, TxType16::Dct) && eob == 0,
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        dc_only_16x16_16bpc(dst, dst_base, dst_stride, coeff, bitdepth_max);
-        return;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      dc_only_16x16_16bpc(dst, dst_base, dst_stride, coeff, bitdepth_max);
+      return;
+    }
+    ::core::option::Option::None => {}
   }
 
   let is_identity_row = matches!(row_tx, TxType16::Identity);
 
   let mut tmp = [0i16; 256];
 
-
-
-
-
   let eob_half = eob_half_16x16(row_tx, col_tx);
 
-
   for half in 0..2usize {
-    match {
-        ::core::primitive::bool::then_some(half == 1 && eob < eob_half, ())
-    } {
-        ::core::option::Option::Some(()) => {
-          break;
-        },
-        ::core::option::Option::None => {},
+    match { ::core::primitive::bool::then_some(half == 1 && eob < eob_half, ()) } {
+      ::core::option::Option::Some(()) => {
+        break;
+      }
+      ::core::option::Option::None => {}
     }
 
     let row_offset = half.wrapping_mul(8);
-
-
 
     let zero_vec = vdupq_n_s16(0);
     let mut v: V16 = [zero_vec; 16];
@@ -1013,42 +1411,138 @@ pub(crate) fn inv_txfm_add_16x16_16bpc_neon(
       let mut arr = [0i16; 8];
 
       for (r, arr_element) in <[_]>::iter_mut(&mut arr).enumerate() {
-        let c = coeff[::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(col, 16), row_offset) + r];
-        *arr_element = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(c.clamp(<i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN), <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX))) { ::core::result::Result::Ok(converted_position) => converted_position };
+        let c = coeff[::core::primitive::usize::wrapping_add(
+          ::core::primitive::usize::wrapping_mul(col, 16),
+          row_offset,
+        ) + r];
+        *arr_element =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(c.clamp(
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN),
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX),
+          )) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
       }
 
       v[col] = safe_simd::vld1q_s16(&arr);
     }
 
-
     for col in 0..16 {
       for r in 0..8 {
-        coeff[::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(col, 16), row_offset) + r] = 0;
+        coeff[::core::primitive::usize::wrapping_add(
+          ::core::primitive::usize::wrapping_mul(col, 16),
+          row_offset,
+        ) + r] = 0;
       }
     }
 
     match ::core::primitive::bool::then_some(is_identity_row, ()) {
-        ::core::option::Option::Some(()) => {
-          let scale = vdupq_n_s16(::core::primitive::i32::wrapping_mul((5793 - 4096) * 2, 8) as i16);
+      ::core::option::Option::Some(()) => {
+        let scale =
+          vdupq_n_s16(::core::primitive::i32::wrapping_mul((5793 - 4096) * 2, 8) as i16);
 
-          for vi in v.iter_mut() {
-            let t = vqrdmulhq_s16(*vi, scale);
-            let t = vshrq_n_s16::<1>(t);
-            *vi = vrhaddq_s16(*vi, t);
-          }
-        },
-        ::core::option::Option::None => {
-          v = apply_tx16(row_tx, v);
+        for vi in v.iter_mut() {
+          let t = vqrdmulhq_s16(*vi, scale);
+          let t = vshrq_n_s16::<1>(t);
+          *vi = vrhaddq_s16(*vi, t);
+        }
+      }
+      ::core::option::Option::None => {
+        v = apply_tx16(row_tx, v);
 
-          for vi in v.iter_mut() {
-            *vi = vrshrq_n_s16::<2>(*vi);
-          }
-        },
+        for vi in v.iter_mut() {
+          *vi = vrshrq_n_s16::<2>(*vi);
+        }
+      }
     }
 
-
-    let top = [match v { [_explicit_element, ..] => _explicit_element }, match v { [_, _explicit_element, ..] => _explicit_element }, match v { [_, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
-    let bot = [match v { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
+    let top = [
+      match v {
+        [_explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+    ];
+    let bot = [
+      match v {
+        [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match v {
+        [
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _explicit_element,
+          ..,
+        ] => _explicit_element,
+      },
+      match v {
+        [
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _explicit_element,
+          ..,
+        ] => _explicit_element,
+      },
+    ];
     let (top_t, bot_t) = transpose_16x16_half(top, bot);
 
     for i in 0..8 {
@@ -1063,14 +1557,16 @@ pub(crate) fn inv_txfm_add_16x16_16bpc_neon(
     }
   }
 
-
   for half in 0..2usize {
     let col_offset = half.wrapping_mul(8);
     let zero_vec = vdupq_n_s16(0);
     let mut v: V16 = [zero_vec; 16];
 
     for row in 0..16 {
-      let off = ::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(row, 16), col_offset);
+      let off = ::core::primitive::usize::wrapping_add(
+        ::core::primitive::usize::wrapping_mul(row, 16),
+        col_offset,
+      );
       let arr: [i16; 8] = tmp[off..off.wrapping_add(8)].try_into().unwrap();
       v[row] = safe_simd::vld1q_s16(&arr);
     }
@@ -1081,10 +1577,6 @@ pub(crate) fn inv_txfm_add_16x16_16bpc_neon(
     add_to_dst_8x16_16bpc(dst, dst_base + col_off, dst_stride, v, bitdepth_max);
   }
 }
-
-
-
-
 
 macro_rules! def_16x16_8bpc {
   ($name:ident, $row:expr, $col:expr) => {
@@ -1142,7 +1634,6 @@ macro_rules! def_16x16_16bpc {
   };
 }
 
-
 def_16x16_8bpc!(
   inv_txfm_add_dct_dct_16x16_8bpc_neon_inner,
   TxType16::Dct,
@@ -1153,7 +1644,6 @@ def_16x16_16bpc!(
   TxType16::Dct,
   TxType16::Dct
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_identity_identity_16x16_8bpc_neon_inner,
@@ -1166,7 +1656,6 @@ def_16x16_16bpc!(
   TxType16::Identity
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_adst_adst_16x16_8bpc_neon_inner,
   TxType16::Adst,
@@ -1177,7 +1666,6 @@ def_16x16_16bpc!(
   TxType16::Adst,
   TxType16::Adst
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_dct_adst_16x16_8bpc_neon_inner,
@@ -1190,7 +1678,6 @@ def_16x16_16bpc!(
   TxType16::Adst
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_adst_dct_16x16_8bpc_neon_inner,
   TxType16::Adst,
@@ -1201,7 +1688,6 @@ def_16x16_16bpc!(
   TxType16::Adst,
   TxType16::Dct
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_dct_flipadst_16x16_8bpc_neon_inner,
@@ -1214,7 +1700,6 @@ def_16x16_16bpc!(
   TxType16::FlipAdst
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_flipadst_dct_16x16_8bpc_neon_inner,
   TxType16::FlipAdst,
@@ -1225,7 +1710,6 @@ def_16x16_16bpc!(
   TxType16::FlipAdst,
   TxType16::Dct
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_flipadst_flipadst_16x16_8bpc_neon_inner,
@@ -1238,7 +1722,6 @@ def_16x16_16bpc!(
   TxType16::FlipAdst
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_adst_flipadst_16x16_8bpc_neon_inner,
   TxType16::Adst,
@@ -1249,7 +1732,6 @@ def_16x16_16bpc!(
   TxType16::Adst,
   TxType16::FlipAdst
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_flipadst_adst_16x16_8bpc_neon_inner,
@@ -1262,7 +1744,6 @@ def_16x16_16bpc!(
   TxType16::Adst
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_dct_identity_16x16_8bpc_neon_inner,
   TxType16::Dct,
@@ -1273,7 +1754,6 @@ def_16x16_16bpc!(
   TxType16::Dct,
   TxType16::Identity
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_identity_dct_16x16_8bpc_neon_inner,
@@ -1286,7 +1766,6 @@ def_16x16_16bpc!(
   TxType16::Dct
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_adst_identity_16x16_8bpc_neon_inner,
   TxType16::Adst,
@@ -1297,7 +1776,6 @@ def_16x16_16bpc!(
   TxType16::Adst,
   TxType16::Identity
 );
-
 
 def_16x16_8bpc!(
   inv_txfm_add_identity_adst_16x16_8bpc_neon_inner,
@@ -1310,7 +1788,6 @@ def_16x16_16bpc!(
   TxType16::Adst
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_flipadst_identity_16x16_8bpc_neon_inner,
   TxType16::FlipAdst,
@@ -1322,7 +1799,6 @@ def_16x16_16bpc!(
   TxType16::Identity
 );
 
-
 def_16x16_8bpc!(
   inv_txfm_add_identity_flipadst_16x16_8bpc_neon_inner,
   TxType16::Identity,
@@ -1333,10 +1809,6 @@ def_16x16_16bpc!(
   TxType16::Identity,
   TxType16::FlipAdst
 );
-
-
-
-
 
 #[cfg(test)]
 #[cfg(target_arch = "aarch64")]
@@ -1351,64 +1823,360 @@ mod tests {
   /// across stages. Larger transforms have more stages.
   const MAX_DIFF: i32 = 40;
 
-
-
   #[must_use]
   fn scalar_dct4_1d(input: &[i32; 4]) -> [i32; 4] {
-    let t3a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _explicit_element, ..] => _explicit_element }) * 3784, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 1567) + 2048, 12_u32);
-    let t2a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _explicit_element, ..] => _explicit_element }) * 1567, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 3784) + 2048, 12_u32);
-    let t0 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_explicit_element, ..] => _explicit_element }) * 2896, (match input { &[_, _, _explicit_element, ..] => _explicit_element }) * 2896) + 2048, 12_u32);
-    let t1 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_explicit_element, ..] => _explicit_element }) * 2896, (match input { &[_, _, _explicit_element, ..] => _explicit_element }) * 2896) + 2048, 12_u32);
-    [::core::primitive::i32::wrapping_add(t0, t3a), ::core::primitive::i32::wrapping_add(t1, t2a), ::core::primitive::i32::wrapping_sub(t1, t2a), ::core::primitive::i32::wrapping_sub(t0, t3a)]
+    let t3a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 3784,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 1567,
+      ) + 2048,
+      12_u32,
+    );
+    let t2a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 1567,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3784,
+      ) + 2048,
+      12_u32,
+    );
+    let t0 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_explicit_element, ..] => _explicit_element,
+        }) * 2896,
+        (match input {
+          &[_, _, _explicit_element, ..] => _explicit_element,
+        }) * 2896,
+      ) + 2048,
+      12_u32,
+    );
+    let t1 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_explicit_element, ..] => _explicit_element,
+        }) * 2896,
+        (match input {
+          &[_, _, _explicit_element, ..] => _explicit_element,
+        }) * 2896,
+      ) + 2048,
+      12_u32,
+    );
+    [
+      ::core::primitive::i32::wrapping_add(t0, t3a),
+      ::core::primitive::i32::wrapping_add(t1, t2a),
+      ::core::primitive::i32::wrapping_sub(t1, t2a),
+      ::core::primitive::i32::wrapping_sub(t0, t3a),
+    ]
   }
 
   #[must_use]
   fn scalar_dct8_1d(input: &[i32; 8]) -> [i32; 8] {
-    let even = [match input { &[_explicit_element, ..] => _explicit_element }, match input { &[_, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
+    let even = [
+      match input {
+        &[_explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+    ];
     let even_out = scalar_dct4_1d(&even);
 
-    let t4a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _explicit_element, ..] => _explicit_element }) * 799, (match input { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 4017) + 2048, 12_u32);
-    let t7a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _explicit_element, ..] => _explicit_element }) * 4017, (match input { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 799) + 2048, 12_u32);
-    let t5a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3406, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 2276) + 2048, 12_u32);
-    let t6a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 2276, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 3406) + 2048, 12_u32);
+    let t4a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 799,
+        (match input {
+          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 4017,
+      ) + 2048,
+      12_u32,
+    );
+    let t7a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 4017,
+        (match input {
+          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 799,
+      ) + 2048,
+      12_u32,
+    );
+    let t5a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3406,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 2276,
+      ) + 2048,
+      12_u32,
+    );
+    let t6a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 2276,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3406,
+      ) + 2048,
+      12_u32,
+    );
 
     let t4 = ::core::primitive::i32::wrapping_add(t4a, t5a);
     let t5_tmp = ::core::primitive::i32::wrapping_sub(t4a, t5a);
     let t7 = ::core::primitive::i32::wrapping_add(t7a, t6a);
     let t6_tmp = ::core::primitive::i32::wrapping_sub(t7a, t6a);
 
-    let t5 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(t6_tmp * 2896, t5_tmp * 2896) + 2048, 12_u32);
-    let t6 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(t6_tmp * 2896, t5_tmp * 2896) + 2048, 12_u32);
+    let t5 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(t6_tmp * 2896, t5_tmp * 2896) + 2048,
+      12_u32,
+    );
+    let t6 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(t6_tmp * 2896, t5_tmp * 2896) + 2048,
+      12_u32,
+    );
 
     [
-      ::core::primitive::i32::wrapping_add((match even_out { [_explicit_element, ..] => _explicit_element }), t7),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _explicit_element, ..] => _explicit_element }), t6),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _explicit_element, ..] => _explicit_element }), t5),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _explicit_element, ..] => _explicit_element }), t4),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _explicit_element, ..] => _explicit_element }), t4),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _explicit_element, ..] => _explicit_element }), t5),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _explicit_element, ..] => _explicit_element }), t6),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_explicit_element, ..] => _explicit_element }), t7),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_explicit_element, ..] => _explicit_element,
+        }),
+        t7,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _explicit_element, ..] => _explicit_element,
+        }),
+        t6,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t5,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t4,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t4,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t5,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _explicit_element, ..] => _explicit_element,
+        }),
+        t6,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_explicit_element, ..] => _explicit_element,
+        }),
+        t7,
+      ),
     ]
   }
 
   #[must_use]
   fn scalar_dct16_1d(input: &[i32; 16]) -> [i32; 16] {
     let even: [i32; 8] = [
-      match input { &[_explicit_element, ..] => _explicit_element }, match input { &[_, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element },
+      match input {
+        &[_explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _,
+          _explicit_element,
+          ..,
+        ] => _explicit_element,
+      },
     ];
     let even_out = scalar_dct8_1d(&even);
 
-
-    let t8a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _explicit_element, ..] => _explicit_element }) * 401, (match input { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 4076) + 2048, 12_u32);
-    let t15a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _explicit_element, ..] => _explicit_element }) * 4076, (match input { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 401) + 2048, 12_u32);
-    let t9a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3166, (match input { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 2598) + 2048, 12_u32);
-    let t14a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 2598, (match input { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3166) + 2048, 12_u32);
-    let t10a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 1931, (match input { &[_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3612) + 2048, 12_u32);
-    let t13a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3612, (match input { &[_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 1931) + 2048, 12_u32);
-    let t11a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3920, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 1189) + 2048, 12_u32);
-    let t12a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 1189, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 3920) + 2048, 12_u32);
-
+    let t8a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 401,
+        (match input {
+          &[
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _explicit_element,
+            ..,
+          ] => _explicit_element,
+        }) * 4076,
+      ) + 2048,
+      12_u32,
+    );
+    let t15a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 4076,
+        (match input {
+          &[
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _explicit_element,
+            ..,
+          ] => _explicit_element,
+        }) * 401,
+      ) + 2048,
+      12_u32,
+    );
+    let t9a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3166,
+        (match input {
+          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 2598,
+      ) + 2048,
+      12_u32,
+    );
+    let t14a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 2598,
+        (match input {
+          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3166,
+      ) + 2048,
+      12_u32,
+    );
+    let t10a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 1931,
+        (match input {
+          &[_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3612,
+      ) + 2048,
+      12_u32,
+    );
+    let t13a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3612,
+        (match input {
+          &[_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 1931,
+      ) + 2048,
+      12_u32,
+    );
+    let t11a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3920,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 1189,
+      ) + 2048,
+      12_u32,
+    );
+    let t12a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 1189,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3920,
+      ) + 2048,
+      12_u32,
+    );
 
     let t9 = ::core::primitive::i32::wrapping_sub(t8a, t9a);
     let t8 = ::core::primitive::i32::wrapping_add(t8a, t9a);
@@ -1419,12 +2187,22 @@ mod tests {
     let t12 = ::core::primitive::i32::wrapping_add(t12a, t13a);
     let t13 = ::core::primitive::i32::wrapping_sub(t12a, t13a);
 
-
-    let t9a_2 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(t14 * 1567, t9 * 3784) + 2048, 12_u32);
-    let t14a_2 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(t14 * 3784, t9 * 1567) + 2048, 12_u32);
-    let t13a_2 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(t13 * 1567, t10 * 3784) + 2048, 12_u32);
-    let t10a_2 = ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_shr((t13 * 3784 + t10 * 1567) + 2048, 12_u32));
-
+    let t9a_2 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(t14 * 1567, t9 * 3784) + 2048,
+      12_u32,
+    );
+    let t14a_2 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(t14 * 3784, t9 * 1567) + 2048,
+      12_u32,
+    );
+    let t13a_2 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(t13 * 1567, t10 * 3784) + 2048,
+      12_u32,
+    );
+    let t10a_2 = ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_shr(
+      (t13 * 3784 + t10 * 1567) + 2048,
+      12_u32,
+    ));
 
     let t11a_2 = ::core::primitive::i32::wrapping_sub(t8, t11);
     let t8a_2 = ::core::primitive::i32::wrapping_add(t8, t11);
@@ -1435,29 +2213,120 @@ mod tests {
     let t13b = ::core::primitive::i32::wrapping_sub(t14a_2, t13a_2);
     let t14b = ::core::primitive::i32::wrapping_add(t14a_2, t13a_2);
 
-
-    let t11f = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(t12a_2 * 2896, t11a_2 * 2896) + 2048, 12_u32);
-    let t12f = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(t12a_2 * 2896, t11a_2 * 2896) + 2048, 12_u32);
-    let t10af = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(t13b * 2896, t10b * 2896) + 2048, 12_u32);
-    let t13af = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(t13b * 2896, t10b * 2896) + 2048, 12_u32);
+    let t11f = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(t12a_2 * 2896, t11a_2 * 2896) + 2048,
+      12_u32,
+    );
+    let t12f = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(t12a_2 * 2896, t11a_2 * 2896) + 2048,
+      12_u32,
+    );
+    let t10af = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(t13b * 2896, t10b * 2896) + 2048,
+      12_u32,
+    );
+    let t13af = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(t13b * 2896, t10b * 2896) + 2048,
+      12_u32,
+    );
 
     [
-      ::core::primitive::i32::wrapping_add((match even_out { [_explicit_element, ..] => _explicit_element }), t15a_2),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _explicit_element, ..] => _explicit_element }), t14b),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _explicit_element, ..] => _explicit_element }), t13af),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _explicit_element, ..] => _explicit_element }), t12f),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _, _explicit_element, ..] => _explicit_element }), t11f),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }), t10af),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }), t9b),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }), t8a_2),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }), t8a_2),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }), t9b),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }), t10af),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _, _explicit_element, ..] => _explicit_element }), t11f),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _explicit_element, ..] => _explicit_element }), t12f),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _explicit_element, ..] => _explicit_element }), t13af),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _explicit_element, ..] => _explicit_element }), t14b),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_explicit_element, ..] => _explicit_element }), t15a_2),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_explicit_element, ..] => _explicit_element,
+        }),
+        t15a_2,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _explicit_element, ..] => _explicit_element,
+        }),
+        t14b,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t13af,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t12f,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t11f,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t10af,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t9b,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t8a_2,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t8a_2,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t9b,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t10af,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t11f,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t12f,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t13af,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _explicit_element, ..] => _explicit_element,
+        }),
+        t14b,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_explicit_element, ..] => _explicit_element,
+        }),
+        t15a_2,
+      ),
     ]
   }
 
@@ -1465,21 +2334,23 @@ mod tests {
   fn scalar_dct_dct_16x16(dst: &mut [u8], stride: isize, coeff: &mut [i16]) {
     let mut tmp = [0i32; 256];
 
-
     for y in 0..16 {
       let mut input = [0i32; 16];
 
       for (x, input_element) in <[_]>::iter_mut(&mut input).enumerate() {
-        *input_element = <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + x * 16]);
+        *input_element =
+          <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + x * 16]);
       }
 
       let out = scalar_dct16_1d(&input);
 
       for x in 0..16 {
-        tmp[::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(y, 16), x)] = ::core::primitive::i32::wrapping_shr(out[x] + 2, 2_u32);
+        tmp[::core::primitive::usize::wrapping_add(
+          ::core::primitive::usize::wrapping_mul(y, 16),
+          x,
+        )] = ::core::primitive::i32::wrapping_shr(out[x] + 2, 2_u32);
       }
     }
-
 
     for x in 0..16 {
       let mut input = [0i32; 16];
@@ -1491,10 +2362,23 @@ mod tests {
       let out = scalar_dct16_1d(&input);
 
       for y in 0..16 {
-        let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned((::core::primitive::usize::cast_signed(y) * stride)));
-        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x]);
+        let ::core::result::Result::Ok(row_off) =
+          ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned(
+            (::core::primitive::usize::cast_signed(y) * stride),
+          ));
+        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+          dst[(match ::console_core_number_conversion::index(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          }) + x],
+        );
         let c = ::core::primitive::i32::wrapping_shr(out[y] + 8, 4_u32);
-        dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(iclip(::core::primitive::i32::wrapping_add(d, c), 0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position };
+        dst[(match ::console_core_number_conversion::index(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+          iclip(::core::primitive::i32::wrapping_add(d, c), 0, 255),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
     }
 
@@ -1503,49 +2387,57 @@ mod tests {
 
   /// Full scalar reference for IDENTITY_IDENTITY 16x16 8bpc
   fn scalar_identity_identity_16x16(dst: &mut [u8], stride: isize, coeff: &mut [i16]) {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     let sqrt2x2 = 5793i32;
 
     for y in 0..16 {
-      let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned((::core::primitive::usize::cast_signed(y) * stride)));
+      let ::core::result::Result::Ok(row_off) =
+        ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned(
+          (::core::primitive::usize::cast_signed(y) * stride),
+        ));
 
       for x in 0..16 {
-        let c = <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[::core::primitive::usize::wrapping_add(y, x * 16)]);
+        let c = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
+          coeff[::core::primitive::usize::wrapping_add(y, x * 16)],
+        );
 
-
-
-
-
-        let t = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(::core::primitive::i64::wrapping_shr(<i64 as ::core::convert::From<::core::primitive::i32>>::from(c) * 27152 + 16384, 15_u32)) { ::core::result::Result::Ok(converted_position) => converted_position };
+        let t = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+          ::core::primitive::i64::wrapping_shr(
+            <i64 as ::core::convert::From<::core::primitive::i32>>::from(c) * 27152 + 16384,
+            15_u32,
+          ),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
         let t_2 = ::core::primitive::i32::wrapping_shr(t, 1_u32);
-        let row_result = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(c, t_2) + 1, 1_u32);
+        let row_result = ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(c, t_2) + 1,
+          1_u32,
+        );
 
-
-
-
-        let t2 = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(::core::primitive::i64::wrapping_shr(<i64 as ::core::convert::From<::core::primitive::i32>>::from(row_result) * 27152 + 16384, 15_u32)) { ::core::result::Result::Ok(converted_position) => converted_position };
+        let t2 = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+          ::core::primitive::i64::wrapping_shr(
+            <i64 as ::core::convert::From<::core::primitive::i32>>::from(row_result) * 27152
+              + 16384,
+            15_u32,
+          ),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
         let col_result = row_result.saturating_mul(2).saturating_add(t2);
 
-
         let final_val = ::core::primitive::i32::wrapping_shr(col_result + 8, 4_u32);
-        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x]);
-        dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(iclip(::core::primitive::i32::wrapping_add(d, final_val), 0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position };
+        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+          dst[(match ::console_core_number_conversion::index(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          }) + x],
+        );
+        dst[(match ::console_core_number_conversion::index(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+          iclip(::core::primitive::i32::wrapping_add(d, final_val), 0, 255),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
     }
 
@@ -1554,10 +2446,8 @@ mod tests {
 
   #[test]
   fn test_dct_dct_16x16_neon_vs_scalar() {
-
     let Ok(_lock) = crate::src::safe_simd::token_test_lock();
     let token = archmage::Arm64::summon().expect("NEON must be available");
-
 
     for pattern in 0..3 {
       let mut coeff_neon = [0i16; 256];
@@ -1565,20 +2455,33 @@ mod tests {
 
       match pattern {
         0 => {
-
-          *{ let [_explicit_part, ..] = &mut coeff_neon; _explicit_part } = 1000;
-          *{ let [_explicit_part, ..] = &mut coeff_scalar; _explicit_part } = 1000;
+          *{
+            let [_explicit_part, ..] = &mut coeff_neon;
+            _explicit_part
+          } = 1000;
+          *{
+            let [_explicit_part, ..] = &mut coeff_scalar;
+            _explicit_part
+          } = 1000;
         }
         1 => {
-
-          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).take(16).zip(<[_]>::iter_mut(&mut coeff_scalar).take(16)).enumerate() {
-            *coeff_neon_element = ::core::primitive::i16::wrapping_rem(::core::primitive::i16::wrapping_mul(i as i16 + 1, 100), 2000) - 1000;
+          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+            .take(16)
+            .zip(<[_]>::iter_mut(&mut coeff_scalar).take(16))
+            .enumerate()
+          {
+            *coeff_neon_element = ::core::primitive::i16::wrapping_rem(
+              ::core::primitive::i16::wrapping_mul(i as i16 + 1, 100),
+              2000,
+            ) - 1000;
             *coeff_scalar_element = *coeff_neon_element;
           }
         }
         2 => {
-
-          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).zip(<[_]>::iter_mut(&mut coeff_scalar)).enumerate() {
+          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+            .zip(<[_]>::iter_mut(&mut coeff_scalar))
+            .enumerate()
+          {
             let val = (i * 37 + 13).wrapping_rem(2001) as i16 - 1000;
             *coeff_neon_element = val;
             *coeff_scalar_element = val;
@@ -1605,12 +2508,16 @@ mod tests {
 
       scalar_dct_dct_16x16(&mut dst_scalar, stride, &mut coeff_scalar);
 
-
-
       let mut max_diff_seen = 0i32;
 
-      for (dst_neon_element, dst_scalar_element) in <[_]>::iter(&dst_neon).zip(<[_]>::iter(&dst_scalar)) {
-        let diff = ::core::primitive::i32::wrapping_sub(*dst_neon_element as i32, *dst_scalar_element as i32).abs();
+      for (dst_neon_element, dst_scalar_element) in
+        <[_]>::iter(&dst_neon).zip(<[_]>::iter(&dst_scalar))
+      {
+        let diff = ::core::primitive::i32::wrapping_sub(
+          *dst_neon_element as i32,
+          *dst_scalar_element as i32,
+        )
+        .abs();
         max_diff_seen = max_diff_seen.max(diff);
       }
 
@@ -1623,7 +2530,6 @@ mod tests {
 
   #[test]
   fn test_identity_identity_16x16_neon_vs_scalar() {
-
     let Ok(_lock) = crate::src::safe_simd::token_test_lock();
     let token = archmage::Arm64::summon().expect("NEON must be available");
 
@@ -1633,17 +2539,33 @@ mod tests {
 
       match pattern {
         0 => {
-          *{ let [_explicit_part, ..] = &mut coeff_neon; _explicit_part } = 500;
-          *{ let [_explicit_part, ..] = &mut coeff_scalar; _explicit_part } = 500;
+          *{
+            let [_explicit_part, ..] = &mut coeff_neon;
+            _explicit_part
+          } = 500;
+          *{
+            let [_explicit_part, ..] = &mut coeff_scalar;
+            _explicit_part
+          } = 500;
         }
         1 => {
-          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).take(32).zip(<[_]>::iter_mut(&mut coeff_scalar).take(32)).enumerate() {
-            *coeff_neon_element = ::core::primitive::i16::wrapping_rem(::core::primitive::i16::wrapping_mul(i as i16 + 1, 50), 1000) - 500;
+          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+            .take(32)
+            .zip(<[_]>::iter_mut(&mut coeff_scalar).take(32))
+            .enumerate()
+          {
+            *coeff_neon_element = ::core::primitive::i16::wrapping_rem(
+              ::core::primitive::i16::wrapping_mul(i as i16 + 1, 50),
+              1000,
+            ) - 500;
             *coeff_scalar_element = *coeff_neon_element;
           }
         }
         2 => {
-          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).zip(<[_]>::iter_mut(&mut coeff_scalar)).enumerate() {
+          for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+            .zip(<[_]>::iter_mut(&mut coeff_scalar))
+            .enumerate()
+          {
             let val = (i * 31 + 7).wrapping_rem(1001) as i16 - 500;
             *coeff_neon_element = val;
             *coeff_scalar_element = val;
@@ -1672,8 +2594,14 @@ mod tests {
 
       let mut max_diff_seen = 0i32;
 
-      for (dst_neon_element, dst_scalar_element) in <[_]>::iter(&dst_neon).zip(<[_]>::iter(&dst_scalar)) {
-        let diff = ::core::primitive::i32::wrapping_sub(*dst_neon_element as i32, *dst_scalar_element as i32).abs();
+      for (dst_neon_element, dst_scalar_element) in
+        <[_]>::iter(&dst_neon).zip(<[_]>::iter(&dst_scalar))
+      {
+        let diff = ::core::primitive::i32::wrapping_sub(
+          *dst_neon_element as i32,
+          *dst_scalar_element as i32,
+        )
+        .abs();
         max_diff_seen = max_diff_seen.max(diff);
       }
 
@@ -1686,16 +2614,17 @@ mod tests {
 
   #[test]
   fn test_dc_only_16x16() {
-
     let Ok(_lock) = crate::src::safe_simd::token_test_lock();
     let token = archmage::Arm64::summon().expect("NEON must be available");
 
     let mut coeff = [0i16; 256];
-    *{ let [_explicit_part, ..] = &mut coeff; _explicit_part } = 1000;
+    *{
+      let [_explicit_part, ..] = &mut coeff;
+      _explicit_part
+    } = 1000;
 
     let stride = 16isize;
     let mut dst = [128u8; 16 * 16];
-
 
     inv_txfm_add_16x16_8bpc_neon(
       token,
@@ -1709,9 +2638,7 @@ mod tests {
       TxType16::Dct,
     );
 
-
     assert_eq!(coeff[0], 0);
-
 
     let [first, ..] = dst;
 

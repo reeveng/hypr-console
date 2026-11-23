@@ -32,7 +32,10 @@
 #[repr(u32)]
 #[cfg_attr(
   dylint_lib = "explicit070_spaced_discriminants",
-  expect(explicit070_spaced_discriminants, reason = "public measurement consumers use the family numbers as indexes into the activity snapshot array")
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "public measurement consumers use the family numbers as indexes into the activity snapshot array"
+  )
 )]
 pub enum Family {
   Itx = 0,
@@ -100,11 +103,17 @@ pub fn set_disabled(families: &[Family]) -> core::result::Result<(), console_cor
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the public measurement dispatch predicate keeps the existing boolean return type")
+  expect(
+    explicit002_infallible_result,
+    reason = "the public measurement dispatch predicate keeps the existing boolean return type"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit007_no_bool_return",
-  expect(explicit007_no_bool_return, reason = "the public measurement dispatch predicate keeps the existing boolean return type")
+  expect(
+    explicit007_no_bool_return,
+    reason = "the public measurement dispatch predicate keeps the existing boolean return type"
+  )
 )]
 pub fn is_off(_f: Family) -> bool {
   false
@@ -132,7 +141,10 @@ pub fn activity_reset() -> core::result::Result<(), console_core_never::Never> {
 #[inline(always)]
 #[cfg_attr(
   dylint_lib = "explicit008_no_bool_param",
-  expect(explicit008_no_bool_param, reason = "the public measurement hook keeps the boolean it receives from the transform dispatch predicates")
+  expect(
+    explicit008_no_bool_param,
+    reason = "the public measurement hook keeps the boolean it receives from the transform dispatch predicates"
+  )
 )]
 pub fn note_itx_shape(
   tx_size: ::console_core_api_compatibility::NativeSize,

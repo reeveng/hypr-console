@@ -100,11 +100,22 @@ fn merge_dct_halves<const N: usize>(
     *sample = checked_value;
   }
 
-  let last = u8::try_from(N.saturating_mul(2).saturating_sub(1)).map_err(|_| Rav1dError::ERANGE)?;
+  let last =
+    u8::try_from(N.saturating_mul(2).saturating_sub(1)).map_err(|_| Rav1dError::ERANGE)?;
 
-  for ((even_sample, odd_sample), position) in even.into_iter().zip(odd.into_iter().rev()).zip(0u8..) {
-    let sum = iclip(even_sample.wrapping_add(odd_sample), bounds.lower, bounds.upper);
-    let difference = iclip(even_sample.wrapping_sub(odd_sample), bounds.lower, bounds.upper);
+  for ((even_sample, odd_sample), position) in
+    even.into_iter().zip(odd.into_iter().rev()).zip(0u8..)
+  {
+    let sum = iclip(
+      even_sample.wrapping_add(odd_sample),
+      bounds.lower,
+      bounds.upper,
+    );
+    let difference = iclip(
+      even_sample.wrapping_sub(odd_sample),
+      bounds.lower,
+      bounds.upper,
+    );
     write_coefficient(lane, stride, position, sum)?;
     write_coefficient(lane, stride, last.wrapping_sub(position), difference)?;
   }
@@ -318,9 +329,7 @@ fn inv_dct8_1d_internal_c(
       8_u32,
     );
 
-    merge_dct_halves(c, stride, bounds, [
-      t4, t5, t6, t7,
-    ])?;
+    merge_dct_halves(c, stride, bounds, [t4, t5, t6, t7])?;
   };
 
   Ok(())
@@ -492,9 +501,7 @@ fn rotate_dct16_odd_inputs(
 }
 
 #[inline]
-fn rotate_dct16_middle(
-  [t9, t14, t10, t13]: [i32; 4],
-) -> Result<[i32; 4], Never> {
+fn rotate_dct16_middle([t9, t14, t10, t13]: [i32; 4]) -> Result<[i32; 4], Never> {
   let t9a = i32::wrapping_sub(
     i32::wrapping_shr(
       i32::wrapping_add(
@@ -582,8 +589,16 @@ fn inv_dct16_1d_internal_c(
       even_input,
     )?;
 
-    let [mut t8a, mut t9a, mut t10a, mut t11a, mut t12a, mut t13a, mut t14a, mut t15a] =
-      rotate_dct16_odd_inputs(c, stride, input)?;
+    let [
+      mut t8a,
+      mut t9a,
+      mut t10a,
+      mut t11a,
+      mut t12a,
+      mut t13a,
+      mut t14a,
+      mut t15a,
+    ] = rotate_dct16_odd_inputs(c, stride, input)?;
 
     let t8 = clip(i32::wrapping_add(t8a, t9a));
     let mut t9 = clip(i32::wrapping_sub(t8a, t9a));
@@ -623,9 +638,12 @@ fn inv_dct16_1d_internal_c(
       8_u32,
     );
 
-    merge_dct_halves(c, stride, bounds, [
-      t8a, t9, t10a, t11, t12, t13a, t14, t15a,
-    ])?;
+    merge_dct_halves(
+      c,
+      stride,
+      bounds,
+      [t8a, t9, t10a, t11, t12, t13a, t14, t15a],
+    )?;
   };
 
   Ok(())
@@ -703,100 +721,138 @@ fn rotate_dct32_odd_inputs(
 
       t16a = i32::wrapping_sub(
         round_shift(
-          in1.wrapping_mul(201).wrapping_sub(in31.wrapping_mul(4091_i32.wrapping_sub(4096))),
+          in1
+            .wrapping_mul(201)
+            .wrapping_sub(in31.wrapping_mul(4091_i32.wrapping_sub(4096))),
           12,
         ),
         in31,
       );
       t17a = i32::wrapping_add(
         round_shift(
-          in17.wrapping_mul(3035_i32.wrapping_sub(4096)).wrapping_sub(in15.wrapping_mul(2751)),
+          in17
+            .wrapping_mul(3035_i32.wrapping_sub(4096))
+            .wrapping_sub(in15.wrapping_mul(2751)),
           12,
         ),
         in17,
       );
       t18a = i32::wrapping_sub(
         round_shift(
-          in9.wrapping_mul(1751).wrapping_sub(in23.wrapping_mul(3703_i32.wrapping_sub(4096))),
+          in9
+            .wrapping_mul(1751)
+            .wrapping_sub(in23.wrapping_mul(3703_i32.wrapping_sub(4096))),
           12,
         ),
         in23,
       );
       t19a = i32::wrapping_add(
         round_shift(
-          in25.wrapping_mul(3857_i32.wrapping_sub(4096)).wrapping_sub(in7.wrapping_mul(1380)),
+          in25
+            .wrapping_mul(3857_i32.wrapping_sub(4096))
+            .wrapping_sub(in7.wrapping_mul(1380)),
           12,
         ),
         in25,
       );
       t20a = i32::wrapping_sub(
         round_shift(
-          in5.wrapping_mul(995).wrapping_sub(in27.wrapping_mul(3973_i32.wrapping_sub(4096))),
+          in5
+            .wrapping_mul(995)
+            .wrapping_sub(in27.wrapping_mul(3973_i32.wrapping_sub(4096))),
           12,
         ),
         in27,
       );
       t21a = i32::wrapping_add(
         round_shift(
-          in21.wrapping_mul(3513_i32.wrapping_sub(4096)).wrapping_sub(in11.wrapping_mul(2106)),
+          in21
+            .wrapping_mul(3513_i32.wrapping_sub(4096))
+            .wrapping_sub(in11.wrapping_mul(2106)),
           12,
         ),
         in21,
       );
-      t22a = round_shift(in13.wrapping_mul(1220).wrapping_sub(in19.wrapping_mul(1645)), 11);
+      t22a = round_shift(
+        in13
+          .wrapping_mul(1220)
+          .wrapping_sub(in19.wrapping_mul(1645)),
+        11,
+      );
       t23a = i32::wrapping_add(
         round_shift(
-          in29.wrapping_mul(4052_i32.wrapping_sub(4096)).wrapping_sub(in3.wrapping_mul(601)),
+          in29
+            .wrapping_mul(4052_i32.wrapping_sub(4096))
+            .wrapping_sub(in3.wrapping_mul(601)),
           12,
         ),
         in29,
       );
       t24a = i32::wrapping_add(
         round_shift(
-          in29.wrapping_mul(601).wrapping_add(in3.wrapping_mul(4052_i32.wrapping_sub(4096))),
+          in29
+            .wrapping_mul(601)
+            .wrapping_add(in3.wrapping_mul(4052_i32.wrapping_sub(4096))),
           12,
         ),
         in3,
       );
-      t25a = round_shift(in13.wrapping_mul(1645).wrapping_add(in19.wrapping_mul(1220)), 11);
+      t25a = round_shift(
+        in13
+          .wrapping_mul(1645)
+          .wrapping_add(in19.wrapping_mul(1220)),
+        11,
+      );
       t26a = i32::wrapping_add(
         round_shift(
-          in21.wrapping_mul(2106).wrapping_add(in11.wrapping_mul(3513_i32.wrapping_sub(4096))),
+          in21
+            .wrapping_mul(2106)
+            .wrapping_add(in11.wrapping_mul(3513_i32.wrapping_sub(4096))),
           12,
         ),
         in11,
       );
       t27a = i32::wrapping_add(
         round_shift(
-          in5.wrapping_mul(3973_i32.wrapping_sub(4096)).wrapping_add(in27.wrapping_mul(995)),
+          in5
+            .wrapping_mul(3973_i32.wrapping_sub(4096))
+            .wrapping_add(in27.wrapping_mul(995)),
           12,
         ),
         in5,
       );
       t28a = i32::wrapping_add(
         round_shift(
-          in25.wrapping_mul(1380).wrapping_add(in7.wrapping_mul(3857_i32.wrapping_sub(4096))),
+          in25
+            .wrapping_mul(1380)
+            .wrapping_add(in7.wrapping_mul(3857_i32.wrapping_sub(4096))),
           12,
         ),
         in7,
       );
       t29a = i32::wrapping_add(
         round_shift(
-          in9.wrapping_mul(3703_i32.wrapping_sub(4096)).wrapping_add(in23.wrapping_mul(1751)),
+          in9
+            .wrapping_mul(3703_i32.wrapping_sub(4096))
+            .wrapping_add(in23.wrapping_mul(1751)),
           12,
         ),
         in9,
       );
       t30a = i32::wrapping_add(
         round_shift(
-          in17.wrapping_mul(2751).wrapping_add(in15.wrapping_mul(3035_i32.wrapping_sub(4096))),
+          in17
+            .wrapping_mul(2751)
+            .wrapping_add(in15.wrapping_mul(3035_i32.wrapping_sub(4096))),
           12,
         ),
         in15,
       );
       t31a = i32::wrapping_add(
         round_shift(
-          in1.wrapping_mul(4091_i32.wrapping_sub(4096)).wrapping_add(in31.wrapping_mul(201)),
+          in1
+            .wrapping_mul(4091_i32.wrapping_sub(4096))
+            .wrapping_add(in31.wrapping_mul(201)),
           12,
         ),
         in1,
@@ -805,17 +861,30 @@ fn rotate_dct32_odd_inputs(
   }
 
   Ok([
-    t16a, t17a, t18a, t19a, t20a, t21a, t22a, t23a,
-    t24a, t25a, t26a, t27a, t28a, t29a, t30a, t31a,
+    t16a, t17a, t18a, t19a, t20a, t21a, t22a, t23a, t24a, t25a, t26a, t27a, t28a, t29a, t30a,
+    t31a,
   ])
 }
 
 #[inline]
 fn butterfly_dct32_odd_pairs(
   [
-    t16a, t17a, t18a, t19a, t20a, t21a,
-    t22a, t23a, t24a, t25a, t26a, t27a,
-    t28a, t29a, t30a, t31a,
+    t16a,
+    t17a,
+    t18a,
+    t19a,
+    t20a,
+    t21a,
+    t22a,
+    t23a,
+    t24a,
+    t25a,
+    t26a,
+    t27a,
+    t28a,
+    t29a,
+    t30a,
+    t31a,
   ]: [i32; 16],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 16], Never> {
@@ -839,55 +908,103 @@ fn butterfly_dct32_odd_pairs(
   let t31 = clip(i32::wrapping_add(t31a, t30a));
 
   Ok([
-    t16, t17, t18, t19, t20, t21, t22, t23, t24, t25, t26,
-    t27, t28, t29, t30, t31,
+    t16, t17, t18, t19, t20, t21, t22, t23, t24, t25, t26, t27, t28, t29, t30, t31,
   ])
 }
 
 #[inline]
 fn rotate_dct32_odd_pairs(
   [
-    t16, t17, t18, t19, t20, t21,
-    t22, t23, t24, t25, t26, t27,
-    t28, t29, t30, t31,
+    t16,
+    t17,
+    t18,
+    t19,
+    t20,
+    t21,
+    t22,
+    t23,
+    t24,
+    t25,
+    t26,
+    t27,
+    t28,
+    t29,
+    t30,
+    t31,
   ]: [i32; 16],
 ) -> Result<[i32; 16], Never> {
   let t17a = round_shift(
-    t30.wrapping_mul(799).wrapping_sub(t17.wrapping_mul(4017_i32.wrapping_sub(4096))),
+    t30
+      .wrapping_mul(799)
+      .wrapping_sub(t17.wrapping_mul(4017_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_sub(t17);
+  )
+  .wrapping_sub(t17);
   let t30a = round_shift(
-    t30.wrapping_mul(4017_i32.wrapping_sub(4096)).wrapping_add(t17.wrapping_mul(799)),
+    t30
+      .wrapping_mul(4017_i32.wrapping_sub(4096))
+      .wrapping_add(t17.wrapping_mul(799)),
     12,
-  ).wrapping_add(t30);
+  )
+  .wrapping_add(t30);
   let t18a = round_shift(
-    (i32::wrapping_add( i32::wrapping_mul(t29, i32::wrapping_sub(4017, 4096)), i32::wrapping_mul(t18, 799), )) .wrapping_neg(),
+    (i32::wrapping_add(
+      i32::wrapping_mul(t29, i32::wrapping_sub(4017, 4096)),
+      i32::wrapping_mul(t18, 799),
+    ))
+    .wrapping_neg(),
     12,
-  ).wrapping_sub(t29);
+  )
+  .wrapping_sub(t29);
   let t29a = round_shift(
-    t29.wrapping_mul(799).wrapping_sub(t18.wrapping_mul(4017_i32.wrapping_sub(4096))),
+    t29
+      .wrapping_mul(799)
+      .wrapping_sub(t18.wrapping_mul(4017_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_sub(t18);
-  let t21a = round_shift(t26.wrapping_mul(1703).wrapping_sub(t21.wrapping_mul(1138)), 11);
-  let t26a = round_shift(t26.wrapping_mul(1138).wrapping_add(t21.wrapping_mul(1703)), 11);
-  let t22a = round_shift(
-    (i32::wrapping_add(i32::wrapping_mul(t25, 1138), i32::wrapping_mul(t22, 1703))) .wrapping_neg(),
+  )
+  .wrapping_sub(t18);
+  let t21a = round_shift(
+    t26.wrapping_mul(1703).wrapping_sub(t21.wrapping_mul(1138)),
     11,
-    );
-  let t25a = round_shift(t25.wrapping_mul(1703).wrapping_sub(t22.wrapping_mul(1138)), 11);
+  );
+  let t26a = round_shift(
+    t26.wrapping_mul(1138).wrapping_add(t21.wrapping_mul(1703)),
+    11,
+  );
+  let t22a = round_shift(
+    (i32::wrapping_add(i32::wrapping_mul(t25, 1138), i32::wrapping_mul(t22, 1703)))
+      .wrapping_neg(),
+    11,
+  );
+  let t25a = round_shift(
+    t25.wrapping_mul(1703).wrapping_sub(t22.wrapping_mul(1138)),
+    11,
+  );
 
   Ok([
-    t16, t17a, t18a, t19, t20, t21a, t22a, t23, t24, t25a, t26a,
-    t27, t28, t29a, t30a, t31,
+    t16, t17a, t18a, t19, t20, t21a, t22a, t23, t24, t25a, t26a, t27, t28, t29a, t30a, t31,
   ])
 }
 
 #[inline]
 fn butterfly_dct32_odd_quarters(
   [
-    t16, t17a, t18a, t19, t20, t21a,
-    t22a, t23, t24, t25a, t26a, t27,
-    t28, t29a, t30a, t31,
+    t16,
+    t17a,
+    t18a,
+    t19,
+    t20,
+    t21a,
+    t22a,
+    t23,
+    t24,
+    t25a,
+    t26a,
+    t27,
+    t28,
+    t29a,
+    t30a,
+    t31,
   ]: [i32; 16],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 16], Never> {
@@ -911,64 +1028,116 @@ fn butterfly_dct32_odd_quarters(
   let t31a = clip(i32::wrapping_add(t31, t28));
 
   Ok([
-    t16a, t17, t18, t19a, t20a, t21, t22, t23a, t24a, t25, t26,
-    t27a, t28a, t29, t30, t31a,
+    t16a, t17, t18, t19a, t20a, t21, t22, t23a, t24a, t25, t26, t27a, t28a, t29, t30, t31a,
   ])
 }
 
 #[inline]
 fn rotate_dct32_odd_quarters(
   [
-    t16a, t17, t18, t19a, t20a, t21,
-    t22, t23a, t24a, t25, t26, t27a,
-    t28a, t29, t30, t31a,
+    t16a,
+    t17,
+    t18,
+    t19a,
+    t20a,
+    t21,
+    t22,
+    t23a,
+    t24a,
+    t25,
+    t26,
+    t27a,
+    t28a,
+    t29,
+    t30,
+    t31a,
   ]: [i32; 16],
 ) -> Result<[i32; 16], Never> {
   let t18a = round_shift(
-    t29.wrapping_mul(1567).wrapping_sub(t18.wrapping_mul(3784_i32.wrapping_sub(4096))),
+    t29
+      .wrapping_mul(1567)
+      .wrapping_sub(t18.wrapping_mul(3784_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_sub(t18);
+  )
+  .wrapping_sub(t18);
   let t29a = round_shift(
-    t29.wrapping_mul(3784_i32.wrapping_sub(4096)).wrapping_add(t18.wrapping_mul(1567)),
+    t29
+      .wrapping_mul(3784_i32.wrapping_sub(4096))
+      .wrapping_add(t18.wrapping_mul(1567)),
     12,
-  ).wrapping_add(t29);
+  )
+  .wrapping_add(t29);
   let t19 = round_shift(
-    t28a.wrapping_mul(1567).wrapping_sub(t19a.wrapping_mul(3784_i32.wrapping_sub(4096))),
+    t28a
+      .wrapping_mul(1567)
+      .wrapping_sub(t19a.wrapping_mul(3784_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_sub(t19a);
+  )
+  .wrapping_sub(t19a);
   let t28 = round_shift(
-    t28a.wrapping_mul(3784_i32.wrapping_sub(4096)).wrapping_add(t19a.wrapping_mul(1567)),
+    t28a
+      .wrapping_mul(3784_i32.wrapping_sub(4096))
+      .wrapping_add(t19a.wrapping_mul(1567)),
     12,
-  ).wrapping_add(t28a);
+  )
+  .wrapping_add(t28a);
   let t20 = round_shift(
-    (i32::wrapping_add( i32::wrapping_mul(t27a, i32::wrapping_sub(3784, 4096)), i32::wrapping_mul(t20a, 1567), )) .wrapping_neg(),
+    (i32::wrapping_add(
+      i32::wrapping_mul(t27a, i32::wrapping_sub(3784, 4096)),
+      i32::wrapping_mul(t20a, 1567),
+    ))
+    .wrapping_neg(),
     12,
-  ).wrapping_sub(t27a);
+  )
+  .wrapping_sub(t27a);
   let t27 = round_shift(
-    t27a.wrapping_mul(1567).wrapping_sub(t20a.wrapping_mul(3784_i32.wrapping_sub(4096))),
+    t27a
+      .wrapping_mul(1567)
+      .wrapping_sub(t20a.wrapping_mul(3784_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_sub(t20a);
+  )
+  .wrapping_sub(t20a);
   let t21a = round_shift(
-    (i32::wrapping_add( i32::wrapping_mul(t26, i32::wrapping_sub(3784, 4096)), i32::wrapping_mul(t21, 1567), )) .wrapping_neg(),
+    (i32::wrapping_add(
+      i32::wrapping_mul(t26, i32::wrapping_sub(3784, 4096)),
+      i32::wrapping_mul(t21, 1567),
+    ))
+    .wrapping_neg(),
     12,
-  ).wrapping_sub(t26);
+  )
+  .wrapping_sub(t26);
   let t26a = round_shift(
-    t26.wrapping_mul(1567).wrapping_sub(t21.wrapping_mul(3784_i32.wrapping_sub(4096))),
+    t26
+      .wrapping_mul(1567)
+      .wrapping_sub(t21.wrapping_mul(3784_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_sub(t21);
+  )
+  .wrapping_sub(t21);
 
   Ok([
-    t16a, t17, t18a, t19, t20, t21a, t22, t23a, t24a, t25, t26a,
-    t27, t28, t29a, t30, t31a,
+    t16a, t17, t18a, t19, t20, t21a, t22, t23a, t24a, t25, t26a, t27, t28, t29a, t30, t31a,
   ])
 }
 
 #[inline]
 fn butterfly_dct32_odd_halves(
   [
-    t16a, t17, t18a, t19, t20, t21a,
-    t22, t23a, t24a, t25, t26a, t27,
-    t28, t29a, t30, t31a,
+    t16a,
+    t17,
+    t18a,
+    t19,
+    t20,
+    t21a,
+    t22,
+    t23a,
+    t24a,
+    t25,
+    t26a,
+    t27,
+    t28,
+    t29a,
+    t30,
+    t31a,
   ]: [i32; 16],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 16], Never> {
@@ -992,17 +1161,29 @@ fn butterfly_dct32_odd_halves(
   let t31 = clip(i32::wrapping_add(t31a, t24a));
 
   Ok([
-    t16, t17a, t18, t19a, t20a, t21, t22a, t23, t24, t25a, t26,
-    t27a, t28a, t29, t30a, t31,
+    t16, t17a, t18, t19a, t20a, t21, t22a, t23, t24, t25a, t26, t27a, t28a, t29, t30a, t31,
   ])
 }
 
 #[inline]
 fn rotate_dct32_odd_center(
   [
-    t16, t17a, t18, t19a, t20a, t21,
-    t22a, t23, t24, t25a, t26, t27a,
-    t28a, t29, t30a, t31,
+    t16,
+    t17a,
+    t18,
+    t19a,
+    t20a,
+    t21,
+    t22a,
+    t23,
+    t24,
+    t25a,
+    t26,
+    t27a,
+    t28a,
+    t29,
+    t30a,
+    t31,
   ]: [i32; 16],
 ) -> Result<[i32; 16], Never> {
   let t20 = round_shift(t27a.wrapping_sub(t20a).wrapping_mul(181), 8);
@@ -1015,8 +1196,7 @@ fn rotate_dct32_odd_center(
   let t24a = round_shift(t24.wrapping_add(t23).wrapping_mul(181), 8);
 
   Ok([
-    t16, t17a, t18, t19a, t20, t21a, t22, t23a, t24a, t25, t26a,
-    t27, t28a, t29, t30a, t31,
+    t16, t17a, t18, t19a, t20, t21a, t22, t23a, t24a, t25, t26a, t27, t28a, t29, t30a, t31,
   ])
 }
 
@@ -1030,12 +1210,7 @@ fn inv_dct32_1d_internal_c(
   {
     let even_stride = stride.checked_add(stride.get()).ok_or(Rav1dError::ERANGE)?;
 
-    inv_dct16_1d_internal_c(
-      c,
-      even_stride,
-      bounds,
-      input,
-    )?;
+    inv_dct16_1d_internal_c(c, even_stride, bounds, input)?;
 
     let odd_inputs = rotate_dct32_odd_inputs(c, stride, input)?;
     let Ok(pairs_mixed) = butterfly_dct32_odd_pairs(odd_inputs, bounds);
@@ -1081,10 +1256,7 @@ pub(super) fn inv_dct64_1d_x86(
 }
 
 #[inline]
-fn rotate_dct64_odd_inputs(
-  c: &[i32],
-  stride: NonZeroU32,
-) -> Rav1dResult<[i32; 32]> {
+fn rotate_dct64_odd_inputs(c: &[i32], stride: NonZeroU32) -> Rav1dResult<[i32; 32]> {
   let in1 = read_coefficient(c, stride, 1)?;
   let in3 = read_coefficient(c, stride, 3)?;
   let in5 = read_coefficient(c, stride, 5)?;
@@ -1102,18 +1274,15 @@ fn rotate_dct64_odd_inputs(
   let in29 = read_coefficient(c, stride, 29)?;
   let in31 = read_coefficient(c, stride, 31)?;
 
-  let t32a =
-    round_shift(in1.wrapping_mul(101), 12);
+  let t32a = round_shift(in1.wrapping_mul(101), 12);
   let t33a = round_shift(in31.wrapping_mul(-2824), 12);
   let t34a = round_shift(in17.wrapping_mul(1660), 12);
   let t35a = round_shift(in15.wrapping_mul(-1474), 12);
-  let t36a =
-    round_shift(in9.wrapping_mul(897), 12);
+  let t36a = round_shift(in9.wrapping_mul(897), 12);
   let t37a = round_shift(in23.wrapping_mul(-2191), 12);
   let t38a = round_shift(in25.wrapping_mul(2359), 12);
   let t39a = round_shift(in7.wrapping_mul(-700), 12);
-  let t40a =
-    round_shift(in5.wrapping_mul(501), 12);
+  let t40a = round_shift(in5.wrapping_mul(501), 12);
   let t41a = round_shift(in27.wrapping_mul(-2520), 12);
   let t42a = round_shift(in21.wrapping_mul(2019), 12);
   let t43a = round_shift(in11.wrapping_mul(-1092), 12);
@@ -1139,22 +1308,47 @@ fn rotate_dct64_odd_inputs(
   let t63a = round_shift(in1.wrapping_mul(4095), 12);
 
   Ok([
-    t32a, t33a, t34a, t35a, t36a, t37a, t38a, t39a,
-    t40a, t41a, t42a, t43a, t44a, t45a, t46a, t47a,
-    t48a, t49a, t50a, t51a, t52a, t53a, t54a, t55a,
-    t56a, t57a, t58a, t59a, t60a, t61a, t62a, t63a,
+    t32a, t33a, t34a, t35a, t36a, t37a, t38a, t39a, t40a, t41a, t42a, t43a, t44a, t45a, t46a,
+    t47a, t48a, t49a, t50a, t51a, t52a, t53a, t54a, t55a, t56a, t57a, t58a, t59a, t60a, t61a,
+    t62a, t63a,
   ])
 }
 
 #[inline]
 fn butterfly_dct64_odd_pairs(
   [
-    t32a, t33a, t34a, t35a, t36a, t37a,
-    t38a, t39a, t40a, t41a, t42a, t43a,
-    t44a, t45a, t46a, t47a, t48a, t49a,
-    t50a, t51a, t52a, t53a, t54a, t55a,
-    t56a, t57a, t58a, t59a, t60a, t61a,
-    t62a, t63a,
+    t32a,
+    t33a,
+    t34a,
+    t35a,
+    t36a,
+    t37a,
+    t38a,
+    t39a,
+    t40a,
+    t41a,
+    t42a,
+    t43a,
+    t44a,
+    t45a,
+    t46a,
+    t47a,
+    t48a,
+    t49a,
+    t50a,
+    t51a,
+    t52a,
+    t53a,
+    t54a,
+    t55a,
+    t56a,
+    t57a,
+    t58a,
+    t59a,
+    t60a,
+    t61a,
+    t62a,
+    t63a,
   ]: [i32; 32],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 32], Never> {
@@ -1194,92 +1388,192 @@ fn butterfly_dct64_odd_pairs(
   let t63 = clip(i32::wrapping_add(t63a, t62a));
 
   Ok([
-    t32, t33, t34, t35, t36, t37, t38, t39, t40, t41, t42,
-    t43, t44, t45, t46, t47, t48, t49, t50, t51, t52, t53,
-    t54, t55, t56, t57, t58, t59, t60, t61, t62, t63,
+    t32, t33, t34, t35, t36, t37, t38, t39, t40, t41, t42, t43, t44, t45, t46, t47, t48, t49,
+    t50, t51, t52, t53, t54, t55, t56, t57, t58, t59, t60, t61, t62, t63,
   ])
 }
 
 #[inline]
 fn rotate_dct64_odd_pairs(
   [
-    t32, t33, t34, t35, t36, t37,
-    t38, t39, t40, t41, t42, t43,
-    t44, t45, t46, t47, t48, t49,
-    t50, t51, t52, t53, t54, t55,
-    t56, t57, t58, t59, t60, t61,
-    t62, t63,
+    t32,
+    t33,
+    t34,
+    t35,
+    t36,
+    t37,
+    t38,
+    t39,
+    t40,
+    t41,
+    t42,
+    t43,
+    t44,
+    t45,
+    t46,
+    t47,
+    t48,
+    t49,
+    t50,
+    t51,
+    t52,
+    t53,
+    t54,
+    t55,
+    t56,
+    t57,
+    t58,
+    t59,
+    t60,
+    t61,
+    t62,
+    t63,
   ]: [i32; 32],
 ) -> Result<[i32; 32], Never> {
   let t33a = round_shift(
-    t33.wrapping_mul(4096_i32.wrapping_sub(4076)).wrapping_add(t62.wrapping_mul(401)),
+    t33
+      .wrapping_mul(4096_i32.wrapping_sub(4076))
+      .wrapping_add(t62.wrapping_mul(401)),
     12,
-  ).wrapping_sub(t33);
+  )
+  .wrapping_sub(t33);
   let t34a = round_shift(
-    t34.wrapping_mul(-401).wrapping_add(t61.wrapping_mul(4096_i32.wrapping_sub(4076))),
+    t34
+      .wrapping_mul(-401)
+      .wrapping_add(t61.wrapping_mul(4096_i32.wrapping_sub(4076))),
     12,
-  ).wrapping_sub(t61);
-  let t37a = round_shift(t37.wrapping_mul(-1299).wrapping_add(t58.wrapping_mul(1583)), 11);
-  let t38a = round_shift(t38.wrapping_mul(-1583).wrapping_add(t57.wrapping_mul(-1299)), 11);
+  )
+  .wrapping_sub(t61);
+  let t37a = round_shift(
+    t37.wrapping_mul(-1299).wrapping_add(t58.wrapping_mul(1583)),
+    11,
+  );
+  let t38a = round_shift(
+    t38
+      .wrapping_mul(-1583)
+      .wrapping_add(t57.wrapping_mul(-1299)),
+    11,
+  );
   let t41a = round_shift(
-    t41.wrapping_mul(4096_i32.wrapping_sub(3612)).wrapping_add(t54.wrapping_mul(1931)),
+    t41
+      .wrapping_mul(4096_i32.wrapping_sub(3612))
+      .wrapping_add(t54.wrapping_mul(1931)),
     12,
-  ).wrapping_sub(t41);
+  )
+  .wrapping_sub(t41);
   let t42a = round_shift(
-    t42.wrapping_mul(-1931).wrapping_add(t53.wrapping_mul(4096_i32.wrapping_sub(3612))),
+    t42
+      .wrapping_mul(-1931)
+      .wrapping_add(t53.wrapping_mul(4096_i32.wrapping_sub(3612))),
     12,
-  ).wrapping_sub(t53);
+  )
+  .wrapping_sub(t53);
   let t45a = round_shift(
-    t45.wrapping_mul(-1189).wrapping_add(t50.wrapping_mul(3920_i32.wrapping_sub(4096))),
+    t45
+      .wrapping_mul(-1189)
+      .wrapping_add(t50.wrapping_mul(3920_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_add(t50);
+  )
+  .wrapping_add(t50);
   let t46a = round_shift(
-    t46.wrapping_mul(4096_i32.wrapping_sub(3920)).wrapping_add(t49.wrapping_mul(-1189)),
+    t46
+      .wrapping_mul(4096_i32.wrapping_sub(3920))
+      .wrapping_add(t49.wrapping_mul(-1189)),
     12,
-  ).wrapping_sub(t46);
+  )
+  .wrapping_sub(t46);
   let t49a = round_shift(
-    t46.wrapping_mul(-1189).wrapping_add(t49.wrapping_mul(3920_i32.wrapping_sub(4096))),
+    t46
+      .wrapping_mul(-1189)
+      .wrapping_add(t49.wrapping_mul(3920_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_add(t49);
+  )
+  .wrapping_add(t49);
   let t50a = round_shift(
-    t45.wrapping_mul(3920_i32.wrapping_sub(4096)).wrapping_add(t50.wrapping_mul(1189)),
+    t45
+      .wrapping_mul(3920_i32.wrapping_sub(4096))
+      .wrapping_add(t50.wrapping_mul(1189)),
     12,
-  ).wrapping_add(t45);
+  )
+  .wrapping_add(t45);
   let t53a = round_shift(
-    t42.wrapping_mul(4096_i32.wrapping_sub(3612)).wrapping_add(t53.wrapping_mul(1931)),
+    t42
+      .wrapping_mul(4096_i32.wrapping_sub(3612))
+      .wrapping_add(t53.wrapping_mul(1931)),
     12,
-  ).wrapping_sub(t42);
+  )
+  .wrapping_sub(t42);
   let t54a = round_shift(
-    t41.wrapping_mul(1931).wrapping_add(t54.wrapping_mul(3612_i32.wrapping_sub(4096))),
+    t41
+      .wrapping_mul(1931)
+      .wrapping_add(t54.wrapping_mul(3612_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_add(t54);
-  let t57a = round_shift(t38.wrapping_mul(-1299).wrapping_add(t57.wrapping_mul(1583)), 11);
-  let t58a = round_shift(t37.wrapping_mul(1583).wrapping_add(t58.wrapping_mul(1299)), 11);
+  )
+  .wrapping_add(t54);
+  let t57a = round_shift(
+    t38.wrapping_mul(-1299).wrapping_add(t57.wrapping_mul(1583)),
+    11,
+  );
+  let t58a = round_shift(
+    t37.wrapping_mul(1583).wrapping_add(t58.wrapping_mul(1299)),
+    11,
+  );
   let t61a = round_shift(
-    t34.wrapping_mul(4096_i32.wrapping_sub(4076)).wrapping_add(t61.wrapping_mul(401)),
+    t34
+      .wrapping_mul(4096_i32.wrapping_sub(4076))
+      .wrapping_add(t61.wrapping_mul(401)),
     12,
-  ).wrapping_sub(t34);
+  )
+  .wrapping_sub(t34);
   let t62a = round_shift(
-    t33.wrapping_mul(401).wrapping_add(t62.wrapping_mul(4076_i32.wrapping_sub(4096))),
+    t33
+      .wrapping_mul(401)
+      .wrapping_add(t62.wrapping_mul(4076_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_add(t62);
+  )
+  .wrapping_add(t62);
 
   Ok([
-    t32, t33a, t34a, t35, t36, t37a, t38a, t39, t40, t41a, t42a,
-    t43, t44, t45a, t46a, t47, t48, t49a, t50a, t51, t52, t53a,
-    t54a, t55, t56, t57a, t58a, t59, t60, t61a, t62a, t63,
+    t32, t33a, t34a, t35, t36, t37a, t38a, t39, t40, t41a, t42a, t43, t44, t45a, t46a, t47, t48,
+    t49a, t50a, t51, t52, t53a, t54a, t55, t56, t57a, t58a, t59, t60, t61a, t62a, t63,
   ])
 }
 
 #[inline]
 fn butterfly_dct64_odd_quarters(
   [
-    t32, t33a, t34a, t35, t36, t37a,
-    t38a, t39, t40, t41a, t42a, t43,
-    t44, t45a, t46a, t47, t48, t49a,
-    t50a, t51, t52, t53a, t54a, t55,
-    t56, t57a, t58a, t59, t60, t61a,
-    t62a, t63,
+    t32,
+    t33a,
+    t34a,
+    t35,
+    t36,
+    t37a,
+    t38a,
+    t39,
+    t40,
+    t41a,
+    t42a,
+    t43,
+    t44,
+    t45a,
+    t46a,
+    t47,
+    t48,
+    t49a,
+    t50a,
+    t51,
+    t52,
+    t53a,
+    t54a,
+    t55,
+    t56,
+    t57a,
+    t58a,
+    t59,
+    t60,
+    t61a,
+    t62a,
+    t63,
   ]: [i32; 32],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 32], Never> {
@@ -1319,80 +1613,188 @@ fn butterfly_dct64_odd_quarters(
   let t63a = clip(i32::wrapping_add(t63, t60));
 
   Ok([
-    t32a, t33, t34, t35a, t36a, t37, t38, t39a, t40a, t41, t42,
-    t43a, t44a, t45, t46, t47a, t48a, t49, t50, t51a, t52a, t53,
-    t54, t55a, t56a, t57, t58, t59a, t60a, t61, t62, t63a,
+    t32a, t33, t34, t35a, t36a, t37, t38, t39a, t40a, t41, t42, t43a, t44a, t45, t46, t47a, t48a,
+    t49, t50, t51a, t52a, t53, t54, t55a, t56a, t57, t58, t59a, t60a, t61, t62, t63a,
   ])
 }
 
 #[inline]
 fn rotate_dct64_odd_quarters(
   [
-    t32a, t33, t34, t35a, t36a, t37,
-    t38, t39a, t40a, t41, t42, t43a,
-    t44a, t45, t46, t47a, t48a, t49,
-    t50, t51a, t52a, t53, t54, t55a,
-    t56a, t57, t58, t59a, t60a, t61,
-    t62, t63a,
+    t32a,
+    t33,
+    t34,
+    t35a,
+    t36a,
+    t37,
+    t38,
+    t39a,
+    t40a,
+    t41,
+    t42,
+    t43a,
+    t44a,
+    t45,
+    t46,
+    t47a,
+    t48a,
+    t49,
+    t50,
+    t51a,
+    t52a,
+    t53,
+    t54,
+    t55a,
+    t56a,
+    t57,
+    t58,
+    t59a,
+    t60a,
+    t61,
+    t62,
+    t63a,
   ]: [i32; 32],
 ) -> Result<[i32; 32], Never> {
   let t34a = round_shift(
-    t34.wrapping_mul(4096_i32.wrapping_sub(4017)).wrapping_add(t61.wrapping_mul(799)),
+    t34
+      .wrapping_mul(4096_i32.wrapping_sub(4017))
+      .wrapping_add(t61.wrapping_mul(799)),
     12,
-  ).wrapping_sub(t34);
+  )
+  .wrapping_sub(t34);
   let t35 = round_shift(
-    t35a.wrapping_mul(4096_i32.wrapping_sub(4017)).wrapping_add(t60a.wrapping_mul(799)),
+    t35a
+      .wrapping_mul(4096_i32.wrapping_sub(4017))
+      .wrapping_add(t60a.wrapping_mul(799)),
     12,
-  ).wrapping_sub(t35a);
+  )
+  .wrapping_sub(t35a);
   let t36 = round_shift(
-    t36a.wrapping_mul(-799).wrapping_add(t59a.wrapping_mul(4096_i32.wrapping_sub(4017))),
+    t36a
+      .wrapping_mul(-799)
+      .wrapping_add(t59a.wrapping_mul(4096_i32.wrapping_sub(4017))),
     12,
-  ).wrapping_sub(t59a);
+  )
+  .wrapping_sub(t59a);
   let t37a = round_shift(
-    t37.wrapping_mul(-799).wrapping_add(t58.wrapping_mul(4096_i32.wrapping_sub(4017))),
+    t37
+      .wrapping_mul(-799)
+      .wrapping_add(t58.wrapping_mul(4096_i32.wrapping_sub(4017))),
     12,
-  ).wrapping_sub(t58);
-  let t42a = round_shift(t42.wrapping_mul(-1138).wrapping_add(t53.wrapping_mul(1703)), 11);
-  let t43 = round_shift(t43a.wrapping_mul(-1138).wrapping_add(t52a.wrapping_mul(1703)), 11);
-  let t44 = round_shift(t44a.wrapping_mul(-1703).wrapping_add(t51a.wrapping_mul(-1138)), 11);
-  let t45a = round_shift(t45.wrapping_mul(-1703).wrapping_add(t50.wrapping_mul(-1138)), 11);
-  let t50a = round_shift(t45.wrapping_mul(-1138).wrapping_add(t50.wrapping_mul(1703)), 11);
-  let t51 = round_shift(t44a.wrapping_mul(-1138).wrapping_add(t51a.wrapping_mul(1703)), 11);
-  let t52 = round_shift(t43a.wrapping_mul(1703).wrapping_add(t52a.wrapping_mul(1138)), 11);
-  let t53a = round_shift(t42.wrapping_mul(1703).wrapping_add(t53.wrapping_mul(1138)), 11);
+  )
+  .wrapping_sub(t58);
+  let t42a = round_shift(
+    t42.wrapping_mul(-1138).wrapping_add(t53.wrapping_mul(1703)),
+    11,
+  );
+  let t43 = round_shift(
+    t43a
+      .wrapping_mul(-1138)
+      .wrapping_add(t52a.wrapping_mul(1703)),
+    11,
+  );
+  let t44 = round_shift(
+    t44a
+      .wrapping_mul(-1703)
+      .wrapping_add(t51a.wrapping_mul(-1138)),
+    11,
+  );
+  let t45a = round_shift(
+    t45
+      .wrapping_mul(-1703)
+      .wrapping_add(t50.wrapping_mul(-1138)),
+    11,
+  );
+  let t50a = round_shift(
+    t45.wrapping_mul(-1138).wrapping_add(t50.wrapping_mul(1703)),
+    11,
+  );
+  let t51 = round_shift(
+    t44a
+      .wrapping_mul(-1138)
+      .wrapping_add(t51a.wrapping_mul(1703)),
+    11,
+  );
+  let t52 = round_shift(
+    t43a
+      .wrapping_mul(1703)
+      .wrapping_add(t52a.wrapping_mul(1138)),
+    11,
+  );
+  let t53a = round_shift(
+    t42.wrapping_mul(1703).wrapping_add(t53.wrapping_mul(1138)),
+    11,
+  );
   let t58a = round_shift(
-    t37.wrapping_mul(4096_i32.wrapping_sub(4017)).wrapping_add(t58.wrapping_mul(799)),
+    t37
+      .wrapping_mul(4096_i32.wrapping_sub(4017))
+      .wrapping_add(t58.wrapping_mul(799)),
     12,
-  ).wrapping_sub(t37);
+  )
+  .wrapping_sub(t37);
   let t59 = round_shift(
-    t36a.wrapping_mul(4096_i32.wrapping_sub(4017)).wrapping_add(t59a.wrapping_mul(799)),
+    t36a
+      .wrapping_mul(4096_i32.wrapping_sub(4017))
+      .wrapping_add(t59a.wrapping_mul(799)),
     12,
-  ).wrapping_sub(t36a);
+  )
+  .wrapping_sub(t36a);
   let t60 = round_shift(
-    t35a.wrapping_mul(799).wrapping_add(t60a.wrapping_mul(4017_i32.wrapping_sub(4096))),
+    t35a
+      .wrapping_mul(799)
+      .wrapping_add(t60a.wrapping_mul(4017_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_add(t60a);
+  )
+  .wrapping_add(t60a);
   let t61a = round_shift(
-    t34.wrapping_mul(799).wrapping_add(t61.wrapping_mul(4017_i32.wrapping_sub(4096))),
+    t34
+      .wrapping_mul(799)
+      .wrapping_add(t61.wrapping_mul(4017_i32.wrapping_sub(4096))),
     12,
-  ).wrapping_add(t61);
+  )
+  .wrapping_add(t61);
 
   Ok([
-    t32a, t33, t34a, t35, t36, t37a, t38, t39a, t40a, t41, t42a,
-    t43, t44, t45a, t46, t47a, t48a, t49, t50a, t51, t52, t53a,
-    t54, t55a, t56a, t57, t58a, t59, t60, t61a, t62, t63a,
+    t32a, t33, t34a, t35, t36, t37a, t38, t39a, t40a, t41, t42a, t43, t44, t45a, t46, t47a, t48a,
+    t49, t50a, t51, t52, t53a, t54, t55a, t56a, t57, t58a, t59, t60, t61a, t62, t63a,
   ])
 }
 
 #[inline]
 fn butterfly_dct64_odd_eighths(
   [
-    t32a, t33, t34a, t35, t36, t37a,
-    t38, t39a, t40a, t41, t42a, t43,
-    t44, t45a, t46, t47a, t48a, t49,
-    t50a, t51, t52, t53a, t54, t55a,
-    t56a, t57, t58a, t59, t60, t61a,
-    t62, t63a,
+    t32a,
+    t33,
+    t34a,
+    t35,
+    t36,
+    t37a,
+    t38,
+    t39a,
+    t40a,
+    t41,
+    t42a,
+    t43,
+    t44,
+    t45a,
+    t46,
+    t47a,
+    t48a,
+    t49,
+    t50a,
+    t51,
+    t52,
+    t53a,
+    t54,
+    t55a,
+    t56a,
+    t57,
+    t58a,
+    t59,
+    t60,
+    t61a,
+    t62,
+    t63a,
   ]: [i32; 32],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 32], Never> {
@@ -1432,9 +1834,8 @@ fn butterfly_dct64_odd_eighths(
   let t63 = clip(i32::wrapping_add(t63a, t56a));
 
   Ok([
-    t32, t33a, t34, t35a, t36a, t37, t38a, t39, t40, t41a, t42,
-    t43a, t44a, t45, t46a, t47, t48, t49a, t50, t51a, t52a, t53,
-    t54a, t55, t56, t57a, t58, t59a, t60a, t61, t62a, t63,
+    t32, t33a, t34, t35a, t36a, t37, t38a, t39, t40, t41a, t42, t43a, t44a, t45, t46a, t47, t48,
+    t49a, t50, t51a, t52a, t53, t54a, t55, t56, t57a, t58, t59a, t60a, t61, t62a, t63,
   ])
 }
 
@@ -1445,14 +1846,22 @@ enum EighthRotation {
 }
 
 #[inline]
-fn rotate_odd_eighth_pair([first, second]: [i32; 2], rotation: EighthRotation) -> Result<[i32; 2], Never> {
+fn rotate_odd_eighth_pair(
+  [first, second]: [i32; 2],
+  rotation: EighthRotation,
+) -> Result<[i32; 2], Never> {
   let cosine_correction = 312;
   let sine = 1567;
   let aligned = round_shift(
-    first.wrapping_mul(cosine_correction).wrapping_add(second.wrapping_mul(sine)),
+    first
+      .wrapping_mul(cosine_correction)
+      .wrapping_add(second.wrapping_mul(sine)),
     12,
-  ).wrapping_sub(first);
-  let cross = first.wrapping_mul(sine).wrapping_sub(second.wrapping_mul(cosine_correction));
+  )
+  .wrapping_sub(first);
+  let cross = first
+    .wrapping_mul(sine)
+    .wrapping_sub(second.wrapping_mul(cosine_correction));
 
   let rotated = match rotation {
     EighthRotation::Forward => round_shift(cross, 12).wrapping_add(second),
@@ -1465,12 +1874,38 @@ fn rotate_odd_eighth_pair([first, second]: [i32; 2], rotation: EighthRotation) -
 #[inline]
 fn rotate_dct64_odd_eighths(
   [
-    t32, t33a, t34, t35a, t36a, t37,
-    t38a, t39, t40, t41a, t42, t43a,
-    t44a, t45, t46a, t47, t48, t49a,
-    t50, t51a, t52a, t53, t54a, t55,
-    t56, t57a, t58, t59a, t60a, t61,
-    t62a, t63,
+    t32,
+    t33a,
+    t34,
+    t35a,
+    t36a,
+    t37,
+    t38a,
+    t39,
+    t40,
+    t41a,
+    t42,
+    t43a,
+    t44a,
+    t45,
+    t46a,
+    t47,
+    t48,
+    t49a,
+    t50,
+    t51a,
+    t52a,
+    t53,
+    t54a,
+    t55,
+    t56,
+    t57a,
+    t58,
+    t59a,
+    t60a,
+    t61,
+    t62a,
+    t63,
   ]: [i32; 32],
 ) -> Result<[i32; 32], Never> {
   let Ok([t36, t59]) = rotate_odd_eighth_pair([t36a, t59a], EighthRotation::Forward);
@@ -1483,21 +1918,46 @@ fn rotate_dct64_odd_eighths(
   let Ok([t52, t43]) = rotate_odd_eighth_pair([t43a, t52a], EighthRotation::Reverse);
 
   Ok([
-    t32, t33a, t34, t35a, t36, t37a, t38, t39a, t40a, t41, t42a,
-    t43, t44a, t45, t46a, t47, t48, t49a, t50, t51a, t52, t53a,
-    t54, t55a, t56a, t57, t58a, t59, t60a, t61, t62a, t63,
+    t32, t33a, t34, t35a, t36, t37a, t38, t39a, t40a, t41, t42a, t43, t44a, t45, t46a, t47, t48,
+    t49a, t50, t51a, t52, t53a, t54, t55a, t56a, t57, t58a, t59, t60a, t61, t62a, t63,
   ])
 }
 
 #[inline]
 fn butterfly_dct64_odd_halves(
   [
-    t32, t33a, t34, t35a, t36, t37a,
-    t38, t39a, t40a, t41, t42a, t43,
-    t44a, t45, t46a, t47, t48, t49a,
-    t50, t51a, t52, t53a, t54, t55a,
-    t56a, t57, t58a, t59, t60a, t61,
-    t62a, t63,
+    t32,
+    t33a,
+    t34,
+    t35a,
+    t36,
+    t37a,
+    t38,
+    t39a,
+    t40a,
+    t41,
+    t42a,
+    t43,
+    t44a,
+    t45,
+    t46a,
+    t47,
+    t48,
+    t49a,
+    t50,
+    t51a,
+    t52,
+    t53a,
+    t54,
+    t55a,
+    t56a,
+    t57,
+    t58a,
+    t59,
+    t60a,
+    t61,
+    t62a,
+    t63,
   ]: [i32; 32],
   bounds: CoefficientBounds,
 ) -> Result<[i32; 32], Never> {
@@ -1537,21 +1997,46 @@ fn butterfly_dct64_odd_halves(
   let t63a = clip(i32::wrapping_add(t63, t48));
 
   Ok([
-    t32a, t33, t34a, t35, t36a, t37, t38a, t39, t40, t41a, t42,
-    t43a, t44, t45a, t46, t47a, t48a, t49, t50a, t51, t52a, t53,
-    t54a, t55, t56, t57a, t58, t59a, t60, t61a, t62, t63a,
+    t32a, t33, t34a, t35, t36a, t37, t38a, t39, t40, t41a, t42, t43a, t44, t45a, t46, t47a, t48a,
+    t49, t50a, t51, t52a, t53, t54a, t55, t56, t57a, t58, t59a, t60, t61a, t62, t63a,
   ])
 }
 
 #[inline]
 fn rotate_dct64_odd_center(
   [
-    t32a, t33, t34a, t35, t36a, t37,
-    t38a, t39, t40, t41a, t42, t43a,
-    t44, t45a, t46, t47a, t48a, t49,
-    t50a, t51, t52a, t53, t54a, t55,
-    t56, t57a, t58, t59a, t60, t61a,
-    t62, t63a,
+    t32a,
+    t33,
+    t34a,
+    t35,
+    t36a,
+    t37,
+    t38a,
+    t39,
+    t40,
+    t41a,
+    t42,
+    t43a,
+    t44,
+    t45a,
+    t46,
+    t47a,
+    t48a,
+    t49,
+    t50a,
+    t51,
+    t52a,
+    t53,
+    t54a,
+    t55,
+    t56,
+    t57a,
+    t58,
+    t59a,
+    t60,
+    t61a,
+    t62,
+    t63a,
   ]: [i32; 32],
 ) -> Result<[i32; 32], Never> {
   let t40a = round_shift(t55.wrapping_sub(t40).wrapping_mul(181), 8);
@@ -1572,9 +2057,8 @@ fn rotate_dct64_odd_center(
   let t55a = round_shift(t40.wrapping_add(t55).wrapping_mul(181), 8);
 
   Ok([
-    t32a, t33, t34a, t35, t36a, t37, t38a, t39, t40a, t41, t42a,
-    t43, t44a, t45, t46a, t47, t48, t49a, t50, t51a, t52, t53a,
-    t54, t55a, t56, t57a, t58, t59a, t60, t61a, t62, t63a,
+    t32a, t33, t34a, t35, t36a, t37, t38a, t39, t40a, t41, t42a, t43, t44a, t45, t46a, t47, t48,
+    t49a, t50, t51a, t52, t53a, t54, t55a, t56, t57a, t58, t59a, t60, t61a, t62, t63a,
   ])
 }
 
@@ -1587,12 +2071,7 @@ fn inv_dct64_1d(
   {
     let even_stride = stride.checked_add(stride.get()).ok_or(Rav1dError::ERANGE)?;
 
-    inv_dct32_1d_internal_c(
-      c,
-      even_stride,
-      bounds,
-      input,
-    )?;
+    inv_dct32_1d_internal_c(c, even_stride, bounds, input)?;
 
     let odd_inputs = rotate_dct64_odd_inputs(c, stride)?;
     let Ok(pairs_mixed) = butterfly_dct64_odd_pairs(odd_inputs, bounds);

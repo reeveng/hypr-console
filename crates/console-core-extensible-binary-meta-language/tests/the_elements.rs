@@ -1,8 +1,8 @@
 //! The element encodings pinned with values taken from the reader as it stood before it was held to the rules.
 
 use console_core_extensible_binary_meta_language::{
-  Children, Condition, Extent, Size, VintBits, float, int, read_id, read_size, read_svint, read_vint,
-  string, uint, vint_len, write_id, write_size, write_unknown_size,
+  Children, Condition, Extent, Size, VintBits, float, int, read_id, read_size, read_svint,
+  read_vint, string, uint, vint_len, write_id, write_size, write_unknown_size,
 };
 use console_core_never::Never;
 
@@ -41,14 +41,26 @@ fn a_width_is_the_leading_zeros_of_the_first_byte() {
 #[test]
 fn a_vint_of_every_width_loses_its_marker() {
   assert_eq!(read_vint(&[0x81]), Ok(Some((1, 1, VintBits::ContainsZero))));
-  assert_eq!(read_vint(&[0x40, 0x7F]), Ok(Some((127, 2, VintBits::ContainsZero))));
-  assert_eq!(read_vint(&[0x20, 0x00, 0x00]), Ok(Some((0, 3, VintBits::ContainsZero))));
+  assert_eq!(
+    read_vint(&[0x40, 0x7F]),
+    Ok(Some((127, 2, VintBits::ContainsZero)))
+  );
+  assert_eq!(
+    read_vint(&[0x20, 0x00, 0x00]),
+    Ok(Some((0, 3, VintBits::ContainsZero)))
+  );
   assert_eq!(
     read_vint(&[0x10, 0x00, 0x00, 0x01]),
     Ok(Some((1, 4, VintBits::ContainsZero)))
   );
-  assert_eq!(read_vint(&[0x08, 0, 0, 0, 2]), Ok(Some((2, 5, VintBits::ContainsZero))));
-  assert_eq!(read_vint(&[0x04, 0, 0, 0, 0, 3]), Ok(Some((3, 6, VintBits::ContainsZero))));
+  assert_eq!(
+    read_vint(&[0x08, 0, 0, 0, 2]),
+    Ok(Some((2, 5, VintBits::ContainsZero)))
+  );
+  assert_eq!(
+    read_vint(&[0x04, 0, 0, 0, 0, 3]),
+    Ok(Some((3, 6, VintBits::ContainsZero)))
+  );
   assert_eq!(
     read_vint(&[0x02, 0, 0, 0, 0, 0, 4]),
     Ok(Some((4, 7, VintBits::ContainsZero)))
@@ -57,7 +69,10 @@ fn a_vint_of_every_width_loses_its_marker() {
     read_vint(&[0x01, 0, 0, 0, 0, 0, 0, 5]),
     Ok(Some((5, 8, VintBits::ContainsZero)))
   );
-  assert_eq!(read_vint(&[0x81, 0xAA, 0xBB]), Ok(Some((1, 1, VintBits::ContainsZero))));
+  assert_eq!(
+    read_vint(&[0x81, 0xAA, 0xBB]),
+    Ok(Some((1, 1, VintBits::ContainsZero)))
+  );
   assert_eq!(
     read_vint(&[0x01, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE]),
     Ok(Some((0x12_3456_789A_BCDE, 8, VintBits::ContainsZero)))
@@ -67,7 +82,10 @@ fn a_vint_of_every_width_loses_its_marker() {
 #[test]
 fn a_vint_of_all_ones_says_so() {
   assert_eq!(read_vint(&[0xFF]), Ok(Some((127, 1, VintBits::AllOnes))));
-  assert_eq!(read_vint(&[0x7F, 0xFF]), Ok(Some((16383, 2, VintBits::AllOnes))));
+  assert_eq!(
+    read_vint(&[0x7F, 0xFF]),
+    Ok(Some((16383, 2, VintBits::AllOnes)))
+  );
   assert_eq!(
     read_vint(&[0x3F, 0xFF, 0xFF]),
     Ok(Some((2_097_151, 3, VintBits::AllOnes)))
@@ -380,7 +398,10 @@ fn an_all_ones_vint_is_unknown_only_as_a_size() {
     let bits = width.saturating_mul(7);
     let value = 1u64.wrapping_shl(bits).wrapping_sub(1);
 
-    assert_eq!(read_vint(&bytes), Ok(Some((value, width, VintBits::AllOnes))));
+    assert_eq!(
+      read_vint(&bytes),
+      Ok(Some((value, width, VintBits::AllOnes)))
+    );
     assert_eq!(read_size(&bytes), Ok(Some((Size::Unknown, width))));
     let Ok(bias_plus_one) = console_core_number_conversion::fitted::<u64, i64>(
       1u64.wrapping_shl(bits.saturating_sub(1)),

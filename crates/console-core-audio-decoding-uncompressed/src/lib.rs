@@ -25,7 +25,7 @@ use console_core_audio_decoding_interfaces::errors::{Result, unsupported_error};
 use console_core_audio_decoding_interfaces::formats::Packet;
 use console_core_audio_decoding_interfaces::support_codec;
 
-use crate::pcm::{Pcm, Wire};
+use crate::pcm::{Pcm, Encoding};
 
 pub struct PcmDecoder {
   params: CodecParameters,
@@ -51,7 +51,7 @@ fn signal_spec(params: &CodecParameters, rate: u32) -> Result<SignalSpec> {
   }
 }
 
-fn tuned(wire: Wire, params: &CodecParameters) -> Result<PcmDecoder> {
+fn tuned(wire: Encoding, params: &CodecParameters) -> Result<PcmDecoder> {
   let frames = match params.max_frames_per_packet {
     Some(frames) => frames,
     None => return unsupported_error("pcm: maximum frames per packet is required"),
@@ -170,7 +170,7 @@ impl PcmDecoder {
 
 impl Decoder for PcmDecoder {
   fn try_new(params: &CodecParameters, _options: &DecoderOptions) -> Result<Self> {
-    let wire = Wire::of(params.codec)?;
+    let wire = Encoding::of(params.codec)?;
 
     tuned(wire, params)
   }

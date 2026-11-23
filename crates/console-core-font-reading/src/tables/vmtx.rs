@@ -21,7 +21,7 @@ impl TopLevelTable for Vmtx<'_> {
 }
 
 impl ReadArgs for Vmtx<'_> {
-  type Args = u16;
+  type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for Vmtx<'a> {

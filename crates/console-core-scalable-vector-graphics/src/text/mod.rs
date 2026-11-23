@@ -68,7 +68,10 @@ impl FontResolver<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The public resolver factory returns a ready-to-install font selection callback")
+    expect(
+      explicit002_infallible_result,
+      reason = "The public resolver factory returns a ready-to-install font selection callback"
+    )
   )]
   pub fn default_font_selector() -> FontSelectionFn<'static> {
     Box::new(move |font, console_core_font_database| {
@@ -139,7 +142,10 @@ impl FontResolver<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The public resolver factory returns a ready-to-install fallback callback")
+    expect(
+      explicit002_infallible_result,
+      reason = "The public resolver factory returns a ready-to-install fallback callback"
+    )
   )]
   pub fn default_fallback_selector() -> FallbackSelectionFn<'static> {
     Box::new(|c, exclude_fonts, console_core_font_database| {
@@ -161,10 +167,12 @@ impl FontResolver<'_> {
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some(base_face.style != face.style
-          && base_face.weight != face.weight
-          && base_face.stretch != face.stretch, ())
-        {
+        match ::core::primitive::bool::then_some(
+          base_face.style != face.style
+            && base_face.weight != face.weight
+            && base_face.stretch != face.stretch,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             continue;
           }
@@ -189,7 +197,11 @@ impl FontResolver<'_> {
               Some(family) => family,
               None => previous_family,
             };
-            console_core_logging::warn!("Fallback from {} to {}.", previous_family.0, new_family.0);
+            console_core_logging::warn!(
+              "Fallback from {} to {}.",
+              previous_family.0,
+              new_family.0
+            );
           }
           None => {}
         }
@@ -215,7 +227,11 @@ impl std::fmt::Debug for FontResolver<'_> {
     reason = "Flattened color glyph documents enter the same SVG document depth limit"
   )
 )]
-pub(crate) fn convert(text: &mut Text, resolver: &FontResolver, cache: &mut Cache) -> Result<Option<()>, console_core_never::Never> {
+pub(crate) fn convert(
+  text: &mut Text,
+  resolver: &FontResolver,
+  cache: &mut Cache,
+) -> Result<Option<()>, console_core_never::Never> {
   let Ok(layout) = layout::layout_text(text, resolver, &mut cache.console_core_font_database);
   let (text_fragments, bbox) = match layout {
     Some(layout_2) => layout_2,

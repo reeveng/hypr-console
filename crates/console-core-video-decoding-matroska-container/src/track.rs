@@ -467,7 +467,8 @@ fn latest_at_or_before<'a>(
     match (sample.pts <= ticks, best) {
       (false, _) => best,
       (true, None) => Some((sample.pts, at)),
-      (true, Some((held, _))) => match ::core::primitive::bool::then_some(sample.pts >= held, ()) {
+      (true, Some((held, _))) => match ::core::primitive::bool::then_some(sample.pts >= held, ())
+      {
         ::core::option::Option::Some(()) => Some((sample.pts, at)),
         ::core::option::Option::None => best,
       },

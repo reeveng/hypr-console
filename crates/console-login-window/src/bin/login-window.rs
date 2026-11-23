@@ -412,10 +412,12 @@ fn desktop(person: &Person) -> Result<Ended, LoginWindowError> {
   let waited = running.wait();
   let status = waited.map_err(LoginWindowError::Starting)?;
 
-  Ok(match ::core::primitive::bool::then_some(status.success(), ()) {
-    ::core::option::Option::Some(()) => Ended::Well,
-    ::core::option::Option::None => Ended::Fell,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => Ended::Well,
+      ::core::option::Option::None => Ended::Fell,
+    },
+  )
 }
 
 struct SessionEntry<'a>(&'a OsStr);
@@ -482,10 +484,12 @@ fn desktop_session(person: &Person) -> Result<Ended, LoginWindowError> {
 
   drop(session);
 
-  Ok(match ::core::primitive::bool::then_some(status.success(), ()) {
-    ::core::option::Option::Some(()) => Ended::Well,
-    ::core::option::Option::None => Ended::Fell,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => Ended::Well,
+      ::core::option::Option::None => Ended::Fell,
+    },
+  )
 }
 
 fn configured_session() -> Result<String, Never> {
@@ -494,7 +498,9 @@ fn configured_session() -> Result<String, Never> {
     Err(why) => {
       match ::core::primitive::bool::then_some(why.kind() == io::ErrorKind::NotFound, ()) {
         ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => eprintln!("login-window: cannot read {CHOSEN}, so this desktop starts: {why}"),
+        ::core::option::Option::None => {
+          eprintln!("login-window: cannot read {CHOSEN}, so this desktop starts: {why}")
+        }
       }
 
       sessions::parse_session(None)
@@ -547,10 +553,12 @@ fn greeter_session(greeter: &Person, before: Before) -> Result<Ended, LoginWindo
 
   drop(session);
 
-  Ok(match ::core::primitive::bool::then_some(status.success(), ()) {
-    ::core::option::Option::Some(()) => Ended::Well,
-    ::core::option::Option::None => Ended::Fell,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => Ended::Well,
+      ::core::option::Option::None => Ended::Fell,
+    },
+  )
 }
 
 fn greeted(greeter: &Person, before: Before, hash: &Hash) -> Result<Choice, LoginWindowError> {
@@ -624,7 +632,10 @@ mod tests {
 
   #[test]
   fn a_session_entry_has_one_file_name() {
-    assert!(matches!(SessionEntry::from_name("gamescope-session-steam.desktop"), Ok(_)));
+    assert!(matches!(
+      SessionEntry::from_name("gamescope-session-steam.desktop"),
+      Ok(_)
+    ));
     assert!(matches!(
       SessionEntry::from_name("other/gamescope-session-steam.desktop"),
       Err(LoginWindowError::NoDesktop(_))

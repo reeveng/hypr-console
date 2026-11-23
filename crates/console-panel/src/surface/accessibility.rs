@@ -9,8 +9,8 @@ use std::hash::{BuildHasher, Hash, RandomState};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 
 use accesskit::{
-  Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node, NodeId,
-  Rect, Role, Toggled, TreeId, TreeInfo, TreeUpdate,
+  Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node,
+  NodeId, Rect, Role, Toggled, TreeId, TreeInfo, TreeUpdate,
 };
 use console_core_controls::Switch;
 use console_core_geometry::Point;
@@ -19,7 +19,7 @@ use console_draw_surface::KeyboardFocus;
 
 use super::{Beside, Card, HitRegion, Lands, Owner, Panelled, Secret, State, Viewport, nth};
 use crate::frames::{self, Notice};
-use crate::page::{Action as RowAction, ActionOutcome, Control, Face, Heading, Row};
+use crate::page::{ActionOutcome, Control, Face, Heading, Row};
 
 const ROOT: NodeId = NodeId(0);
 const REQUEST_LIMIT: u16 = 16;
@@ -65,6 +65,7 @@ impl ActionHandler for Requests {
         | Action::Focus
         | Action::Increment
         | Action::Decrement
+        | Action::SetValue
         | Action::ScrollDown
         | Action::ScrollUp
     );
@@ -85,7 +86,7 @@ impl ActionHandler for Requests {
 
 pub(super) enum ViewChange {
   Unchanged,
-  Changed,
+  Different,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -178,7 +179,7 @@ impl Bridge {
     match (publication, change) {
       (Publication::Inactive, _) => self.published = Snapshot::default(),
       (Publication::Published, ViewChange::Unchanged) => {}
-      (Publication::Initial, _) | (Publication::Published, ViewChange::Changed) => {
+      (Publication::Initial, _) | (Publication::Published, ViewChange::Different) => {
         let Ok(next) = Snapshot::from_panel(&self.ids, &self.name, state, view);
         let Ok(()) = self.publish(next);
       }
@@ -223,7 +224,7 @@ impl Bridge {
     &mut self,
     focus: KeyboardFocus,
     view: &Panelled,
-  ) -> Result<Option<(Action, Option<HitRegion>)>, Never> {
+  ) -> Result<Option<Requested>, Never> {
     let Ok(publication) = self.publication.advance(&self.lifecycle);
     self.publication = publication;
     let Ok(limit) = console_core_number_conversion::index(REQUEST_LIMIT);
@@ -252,8 +253,20 @@ impl Bridge {
 
 pub(super) struct Snapshot {
   nodes: HashMap<NodeId, Node>,
-  targets: HashMap<NodeId, HitRegion>,
+  targets: HashMap<NodeId, Target>,
   focus: NodeId,
+}
+
+#[derive(Clone, Copy)]
+enum Target {
+  Region(HitRegion),
+  Choice { picker: HitRegion, which: u32 },
+}
+
+pub(super) struct Requested {
+  pub(super) action: Action,
+  target: Option<Target>,
+  data: Option<ActionData>,
 }
 
 impl Default for Snapshot {
@@ -429,6 +442,11 @@ impl Snapshot {
       y1: f64::from(at.y) + f64::from(size.height),
     });
     let Ok(region) = slot(hit.lands);
+    if let (Lands::Picker { .. }, Some((index, selected))) = (hit.lands, row) {
+      let Ok(key) = row_key(selected, index);
+      let Ok(children) = self.picker_choices(ids, (state.here, key), hit, selected);
+      node.set_children(children);
+    }
     let Ok(inserted) = match (row, hit.lands) {
       (Some((index, selected)), _) => {
         let Ok(key) = row_key(selected, index);
@@ -445,7 +463,7 @@ impl Snapshot {
       Some(accessible) => accessible,
       None => return Ok(()),
     };
-    let _prior_target = self.targets.insert(id, hit);
+    let _prior_target = self.targets.insert(id, Target::Region(hit));
 
     match row {
       Some((index, _)) => {
@@ -467,6 +485,39 @@ impl Snapshot {
     }
 
     Ok(())
+  }
+
+  fn picker_choices(
+    &mut self,
+    ids: &RandomState,
+    (tab, key): (u32, RowKey<'_>),
+    picker: HitRegion,
+    row: &Row,
+  ) -> Result<Vec<NodeId>, Never> {
+    let Some(choices) = row.choices.as_ref() else {
+      return Ok(Vec::new());
+    };
+    let mut children = Vec::new();
+
+    for (index, value) in choices.said.iter().enumerate() {
+      let Ok(which) = console_core_number_conversion::fitted::<_, u32>(index);
+      let Ok(mut choice) = named(Role::RadioButton, value);
+      choice.set_toggled(match which == choices.chosen {
+        true => Toggled::True,
+        false => Toggled::False,
+      });
+      if which != choices.chosen {
+        choice.add_action(Action::Click);
+      }
+      let Ok(inserted) = self.insert(ids, ("choice", tab, &key, which, value), choice);
+
+      if let Some(id) = inserted {
+        let _prior_target = self.targets.insert(id, Target::Choice { picker, which });
+        children.push(id);
+      }
+    }
+
+    Ok(children)
   }
 
   #[must_use]
@@ -492,7 +543,7 @@ impl Snapshot {
     &self,
     request: ActionRequest,
     view: &Panelled,
-  ) -> Result<Option<(Action, Option<HitRegion>)>, Never> {
+  ) -> Result<Option<Requested>, Never> {
     let node = match self.nodes.get(&request.target_node) {
       Some(target) => target,
       None => return Ok(None),
@@ -506,16 +557,28 @@ impl Snapshot {
     }
 
     match (request.target_node == ROOT).then_some(()) {
-      Some(()) => return Ok(Some((request.action, None))),
+      Some(()) => {
+        return Ok(Some(Requested {
+          action: request.action,
+          target: None,
+          data: request.data,
+        }));
+      }
       None => {}
     }
 
-    let hit = self
-      .targets
-      .get(&request.target_node)
-      .filter(|target| view.touching.contains(target));
+    let hit = self.targets.get(&request.target_node).filter(|target| {
+      let hit = match target {
+        Target::Region(hit) | Target::Choice { picker: hit, .. } => hit,
+      };
+      view.touching.contains(hit)
+    });
 
-    Ok(hit.map(|target| (request.action, Some(*target))))
+    Ok(hit.map(|target| Requested {
+      action: request.action,
+      target: Some(*target),
+      data: request.data,
+    }))
   }
 }
 
@@ -618,12 +681,13 @@ fn hit_node(state: &State, lands: Lands, row: Option<&Row>) -> Result<Option<Nod
       Some(()) => "Previous tabs",
       None => "Next tabs",
     }),
-    Lands::Seek { .. } | Lands::Picker { .. } => return Ok(None),
+    Lands::Seek { .. } => return Ok(None),
     Lands::Row(_)
     | Lands::Else(_)
     | Lands::ButtonPress { .. }
     | Lands::Nudge { .. }
-    | Lands::Slider { .. } => {
+    | Lands::Slider { .. }
+    | Lands::Picker { .. } => {
       let selected = match row {
         Some(value) => value,
         None => return Ok(None),
@@ -678,17 +742,19 @@ fn hit_row_node(state: &State, lands: Lands, row: &Row) -> Result<Option<Node>, 
       slider_node.set_numeric_value(f64::from(at));
       slider_node.set_min_numeric_value(0.0);
       slider_node.set_max_numeric_value(f64::from(most.get()));
+      slider_node.set_numeric_value_step(1.0);
+      slider_node.add_action(Action::SetValue);
       slider_node.add_action(Action::Increment);
       slider_node.add_action(Action::Decrement);
       Ok(slider_node)
     }
+    Lands::Picker { .. } => named(Role::RadioGroup, &row.says),
     Lands::Tab(_)
     | Lands::Answer(_)
     | Lands::Back
     | Lands::Reveal
     | Lands::More(_)
-    | Lands::Seek { .. }
-    | Lands::Picker { .. } => return Ok(None),
+    | Lands::Seek { .. } => return Ok(None),
   };
 
   Ok(Some(node))
@@ -697,7 +763,6 @@ fn hit_row_node(state: &State, lands: Lands, row: &Row) -> Result<Option<Node>, 
 #[must_use]
 fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
   let Ok(heading) = row.heading();
-  let Ok(acts) = row.acts();
   let title = row
     .headline
     .as_ref()
@@ -738,7 +803,7 @@ fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
     Heading::Yes => {}
   }
 
-  match (acts == RowAction::Yes || row.buttons.is_some()).then_some(()) {
+  match (row.does.is_some() || row.buttons.is_some()).then_some(()) {
     Some(()) => node.add_action(Action::Click),
     None => {}
   }
@@ -749,11 +814,20 @@ fn row_node(row: &Row, selected: &[String]) -> Result<Node, Never> {
 #[must_use]
 fn focused(state: &State, lands: Lands) -> Result<KeyboardFocus, Never> {
   let matches = match lands {
-    Lands::Row(row) => state.at == Some(row) && state.beside == Beside::No && state.pressing.is_none(),
+    Lands::Row(row) => {
+      state.at == Some(row) && state.beside == Beside::No && state.pressing.is_none()
+    }
     Lands::Else(row) => state.at == Some(row) && state.beside == Beside::Yes,
     Lands::ButtonPress { row, which } => state.pressing == Some((row, which)),
     Lands::Answer(index) => state.sure.as_ref().is_some_and(|sure| sure.at == index),
-    Lands::Nudge { .. } | Lands::Seek { .. } | Lands::Slider { .. } | Lands::Picker { .. } | Lands::Tab(_) | Lands::More(_) | Lands::Back | Lands::Reveal => false,
+    Lands::Nudge { .. }
+    | Lands::Seek { .. }
+    | Lands::Slider { .. }
+    | Lands::Picker { .. }
+    | Lands::Tab(_)
+    | Lands::More(_)
+    | Lands::Back
+    | Lands::Reveal => false,
   };
 
   Ok(match matches.then_some(()) {
@@ -766,14 +840,21 @@ pub(super) fn perform(
   state: &mut State,
   card: &Card,
   room: i32,
-  action: Action,
-  hit: Option<HitRegion>,
+  Requested {
+    action,
+    target,
+    data,
+  }: Requested,
 ) -> Result<ActionOutcome, Never> {
-  Ok(match (action, hit) {
-    (Action::Click, Some(target)) => {
+  Ok(match (action, target) {
+    (Action::Click, Some(Target::Region(target))) => {
       let at = target.panel.at;
-      let Ok(half_width) = console_core_number_conversion::fitted::<_, i32>(target.panel.size.width.saturating_div(2));
-      let Ok(half_height) = console_core_number_conversion::fitted::<_, i32>(target.panel.size.height.saturating_div(2));
+      let Ok(half_width) = console_core_number_conversion::fitted::<_, i32>(
+        target.panel.size.width.saturating_div(2),
+      );
+      let Ok(half_height) = console_core_number_conversion::fitted::<_, i32>(
+        target.panel.size.height.saturating_div(2),
+      );
       let point = Point {
         x: at.x.saturating_add(half_width),
         y: at.y.saturating_add(half_height),
@@ -782,11 +863,30 @@ pub(super) fn perform(
       outcome
     }
     (
+      Action::Click,
+      Some(Target::Choice {
+        picker: HitRegion {
+          lands: Lands::Picker { row, .. },
+          ..
+        },
+        which,
+      }),
+    ) => {
+      state.at = Some(row);
+      state.beside = Beside::No;
+      let Ok(outcome) = super::carried_out(
+        &mut state.model,
+        &state.rows,
+        super::Outcome::Picked { row, which },
+      );
+      outcome
+    }
+    (
       Action::Focus,
-      Some(HitRegion {
+      Some(Target::Region(HitRegion {
         lands: Lands::Row(row),
         ..
-      }),
+      })),
     ) => {
       state.at = Some(row);
       state.beside = Beside::No;
@@ -795,31 +895,38 @@ pub(super) fn perform(
     }
     (
       Action::Increment | Action::Decrement,
-      Some(HitRegion {
+      Some(Target::Region(HitRegion {
         lands: Lands::Slider { row, .. },
         ..
-      }),
+      })),
     ) => {
-      let step = match {
-          ::core::primitive::bool::then_some(action == Action::Increment, ())
-      } {
-          ::core::option::Option::Some(()) => { 1 },
-          ::core::option::Option::None => { -1 },
+      let step = match { ::core::primitive::bool::then_some(action == Action::Increment, ()) } {
+        ::core::option::Option::Some(()) => 1,
+        ::core::option::Option::None => -1,
       };
-      let Ok(_) = super::nudge_level(&state.rows, row, step);
+      state.at = Some(row);
+      state.beside = Beside::No;
+      let Ok(outcome) = super::nudge_level(&state.rows, row, step);
+      let Ok(outcome) = super::carried_out(&mut state.model, &state.rows, outcome);
+      outcome
+    }
+    (
+      Action::SetValue,
+      Some(Target::Region(HitRegion {
+        lands: Lands::Slider { row, .. },
+        ..
+      })),
+    ) => {
+      if let Some(ActionData::NumericValue(value)) = data {
+        let Ok(()) = set_level(&state.rows, row, value);
+      }
       ActionOutcome::Stay
     }
     (Action::ScrollUp | Action::ScrollDown, None) => {
       let page = room.max(crate::fitting::ROW);
-      let offset = match {
-          ::core::primitive::bool::then_some(action == Action::ScrollUp, ())
-      } {
-          ::core::option::Option::Some(()) => {
-            page.saturating_neg()
-          },
-          ::core::option::Option::None => {
-            page
-          },
+      let offset = match { ::core::primitive::bool::then_some(action == Action::ScrollUp, ()) } {
+        ::core::option::Option::Some(()) => page.saturating_neg(),
+        ::core::option::Option::None => page,
       };
       let y = state.scroll.saturating_add(offset);
       let Ok(()) = super::scrolled_to(state, Viewport { room, y });
@@ -827,6 +934,29 @@ pub(super) fn perform(
     }
     _ => ActionOutcome::Stay,
   })
+}
+
+fn set_level(rows: &[Row], row: u32, value: f64) -> Result<(), Never> {
+  let Ok(selected) = nth(rows, row);
+  let Some((Some(Control::Slider(slider)), Some(level))) =
+    selected.map(|row| (row.control, row.level.as_ref()))
+  else {
+    return Ok(());
+  };
+
+  if value.is_finite() {
+    let Ok(requested) = console_core_number_conversion::whole_u32(value);
+    let Ok(most) = slider.most();
+    let Ok(at) = slider.at();
+    let Ok(from) = console_core_number_conversion::fitted::<u32, i32>(at);
+    let Ok(to) = console_core_number_conversion::fitted::<u32, i32>(requested.min(most.get()));
+
+    if from != to {
+      level(to.saturating_sub(from));
+    }
+  }
+
+  Ok(())
 }
 
 #[cfg(test)]

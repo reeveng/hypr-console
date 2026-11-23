@@ -351,10 +351,12 @@ fn read_by(path: &str, sources: &BTreeSet<&str>) -> Result<ReadBy, Never> {
   Ok(match (path, folder) {
     (MANIFEST | LOCK, None) => ReadBy::TheBuild,
     (_beside_the_manifest, None) => ReadBy::ThePrograms,
-    (_in_a_folder, Some(top)) => match ::core::primitive::bool::then_some(sources.contains(top), ()) {
-      ::core::option::Option::Some(()) => ReadBy::TheBuild,
-      ::core::option::Option::None => ReadBy::ThePrograms,
-    },
+    (_in_a_folder, Some(top)) => {
+      match ::core::primitive::bool::then_some(sources.contains(top), ()) {
+        ::core::option::Option::Some(()) => ReadBy::TheBuild,
+        ::core::option::Option::None => ReadBy::ThePrograms,
+      }
+    }
   })
 }
 

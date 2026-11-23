@@ -1649,7 +1649,12 @@ impl Channel {
     Ok(())
   }
 
-  fn noise(&mut self, history: &[f32], LossFade(fade): LossFade, length: u32) -> Result<Vec<f32>, Never> {
+  fn noise(
+    &mut self,
+    history: &[f32],
+    LossFade(fade): LossFade,
+    length: u32,
+  ) -> Result<Vec<f32>, Never> {
     let Ok(order) = index(self.order);
     let mut expanded = self.plc_lpc_q12;
     let Ok(()) = bwexpander(

@@ -1594,10 +1594,12 @@ impl Surface {
     let fault = match self.connection.flush() {
       Ok(()) => return Ok(Flushed::Sent),
       Err(WaylandError::Protocol(fault)) => WaylandError::Protocol(fault),
-      Err(WaylandError::Io(fault)) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::WouldBlock, ()) {
-        ::core::option::Option::Some(()) => return Ok(Flushed::Pending),
-        ::core::option::Option::None => WaylandError::Io(fault),
-      },
+      Err(WaylandError::Io(fault)) => {
+        match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::WouldBlock, ()) {
+          ::core::option::Option::Some(()) => return Ok(Flushed::Pending),
+          ::core::option::Option::None => WaylandError::Io(fault),
+        }
+      }
     };
 
     self.bound.closed = Closed::Yes;
@@ -1903,7 +1905,13 @@ mod tests {
     })?;
     let Ok(configured) = surface.logical();
     let logical = configured.ok_or("missing configured dimensions")?;
-    let part = Part { at: Point { x: 16, y: 20 }, size: Size { width: 320, height: 240 } };
+    let part = Part {
+      at: Point { x: 16, y: 20 },
+      size: Size {
+        width: 320,
+        height: 240,
+      },
+    };
     let base = measure_redraws(&mut surface, |target, shade| {
       target.draw_over(part, |pixels, device, _| {
         let Ok(damage) = super::on_the_device(part, logical, device);
@@ -2604,7 +2612,8 @@ impl Dispatch<wl_seat::WlSeat, ()> for Bound {
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Keyboard), ()) {
+        match ::core::primitive::bool::then_some(has.contains(wl_seat::Capability::Keyboard), ())
+        {
           ::core::option::Option::Some(()) => {
             let _ = seat.get_keyboard(hand, ());
           }
@@ -2957,13 +2966,25 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for Bound {
       Event::Leave { .. } => {
         let Ok(()) = input.focus(TextFocus::Left);
       }
-      Event::PreeditString { text, cursor_begin, cursor_end } => {
-        input.pending.preedit = text.filter(|preedit| !preedit.is_empty()).map(|preedit| Composition {
-          text: preedit, cursor_begin, cursor_end,
-        });
+      Event::PreeditString {
+        text,
+        cursor_begin,
+        cursor_end,
+      } => {
+        input.pending.preedit =
+          text
+            .filter(|preedit| !preedit.is_empty())
+            .map(|preedit| Composition {
+              text: preedit,
+              cursor_begin,
+              cursor_end,
+            });
       }
       Event::CommitString { text } => input.pending.commit = text,
-      Event::DeleteSurroundingText { before_length, after_length } => {
+      Event::DeleteSurroundingText {
+        before_length,
+        after_length,
+      } => {
         input.pending.delete_before = before_length;
         input.pending.delete_after = after_length;
       }
@@ -2993,9 +3014,17 @@ impl Dispatch<wl_buffer::WlBuffer, ()> for Bound {
   ) {
     match event {
       wl_buffer::Event::Release => {
-        let region_frames = bound.region.iter_mut().flat_map(|layer| layer.shown.iter_mut().chain(layer.spare.iter_mut()));
+        let region_frames = bound
+          .region
+          .iter_mut()
+          .flat_map(|layer| layer.shown.iter_mut().chain(layer.spare.iter_mut()));
 
-        for frame in bound.shown.iter_mut().chain(bound.spare.iter_mut()).chain(region_frames) {
+        for frame in bound
+          .shown
+          .iter_mut()
+          .chain(bound.spare.iter_mut())
+          .chain(region_frames)
+        {
           match ::core::primitive::bool::then_some(frame.buffer == *buffer, ()) {
             ::core::option::Option::Some(()) => frame.held = Buffer::Released,
             ::core::option::Option::None => {}

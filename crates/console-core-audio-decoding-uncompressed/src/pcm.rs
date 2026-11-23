@@ -57,7 +57,7 @@ impl Order {
 }
 
 #[derive(Clone, Copy)]
-pub enum Wire {
+pub enum Encoding {
   U8,
   U16(Order),
   U24(Order),
@@ -72,29 +72,29 @@ pub enum Wire {
   MuLaw,
 }
 
-impl Wire {
-  pub fn of(codec: CodecType) -> Result<Wire> {
+impl Encoding {
+  pub fn of(codec: CodecType) -> Result<Encoding> {
     Ok(match codec {
-      CODEC_TYPE_PCM_S32LE => Wire::S32(Order::Little),
-      CODEC_TYPE_PCM_S32BE => Wire::S32(Order::Big),
-      CODEC_TYPE_PCM_S24LE => Wire::S24(Order::Little),
-      CODEC_TYPE_PCM_S24BE => Wire::S24(Order::Big),
-      CODEC_TYPE_PCM_S16LE => Wire::S16(Order::Little),
-      CODEC_TYPE_PCM_S16BE => Wire::S16(Order::Big),
-      CODEC_TYPE_PCM_S8 => Wire::S8,
-      CODEC_TYPE_PCM_U32LE => Wire::U32(Order::Little),
-      CODEC_TYPE_PCM_U32BE => Wire::U32(Order::Big),
-      CODEC_TYPE_PCM_U24LE => Wire::U24(Order::Little),
-      CODEC_TYPE_PCM_U24BE => Wire::U24(Order::Big),
-      CODEC_TYPE_PCM_U16LE => Wire::U16(Order::Little),
-      CODEC_TYPE_PCM_U16BE => Wire::U16(Order::Big),
-      CODEC_TYPE_PCM_U8 => Wire::U8,
-      CODEC_TYPE_PCM_F32LE => Wire::F32(Order::Little),
-      CODEC_TYPE_PCM_F32BE => Wire::F32(Order::Big),
-      CODEC_TYPE_PCM_F64LE => Wire::F64(Order::Little),
-      CODEC_TYPE_PCM_F64BE => Wire::F64(Order::Big),
-      CODEC_TYPE_PCM_ALAW => Wire::ALaw,
-      CODEC_TYPE_PCM_MULAW => Wire::MuLaw,
+      CODEC_TYPE_PCM_S32LE => Encoding::S32(Order::Little),
+      CODEC_TYPE_PCM_S32BE => Encoding::S32(Order::Big),
+      CODEC_TYPE_PCM_S24LE => Encoding::S24(Order::Little),
+      CODEC_TYPE_PCM_S24BE => Encoding::S24(Order::Big),
+      CODEC_TYPE_PCM_S16LE => Encoding::S16(Order::Little),
+      CODEC_TYPE_PCM_S16BE => Encoding::S16(Order::Big),
+      CODEC_TYPE_PCM_S8 => Encoding::S8,
+      CODEC_TYPE_PCM_U32LE => Encoding::U32(Order::Little),
+      CODEC_TYPE_PCM_U32BE => Encoding::U32(Order::Big),
+      CODEC_TYPE_PCM_U24LE => Encoding::U24(Order::Little),
+      CODEC_TYPE_PCM_U24BE => Encoding::U24(Order::Big),
+      CODEC_TYPE_PCM_U16LE => Encoding::U16(Order::Little),
+      CODEC_TYPE_PCM_U16BE => Encoding::U16(Order::Big),
+      CODEC_TYPE_PCM_U8 => Encoding::U8,
+      CODEC_TYPE_PCM_F32LE => Encoding::F32(Order::Little),
+      CODEC_TYPE_PCM_F32BE => Encoding::F32(Order::Big),
+      CODEC_TYPE_PCM_F64LE => Encoding::F64(Order::Little),
+      CODEC_TYPE_PCM_F64BE => Encoding::F64(Order::Big),
+      CODEC_TYPE_PCM_ALAW => Encoding::ALaw,
+      CODEC_TYPE_PCM_MULAW => Encoding::MuLaw,
       _ => return unsupported_error("pcm: invalid codec type"),
     })
   }
@@ -220,24 +220,24 @@ pub enum Pcm {
 
 impl Pcm {
   pub fn new(
-    wire: Wire,
+    wire: Encoding,
     frames: Duration,
     spec: SignalSpec,
     coded: Option<NonZeroU32>,
   ) -> Result<Pcm> {
     match wire {
-      Wire::U8 => Lane::explicit(frames, spec, Order::Little, Bits(8), coded).map(Pcm::U8),
-      Wire::U16(order) => Lane::explicit(frames, spec, order, Bits(16), coded).map(Pcm::U16),
-      Wire::U24(order) => Lane::explicit(frames, spec, order, Bits(24), coded).map(Pcm::U24),
-      Wire::U32(order) => Lane::explicit(frames, spec, order, Bits(32), coded).map(Pcm::U32),
-      Wire::S8 => Lane::explicit(frames, spec, Order::Little, Bits(8), coded).map(Pcm::S8),
-      Wire::S16(order) => Lane::explicit(frames, spec, order, Bits(16), coded).map(Pcm::S16),
-      Wire::S24(order) => Lane::explicit(frames, spec, order, Bits(24), coded).map(Pcm::S24),
-      Wire::S32(order) => Lane::explicit(frames, spec, order, Bits(32), coded).map(Pcm::S32),
-      Wire::F32(order) => Lane::implicit(frames, spec, order, Bits(32), coded).map(Pcm::F32),
-      Wire::F64(order) => Lane::implicit(frames, spec, order, Bits(64), coded).map(Pcm::F64),
-      Wire::ALaw => Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::ALaw),
-      Wire::MuLaw => Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::MuLaw),
+      Encoding::U8 => Lane::explicit(frames, spec, Order::Little, Bits(8), coded).map(Pcm::U8),
+      Encoding::U16(order) => Lane::explicit(frames, spec, order, Bits(16), coded).map(Pcm::U16),
+      Encoding::U24(order) => Lane::explicit(frames, spec, order, Bits(24), coded).map(Pcm::U24),
+      Encoding::U32(order) => Lane::explicit(frames, spec, order, Bits(32), coded).map(Pcm::U32),
+      Encoding::S8 => Lane::explicit(frames, spec, Order::Little, Bits(8), coded).map(Pcm::S8),
+      Encoding::S16(order) => Lane::explicit(frames, spec, order, Bits(16), coded).map(Pcm::S16),
+      Encoding::S24(order) => Lane::explicit(frames, spec, order, Bits(24), coded).map(Pcm::S24),
+      Encoding::S32(order) => Lane::explicit(frames, spec, order, Bits(32), coded).map(Pcm::S32),
+      Encoding::F32(order) => Lane::implicit(frames, spec, order, Bits(32), coded).map(Pcm::F32),
+      Encoding::F64(order) => Lane::implicit(frames, spec, order, Bits(64), coded).map(Pcm::F64),
+      Encoding::ALaw => Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::ALaw),
+      Encoding::MuLaw => Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::MuLaw),
     }
   }
 

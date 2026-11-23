@@ -112,7 +112,8 @@ impl Scheduler for Lavd {
     let whole = present.count.saturating_mul(MILLICORES_PER_CORE);
 
     let target = match (mode, required.saturating_mul(2).cmp(&whole)) {
-      (EnergyMode::HighPower, _) | (EnergyMode::Automatic, Ordering::Equal | Ordering::Greater) => {
+      (EnergyMode::HighPower, _)
+      | (EnergyMode::Automatic, Ordering::Equal | Ordering::Greater) => {
         return Ok(present);
       }
       (EnergyMode::Automatic, Ordering::Less) => AUTOMATIC_TARGET,

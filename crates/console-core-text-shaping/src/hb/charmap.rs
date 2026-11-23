@@ -71,7 +71,13 @@ impl<'a> Charmap<'a> {
         let subtable = cmap.best_subtable().map(|(index, record, subtable)| {
           let Ok(legacy_encoding) = record.legacy_encoding();
 
-          (SelectedCmapSubtable { index, legacy_encoding }, subtable)
+          (
+            SelectedCmapSubtable {
+              index,
+              legacy_encoding,
+            },
+            subtable,
+          )
         });
         Self {
           subtable,

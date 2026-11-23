@@ -3,11 +3,11 @@
 use std::collections::{BTreeMap, btree_map::Entry};
 
 use console_core_never::Never;
-use console_program_contract::Job;
+use console_program_contract::Task;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Invocation {
-  pub job: Job,
+  pub job: Task,
   sequence: u64,
 }
 
@@ -27,7 +27,7 @@ impl From<bool> for ReplyStatus {
 }
 
 impl Invocation {
-  fn issue(sequence: &mut u64, job: Job) -> Result<Self, StartError> {
+  fn issue(sequence: &mut u64, job: Task) -> Result<Self, StartError> {
     let checked_value = sequence.checked_add(1).ok_or(StartError::Exhausted)?;
     *sequence = checked_value;
 
@@ -40,26 +40,28 @@ impl Invocation {
   pub fn matches_reply(
     self,
     invocation: Invocation,
-    replied: Option<Job>,
+    replied: Option<Task>,
   ) -> Result<ReplyStatus, Never> {
-    Ok(ReplyStatus::from(self == invocation && replied == Some(self.job)))
+    Ok(ReplyStatus::from(
+      self == invocation && replied == Some(self.job),
+    ))
   }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StartError {
-  Active(Job),
+  Active(Task),
   Exhausted,
 }
 
 #[derive(Default)]
-pub(crate) struct Jobs {
-  pub(crate) live: BTreeMap<Job, Invocation>,
+pub(crate) struct Tasks {
+  pub(crate) live: BTreeMap<Task, Invocation>,
   sequence: u64,
 }
 
-impl Jobs {
-  pub(crate) fn start(&mut self, job: Job) -> Result<Invocation, StartError> {
+impl Tasks {
+  pub(crate) fn start(&mut self, job: Task) -> Result<Invocation, StartError> {
     let entry = match self.live.entry(job) {
       Entry::Occupied(_) => return Err(StartError::Active(job)),
       Entry::Vacant(entry) => entry,
@@ -74,7 +76,7 @@ impl Jobs {
   pub(crate) fn complete_reply(
     &mut self,
     invocation: Invocation,
-    replied: Option<Job>,
+    replied: Option<Task>,
   ) -> Result<ReplyStatus, Never> {
     Ok(match self.live.entry(invocation.job) {
       Entry::Occupied(entry) => {

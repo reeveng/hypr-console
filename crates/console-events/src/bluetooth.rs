@@ -121,10 +121,12 @@ fn owner(message: &Message) -> Result<Worth, Never> {
     None => Ok(None),
   };
 
-  Ok(match ::core::primitive::bool::then_some(name == Some(SERVICE), ()) {
-    ::core::option::Option::Some(()) => Worth::Querying,
-    ::core::option::Option::None => Worth::Ignoring,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(name == Some(SERVICE), ()) {
+      ::core::option::Option::Some(()) => Worth::Querying,
+      ::core::option::Option::None => Worth::Ignoring,
+    },
+  )
 }
 
 pub fn worth(message: &Message) -> Result<Worth, Never> {

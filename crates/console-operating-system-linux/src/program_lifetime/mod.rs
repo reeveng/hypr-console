@@ -82,7 +82,10 @@ fn kill_and_reap(child: &mut Child) -> Result<(), Never> {
     Err(fault) => match child.try_wait() {
       Ok(Some(_ended)) => return Ok(()),
       Ok(None) => console_core_logging::warn!("could not stop child {}: {fault}", child.id()),
-      Err(check) => console_core_logging::warn!("could not stop child {}: {fault}; checking: {check}", child.id()),
+      Err(check) => console_core_logging::warn!(
+        "could not stop child {}: {fault}; checking: {check}",
+        child.id()
+      ),
     },
   }
 

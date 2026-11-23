@@ -48,8 +48,8 @@ fn diagnostics() -> Result<chromium::Diagnostics, console_core_never::Never> {
   Ok(match std::env::var_os("CONSOLE_BROWSER_CHECK") {
     Some(value) => match (value == "1").then_some(()) {
       Some(()) => chromium::Diagnostics::Show,
-      None => chromium::Diagnostics::Quiet,
+      None => chromium::Diagnostics::Disabled,
     },
-    None => chromium::Diagnostics::Quiet,
+    None => chromium::Diagnostics::Disabled,
   })
 }

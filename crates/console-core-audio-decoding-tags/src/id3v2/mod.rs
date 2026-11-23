@@ -60,12 +60,12 @@ pub mod util {
 
 enum Walk {
   OnToTheNext,
-  Done,
+  Finished,
 }
 
 fn add_frame(frame: Frame, metadata: &mut MetadataBuilder) -> Result<Walk, Never> {
   match frame {
-    Frame::Padding => return Ok(Walk::Done),
+    Frame::Padding => return Ok(Walk::Finished),
     Frame::Tag(tag) => {
       let Ok(_configured_add_tag) = metadata.add_tag(tag);
     }
@@ -106,7 +106,7 @@ fn read_body(
     let Ok(walk) = add_frame(frame, metadata);
 
     match walk {
-      Walk::Done => break,
+      Walk::Finished => break,
       Walk::OnToTheNext => {}
     }
 

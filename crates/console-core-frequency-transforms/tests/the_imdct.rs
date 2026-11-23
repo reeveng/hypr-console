@@ -9,7 +9,7 @@
 //! double precision, so the digests cannot agree on something that is wrong.
 
 use console_core_frequency_transforms::{
-  Fault,
+  TransformError,
   mdct::{Imdct, Scale},
 };
 use console_core_never::Never;
@@ -49,7 +49,7 @@ fn sparse([count, at]: [u32; 2]) -> Result<Vec<f32>, Never> {
   )
 }
 
-fn transformed(transform: &mut Imdct, spec: &[f32]) -> Result<Vec<f32>, Fault> {
+fn transformed(transform: &mut Imdct, spec: &[f32]) -> Result<Vec<f32>, TransformError> {
   let Ok(length) = index(spec.len());
   let mut out = vec![7.0; length.saturating_mul(2).min(131072)];
 
@@ -58,7 +58,7 @@ fn transformed(transform: &mut Imdct, spec: &[f32]) -> Result<Vec<f32>, Fault> {
   Ok(out)
 }
 
-fn rows() -> Result<Vec<(String, u64)>, Fault> {
+fn rows() -> Result<Vec<(String, u64)>, TransformError> {
   let mut rows = Vec::new();
 
   for n in [
@@ -105,7 +105,7 @@ fn rows() -> Result<Vec<(String, u64)>, Fault> {
 }
 
 #[test]
-fn every_size_transforms_as_it_did_before_the_rewrite() -> Result<(), Fault> {
+fn every_size_transforms_as_it_did_before_the_rewrite() -> Result<(), TransformError> {
   let found = rows()?;
   let wrong: Vec<&str> = found
     .iter()
@@ -148,7 +148,7 @@ fn analytic(spec: &[f32], n: u32, scale: Scale) -> Result<Vec<f64>, Never> {
 }
 
 #[test]
-fn every_size_agrees_with_the_definition() -> Result<(), Fault> {
+fn every_size_agrees_with_the_definition() -> Result<(), TransformError> {
   for n in [4u32, 8, 16, 32, 64, 256, 1024] {
     for scale in [
       1.0,
@@ -175,21 +175,21 @@ fn every_size_agrees_with_the_definition() -> Result<(), Fault> {
 #[test]
 fn a_size_that_is_not_a_power_of_two_is_refused() {
   for n in [0u32, 1, 2, 3, 6, 12, 100, 131072, 262144] {
-    assert!(matches!(Imdct::new(n), Err(Fault::Size)), "{n}");
+    assert!(matches!(Imdct::new(n), Err(TransformError::Size)), "{n}");
   }
 }
 
 #[test]
-fn a_slice_of_the_wrong_length_is_refused() -> Result<(), Fault> {
+fn a_slice_of_the_wrong_length_is_refused() -> Result<(), TransformError> {
   let mut transform = Imdct::new(8)?;
 
   assert_eq!(
     transform.imdct(&[0.0; 7], &mut [0.0; 16]),
-    Err(Fault::Spectrum)
+    Err(TransformError::Spectrum)
   );
   assert_eq!(
     transform.imdct(&[0.0; 8], &mut [0.0; 15]),
-    Err(Fault::Output)
+    Err(TransformError::Output)
   );
   assert_eq!(transform.imdct(&[0.0; 8], &mut [0.0; 16]), Ok(()));
 

@@ -107,41 +107,119 @@ fn m181(a: V) -> V {
   vrshrq_n_s32::<8>(vmulq_n_s32(a, 181))
 }
 
-
-
-
-
 /// `inv_dct4_1d_internal_c`, `tx64 == 0`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dct4(c: &mut [V; 4], min: V, max: V) {
-  let (in0, in1, in2, in3) = (match c { &mut [_explicit_element, ..] => _explicit_element }, match c { &mut [_, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _explicit_element, ..] => _explicit_element });
+  let (in0, in1, in2, in3) = (
+    match c {
+      &mut [_explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
   let t0 = m181(vaddq_s32(in0, in2));
   let t1 = m181(vsubq_s32(in0, in2));
-  let t2 = vsubq_s32(mm12(in1, 1567, in3, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096))), in3);
-  let t3 = vaddq_s32(mm12(in1, ::core::primitive::i32::wrapping_sub(3784, 4096), in3, 1567), in1);
+  let t2 = vsubq_s32(
+    mm12(
+      in1,
+      1567,
+      in3,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096)),
+    ),
+    in3,
+  );
+  let t3 = vaddq_s32(
+    mm12(
+      in1,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      in3,
+      1567,
+    ),
+    in1,
+  );
 
-  *{ let [_explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t0, t3), min, max);
-  *{ let [_, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t1, t2), min, max);
-  *{ let [_, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t1, t2), min, max);
-  *{ let [_, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t0, t3), min, max);
+  *{
+    let [_explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t0, t3), min, max);
+  *{
+    let [_, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t1, t2), min, max);
+  *{
+    let [_, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t1, t2), min, max);
+  *{
+    let [_, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t0, t3), min, max);
 }
 
 /// `inv_dct8_1d_internal_c`, `tx64 == 0`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dct8(c: &mut [V; 8], min: V, max: V) {
-
-  let mut e = [match c { &mut [_explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
+  let mut e = [
+    match c {
+      &mut [_explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  ];
   dct4(&mut e, min, max);
 
-  let (in1, in3, in5, in7) = (match c { &mut [_, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  let (in1, in3, in5, in7) = (
+    match c {
+      &mut [_, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
-  let t4a = vsubq_s32(mm12(in1, 799, in7, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4017, 4096))), in7);
+  let t4a = vsubq_s32(
+    mm12(
+      in1,
+      799,
+      in7,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4017, 4096)),
+    ),
+    in7,
+  );
   let mut t5a = mm11(in5, 1703, in3, -1138);
   let mut t6a = mm11(in5, 1138, in3, 1703);
-  let t7a = vaddq_s32(mm12(in1, ::core::primitive::i32::wrapping_sub(4017, 4096), in7, 799), in1);
+  let t7a = vaddq_s32(
+    mm12(
+      in1,
+      ::core::primitive::i32::wrapping_sub(4017, 4096),
+      in7,
+      799,
+    ),
+    in1,
+  );
 
   let t4 = clip4(vaddq_s32(t4a, t5a), min, max);
   t5a = clip4(vsubq_s32(t4a, t5a), min, max);
@@ -151,36 +229,207 @@ fn dct8(c: &mut [V; 8], min: V, max: V) {
   let t5 = m181(vsubq_s32(t6a, t5a));
   let t6 = m181(vaddq_s32(t6a, t5a));
 
-  let (t0, t1, t2, t3) = (match e { [_explicit_element, ..] => _explicit_element }, match e { [_, _explicit_element, ..] => _explicit_element }, match e { [_, _, _explicit_element, ..] => _explicit_element }, match e { [_, _, _, _explicit_element, ..] => _explicit_element });
+  let (t0, t1, t2, t3) = (
+    match e {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
-  *{ let [_explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t0, t7), min, max);
-  *{ let [_, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t1, t6), min, max);
-  *{ let [_, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t2, t5), min, max);
-  *{ let [_, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t3, t4), min, max);
-  *{ let [_, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t3, t4), min, max);
-  *{ let [_, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t2, t5), min, max);
-  *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t1, t6), min, max);
-  *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t0, t7), min, max);
+  *{
+    let [_explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t0, t7), min, max);
+  *{
+    let [_, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t1, t6), min, max);
+  *{
+    let [_, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t2, t5), min, max);
+  *{
+    let [_, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t3, t4), min, max);
+  *{
+    let [_, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t3, t4), min, max);
+  *{
+    let [_, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t2, t5), min, max);
+  *{
+    let [_, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t1, t6), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t0, t7), min, max);
 }
 
 /// `inv_dct16_1d_internal_c`, `tx64 == 0`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dct16(c: &mut [V; 16], min: V, max: V) {
-  let mut e = [match c { &mut [_explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
+  let mut e = [
+    match c {
+      &mut [_explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+  ];
   dct8(&mut e, min, max);
 
-  let (in1, in3, in5, in7) = (match c { &mut [_, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-  let (in9, in11, in13, in15) = (match c { &mut [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &mut [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  let (in1, in3, in5, in7) = (
+    match c {
+      &mut [_, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (in9, in11, in13, in15) = (
+    match c {
+      &mut [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &mut [
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+  );
 
-  let mut t8a = vsubq_s32(mm12(in1, 401, in15, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4076, 4096))), in15);
+  let mut t8a = vsubq_s32(
+    mm12(
+      in1,
+      401,
+      in15,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4076, 4096)),
+    ),
+    in15,
+  );
   let mut t9a = mm11(in9, 1583, in7, -1299);
-  let mut t10a = vsubq_s32(mm12(in5, 1931, in11, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3612, 4096))), in11);
-  let mut t11a = vaddq_s32(mm12(in13, ::core::primitive::i32::wrapping_sub(3920, 4096), in3, -1189), in13);
-  let mut t12a = vaddq_s32(mm12(in13, 1189, in3, ::core::primitive::i32::wrapping_sub(3920, 4096)), in3);
-  let mut t13a = vaddq_s32(mm12(in5, ::core::primitive::i32::wrapping_sub(3612, 4096), in11, 1931), in5);
+  let mut t10a = vsubq_s32(
+    mm12(
+      in5,
+      1931,
+      in11,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3612, 4096)),
+    ),
+    in11,
+  );
+  let mut t11a = vaddq_s32(
+    mm12(
+      in13,
+      ::core::primitive::i32::wrapping_sub(3920, 4096),
+      in3,
+      -1189,
+    ),
+    in13,
+  );
+  let mut t12a = vaddq_s32(
+    mm12(
+      in13,
+      1189,
+      in3,
+      ::core::primitive::i32::wrapping_sub(3920, 4096),
+    ),
+    in3,
+  );
+  let mut t13a = vaddq_s32(
+    mm12(
+      in5,
+      ::core::primitive::i32::wrapping_sub(3612, 4096),
+      in11,
+      1931,
+    ),
+    in5,
+  );
   let mut t14a = mm11(in9, 1299, in7, 1583);
-  let mut t15a = vaddq_s32(mm12(in1, ::core::primitive::i32::wrapping_sub(4076, 4096), in15, 401), in1);
+  let mut t15a = vaddq_s32(
+    mm12(
+      in1,
+      ::core::primitive::i32::wrapping_sub(4076, 4096),
+      in15,
+      401,
+    ),
+    in1,
+  );
 
   let t8 = clip4(vaddq_s32(t8a, t9a), min, max);
   let mut t9 = clip4(vsubq_s32(t8a, t9a), min, max);
@@ -191,8 +440,24 @@ fn dct16(c: &mut [V; 16], min: V, max: V) {
   let mut t14 = clip4(vsubq_s32(t15a, t14a), min, max);
   let t15 = clip4(vaddq_s32(t15a, t14a), min, max);
 
-  t9a = vsubq_s32(mm12(t14, 1567, t9, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096))), t9);
-  t14a = vaddq_s32(mm12(t14, ::core::primitive::i32::wrapping_sub(3784, 4096), t9, 1567), t14);
+  t9a = vsubq_s32(
+    mm12(
+      t14,
+      1567,
+      t9,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096)),
+    ),
+    t9,
+  );
+  t14a = vaddq_s32(
+    mm12(
+      t14,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t9,
+      1567,
+    ),
+    t14,
+  );
 
   t10a = vsubq_s32(
     vrshrq_n_s32::<12>(vnegq_s32(vmlaq_n_s32(
@@ -202,7 +467,15 @@ fn dct16(c: &mut [V; 16], min: V, max: V) {
     ))),
     t13,
   );
-  t13a = vsubq_s32(mm12(t13, 1567, t10, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096))), t10);
+  t13a = vsubq_s32(
+    mm12(
+      t13,
+      1567,
+      t10,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096)),
+    ),
+    t10,
+  );
   t8a = clip4(vaddq_s32(t8, t11), min, max);
   t9 = clip4(vaddq_s32(t9a, t10a), min, max);
   t10 = clip4(vsubq_s32(t9a, t10a), min, max);
@@ -217,25 +490,117 @@ fn dct16(c: &mut [V; 16], min: V, max: V) {
   t11 = m181(vsubq_s32(t12a, t11a));
   t12 = m181(vaddq_s32(t12a, t11a));
 
-  let (t0, t1, t2, t3) = (match e { [_explicit_element, ..] => _explicit_element }, match e { [_, _explicit_element, ..] => _explicit_element }, match e { [_, _, _explicit_element, ..] => _explicit_element }, match e { [_, _, _, _explicit_element, ..] => _explicit_element });
-  let (t4, t5, t6, t7) = (match e { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match e { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match e { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match e { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  let (t0, t1, t2, t3) = (
+    match e {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (t4, t5, t6, t7) = (
+    match e {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match e {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
-  *{ let [_explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t0, t15a), min, max);
-  *{ let [_, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t1, t14), min, max);
-  *{ let [_, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t2, t13a), min, max);
-  *{ let [_, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t3, t12), min, max);
-  *{ let [_, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t4, t11), min, max);
-  *{ let [_, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t5, t10a), min, max);
-  *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t6, t9), min, max);
-  *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vaddq_s32(t7, t8a), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t7, t8a), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t6, t9), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t5, t10a), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t4, t11), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t3, t12), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t2, t13a), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t1, t14), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c; _explicit_part } = clip4(vsubq_s32(t0, t15a), min, max);
+  *{
+    let [_explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t0, t15a), min, max);
+  *{
+    let [_, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t1, t14), min, max);
+  *{
+    let [_, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t2, t13a), min, max);
+  *{
+    let [_, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t3, t12), min, max);
+  *{
+    let [_, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t4, t11), min, max);
+  *{
+    let [_, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t5, t10a), min, max);
+  *{
+    let [_, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t6, t9), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vaddq_s32(t7, t8a), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t7, t8a), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t6, t9), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t5, t10a), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t4, t11), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t3, t12), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t2, t13a), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t1, t14), min, max);
+  *{
+    let [
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _explicit_part,
+      ..,
+    ] = &mut *c;
+    _explicit_part
+  } = clip4(vsubq_s32(t0, t15a), min, max);
 }
 
 /// `inv_adst4_1d_internal_c`, results in forward output order.
@@ -244,8 +609,20 @@ fn dct16(c: &mut [V; 16], min: V, max: V) {
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn adst4_core(c: &[V; 4]) -> [V; 4] {
-  let (in0, in1, in2, in3) = (match c { &[_explicit_element, ..] => _explicit_element }, match c { &[_, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _explicit_element, ..] => _explicit_element });
-
+  let (in0, in1, in2, in3) = (
+    match c {
+      &[_explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
   let mut a = vmulq_n_s32(in0, 1321);
   a = vmlaq_n_s32(a, in2, ::core::primitive::i32::wrapping_sub(3803, 4096));
@@ -253,16 +630,13 @@ fn adst4_core(c: &[V; 4]) -> [V; 4] {
   a = vmlaq_n_s32(a, in1, ::core::primitive::i32::wrapping_sub(3344, 4096));
   let o0 = vaddq_s32(vaddq_s32(vaddq_s32(vrshrq_n_s32::<12>(a), in2), in3), in1);
 
-
   let mut b = vmulq_n_s32(in0, ::core::primitive::i32::wrapping_sub(2482, 4096));
   b = vmlsq_n_s32(b, in2, 1321);
   b = vmlsq_n_s32(b, in3, ::core::primitive::i32::wrapping_sub(3803, 4096));
   b = vmlaq_n_s32(b, in1, ::core::primitive::i32::wrapping_sub(3344, 4096));
   let o1 = vaddq_s32(vsubq_s32(vaddq_s32(vrshrq_n_s32::<12>(b), in0), in3), in1);
 
-
   let o2 = vrshrq_n_s32::<8>(vmulq_n_s32(vaddq_s32(vsubq_s32(in0, in2), in3), 209));
-
 
   let mut d = vmulq_n_s32(in0, ::core::primitive::i32::wrapping_sub(3803, 4096));
   d = vmlaq_n_s32(d, in2, ::core::primitive::i32::wrapping_sub(2482, 4096));
@@ -277,17 +651,91 @@ fn adst4_core(c: &[V; 4]) -> [V; 4] {
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn adst8_core(c: &[V; 8], min: V, max: V) -> [V; 8] {
-  let (in0, in1, in2, in3) = (match c { &[_explicit_element, ..] => _explicit_element }, match c { &[_, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _explicit_element, ..] => _explicit_element });
-  let (in4, in5, in6, in7) = (match c { &[_, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  let (in0, in1, in2, in3) = (
+    match c {
+      &[_explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (in4, in5, in6, in7) = (
+    match c {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
-  let t0a = vaddq_s32(mm12(in7, ::core::primitive::i32::wrapping_sub(4076, 4096), in0, 401), in7);
-  let t1a = vsubq_s32(mm12(in7, 401, in0, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4076, 4096))), in0);
-  let t2a = vaddq_s32(mm12(in5, ::core::primitive::i32::wrapping_sub(3612, 4096), in2, 1931), in5);
-  let t3a = vsubq_s32(mm12(in5, 1931, in2, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3612, 4096))), in2);
+  let t0a = vaddq_s32(
+    mm12(
+      in7,
+      ::core::primitive::i32::wrapping_sub(4076, 4096),
+      in0,
+      401,
+    ),
+    in7,
+  );
+  let t1a = vsubq_s32(
+    mm12(
+      in7,
+      401,
+      in0,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4076, 4096)),
+    ),
+    in0,
+  );
+  let t2a = vaddq_s32(
+    mm12(
+      in5,
+      ::core::primitive::i32::wrapping_sub(3612, 4096),
+      in2,
+      1931,
+    ),
+    in5,
+  );
+  let t3a = vsubq_s32(
+    mm12(
+      in5,
+      1931,
+      in2,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3612, 4096)),
+    ),
+    in2,
+  );
   let mut t4a = mm11(in3, 1299, in4, 1583);
   let mut t5a = mm11(in3, 1583, in4, -1299);
-  let mut t6a = vaddq_s32(mm12(in1, 1189, in6, ::core::primitive::i32::wrapping_sub(3920, 4096)), in6);
-  let mut t7a = vaddq_s32(mm12(in1, ::core::primitive::i32::wrapping_sub(3920, 4096), in6, -1189), in1);
+  let mut t6a = vaddq_s32(
+    mm12(
+      in1,
+      1189,
+      in6,
+      ::core::primitive::i32::wrapping_sub(3920, 4096),
+    ),
+    in6,
+  );
+  let mut t7a = vaddq_s32(
+    mm12(
+      in1,
+      ::core::primitive::i32::wrapping_sub(3920, 4096),
+      in6,
+      -1189,
+    ),
+    in1,
+  );
 
   let t0 = clip4(vaddq_s32(t0a, t4a), min, max);
   let t1 = clip4(vaddq_s32(t1a, t5a), min, max);
@@ -298,25 +746,81 @@ fn adst8_core(c: &[V; 8], min: V, max: V) -> [V; 8] {
   let mut t6 = clip4(vsubq_s32(t2a, t6a), min, max);
   let mut t7 = clip4(vsubq_s32(t3a, t7a), min, max);
 
-  t4a = vaddq_s32(mm12(t4, ::core::primitive::i32::wrapping_sub(3784, 4096), t5, 1567), t4);
-  t5a = vsubq_s32(mm12(t4, 1567, t5, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096))), t5);
-  t6a = vaddq_s32(mm12(t7, ::core::primitive::i32::wrapping_sub(3784, 4096), t6, -1567), t7);
-  t7a = vaddq_s32(mm12(t7, 1567, t6, ::core::primitive::i32::wrapping_sub(3784, 4096)), t6);
+  t4a = vaddq_s32(
+    mm12(
+      t4,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t5,
+      1567,
+    ),
+    t4,
+  );
+  t5a = vsubq_s32(
+    mm12(
+      t4,
+      1567,
+      t5,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096)),
+    ),
+    t5,
+  );
+  t6a = vaddq_s32(
+    mm12(
+      t7,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t6,
+      -1567,
+    ),
+    t7,
+  );
+  t7a = vaddq_s32(
+    mm12(
+      t7,
+      1567,
+      t6,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+    ),
+    t6,
+  );
 
   let mut o = [vdupq_n_s32(0); 8];
-  *{ let [_explicit_part, ..] = &mut o; _explicit_part } = clip4(vaddq_s32(t0, t2), min, max);
-  *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(clip4(vaddq_s32(t1, t3), min, max));
+  *{
+    let [_explicit_part, ..] = &mut o;
+    _explicit_part
+  } = clip4(vaddq_s32(t0, t2), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(clip4(vaddq_s32(t1, t3), min, max));
   t2 = clip4(vsubq_s32(t0, t2), min, max);
   t3 = clip4(vsubq_s32(t1, t3), min, max);
-  *{ let [_, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(clip4(vaddq_s32(t4a, t6a), min, max));
-  *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = clip4(vaddq_s32(t5a, t7a), min, max);
+  *{
+    let [_, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(clip4(vaddq_s32(t4a, t6a), min, max));
+  *{
+    let [_, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = clip4(vaddq_s32(t5a, t7a), min, max);
   t6 = clip4(vsubq_s32(t4a, t6a), min, max);
   t7 = clip4(vsubq_s32(t5a, t7a), min, max);
 
-  *{ let [_, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(m181(vaddq_s32(t2, t3)));
-  *{ let [_, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = m181(vsubq_s32(t2, t3));
-  *{ let [_, _, _explicit_part, ..] = &mut o; _explicit_part } = m181(vaddq_s32(t6, t7));
-  *{ let [_, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(m181(vsubq_s32(t6, t7)));
+  *{
+    let [_, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(m181(vaddq_s32(t2, t3)));
+  *{
+    let [_, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = m181(vsubq_s32(t2, t3));
+  *{
+    let [_, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = m181(vaddq_s32(t6, t7));
+  *{
+    let [_, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(m181(vsubq_s32(t6, t7)));
   o
 }
 
@@ -324,27 +828,226 @@ fn adst8_core(c: &[V; 8], min: V, max: V) -> [V; 8] {
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn adst16_core(c: &[V; 16], min: V, max: V) -> [V; 16] {
-  let (in0, in1, in2, in3) = (match c { &[_explicit_element, ..] => _explicit_element }, match c { &[_, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _explicit_element, ..] => _explicit_element });
-  let (in4, in5, in6, in7) = (match c { &[_, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-  let (in8, in9, in10, in11) = (match c { &[_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-  let (in12, in13, in14, in15) = (match c { &[_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match c { &[_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  let (in0, in1, in2, in3) = (
+    match c {
+      &[_explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (in4, in5, in6, in7) = (
+    match c {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (in8, in9, in10, in11) = (
+    match c {
+      &[_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let (in12, in13, in14, in15) = (
+    match c {
+      &[_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+    match c {
+      &[
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+    match c {
+      &[
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _explicit_element,
+        ..,
+      ] => _explicit_element,
+    },
+  );
 
-  let mut t0 = vaddq_s32(mm12(in15, ::core::primitive::i32::wrapping_sub(4091, 4096), in0, 201), in15);
-  let mut t1 = vsubq_s32(mm12(in15, 201, in0, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4091, 4096))), in0);
-  let mut t2 = vaddq_s32(mm12(in13, ::core::primitive::i32::wrapping_sub(3973, 4096), in2, 995), in13);
-  let mut t3 = vsubq_s32(mm12(in13, 995, in2, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3973, 4096))), in2);
-  let mut t4 = vaddq_s32(mm12(in11, ::core::primitive::i32::wrapping_sub(3703, 4096), in4, 1751), in11);
-  let mut t5 = vsubq_s32(mm12(in11, 1751, in4, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3703, 4096))), in4);
+  let mut t0 = vaddq_s32(
+    mm12(
+      in15,
+      ::core::primitive::i32::wrapping_sub(4091, 4096),
+      in0,
+      201,
+    ),
+    in15,
+  );
+  let mut t1 = vsubq_s32(
+    mm12(
+      in15,
+      201,
+      in0,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4091, 4096)),
+    ),
+    in0,
+  );
+  let mut t2 = vaddq_s32(
+    mm12(
+      in13,
+      ::core::primitive::i32::wrapping_sub(3973, 4096),
+      in2,
+      995,
+    ),
+    in13,
+  );
+  let mut t3 = vsubq_s32(
+    mm12(
+      in13,
+      995,
+      in2,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3973, 4096)),
+    ),
+    in2,
+  );
+  let mut t4 = vaddq_s32(
+    mm12(
+      in11,
+      ::core::primitive::i32::wrapping_sub(3703, 4096),
+      in4,
+      1751,
+    ),
+    in11,
+  );
+  let mut t5 = vsubq_s32(
+    mm12(
+      in11,
+      1751,
+      in4,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3703, 4096)),
+    ),
+    in4,
+  );
   let mut t6 = mm11(in9, 1645, in6, 1220);
   let mut t7 = mm11(in9, 1220, in6, -1645);
-  let mut t8 = vaddq_s32(mm12(in7, 2751, in8, ::core::primitive::i32::wrapping_sub(3035, 4096)), in8);
-  let mut t9 = vaddq_s32(mm12(in7, ::core::primitive::i32::wrapping_sub(3035, 4096), in8, -2751), in7);
-  let mut t10 = vaddq_s32(mm12(in5, 2106, in10, ::core::primitive::i32::wrapping_sub(3513, 4096)), in10);
-  let mut t11 = vaddq_s32(mm12(in5, ::core::primitive::i32::wrapping_sub(3513, 4096), in10, -2106), in5);
-  let mut t12 = vaddq_s32(mm12(in3, 1380, in12, ::core::primitive::i32::wrapping_sub(3857, 4096)), in12);
-  let mut t13 = vaddq_s32(mm12(in3, ::core::primitive::i32::wrapping_sub(3857, 4096), in12, -1380), in3);
-  let mut t14 = vaddq_s32(mm12(in1, 601, in14, ::core::primitive::i32::wrapping_sub(4052, 4096)), in14);
-  let mut t15 = vaddq_s32(mm12(in1, ::core::primitive::i32::wrapping_sub(4052, 4096), in14, -601), in1);
+  let mut t8 = vaddq_s32(
+    mm12(
+      in7,
+      2751,
+      in8,
+      ::core::primitive::i32::wrapping_sub(3035, 4096),
+    ),
+    in8,
+  );
+  let mut t9 = vaddq_s32(
+    mm12(
+      in7,
+      ::core::primitive::i32::wrapping_sub(3035, 4096),
+      in8,
+      -2751,
+    ),
+    in7,
+  );
+  let mut t10 = vaddq_s32(
+    mm12(
+      in5,
+      2106,
+      in10,
+      ::core::primitive::i32::wrapping_sub(3513, 4096),
+    ),
+    in10,
+  );
+  let mut t11 = vaddq_s32(
+    mm12(
+      in5,
+      ::core::primitive::i32::wrapping_sub(3513, 4096),
+      in10,
+      -2106,
+    ),
+    in5,
+  );
+  let mut t12 = vaddq_s32(
+    mm12(
+      in3,
+      1380,
+      in12,
+      ::core::primitive::i32::wrapping_sub(3857, 4096),
+    ),
+    in12,
+  );
+  let mut t13 = vaddq_s32(
+    mm12(
+      in3,
+      ::core::primitive::i32::wrapping_sub(3857, 4096),
+      in12,
+      -1380,
+    ),
+    in3,
+  );
+  let mut t14 = vaddq_s32(
+    mm12(
+      in1,
+      601,
+      in14,
+      ::core::primitive::i32::wrapping_sub(4052, 4096),
+    ),
+    in14,
+  );
+  let mut t15 = vaddq_s32(
+    mm12(
+      in1,
+      ::core::primitive::i32::wrapping_sub(4052, 4096),
+      in14,
+      -601,
+    ),
+    in1,
+  );
 
   let t0a = clip4(vaddq_s32(t0, t8), min, max);
   let t1a = clip4(vaddq_s32(t1, t9), min, max);
@@ -363,14 +1066,78 @@ fn adst16_core(c: &[V; 16], min: V, max: V) -> [V; 16] {
   let mut t14a = clip4(vsubq_s32(t6, t14), min, max);
   let mut t15a = clip4(vsubq_s32(t7, t15), min, max);
 
-  t8 = vaddq_s32(mm12(t8a, ::core::primitive::i32::wrapping_sub(4017, 4096), t9a, 799), t8a);
-  t9 = vsubq_s32(mm12(t8a, 799, t9a, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4017, 4096))), t9a);
-  t10 = vaddq_s32(mm12(t10a, 2276, t11a, ::core::primitive::i32::wrapping_sub(3406, 4096)), t11a);
-  t11 = vaddq_s32(mm12(t10a, ::core::primitive::i32::wrapping_sub(3406, 4096), t11a, -2276), t10a);
-  t12 = vaddq_s32(mm12(t13a, ::core::primitive::i32::wrapping_sub(4017, 4096), t12a, -799), t13a);
-  t13 = vaddq_s32(mm12(t13a, 799, t12a, ::core::primitive::i32::wrapping_sub(4017, 4096)), t12a);
-  t14 = vsubq_s32(mm12(t15a, 2276, t14a, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3406, 4096))), t14a);
-  t15 = vaddq_s32(mm12(t15a, ::core::primitive::i32::wrapping_sub(3406, 4096), t14a, 2276), t15a);
+  t8 = vaddq_s32(
+    mm12(
+      t8a,
+      ::core::primitive::i32::wrapping_sub(4017, 4096),
+      t9a,
+      799,
+    ),
+    t8a,
+  );
+  t9 = vsubq_s32(
+    mm12(
+      t8a,
+      799,
+      t9a,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(4017, 4096)),
+    ),
+    t9a,
+  );
+  t10 = vaddq_s32(
+    mm12(
+      t10a,
+      2276,
+      t11a,
+      ::core::primitive::i32::wrapping_sub(3406, 4096),
+    ),
+    t11a,
+  );
+  t11 = vaddq_s32(
+    mm12(
+      t10a,
+      ::core::primitive::i32::wrapping_sub(3406, 4096),
+      t11a,
+      -2276,
+    ),
+    t10a,
+  );
+  t12 = vaddq_s32(
+    mm12(
+      t13a,
+      ::core::primitive::i32::wrapping_sub(4017, 4096),
+      t12a,
+      -799,
+    ),
+    t13a,
+  );
+  t13 = vaddq_s32(
+    mm12(
+      t13a,
+      799,
+      t12a,
+      ::core::primitive::i32::wrapping_sub(4017, 4096),
+    ),
+    t12a,
+  );
+  t14 = vsubq_s32(
+    mm12(
+      t15a,
+      2276,
+      t14a,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3406, 4096)),
+    ),
+    t14a,
+  );
+  t15 = vaddq_s32(
+    mm12(
+      t15a,
+      ::core::primitive::i32::wrapping_sub(3406, 4096),
+      t14a,
+      2276,
+    ),
+    t15a,
+  );
 
   t0 = clip4(vaddq_s32(t0a, t4a), min, max);
   t1 = clip4(vaddq_s32(t1a, t5a), min, max);
@@ -389,41 +1156,171 @@ fn adst16_core(c: &[V; 16], min: V, max: V) -> [V; 16] {
   t14a = clip4(vsubq_s32(t10, t14), min, max);
   t15a = clip4(vsubq_s32(t11, t15), min, max);
 
-  t4a = vaddq_s32(mm12(t4, ::core::primitive::i32::wrapping_sub(3784, 4096), t5, 1567), t4);
-  t5a = vsubq_s32(mm12(t4, 1567, t5, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096))), t5);
-  t6a = vaddq_s32(mm12(t7, ::core::primitive::i32::wrapping_sub(3784, 4096), t6, -1567), t7);
-  t7a = vaddq_s32(mm12(t7, 1567, t6, ::core::primitive::i32::wrapping_sub(3784, 4096)), t6);
-  t12 = vaddq_s32(mm12(t12a, ::core::primitive::i32::wrapping_sub(3784, 4096), t13a, 1567), t12a);
-  t13 = vsubq_s32(mm12(t12a, 1567, t13a, ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096))), t13a);
-  t14 = vaddq_s32(mm12(t15a, ::core::primitive::i32::wrapping_sub(3784, 4096), t14a, -1567), t15a);
-  t15 = vaddq_s32(mm12(t15a, 1567, t14a, ::core::primitive::i32::wrapping_sub(3784, 4096)), t14a);
+  t4a = vaddq_s32(
+    mm12(
+      t4,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t5,
+      1567,
+    ),
+    t4,
+  );
+  t5a = vsubq_s32(
+    mm12(
+      t4,
+      1567,
+      t5,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096)),
+    ),
+    t5,
+  );
+  t6a = vaddq_s32(
+    mm12(
+      t7,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t6,
+      -1567,
+    ),
+    t7,
+  );
+  t7a = vaddq_s32(
+    mm12(
+      t7,
+      1567,
+      t6,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+    ),
+    t6,
+  );
+  t12 = vaddq_s32(
+    mm12(
+      t12a,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t13a,
+      1567,
+    ),
+    t12a,
+  );
+  t13 = vsubq_s32(
+    mm12(
+      t12a,
+      1567,
+      t13a,
+      ::core::primitive::i32::wrapping_neg(::core::primitive::i32::wrapping_sub(3784, 4096)),
+    ),
+    t13a,
+  );
+  t14 = vaddq_s32(
+    mm12(
+      t15a,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+      t14a,
+      -1567,
+    ),
+    t15a,
+  );
+  t15 = vaddq_s32(
+    mm12(
+      t15a,
+      1567,
+      t14a,
+      ::core::primitive::i32::wrapping_sub(3784, 4096),
+    ),
+    t14a,
+  );
 
   let mut o = [vdupq_n_s32(0); 16];
-  *{ let [_explicit_part, ..] = &mut o; _explicit_part } = clip4(vaddq_s32(t0, t2), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(clip4(vaddq_s32(t1, t3), min, max));
+  *{
+    let [_explicit_part, ..] = &mut o;
+    _explicit_part
+  } = clip4(vaddq_s32(t0, t2), min, max);
+  *{
+    let [
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _,
+      _explicit_part,
+      ..,
+    ] = &mut o;
+    _explicit_part
+  } = vnegq_s32(clip4(vaddq_s32(t1, t3), min, max));
   t2a = clip4(vsubq_s32(t0, t2), min, max);
   t3a = clip4(vsubq_s32(t1, t3), min, max);
-  *{ let [_, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(clip4(vaddq_s32(t4a, t6a), min, max));
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = clip4(vaddq_s32(t5a, t7a), min, max);
+  *{
+    let [_, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(clip4(vaddq_s32(t4a, t6a), min, max));
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = clip4(vaddq_s32(t5a, t7a), min, max);
   t6 = clip4(vsubq_s32(t4a, t6a), min, max);
   t7 = clip4(vsubq_s32(t5a, t7a), min, max);
-  *{ let [_, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(clip4(vaddq_s32(t8a, t10a), min, max));
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = clip4(vaddq_s32(t9a, t11a), min, max);
+  *{
+    let [_, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(clip4(vaddq_s32(t8a, t10a), min, max));
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = clip4(vaddq_s32(t9a, t11a), min, max);
   t10 = clip4(vsubq_s32(t8a, t10a), min, max);
   t11 = clip4(vsubq_s32(t9a, t11a), min, max);
-  *{ let [_, _, _explicit_part, ..] = &mut o; _explicit_part } = clip4(vaddq_s32(t12, t14), min, max);
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(clip4(vaddq_s32(t13, t15), min, max));
+  *{
+    let [_, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = clip4(vaddq_s32(t12, t14), min, max);
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(clip4(vaddq_s32(t13, t15), min, max));
   t14a = clip4(vsubq_s32(t12, t14), min, max);
   t15a = clip4(vsubq_s32(t13, t15), min, max);
 
-  *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(m181(vaddq_s32(t2a, t3a)));
-  *{ let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = m181(vsubq_s32(t2a, t3a));
-  *{ let [_, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = m181(vaddq_s32(t6, t7));
-  *{ let [_, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(m181(vsubq_s32(t6, t7)));
-  *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = m181(vaddq_s32(t10, t11));
-  *{ let [_, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(m181(vsubq_s32(t10, t11)));
-  *{ let [_, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vnegq_s32(m181(vaddq_s32(t14a, t15a)));
-  *{ let [_, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = m181(vsubq_s32(t14a, t15a));
+  *{
+    let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(m181(vaddq_s32(t2a, t3a)));
+  *{
+    let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = m181(vsubq_s32(t2a, t3a));
+  *{
+    let [_, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = m181(vaddq_s32(t6, t7));
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(m181(vsubq_s32(t6, t7)));
+  *{
+    let [_, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = m181(vaddq_s32(t10, t11));
+  *{
+    let [_, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(m181(vsubq_s32(t10, t11)));
+  *{
+    let [_, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vnegq_s32(m181(vaddq_s32(t14a, t15a)));
+  *{
+    let [_, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = m181(vsubq_s32(t14a, t15a));
   o
 }
 
@@ -498,8 +1395,6 @@ fn apply1d<const N: usize>(kind: Kind, v: &mut [V; N], min: V, max: V) {
       }
     }
 
-
-
     _ => unreachable!("itx_arm_hbd: no 1-D kernel for {kind:?} n={n}"),
   }
 }
@@ -508,10 +1403,38 @@ fn apply1d<const N: usize>(kind: Kind, v: &mut [V; N], min: V, max: V) {
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn transpose4x4(v: [V; 4]) -> [V; 4] {
-  let a = vtrn1q_s32(match v { [_explicit_element, ..] => _explicit_element }, match v { [_, _explicit_element, ..] => _explicit_element });
-  let b = vtrn2q_s32(match v { [_explicit_element, ..] => _explicit_element }, match v { [_, _explicit_element, ..] => _explicit_element });
-  let c = vtrn1q_s32(match v { [_, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _explicit_element, ..] => _explicit_element });
-  let d = vtrn2q_s32(match v { [_, _, _explicit_element, ..] => _explicit_element }, match v { [_, _, _, _explicit_element, ..] => _explicit_element });
+  let a = vtrn1q_s32(
+    match v {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let b = vtrn2q_s32(
+    match v {
+      [_explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let c = vtrn1q_s32(
+    match v {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  let d = vtrn2q_s32(
+    match v {
+      [_, _, _explicit_element, ..] => _explicit_element,
+    },
+    match v {
+      [_, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
   let (a64, b64) = (vreinterpretq_s64_s32(a), vreinterpretq_s64_s32(b));
   let (c64, d64) = (vreinterpretq_s64_s32(c), vreinterpretq_s64_s32(d));
   [
@@ -554,15 +1477,24 @@ pub(crate) fn hbd_dc_value(w: usize, h: usize, shift: u32, coeff: &mut [i32]) ->
   coeff[0] = 0;
 
   match ::core::primitive::bool::then_some(is_rect2, ()) {
-      ::core::option::Option::Some(()) => {
-        dc = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_mul(dc, 181) + 128, 8_u32);
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      dc = ::core::primitive::i32::wrapping_shr(
+        ::core::primitive::i32::wrapping_mul(dc, 181) + 128,
+        8_u32,
+      );
+    }
+    ::core::option::Option::None => {}
   }
 
-  dc = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_mul(dc, 181) + 128, 8_u32);
+  dc = ::core::primitive::i32::wrapping_shr(
+    ::core::primitive::i32::wrapping_mul(dc, 181) + 128,
+    8_u32,
+  );
   dc = ::core::primitive::i32::wrapping_add(dc, rnd) >> shift;
-  ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_mul(dc, 181) + 128 + 2048, 12_u32)
+  ::core::primitive::i32::wrapping_shr(
+    ::core::primitive::i32::wrapping_mul(dc, 181) + 128 + 2048,
+    12_u32,
+  )
 }
 
 /// Add one already-computed row of residual to `w` destination pixels.
@@ -634,7 +1566,6 @@ pub(crate) fn inv_txfm_hbd_neon(
     };
   }
 
-
   match (w, h) {
     (4, 4) => shape!(4, 4),
     (4, 8) => shape!(4, 8),
@@ -675,12 +1606,6 @@ fn txfm_core<const W: usize, const H: usize>(
 ) {
   const { assert!(W % 4 == 0 && H % 4 == 0) };
 
-
-
-
-
-
-
   let tmp = &mut tmp[..W * H];
   let coeff = &mut coeff[..W * H];
 
@@ -688,12 +1613,19 @@ fn txfm_core<const W: usize, const H: usize>(
   let rnd: i32 = ::core::primitive::i32::wrapping_shr(1 << shift, 1_u32);
 
   let row_clip_min = vdupq_n_s32(::core::primitive::i32::wrapping_shl((!bitdepth_max), 7_u32));
-  let row_clip_max = vdupq_n_s32(!::core::primitive::i32::wrapping_shl((!bitdepth_max), 7_u32));
+  let row_clip_max = vdupq_n_s32(!::core::primitive::i32::wrapping_shl(
+    (!bitdepth_max),
+    7_u32,
+  ));
   let col_clip_min = vdupq_n_s32(::core::primitive::i32::wrapping_shl((!bitdepth_max), 5_u32));
-  let col_clip_max = vdupq_n_s32(!::core::primitive::i32::wrapping_shl((!bitdepth_max), 5_u32));
+  let col_clip_max = vdupq_n_s32(!::core::primitive::i32::wrapping_shl(
+    (!bitdepth_max),
+    5_u32,
+  ));
   let rnd_v = vdupq_n_s32(rnd);
-  let shr = vdupq_n_s32(::core::primitive::i32::wrapping_neg(::core::primitive::u32::cast_signed(shift)));
-
+  let shr = vdupq_n_s32(::core::primitive::i32::wrapping_neg(
+    ::core::primitive::u32::cast_signed(shift),
+  ));
 
   let mut y0 = 0usize;
 
@@ -705,13 +1637,12 @@ fn txfm_core<const W: usize, const H: usize>(
       let a = <&[i32; 4]>::try_from(&coeff[base..base + 4]).expect("4 coeffs");
       let t = safe_simd::vld1q_s32(a);
       *v_element = match ::core::primitive::bool::then_some(is_rect2, ()) {
-          ::core::option::Option::Some(()) => { m181(t) },
-          ::core::option::Option::None => { t },
+        ::core::option::Option::Some(()) => m181(t),
+        ::core::option::Option::None => t,
       };
     }
 
     apply1d::<W>(first, &mut v, row_clip_min, row_clip_max);
-
 
     for e in v.iter_mut() {
       *e = clip4(
@@ -735,7 +1666,6 @@ fn txfm_core<const W: usize, const H: usize>(
   }
 
   coeff.fill(0);
-
 
   for x0 in (0..W).step_by(4) {
     let mut u = [vdupq_n_s32(0); H];

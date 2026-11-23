@@ -4,10 +4,10 @@
 
 #![forbid(unsafe_code)]
 
-use archmage::{Desktop64, arcane};
 use archmage::intrinsics::x86_64::{
   _mm_loadu_si128, _mm_storeu_si128, _mm256_loadu_si256, _mm256_storeu_si256,
 };
+use archmage::{Desktop64, arcane};
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::index;
@@ -39,7 +39,12 @@ pub(crate) fn pal_idx_finish_dispatch(
   }
 }
 
-fn pack_palette(token: Desktop64, dst: &mut [u8], src: &[u8], shape: PaletteBlock) -> Rav1dResult {
+fn pack_palette(
+  token: Desktop64,
+  dst: &mut [u8],
+  src: &[u8],
+  shape: PaletteBlock,
+) -> Rav1dResult {
   let PaletteBlock { block, visible } = shape;
 
   match (visible.height <= block.height && visible.width <= block.width).then_some(()) {
@@ -55,8 +60,12 @@ fn pack_palette(token: Desktop64, dst: &mut [u8], src: &[u8], shape: PaletteBloc
     width: block.width,
     height: visible.height,
   })?;
-  let mut dst_rows = packed_layout.rows_mut(dst).map_err(|_layout| Rav1dError::EINVAL)?;
-  let src_rows = source_layout.rows(src).map_err(|_layout| Rav1dError::EINVAL)?;
+  let mut dst_rows = packed_layout
+    .rows_mut(dst)
+    .map_err(|_layout| Rav1dError::EINVAL)?;
+  let src_rows = source_layout
+    .rows(src)
+    .map_err(|_layout| Rav1dError::EINVAL)?;
   let mut last_packed_row = None;
 
   for (source_row, packed_row) in src_rows.zip(dst_rows.by_ref()) {

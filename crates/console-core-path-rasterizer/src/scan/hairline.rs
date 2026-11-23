@@ -1,8 +1,7 @@
 use console_core_never::Never;
 use console_core_number_conversion::{index, wrapped};
 use console_core_paths::{
-  ContainsAnswer, IsFiniteAnswer, IsZeroAnswer, PathSegmentsIter, PathVerb, SaturateCast,
-  f32x2,
+  ContainsAnswer, IsFiniteAnswer, IsZeroAnswer, PathSegmentsIter, PathVerb, SaturateCast, f32x2,
 };
 
 use crate::CanConvertToFdot16Answer;
@@ -12,7 +11,7 @@ use crate::geom::{PixelPosition, ScreenIntRect};
 use crate::line_clipper;
 use crate::math::LENGTH_U32_ONE;
 use crate::path_geometry;
-use crate::{IntersectAnswer, LineCap, Path, PathSegment, Point, Rect};
+use crate::{IntersectAnswer, LineCap, Path, PathSegment, Point, FloatRectangle};
 
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use console_core_paths::NoStdFloat;
@@ -37,7 +36,7 @@ fn hair_line_rgn(
   clip: Option<&ScreenIntRect>,
   blitter: &mut dyn Blitter,
 ) -> Result<(), Never> {
-  let Ok(bounds) = Rect::from_ltrb(-32767.0, -32767.0, 32767.0, 32767.0);
+  let Ok(bounds) = FloatRectangle::from_ltrb(-32767.0, -32767.0, 32767.0, 32767.0);
   let fixed_bounds = match bounds {
     Some(valid) => valid,
     None => return Ok(()),
@@ -81,7 +80,7 @@ fn hair_line_rgn(
 
 pub(super) fn intersect_segment(
   points: &[Point; 2],
-  bounds: &Rect,
+  bounds: &FloatRectangle,
 ) -> Result<Option<[Point; 2]>, Never> {
   let mut line = *points;
   let Ok(answer) = line_clipper::intersect(points, bounds, &mut line);
@@ -236,8 +235,8 @@ fn draw_samples(
 
 #[derive(Clone, Copy)]
 struct CurveClip {
-  inset: Rect,
-  outset: Rect,
+  inset: FloatRectangle,
+  outset: FloatRectangle,
 }
 
 impl CurveClip {
@@ -565,7 +564,7 @@ fn stretch_cap<'a>(
   Ok(())
 }
 
-fn curve_bounds(points: &[Point]) -> Result<Option<Rect>, Never> {
+fn curve_bounds(points: &[Point]) -> Result<Option<FloatRectangle>, Never> {
   let (first, remaining) = match points.split_first() {
     Some(split) => split,
     None => return Ok(None),
@@ -600,12 +599,12 @@ fn curve_bounds(points: &[Point]) -> Result<Option<Rect>, Never> {
   let Ok(right) = max.x();
   let Ok(bottom) = max.y();
 
-  Rect::from_ltrb(left, top, right, bottom)
+  FloatRectangle::from_ltrb(left, top, right, bottom)
 }
 
 fn geometric_overlap(
-  a: &Rect,
-  b: &Rect,
+  a: &FloatRectangle,
+  b: &FloatRectangle,
 ) -> core::result::Result<crate::GeometricOverlapAnswer, console_core_never::Never> {
   let decided = {
     ({
@@ -642,8 +641,8 @@ fn geometric_overlap(
 }
 
 fn geometric_contains(
-  outer: &Rect,
-  inner: &Rect,
+  outer: &FloatRectangle,
+  inner: &FloatRectangle,
 ) -> core::result::Result<crate::GeometricContainsAnswer, console_core_never::Never> {
   let decided = {
     ({
@@ -928,9 +927,8 @@ fn compute_cubic_segments(points: &[Point; 4]) -> Result<u16, Never> {
   let Ok(p3) = end.to_f32x2();
   let Ok(one_third) = f32x2::splat(1.0 / 3.0);
   let Ok(two_thirds) = f32x2::splat(2.0 / 3.0);
-  let [first_offset, second_offset] = kurbo::bezier::cubic_control_offsets(
-    [p0, p1, p2, p3], one_third, two_thirds,
-  );
+  let [first_offset, second_offset] =
+    kurbo::bezier::cubic_control_offsets([p0, p1, p2, p3], one_third, two_thirds);
   let Ok(first_delta) = first_offset.abs();
   let Ok(second_delta) = second_offset.abs();
   let Ok(deltas) = first_delta.max(second_delta);

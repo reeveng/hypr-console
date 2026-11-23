@@ -20,20 +20,12 @@ use archmage::intrinsics::aarch64 as safe_simd;
 
 use super::itx_arm_neon_common::IDCT_COEFFS;
 
-
-
-
-
 /// IADST8 coefficients: two vectors loaded as {v0.8h, v1.8h}
 ///
 /// v0: [4076, 401, 3612, 1931, 2598, 3166, 1189, 3920]
 /// v1: [2896, 0, 1567, 3784, 0, 0, 0, 0]
 pub(crate) const IADST8_COEFFS_V0: [i16; 8] = [4076, 401, 3612, 1931, 2598, 3166, 1189, 3920];
 pub(crate) const IADST8_COEFFS_V1: [i16; 8] = [2896, 0, 1567, 3784, 0, 0, 0, 0];
-
-
-
-
 
 /// 8x8 transpose for int16x8_t vectors.
 ///
@@ -63,16 +55,6 @@ pub(crate) fn transpose_8x8h(
   int16x8_t,
   int16x8_t,
 ) {
-
-
-
-
-
-
-
-
-
-
   let t8 = vtrn1q_s16(r0, r1);
   let t9 = vtrn2q_s16(r0, r1);
   let a1 = vtrn1q_s16(r2, r3);
@@ -81,16 +63,6 @@ pub(crate) fn transpose_8x8h(
   let a5 = vtrn2q_s16(r4, r5);
   let a2 = vtrn1q_s16(r6, r7);
   let a7 = vtrn2q_s16(r6, r7);
-
-
-
-
-
-
-
-
-
-
 
   let a0_32 = vreinterpretq_s32_s16(a0);
   let a2_32 = vreinterpretq_s32_s16(a2);
@@ -109,16 +81,6 @@ pub(crate) fn transpose_8x8h(
   let c9_32 = vtrn2q_s32(t9_32, a3_32);
   let b3_32 = vtrn1q_s32(t8_32, a1_32);
   let c8_32 = vtrn2q_s32(t8_32, a1_32);
-
-
-
-
-
-
-
-
-
-
 
   let b3_64 = vreinterpretq_s64_s32(b3_32);
   let b4_64 = vreinterpretq_s64_s32(b4_32);
@@ -150,10 +112,6 @@ pub(crate) fn transpose_8x8h(
   )
 }
 
-
-
-
-
 /// Widening multiply-accumulate: lo*coeff_lane + hi*coeff_lane, producing
 /// two int32x4_t results (lower and upper halves).
 ///
@@ -174,8 +132,6 @@ pub(crate) fn smull_smlal_q(
 ) -> (int32x4_t, int32x4_t) {
   let s0_lo = vget_low_s16(s0);
   let s1_lo = vget_low_s16(s1);
-
-
 
   let (lo, hi) = match (c0_lane, c1_lane) {
     (0, 0) => {
@@ -344,10 +300,6 @@ pub(crate) fn sqrshrn_pair(lo: int32x4_t, hi: int32x4_t) -> int16x8_t {
   vqrshrn_high_n_s32::<12>(lo_narrow, hi)
 }
 
-
-
-
-
 /// 4-point inverse DCT on four int16x8_t vectors (8 transforms in parallel).
 ///
 /// Same algorithm as `idct_4h` in `itx_arm_neon_4x4.rs` but operates on
@@ -361,9 +313,7 @@ pub(crate) fn idct_4_q(
   r2: int16x8_t,
   r3: int16x8_t,
 ) -> (int16x8_t, int16x8_t, int16x8_t, int16x8_t) {
-
   let coeffs = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IDCT_COEFFS[0..8]).unwrap());
-
 
   let (v6_lo, v6_hi) = smull_smlal_q(r1, r3, coeffs, 3, 2);
 
@@ -374,12 +324,10 @@ pub(crate) fn idct_4_q(
   let t3a = sqrshrn_pair(v6_lo, v6_hi);
   let t2a = sqrshrn_pair(v4_lo, v4_hi);
 
-
   let (v4_lo, v4_hi) = smull_smlsl_q(r0, r2, coeffs, 0, 0);
 
   let t0 = sqrshrn_pair(v2_lo, v2_hi);
   let t1 = sqrshrn_pair(v4_lo, v4_hi);
-
 
   let out0 = vqaddq_s16(t0, t3a);
   let out3 = vqsubq_s16(t0, t3a);
@@ -388,10 +336,6 @@ pub(crate) fn idct_4_q(
 
   (out0, out1, out2, out3)
 }
-
-
-
-
 
 /// 8-point inverse DCT on eight int16x8_t vectors (8 transforms in parallel).
 ///
@@ -422,35 +366,23 @@ pub(crate) fn idct_8_q(
   int16x8_t,
   int16x8_t,
 ) {
-
   let (e0, e1, e2, e3) = idct_4_q(r0, r2, r4, r6);
-
 
   let coeffs = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IDCT_COEFFS[0..8]).unwrap());
 
-
-
-
   let (v2_lo, v2_hi) = smull_smlsl_q(r1, r7, coeffs, 4, 5);
 
-
-
   let (v4_lo, v4_hi) = smull_smlal_q(r1, r7, coeffs, 5, 4);
-
-
 
   let (v6_lo, v6_hi) = smull_smlsl_q(r5, r3, coeffs, 6, 7);
 
   let t4a = sqrshrn_pair(v2_lo, v2_hi);
   let t7a = sqrshrn_pair(v4_lo, v4_hi);
 
-
-
   let (v2_lo, v2_hi) = smull_smlal_q(r5, r3, coeffs, 7, 6);
 
   let t5a = sqrshrn_pair(v6_lo, v6_hi);
   let t6a = sqrshrn_pair(v2_lo, v2_hi);
-
 
   let t4 = vqaddq_s16(t4a, t5a);
   let t5a_new = vqsubq_s16(t4a, t5a);
@@ -458,24 +390,10 @@ pub(crate) fn idct_8_q(
   let t7 = vqaddq_s16(t7a, t6a);
   let t6a_new = vqsubq_s16(t7a, t6a);
 
-
-
-
-
   let (v4_lo, v4_hi) = smull_smlsl_q(t6a_new, t5a_new, coeffs, 0, 0);
   let (v6_lo, v6_hi) = smull_smlal_q(t6a_new, t5a_new, coeffs, 0, 0);
   let t5 = sqrshrn_pair(v4_lo, v4_hi);
   let t6 = sqrshrn_pair(v6_lo, v6_hi);
-
-
-
-
-
-
-
-
-
-
 
   let out0 = vqaddq_s16(e0, t7);
   let out7 = vqsubq_s16(e0, t7);
@@ -488,10 +406,6 @@ pub(crate) fn idct_8_q(
 
   (out0, out1, out2, out3, out4, out5, out6, out7)
 }
-
-
-
-
 
 /// 8-point inverse ADST on eight int16x8_t vectors.
 ///
@@ -511,7 +425,6 @@ pub(crate) fn idct_8_q(
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn iadst_8_q(
-
   in0: int16x8_t,
   in1: int16x8_t,
   in2: int16x8_t,
@@ -533,50 +446,29 @@ pub(crate) fn iadst_8_q(
   let c0 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IADST8_COEFFS_V0[..]).unwrap());
   let c1 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&IADST8_COEFFS_V1[..]).unwrap());
 
-
-
-
-
-
-
   let (lo, hi) = smull_smlal_q(in7, in0, c0, 0, 1);
   let t0a = sqrshrn_pair(lo, hi);
-
-
 
   let (lo, hi) = smull_smlsl_q(in7, in0, c0, 1, 0);
   let t1a = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlal_q(in5, in2, c0, 2, 3);
   let t2a = sqrshrn_pair(lo, hi);
-
-
 
   let (lo, hi) = smull_smlsl_q(in5, in2, c0, 3, 2);
   let t3a = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlal_q(in3, in4, c0, 4, 5);
   let t4a = sqrshrn_pair(lo, hi);
-
-
 
   let (lo, hi) = smull_smlsl_q(in3, in4, c0, 5, 4);
   let t5a = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlal_q(in1, in6, c0, 6, 7);
   let t6a = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlsl_q(in1, in6, c0, 7, 6);
   let t7a = sqrshrn_pair(lo, hi);
-
 
   let t0 = vqaddq_s16(t0a, t4a);
   let t4 = vqsubq_s16(t0a, t4a);
@@ -587,86 +479,53 @@ pub(crate) fn iadst_8_q(
   let t3 = vqaddq_s16(t3a, t7a);
   let t7 = vqsubq_s16(t3a, t7a);
 
-
-
-
-
-
   let (lo, hi) = smull_smlal_q(t4, t5, c1, 3, 2);
   let t4a = sqrshrn_pair(lo, hi);
-
-
 
   let (lo, hi) = smull_smlsl_q(t4, t5, c1, 2, 3);
   let t5a = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlsl_q(t7, t6, c1, 3, 2);
   let t6a = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlal_q(t7, t6, c1, 2, 3);
   let t7a = sqrshrn_pair(lo, hi);
-
-
-
 
   let o0 = vqaddq_s16(t0, t2);
 
   let x2 = vqsubq_s16(t0, t2);
 
-
   let o7 = vqnegq_s16(vqaddq_s16(t1, t3));
 
   let x3 = vqsubq_s16(t1, t3);
-
-
 
   let o1 = vqnegq_s16(vqaddq_s16(t4a, t6a));
 
   let x6 = vqsubq_s16(t4a, t6a);
 
-
   let o6 = vqaddq_s16(t5a, t7a);
 
   let x7 = vqsubq_s16(t5a, t7a);
 
-
-
-
-
-
   let (lo, hi) = smull_smlal_q(x2, x3, c1, 0, 0);
   let o3_pre = sqrshrn_pair(lo, hi);
-
-
 
   let (lo, hi) = smull_smlsl_q(x2, x3, c1, 0, 0);
   let o4_pre = sqrshrn_pair(lo, hi);
 
-
-
   let (lo, hi) = smull_smlsl_q(x6, x7, c1, 0, 0);
   let o5_pre = sqrshrn_pair(lo, hi);
-
 
   let (lo, hi) = smull_smlal_q(x6, x7, c1, 0, 0);
   let o2 = sqrshrn_pair(lo, hi);
 
   let o4 = o4_pre;
 
-
   let o3 = vqnegq_s16(o3_pre);
   let o5 = vqnegq_s16(o5_pre);
 
   (o0, o1, o2, o3, o4, o5, o6, o7)
 }
-
-
-
-
 
 /// 8-point identity transform on eight int16x8_t vectors.
 ///
@@ -705,10 +564,6 @@ pub(crate) fn identity_8_q(
   )
 }
 
-
-
-
-
 /// Add 8x8 transform output to destination pixels for 8bpc.
 ///
 /// For each of 8 rows:
@@ -737,29 +592,20 @@ pub(crate) fn add_to_dst_8x8_8bpc(
   for (i, &row) in rows.iter().enumerate() {
     let row_off = dst_base.wrapping_add_signed(::core::primitive::usize::cast_signed(i) * stride);
 
-
     let shifted = vrshrq_n_s16::<4>(row);
-
 
     let dst_bytes: [u8; 8] = dst[row_off..row_off + 8].try_into().unwrap();
     let dst_u8 = safe_simd::vld1_u8(&dst_bytes);
 
-
     let sum = vreinterpretq_s16_u16(vaddw_u8(vreinterpretq_u16_s16(shifted), dst_u8));
 
-
     let result = vqmovun_s16(sum);
-
 
     let mut out = [0u8; 8];
     safe_simd::vst1_u8(&mut out, result);
     dst[row_off..row_off + 8].copy_from_slice(&out);
   }
 }
-
-
-
-
 
 /// Row/column transform type for 8x8 blocks.
 #[cfg(target_arch = "aarch64")]
@@ -805,10 +651,6 @@ fn apply_tx8(
   }
 }
 
-
-
-
-
 /// NEON implementation of generic 8x8 inverse transform add for 8bpc.
 ///
 /// Mirrors `inv_txfm_add_8x8_neon` + `def_fn_8x8` from itx.S.
@@ -837,17 +679,18 @@ pub(crate) fn inv_txfm_add_8x8_8bpc_neon(
   row_tx: TxType8,
   col_tx: TxType8,
 ) {
-
   match {
-      ::core::primitive::bool::then_some(matches!(row_tx, TxType8::Dct) && matches!(col_tx, TxType8::Dct) && eob == 0, ())
+    ::core::primitive::bool::then_some(
+      matches!(row_tx, TxType8::Dct) && matches!(col_tx, TxType8::Dct) && eob == 0,
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        dc_only_8x8_8bpc(dst, dst_base, dst_stride, coeff);
-        return;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      dc_only_8x8_8bpc(dst, dst_base, dst_stride, coeff);
+      return;
+    }
+    ::core::option::Option::None => {}
   }
-
 
   let v16 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&coeff[0..8]).unwrap());
   let v17 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&coeff[8..16]).unwrap());
@@ -858,23 +701,16 @@ pub(crate) fn inv_txfm_add_8x8_8bpc_neon(
   let v22 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&coeff[48..56]).unwrap());
   let v23 = safe_simd::vld1q_s16(<&[i16; 8]>::try_from(&coeff[56..64]).unwrap());
 
-
   coeff[0..64].fill(0);
-
 
   let is_identity_row = matches!(row_tx, TxType8::Identity);
 
-  let (v16, v17, v18, v19, v20, v21, v22, v23) = match ::core::primitive::bool::then_some(is_identity_row, ()) {
-      ::core::option::Option::Some(()) => {
-
-
-        (v16, v17, v18, v19, v20, v21, v22, v23)
-      },
+  let (v16, v17, v18, v19, v20, v21, v22, v23) =
+    match ::core::primitive::bool::then_some(is_identity_row, ()) {
+      ::core::option::Option::Some(()) => (v16, v17, v18, v19, v20, v21, v22, v23),
       ::core::option::Option::None => {
-
         let (v16, v17, v18, v19, v20, v21, v22, v23) =
           apply_tx8(row_tx, v16, v17, v18, v19, v20, v21, v22, v23);
-
 
         let v16 = vrshrq_n_s16::<1>(v16);
         let v17 = vrshrq_n_s16::<1>(v17);
@@ -886,26 +722,19 @@ pub(crate) fn inv_txfm_add_8x8_8bpc_neon(
         let v23 = vrshrq_n_s16::<1>(v23);
 
         (v16, v17, v18, v19, v20, v21, v22, v23)
-      },
-  };
-
+      }
+    };
 
   let (v16, v17, v18, v19, v20, v21, v22, v23) =
     transpose_8x8h(v16, v17, v18, v19, v20, v21, v22, v23);
 
-
   let (v16, v17, v18, v19, v20, v21, v22, v23) =
     apply_tx8(col_tx, v16, v17, v18, v19, v20, v21, v22, v23);
-
 
   add_to_dst_8x8_8bpc(
     dst, dst_base, dst_stride, v16, v17, v18, v19, v20, v21, v22, v23,
   );
 }
-
-
-
-
 
 /// DC-only fast path for DCT_DCT 8x8 with eob=0.
 ///
@@ -929,30 +758,33 @@ fn dc_only_8x8_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff: &
   let dc = coeff[0];
   coeff[0] = 0;
 
-  let scale = vdupq_n_s16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(::core::primitive::i32::wrapping_mul(2896, 8)) { ::core::result::Result::Ok(converted_position) => converted_position });
+  let scale = vdupq_n_s16(
+    match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+      ::core::primitive::i32::wrapping_mul(2896, 8),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
 
   let v16 = vdupq_n_s16(dc);
 
-
   let v16 = vqrdmulhq_s16(v16, scale);
-
 
   let v16 = vrshrq_n_s16::<1>(v16);
 
-
   let v16 = vqrdmulhq_s16(v16, scale);
-
 
   let v16 = vrshrq_n_s16::<4>(v16);
 
-
   for i in 0..8 {
-    let row_off = dst_base.wrapping_add_signed((match ::console_core_number_conversion::wrapped_offset(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * dst_stride);
-
+    let row_off = dst_base.wrapping_add_signed(
+      (match ::console_core_number_conversion::wrapped_offset(i) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }) * dst_stride,
+    );
 
     let dst_bytes: [u8; 8] = dst[row_off..row_off + 8].try_into().unwrap();
     let dst_u8 = safe_simd::vld1_u8(&dst_bytes);
-
 
     let sum = vreinterpretq_s16_u16(vaddw_u8(vreinterpretq_u16_s16(v16), dst_u8));
     let result = vqmovun_s16(sum);
@@ -962,10 +794,6 @@ fn dc_only_8x8_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff: &
     dst[row_off..row_off + 8].copy_from_slice(&out);
   }
 }
-
-
-
-
 
 /// DCT_DCT 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
@@ -1367,10 +1195,6 @@ pub(crate) fn inv_txfm_add_identity_flipadst_8x8_8bpc_neon_inner(
   );
 }
 
-
-
-
-
 #[cfg(test)]
 #[cfg(target_arch = "aarch64")]
 mod tests {
@@ -1385,26 +1209,30 @@ mod tests {
 
   /// Helper: run scalar 8x8 DCT_DCT transform on a coefficient buffer
   /// and add to destination.
-  fn scalar_dct_dct_8x8(dst: &mut [u8], stride: isize, coeff: &mut [i16]) -> ::core::result::Result<(), ::console_core_never::Never> {
-
-
+  fn scalar_dct_dct_8x8(
+    dst: &mut [u8],
+    stride: isize,
+    coeff: &mut [i16],
+  ) -> ::core::result::Result<(), ::console_core_never::Never> {
     let mut tmp = [0i32; 64];
-
 
     for y in 0..8 {
       let mut input = [0i32; 8];
 
       for (x, input_element) in <[_]>::iter_mut(&mut input).enumerate() {
-        *input_element = <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + x * 8]);
+        *input_element =
+          <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + x * 8]);
       }
 
       let ::core::result::Result::Ok(out) = scalar_dct8_1d(&input);
 
       for x in 0..8 {
-        tmp[::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(y, 8), x)] = out[x];
+        tmp[::core::primitive::usize::wrapping_add(
+          ::core::primitive::usize::wrapping_mul(y, 8),
+          x,
+        )] = out[x];
       }
     }
-
 
     for x in 0..8 {
       let mut input = [0i32; 8];
@@ -1416,11 +1244,23 @@ mod tests {
       let ::core::result::Result::Ok(out) = scalar_dct8_1d(&input);
 
       for y in 0..8 {
-        let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned((::core::primitive::usize::cast_signed(y) * stride)));
-        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x]);
+        let ::core::result::Result::Ok(row_off) =
+          ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned(
+            (::core::primitive::usize::cast_signed(y) * stride),
+          ));
+        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+          dst[(match ::console_core_number_conversion::index(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          }) + x],
+        );
         let c = ::core::primitive::i32::wrapping_shr(out[y] + 32, 6_u32);
         let result = ::core::primitive::i32::wrapping_add(d, c).clamp(0, 255);
-        dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) { ::core::result::Result::Ok(converted_position) => converted_position };
+        dst[(match ::console_core_number_conversion::index(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) + x] =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
       }
     }
 
@@ -1429,49 +1269,197 @@ mod tests {
   }
 
   #[must_use]
-  fn scalar_dct8_1d(input: &[i32; 8]) -> ::core::result::Result<[i32; 8], ::console_core_never::Never> {
-
-    let even = [match input { &[_explicit_element, ..] => _explicit_element }, match input { &[_, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _explicit_element, ..] => _explicit_element }, match input { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element }];
+  fn scalar_dct8_1d(
+    input: &[i32; 8],
+  ) -> ::core::result::Result<[i32; 8], ::console_core_never::Never> {
+    let even = [
+      match input {
+        &[_explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+      match input {
+        &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+      },
+    ];
     let ::core::result::Result::Ok(even_out) = scalar_dct4_1d(&even);
 
-
-    let t4a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _explicit_element, ..] => _explicit_element }) * 799, (match input { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 4017) + 2048, 12_u32);
-    let t7a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _explicit_element, ..] => _explicit_element }) * 4017, (match input { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 799) + 2048, 12_u32);
-    let t5a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 3406, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 2276) + 2048, 12_u32);
-    let t6a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element }) * 2276, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 3406) + 2048, 12_u32);
+    let t4a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 799,
+        (match input {
+          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 4017,
+      ) + 2048,
+      12_u32,
+    );
+    let t7a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 4017,
+        (match input {
+          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 799,
+      ) + 2048,
+      12_u32,
+    );
+    let t5a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3406,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 2276,
+      ) + 2048,
+      12_u32,
+    );
+    let t6a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 2276,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3406,
+      ) + 2048,
+      12_u32,
+    );
 
     let t4 = ::core::primitive::i32::wrapping_add(t4a, t5a);
     let t5_tmp = ::core::primitive::i32::wrapping_sub(t4a, t5a);
     let t7 = ::core::primitive::i32::wrapping_add(t7a, t6a);
     let t6_tmp = ::core::primitive::i32::wrapping_sub(t7a, t6a);
 
-    let t5 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(t6_tmp * 2896, t5_tmp * 2896) + 2048, 12_u32);
-    let t6 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(t6_tmp * 2896, t5_tmp * 2896) + 2048, 12_u32);
+    let t5 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(t6_tmp * 2896, t5_tmp * 2896) + 2048,
+      12_u32,
+    );
+    let t6 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(t6_tmp * 2896, t5_tmp * 2896) + 2048,
+      12_u32,
+    );
 
     ::core::result::Result::Ok([
-      ::core::primitive::i32::wrapping_add((match even_out { [_explicit_element, ..] => _explicit_element }), t7),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _explicit_element, ..] => _explicit_element }), t6),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _explicit_element, ..] => _explicit_element }), t5),
-      ::core::primitive::i32::wrapping_add((match even_out { [_, _, _, _explicit_element, ..] => _explicit_element }), t4),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _, _explicit_element, ..] => _explicit_element }), t4),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _, _explicit_element, ..] => _explicit_element }), t5),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_, _explicit_element, ..] => _explicit_element }), t6),
-      ::core::primitive::i32::wrapping_sub((match even_out { [_explicit_element, ..] => _explicit_element }), t7),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_explicit_element, ..] => _explicit_element,
+        }),
+        t7,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _explicit_element, ..] => _explicit_element,
+        }),
+        t6,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t5,
+      ),
+      ::core::primitive::i32::wrapping_add(
+        (match even_out {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t4,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t4,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        }),
+        t5,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_, _explicit_element, ..] => _explicit_element,
+        }),
+        t6,
+      ),
+      ::core::primitive::i32::wrapping_sub(
+        (match even_out {
+          [_explicit_element, ..] => _explicit_element,
+        }),
+        t7,
+      ),
     ])
   }
 
   #[must_use]
-  fn scalar_dct4_1d(input: &[i32; 4]) -> ::core::result::Result<[i32; 4], ::console_core_never::Never> {
-    let t3a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_, _explicit_element, ..] => _explicit_element }) * 3784, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 1567) + 2048, 12_u32);
-    let t2a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_, _explicit_element, ..] => _explicit_element }) * 1567, (match input { &[_, _, _, _explicit_element, ..] => _explicit_element }) * 3784) + 2048, 12_u32);
-    let t0 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add((match input { &[_explicit_element, ..] => _explicit_element }) * 2896, (match input { &[_, _, _explicit_element, ..] => _explicit_element }) * 2896) + 2048, 12_u32);
-    let t1 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub((match input { &[_explicit_element, ..] => _explicit_element }) * 2896, (match input { &[_, _, _explicit_element, ..] => _explicit_element }) * 2896) + 2048, 12_u32);
+  fn scalar_dct4_1d(
+    input: &[i32; 4],
+  ) -> ::core::result::Result<[i32; 4], ::console_core_never::Never> {
+    let t3a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 3784,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 1567,
+      ) + 2048,
+      12_u32,
+    );
+    let t2a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_, _explicit_element, ..] => _explicit_element,
+        }) * 1567,
+        (match input {
+          &[_, _, _, _explicit_element, ..] => _explicit_element,
+        }) * 3784,
+      ) + 2048,
+      12_u32,
+    );
+    let t0 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(
+        (match input {
+          &[_explicit_element, ..] => _explicit_element,
+        }) * 2896,
+        (match input {
+          &[_, _, _explicit_element, ..] => _explicit_element,
+        }) * 2896,
+      ) + 2048,
+      12_u32,
+    );
+    let t1 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(
+        (match input {
+          &[_explicit_element, ..] => _explicit_element,
+        }) * 2896,
+        (match input {
+          &[_, _, _explicit_element, ..] => _explicit_element,
+        }) * 2896,
+      ) + 2048,
+      12_u32,
+    );
 
-    ::core::result::Result::Ok([::core::primitive::i32::wrapping_add(t0, t3a), ::core::primitive::i32::wrapping_add(t1, t2a), ::core::primitive::i32::wrapping_sub(t1, t2a), ::core::primitive::i32::wrapping_sub(t0, t3a)])
+    ::core::result::Result::Ok([
+      ::core::primitive::i32::wrapping_add(t0, t3a),
+      ::core::primitive::i32::wrapping_add(t1, t2a),
+      ::core::primitive::i32::wrapping_sub(t1, t2a),
+      ::core::primitive::i32::wrapping_sub(t0, t3a),
+    ])
   }
 
   #[must_use]
-  fn scalar_adst8_1d(input: &[i32; 8]) -> ::core::result::Result<[i32; 8], ::console_core_never::Never> {
+  fn scalar_adst8_1d(
+    input: &[i32; 8],
+  ) -> ::core::result::Result<[i32; 8], ::console_core_never::Never> {
     let &[_, _, _, _, _, _, _, x0, ..] = input;
     let &[x1, ..] = input;
     let &[_, _, _, _, _, x2, ..] = input;
@@ -1481,14 +1469,38 @@ mod tests {
     let &[_, x6, ..] = input;
     let &[_, _, _, _, _, _, x7, ..] = input;
 
-    let s0 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(x0 * 4076, x1 * 401) + 2048, 12_u32);
-    let s1 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(x0 * 401, x1 * 4076) + 2048, 12_u32);
-    let s2 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(x2 * 3612, x3 * 1931) + 2048, 12_u32);
-    let s3 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(x2 * 1931, x3 * 3612) + 2048, 12_u32);
-    let s4 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(x4 * 2598, x5 * 3166) + 2048, 12_u32);
-    let s5 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(x4 * 3166, x5 * 2598) + 2048, 12_u32);
-    let s6 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(x6 * 1189, x7 * 3920) + 2048, 12_u32);
-    let s7 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(x6 * 3920, x7 * 1189) + 2048, 12_u32);
+    let s0 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(x0 * 4076, x1 * 401) + 2048,
+      12_u32,
+    );
+    let s1 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(x0 * 401, x1 * 4076) + 2048,
+      12_u32,
+    );
+    let s2 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(x2 * 3612, x3 * 1931) + 2048,
+      12_u32,
+    );
+    let s3 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(x2 * 1931, x3 * 3612) + 2048,
+      12_u32,
+    );
+    let s4 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(x4 * 2598, x5 * 3166) + 2048,
+      12_u32,
+    );
+    let s5 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(x4 * 3166, x5 * 2598) + 2048,
+      12_u32,
+    );
+    let s6 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(x6 * 1189, x7 * 3920) + 2048,
+      12_u32,
+    );
+    let s7 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(x6 * 3920, x7 * 1189) + 2048,
+      12_u32,
+    );
 
     let x0_2 = ::core::primitive::i32::wrapping_add(s0, s4);
     let x1_2 = ::core::primitive::i32::wrapping_add(s1, s5);
@@ -1499,16 +1511,22 @@ mod tests {
     let x6_2 = ::core::primitive::i32::wrapping_sub(s2, s6);
     let x7_2 = ::core::primitive::i32::wrapping_sub(s3, s7);
 
-
-
-
-
-
-    let t4a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(x4_2 * 3784, x5_2 * 1567) + 2048, 12_u32);
-    let t5a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(x4_2 * 1567, x5_2 * 3784) + 2048, 12_u32);
-    let t6a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(x7_2 * 3784, x6_2 * 1567) + 2048, 12_u32);
-    let t7a = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(x7_2 * 1567, x6_2 * 3784) + 2048, 12_u32);
-
+    let t4a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(x4_2 * 3784, x5_2 * 1567) + 2048,
+      12_u32,
+    );
+    let t5a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(x4_2 * 1567, x5_2 * 3784) + 2048,
+      12_u32,
+    );
+    let t6a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(x7_2 * 3784, x6_2 * 1567) + 2048,
+      12_u32,
+    );
+    let t7a = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(x7_2 * 1567, x6_2 * 3784) + 2048,
+      12_u32,
+    );
 
     let a0 = ::core::primitive::i32::wrapping_add(x0_2, x2_2);
     let a1 = ::core::primitive::i32::wrapping_add(x1_2, x3_2);
@@ -1519,34 +1537,62 @@ mod tests {
     let a6 = ::core::primitive::i32::wrapping_sub(t4a, t6a);
     let a7 = ::core::primitive::i32::wrapping_sub(t5a, t7a);
 
-
     let o0 = a0;
     let o7 = ::core::primitive::i32::wrapping_neg((a1));
     let o1 = ::core::primitive::i32::wrapping_neg((a4));
     let o6 = a5;
 
-    let b2 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(a2 * 2896, a3 * 2896) + 2048, 12_u32);
-    let b3 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(a2 * 2896, a3 * 2896) + 2048, 12_u32);
-    let b6 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(a6 * 2896, a7 * 2896) + 2048, 12_u32);
-    let b7 = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_sub(a6 * 2896, a7 * 2896) + 2048, 12_u32);
+    let b2 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(a2 * 2896, a3 * 2896) + 2048,
+      12_u32,
+    );
+    let b3 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(a2 * 2896, a3 * 2896) + 2048,
+      12_u32,
+    );
+    let b6 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_add(a6 * 2896, a7 * 2896) + 2048,
+      12_u32,
+    );
+    let b7 = ::core::primitive::i32::wrapping_shr(
+      ::core::primitive::i32::wrapping_sub(a6 * 2896, a7 * 2896) + 2048,
+      12_u32,
+    );
 
-    ::core::result::Result::Ok([o0, o1, b6, ::core::primitive::i32::wrapping_neg(b2), b3, ::core::primitive::i32::wrapping_neg(b7), o6, o7])
+    ::core::result::Result::Ok([
+      o0,
+      o1,
+      b6,
+      ::core::primitive::i32::wrapping_neg(b2),
+      b3,
+      ::core::primitive::i32::wrapping_neg(b7),
+      o6,
+      o7,
+    ])
   }
 
-  fn scalar_adst_adst_8x8(dst: &mut [u8], stride: isize, coeff: &mut [i16]) -> ::core::result::Result<(), ::console_core_never::Never> {
+  fn scalar_adst_adst_8x8(
+    dst: &mut [u8],
+    stride: isize,
+    coeff: &mut [i16],
+  ) -> ::core::result::Result<(), ::console_core_never::Never> {
     let mut tmp = [0i32; 64];
 
     for y in 0..8 {
       let mut input = [0i32; 8];
 
       for (x, input_element) in <[_]>::iter_mut(&mut input).enumerate() {
-        *input_element = <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + x * 8]);
+        *input_element =
+          <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + x * 8]);
       }
 
       let ::core::result::Result::Ok(out) = scalar_adst8_1d(&input);
 
       for x in 0..8 {
-        tmp[::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(y, 8), x)] = out[x];
+        tmp[::core::primitive::usize::wrapping_add(
+          ::core::primitive::usize::wrapping_mul(y, 8),
+          x,
+        )] = out[x];
       }
     }
 
@@ -1560,11 +1606,23 @@ mod tests {
       let ::core::result::Result::Ok(out) = scalar_adst8_1d(&input);
 
       for y in 0..8 {
-        let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned((::core::primitive::usize::cast_signed(y) * stride)));
-        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x]);
+        let ::core::result::Result::Ok(row_off) =
+          ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned(
+            (::core::primitive::usize::cast_signed(y) * stride),
+          ));
+        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+          dst[(match ::console_core_number_conversion::index(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          }) + x],
+        );
         let c = ::core::primitive::i32::wrapping_shr(out[y] + 32, 6_u32);
         let result = ::core::primitive::i32::wrapping_add(d, c).clamp(0, 255);
-        dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) { ::core::result::Result::Ok(converted_position) => converted_position };
+        dst[(match ::console_core_number_conversion::index(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) + x] =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
       }
     }
 
@@ -1572,32 +1630,38 @@ mod tests {
     ::core::result::Result::Ok(())
   }
 
-  fn scalar_identity_identity_8x8(dst: &mut [u8], stride: isize, coeff: &mut [i16]) -> ::core::result::Result<(), ::console_core_never::Never> {
+  fn scalar_identity_identity_8x8(
+    dst: &mut [u8],
+    stride: isize,
+    coeff: &mut [i16],
+  ) -> ::core::result::Result<(), ::console_core_never::Never> {
     for y in 0..8 {
-      let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned((::core::primitive::usize::cast_signed(y) * stride)));
+      let ::core::result::Result::Ok(row_off) =
+        ::console_core_number_conversion::fixed_index(::core::primitive::isize::cast_unsigned(
+          (::core::primitive::usize::cast_signed(y) * stride),
+        ));
 
       for x in 0..8 {
-        let c = <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[::core::primitive::usize::wrapping_add(y, x * 8)]);
+        let c = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
+          coeff[::core::primitive::usize::wrapping_add(y, x * 8)],
+        );
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        let val = ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_mul(c, 2) + 8, 4_u32);
-        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x]);
+        let val = ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_mul(c, 2) + 8,
+          4_u32,
+        );
+        let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+          dst[(match ::console_core_number_conversion::index(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          }) + x],
+        );
         let result = ::core::primitive::i32::wrapping_add(d, val).clamp(0, 255);
-        dst[(match ::console_core_number_conversion::index(row_off) { ::core::result::Result::Ok(native_position) => native_position }) + x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) { ::core::result::Result::Ok(converted_position) => converted_position };
+        dst[(match ::console_core_number_conversion::index(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) + x] =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
       }
     }
 
@@ -1617,9 +1681,17 @@ mod tests {
     let mut coeff_neon = [0i16; 64];
     let mut coeff_scalar = [0i16; 64];
 
-
-    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).zip(<[_]>::iter_mut(&mut coeff_scalar)).enumerate() {
-      let val = ::core::primitive::i16::wrapping_rem((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * 37 + 13, 200) - 100;
+    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+      .zip(<[_]>::iter_mut(&mut coeff_scalar))
+      .enumerate()
+    {
+      let val = ::core::primitive::i16::wrapping_rem(
+        (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }) * 37
+          + 13,
+        200,
+      ) - 100;
       *coeff_neon_element = val;
       *coeff_scalar_element = val;
     }
@@ -1637,14 +1709,19 @@ mod tests {
       255,
     );
 
-    let ::core::result::Result::Ok(()) = scalar_dct_dct_8x8(&mut dst_scalar, stride, &mut coeff_scalar);
-
-
+    let ::core::result::Result::Ok(()) =
+      scalar_dct_dct_8x8(&mut dst_scalar, stride, &mut coeff_scalar);
 
     for y in 0..8 {
       for x in 0..8 {
-        let off = (::core::num::Wrapping(y) * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride))).0 + x;
-        let diff = ::core::primitive::i32::wrapping_sub(<i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]), <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off])).abs();
+        let off = (::core::num::Wrapping(y)
+          * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride)))
+        .0 + x;
+        let diff = ::core::primitive::i32::wrapping_sub(
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]),
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off]),
+        )
+        .abs();
         assert!(
           diff <= MAX_DIFF,
           "DCT_DCT 8x8 mismatch at ({}, {}): neon={}, scalar={}, diff={} (max {})",
@@ -1657,7 +1734,6 @@ mod tests {
         );
       }
     }
-
 
     assert!(coeff_neon.iter().all(|&c| c == 0));
   }
@@ -1673,12 +1749,17 @@ mod tests {
     let stride: isize = 16;
     let mut coeff_neon = [0i16; 64];
     let mut coeff_full = [0i16; 64];
-    *{ let [_explicit_part, ..] = &mut coeff_neon; _explicit_part } = 100;
-    *{ let [_explicit_part, ..] = &mut coeff_full; _explicit_part } = 100;
+    *{
+      let [_explicit_part, ..] = &mut coeff_neon;
+      _explicit_part
+    } = 100;
+    *{
+      let [_explicit_part, ..] = &mut coeff_full;
+      _explicit_part
+    } = 100;
 
     let mut dst_dc = vec![128u8; stride.cast_unsigned() * 8];
     let mut dst_full = dst_dc.clone();
-
 
     inv_txfm_add_dct_dct_8x8_8bpc_neon_inner(
       token,
@@ -1690,7 +1771,6 @@ mod tests {
       255,
     );
 
-
     inv_txfm_add_dct_dct_8x8_8bpc_neon_inner(
       token,
       &mut dst_full,
@@ -1701,12 +1781,13 @@ mod tests {
       255,
     );
 
-
     let first_val = dst_dc[0];
 
     for y in 0..8 {
       for x in 0..8 {
-        let off = (::core::num::Wrapping(y) * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride))).0 + x;
+        let off = (::core::num::Wrapping(y)
+          * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride)))
+        .0 + x;
         assert_eq!(
           dst_dc[off], first_val,
           "DC-only should be uniform at ({}, {})",
@@ -1715,11 +1796,16 @@ mod tests {
       }
     }
 
-
     for y in 0..8 {
       for x in 0..8 {
-        let off = (::core::num::Wrapping(y) * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride))).0 + x;
-        let diff = ::core::primitive::i32::wrapping_sub(<i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_dc[off]), <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_full[off])).abs();
+        let off = (::core::num::Wrapping(y)
+          * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride)))
+        .0 + x;
+        let diff = ::core::primitive::i32::wrapping_sub(
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_dc[off]),
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_full[off]),
+        )
+        .abs();
         assert!(
           diff <= 1,
           "DC fast path mismatch at ({}, {}): dc={}, full={}, diff={}",
@@ -1745,8 +1831,17 @@ mod tests {
     let mut coeff_neon = [0i16; 64];
     let mut coeff_scalar = [0i16; 64];
 
-    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).zip(<[_]>::iter_mut(&mut coeff_scalar)).enumerate() {
-      let val = ::core::primitive::i16::wrapping_rem((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * 23 + 7, 120) - 60;
+    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+      .zip(<[_]>::iter_mut(&mut coeff_scalar))
+      .enumerate()
+    {
+      let val = ::core::primitive::i16::wrapping_rem(
+        (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }) * 23
+          + 7,
+        120,
+      ) - 60;
       *coeff_neon_element = val;
       *coeff_scalar_element = val;
     }
@@ -1764,12 +1859,19 @@ mod tests {
       255,
     );
 
-    let ::core::result::Result::Ok(()) = scalar_adst_adst_8x8(&mut dst_scalar, stride, &mut coeff_scalar);
+    let ::core::result::Result::Ok(()) =
+      scalar_adst_adst_8x8(&mut dst_scalar, stride, &mut coeff_scalar);
 
     for y in 0..8 {
       for x in 0..8 {
-        let off = (::core::num::Wrapping(y) * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride))).0 + x;
-        let diff = ::core::primitive::i32::wrapping_sub(<i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]), <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off])).abs();
+        let off = (::core::num::Wrapping(y)
+          * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride)))
+        .0 + x;
+        let diff = ::core::primitive::i32::wrapping_sub(
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]),
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off]),
+        )
+        .abs();
         assert!(
           diff <= MAX_DIFF,
           "ADST_ADST 8x8 mismatch at ({}, {}): neon={}, scalar={}, diff={} (max {})",
@@ -1796,8 +1898,17 @@ mod tests {
     let mut coeff_neon = [0i16; 64];
     let mut coeff_scalar = [0i16; 64];
 
-    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).zip(<[_]>::iter_mut(&mut coeff_scalar)).enumerate() {
-      let val = ::core::primitive::i16::wrapping_rem((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * 11 + 3, 80) - 40;
+    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+      .zip(<[_]>::iter_mut(&mut coeff_scalar))
+      .enumerate()
+    {
+      let val = ::core::primitive::i16::wrapping_rem(
+        (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }) * 11
+          + 3,
+        80,
+      ) - 40;
       *coeff_neon_element = val;
       *coeff_scalar_element = val;
     }
@@ -1815,12 +1926,19 @@ mod tests {
       255,
     );
 
-    let ::core::result::Result::Ok(()) = scalar_identity_identity_8x8(&mut dst_scalar, stride, &mut coeff_scalar);
+    let ::core::result::Result::Ok(()) =
+      scalar_identity_identity_8x8(&mut dst_scalar, stride, &mut coeff_scalar);
 
     for y in 0..8 {
       for x in 0..8 {
-        let off = (::core::num::Wrapping(y) * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride))).0 + x;
-        let diff = ::core::primitive::i32::wrapping_sub(<i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]), <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off])).abs();
+        let off = (::core::num::Wrapping(y)
+          * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride)))
+        .0 + x;
+        let diff = ::core::primitive::i32::wrapping_sub(
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]),
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off]),
+        )
+        .abs();
         assert!(
           diff <= 1,
           "IDENTITY 8x8 mismatch at ({}, {}): neon={}, scalar={}, diff={}",
@@ -1846,8 +1964,17 @@ mod tests {
     let mut coeff_neon = [0i16; 64];
     let mut coeff_scalar = [0i16; 64];
 
-    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon).zip(<[_]>::iter_mut(&mut coeff_scalar)).enumerate() {
-      let val = ::core::primitive::i16::wrapping_rem((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) { ::core::result::Result::Ok(converted_position) => converted_position }) * 19 + 5, 100) - 50;
+    for (i, (coeff_neon_element, coeff_scalar_element)) in <[_]>::iter_mut(&mut coeff_neon)
+      .zip(<[_]>::iter_mut(&mut coeff_scalar))
+      .enumerate()
+    {
+      let val = ::core::primitive::i16::wrapping_rem(
+        (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(i) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }) * 19
+          + 5,
+        100,
+      ) - 50;
       *coeff_neon_element = val;
       *coeff_scalar_element = val;
     }
@@ -1865,7 +1992,6 @@ mod tests {
       255,
     );
 
-
     {
       let mut tmp = [0i32; 64];
 
@@ -1873,13 +1999,17 @@ mod tests {
         let mut input = [0i32; 8];
 
         for (x, input_element) in <[_]>::iter_mut(&mut input).enumerate() {
-          *input_element = <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff_scalar[y + x * 8]);
+          *input_element =
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff_scalar[y + x * 8]);
         }
 
         let ::core::result::Result::Ok(out) = scalar_dct8_1d(&input);
 
         for x in 0..8 {
-          tmp[::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(y, 8), x)] = out[x];
+          tmp[::core::primitive::usize::wrapping_add(
+            ::core::primitive::usize::wrapping_mul(y, 8),
+            x,
+          )] = out[x];
         }
       }
 
@@ -1894,10 +2024,15 @@ mod tests {
 
         for y in 0..8 {
           let row_off = (::core::primitive::usize::cast_signed(y)).wrapping_mul(stride) as usize;
-          let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[::core::primitive::usize::wrapping_add(row_off, x)]);
+          let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+            dst_scalar[::core::primitive::usize::wrapping_add(row_off, x)],
+          );
           let c = ::core::primitive::i32::wrapping_shr(out[y] + 32, 6_u32);
           let result = ::core::primitive::i32::wrapping_add(d, c).clamp(0, 255);
-          dst_scalar[row_off.wrapping_add(x)] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) { ::core::result::Result::Ok(converted_position) => converted_position };
+          dst_scalar[row_off.wrapping_add(x)] =
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            };
         }
       }
 
@@ -1906,8 +2041,14 @@ mod tests {
 
     for y in 0..8 {
       for x in 0..8 {
-        let off = (::core::num::Wrapping(y) * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride))).0 + x;
-        let diff = ::core::primitive::i32::wrapping_sub(<i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]), <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off])).abs();
+        let off = (::core::num::Wrapping(y)
+          * ::core::num::Wrapping(::core::primitive::isize::cast_unsigned(stride)))
+        .0 + x;
+        let diff = ::core::primitive::i32::wrapping_sub(
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_neon[off]),
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(dst_scalar[off]),
+        )
+        .abs();
         assert!(
           diff <= MAX_DIFF,
           "DCT_ADST 8x8 mismatch at ({}, {}): neon={}, scalar={}, diff={} (max {})",
@@ -1926,26 +2067,98 @@ mod tests {
   /// #[rite] transpose_8x8h and safe_simd NEON load/store functions.
   #[arcane]
   fn test_transpose_8x8h_inner(_token: Arm64, rows_in: &[[i16; 8]; 8]) -> [[i16; 8]; 8] {
-    let r0 = safe_simd::vld1q_s16({ let [_explicit_part, ..] = &*rows_in; _explicit_part });
-    let r1 = safe_simd::vld1q_s16({ let [_, _explicit_part, ..] = &*rows_in; _explicit_part });
-    let r2 = safe_simd::vld1q_s16({ let [_, _, _explicit_part, ..] = &*rows_in; _explicit_part });
-    let r3 = safe_simd::vld1q_s16({ let [_, _, _, _explicit_part, ..] = &*rows_in; _explicit_part });
-    let r4 = safe_simd::vld1q_s16({ let [_, _, _, _, _explicit_part, ..] = &*rows_in; _explicit_part });
-    let r5 = safe_simd::vld1q_s16({ let [_, _, _, _, _, _explicit_part, ..] = &*rows_in; _explicit_part });
-    let r6 = safe_simd::vld1q_s16({ let [_, _, _, _, _, _, _explicit_part, ..] = &*rows_in; _explicit_part });
-    let r7 = safe_simd::vld1q_s16({ let [_, _, _, _, _, _, _, _explicit_part, ..] = &*rows_in; _explicit_part });
+    let r0 = safe_simd::vld1q_s16({
+      let [_explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r1 = safe_simd::vld1q_s16({
+      let [_, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r2 = safe_simd::vld1q_s16({
+      let [_, _, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r3 = safe_simd::vld1q_s16({
+      let [_, _, _, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r4 = safe_simd::vld1q_s16({
+      let [_, _, _, _, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r5 = safe_simd::vld1q_s16({
+      let [_, _, _, _, _, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r6 = safe_simd::vld1q_s16({
+      let [_, _, _, _, _, _, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
+    let r7 = safe_simd::vld1q_s16({
+      let [_, _, _, _, _, _, _, _explicit_part, ..] = &*rows_in;
+      _explicit_part
+    });
 
     let (o0, o1, o2, o3, o4, o5, o6, o7) = transpose_8x8h(r0, r1, r2, r3, r4, r5, r6, r7);
 
     let mut rows_out = [[0i16; 8]; 8];
-    safe_simd::vst1q_s16({ let [_explicit_part, ..] = &mut rows_out; _explicit_part }, o0);
-    safe_simd::vst1q_s16({ let [_, _explicit_part, ..] = &mut rows_out; _explicit_part }, o1);
-    safe_simd::vst1q_s16({ let [_, _, _explicit_part, ..] = &mut rows_out; _explicit_part }, o2);
-    safe_simd::vst1q_s16({ let [_, _, _, _explicit_part, ..] = &mut rows_out; _explicit_part }, o3);
-    safe_simd::vst1q_s16({ let [_, _, _, _, _explicit_part, ..] = &mut rows_out; _explicit_part }, o4);
-    safe_simd::vst1q_s16({ let [_, _, _, _, _, _explicit_part, ..] = &mut rows_out; _explicit_part }, o5);
-    safe_simd::vst1q_s16({ let [_, _, _, _, _, _, _explicit_part, ..] = &mut rows_out; _explicit_part }, o6);
-    safe_simd::vst1q_s16({ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut rows_out; _explicit_part }, o7);
+    safe_simd::vst1q_s16(
+      {
+        let [_explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o0,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o1,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o2,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _, _, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o3,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _, _, _, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o4,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _, _, _, _, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o5,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _, _, _, _, _, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o6,
+    );
+    safe_simd::vst1q_s16(
+      {
+        let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut rows_out;
+        _explicit_part
+      },
+      o7,
+    );
     rows_out
   }
 
@@ -1957,17 +2170,19 @@ mod tests {
       None => return,
     };
 
-
     let mut rows_in = [[0i16; 8]; 8];
 
     for y in 0..8 {
       for x in 0..8 {
-        rows_in[y][x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(y, 8), x)) { ::core::result::Result::Ok(converted_position) => converted_position };
+        rows_in[y][x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+          ::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(y, 8), x),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
     }
 
     let rows_out = test_transpose_8x8h_inner(token, &rows_in);
-
 
     for y in 0..8 {
       for x in 0..8 {

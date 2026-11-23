@@ -309,7 +309,8 @@ impl<'w, 'a, S: ByteSource + ?Sized> Walking<'w, 'a, S> {
         (Follow::Read, None) | (Follow::Skip, _) => continue,
       };
 
-      match ::core::primitive::bool::then_some(self.parsed.contains(&at) || at >= segment_end, ()) {
+      match ::core::primitive::bool::then_some(self.parsed.contains(&at) || at >= segment_end, ())
+      {
         ::core::option::Option::Some(()) => continue,
         ::core::option::Option::None => {}
       }

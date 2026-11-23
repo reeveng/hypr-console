@@ -69,10 +69,12 @@ fn silence(right: &Spectrum, range: &Range<u32>) -> Infallible<Band> {
   let Ok(end) = index(range.end);
 
   Ok(match right.get(start..end) {
-    Some(band) => match ::core::primitive::bool::then_some(band.iter().all(|x| x.abs().to_bits() == 0), ()) {
-      ::core::option::Option::Some(()) => Band::Silent,
-      ::core::option::Option::None => Band::Sounding,
-    },
+    Some(band) => {
+      match ::core::primitive::bool::then_some(band.iter().all(|x| x.abs().to_bits() == 0), ()) {
+        ::core::option::Option::Some(()) => Band::Silent,
+        ::core::option::Option::None => Band::Sounding,
+      }
+    }
     None => Band::Silent,
   })
 }
@@ -275,7 +277,9 @@ pub fn stereo(
 
   match ::core::primitive::bool::then_some(first.block_type == second.block_type, ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return decode_error("mpa: stereo channel pair block_type mismatch"),
+    ::core::option::Option::None => {
+      return decode_error("mpa: stereo channel pair block_type mismatch");
+    }
   }
 
   let end = first.rzero.max(second.rzero);

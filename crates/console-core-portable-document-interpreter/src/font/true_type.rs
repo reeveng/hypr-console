@@ -628,7 +628,7 @@ impl EmbeddedKind {
         .copied()
       {
         Some(Width::Value(w)) => w,
-        Some(Width::Missing) => self.missing_width.0,
+        Some(Width::Absent) => self.missing_width.0,
         None => {
           let Ok(glyph_metrics) = self.base_font.glyph_metrics();
           let Ok(map_code) = self.map_code(code);
@@ -649,7 +649,7 @@ impl EmbeddedKind {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Width {
   Value(f32),
-  Missing,
+  Absent,
 }
 
 pub(crate) fn read_widths(
@@ -668,7 +668,7 @@ pub(crate) fn read_widths(
     (Some(first_2), Some(last_2), Some(widths_2)) => (first_2, last_2, widths_2),
     (None, _, _) | (_, None, _) | (_, _, None) => return Ok(Some((Vec::new(), missing_width))),
   };
-  let mut entries = vec![Width::Missing; 256];
+  let mut entries = vec![Width::Absent; 256];
   let Ok(widths_iter) = widths_3.iter::<Object<'_>>();
 
   for (code, entry) in (first_3..=last_3.min(u32::from(u8::MAX))).zip(widths_iter) {

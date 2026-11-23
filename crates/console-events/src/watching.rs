@@ -154,10 +154,12 @@ fn round(folder: &Path, say: &SyncSender<Change>) -> Result<Round, Never> {
 
         Some(at)
       }
-      (false, false, false, true) => match ::core::primitive::bool::then_some(flags.contains(ReadFlags::CREATE), ()) {
-        ::core::option::Option::Some(()) => None,
-        ::core::option::Option::None => Some(at),
-      },
+      (false, false, false, true) => {
+        match ::core::primitive::bool::then_some(flags.contains(ReadFlags::CREATE), ()) {
+          ::core::option::Option::Some(()) => None,
+          ::core::option::Option::None => Some(at),
+        }
+      }
       (false, false, _, false) => Some(at),
     };
 
@@ -203,10 +205,12 @@ fn added(
         let metadata = std::fs::symlink_metadata(&path);
 
         match (metadata, shown) {
-          (Ok(details), Descend::Into) => match ::core::primitive::bool::then_some(details.is_dir(), ()) {
-            ::core::option::Option::Some(()) => Some(path),
-            ::core::option::Option::None => None,
-          },
+          (Ok(details), Descend::Into) => {
+            match ::core::primitive::bool::then_some(details.is_dir(), ()) {
+              ::core::option::Option::Some(()) => Some(path),
+              ::core::option::Option::None => None,
+            }
+          }
           (Ok(_), Descend::Past) => None,
           (Err(_disappeared_or_unreadable), _) => None,
         }

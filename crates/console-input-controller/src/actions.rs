@@ -211,10 +211,12 @@ impl Context {
     let Ok(mine) = self.rank();
     let Ok(theirs) = other.rank();
 
-    Ok(match ::core::primitive::bool::then_some(mine > theirs, ()) {
-      ::core::option::Option::Some(()) => Availability::Available,
-      ::core::option::Option::None => Availability::Unavailable,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(mine > theirs, ()) {
+        ::core::option::Option::Some(()) => Availability::Available,
+        ::core::option::Option::None => Availability::Unavailable,
+      },
+    )
   }
 }
 

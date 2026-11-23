@@ -47,7 +47,7 @@ pub trait ResolveOffset {
   fn resolve_with_args<'a, T: FontReadWithArgs<'a>>(
     &self,
     data: FontData<'a>,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<T, ReadError>;
 }
 
@@ -57,7 +57,7 @@ pub trait ResolveNullableOffset {
   fn resolve_with_args<'a, T: FontReadWithArgs<'a>>(
     &self,
     data: FontData<'a>,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<Option<T>, ReadError>;
 }
 
@@ -79,7 +79,7 @@ impl<O: Offset> ResolveOffset for O {
   fn resolve_with_args<'a, T: FontReadWithArgs<'a>>(
     &self,
     data: FontData<'a>,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<T, ReadError> {
     let data_2 = target(*self, data)?;
 
@@ -101,7 +101,7 @@ impl<O: Offset> ResolveNullableOffset for Nullable<O> {
   fn resolve_with_args<'a, T: FontReadWithArgs<'a>>(
     &self,
     data: FontData<'a>,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<Option<T>, ReadError> {
     let Ok(offset) = self.offset();
 

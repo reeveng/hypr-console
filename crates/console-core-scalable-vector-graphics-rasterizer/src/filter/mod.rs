@@ -5,7 +5,7 @@ use console_core_never::Never;
 use console_core_number_conversion::{
   index, nearest_f32_from_i64, nearest_f32_from_u64, toward_zero_i32, toward_zero_u8,
 };
-use console_core_path_rasterizer::{Paint, Pixmap, Rect, Transform};
+use console_core_path_rasterizer::{Paint, Pixmap, FloatRectangle, Transform};
 use console_core_paths::{NonZeroRect, Point};
 use console_core_pixel_buffers::{Rgba8, rgba_pixels, rgba_pixels_mut};
 use console_core_scalable_vector_graphics::console_core_paths::{StrictNormalized, StrictNum};
@@ -708,7 +708,7 @@ fn clear_outside(canvas: &mut Pixmap, kept: IntRect) -> Result<(), Never> {
     [right_2, 0.0, width, height],
     [0.0, bottom_2, width, height],
   ] {
-    let Ok(affected) = Rect::from_xywh(x, y, w, h);
+    let Ok(affected) = FloatRectangle::from_xywh(x, y, w, h);
 
     match affected {
       Some(rect) => {

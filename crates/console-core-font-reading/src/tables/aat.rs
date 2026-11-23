@@ -14,7 +14,9 @@ impl Lookup0<'_> {
   pub fn values<T: LookupValue>(&self) -> Result<&[BigEndian<T>], ReadError> {
     let Ok(bytes) = self.values_data();
     let Ok(length) = console_core_number_conversion::fixed_index(bytes.len());
-    let count = length.checked_div(T::RAW_BYTE_LEN).ok_or(ReadError::OutOfBounds)?;
+    let count = length
+      .checked_div(T::RAW_BYTE_LEN)
+      .ok_or(ReadError::OutOfBounds)?;
     let extent = count.wrapping_mul(T::RAW_BYTE_LEN);
     let Ok(range) = console_core_number_conversion::indices_to(..extent);
     let records = bytes.get(range).ok_or(ReadError::OutOfBounds)?;
@@ -259,10 +261,12 @@ impl Lookup6<'_> {
   pub fn value<T: LookupValue>(&self, index: u16) -> Result<T, ReadError> {
     let entries = self.entries::<T>()?;
 
-    let entry = entries.binary_search_by_key(&index, |entry| {
-      let Ok(glyph) = entry.glyph.get();
-      glyph
-    }).map_err(|_insertion_position| ReadError::OutOfBounds)
+    let entry = entries
+      .binary_search_by_key(&index, |entry| {
+        let Ok(glyph) = entry.glyph.get();
+        glyph
+      })
+      .map_err(|_insertion_position| ReadError::OutOfBounds)
       .and_then(|position| entries.get(position).ok_or(ReadError::OutOfBounds))?;
     let Ok(value) = entry.value.get();
     Ok(value)
@@ -586,7 +590,9 @@ impl StateTable<'_> {
     })
     .ok_or(ReadError::OutOfBounds)?;
     let Ok(n_classes) = console_core_number_conversion::wrapped::<_, i32>(self.n_classes);
-    let new_state = checked_value.checked_div(n_classes).ok_or(ReadError::OutOfBounds)?;
+    let new_state = checked_value
+      .checked_div(n_classes)
+      .ok_or(ReadError::OutOfBounds)?;
     let map_err = new_state.try_into().map_err(|_| ReadError::OutOfBounds)?;
     entry.new_state = map_err;
     Ok(entry)
@@ -693,7 +699,10 @@ where
 
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `ExtendedStateTable::entry` method retains the positional argument order for `state`, `class`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `ExtendedStateTable::entry` method retains the positional argument order for `state`, `class`"
+    )
   )]
   pub fn entry(&self, state: u16, class: u16) -> Result<StateEntry<T>, ReadError> {
     let mut class_2 = {
@@ -797,7 +806,9 @@ pub(crate) fn safe_read_array_to_end<'a, T: bytemuck::AnyBitPattern + FixedSize>
   let Ok(value_25) = data.len();
 
   let len = value_25.checked_sub(offset).ok_or(ReadError::OutOfBounds)?;
-  let count = len.checked_div(T::RAW_BYTE_LEN).ok_or(ReadError::OutOfBounds)?;
+  let count = len
+    .checked_div(T::RAW_BYTE_LEN)
+    .ok_or(ReadError::OutOfBounds)?;
   let end = offset.wrapping_add(count.wrapping_mul(T::RAW_BYTE_LEN));
   data.read_array(offset..end)
 }
@@ -822,12 +833,21 @@ mod tests {
 
     for gid in 0..=8 {
       assert_eq!(
-        match lookup.value(gid) { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(read_error) },
+        match lookup.value(gid) {
+          ::core::result::Result::Ok(read_value) => read_value,
+          ::core::result::Result::Err(read_error) =>
+            return ::core::result::Result::Err(read_error),
+        },
         ::core::primitive::u16::wrapping_mul(gid, 2)
       );
     }
 
-    assert!((match &(lookup.value(9)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+    assert!(
+      (match &(lookup.value(9)) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
     ::core::result::Result::Ok(())
   }
 
@@ -847,9 +867,12 @@ mod tests {
         ];
     let mut buf = font_test_data::bebuffer::BeBuffer::default();
     buf.extend(words);
-    let lookup = crate::test_support::fixture_value(LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
-      &[::core::primitive::u8],
-    >>::from(&*buf)), "fixture value")?;
+    let lookup = crate::test_support::fixture_value(
+      LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+        &[::core::primitive::u8],
+      >>::from(&*buf)),
+      "fixture value",
+    )?;
     let expected = [(20..=22, 4), (23..=24, 5), (25..=28, 6)];
 
     for (range, class) in expected {
@@ -859,9 +882,13 @@ mod tests {
     }
 
     for fail in [0, 10, 19, 29, 0xFFFF] {
-      assert!((match &(lookup.value(fail)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+      assert!(
+        (match &(lookup.value(fail)) {
+          Ok(_validated_input) => false,
+          Err(_invalid_fixture_input) => true,
+        })
+      );
     }
-  ;
 
     Ok(())
   }
@@ -886,9 +913,12 @@ mod tests {
         ];
     let mut buf = font_test_data::bebuffer::BeBuffer::default();
     buf.extend(words);
-    let lookup = crate::test_support::fixture_value(LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
-      &[::core::primitive::u8],
-    >>::from(&*buf)), "fixture value")?;
+    let lookup = crate::test_support::fixture_value(
+      LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+        &[::core::primitive::u8],
+      >>::from(&*buf)),
+      "fixture value",
+    )?;
 
     let expected = [
       (20, 3),
@@ -902,13 +932,20 @@ mod tests {
       (28, 9),
     ];
     for (in_glyph, out_glyph) in expected {
-      assert_eq!(lookup.value(in_glyph), ::core::result::Result::Ok(out_glyph));
+      assert_eq!(
+        lookup.value(in_glyph),
+        ::core::result::Result::Ok(out_glyph)
+      );
     }
 
     for fail in [0, 10, 19, 29, 0xFFFF] {
-      assert!((match &(lookup.value(fail)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+      assert!(
+        (match &(lookup.value(fail)) {
+          Ok(_validated_input) => false,
+          Err(_invalid_fixture_input) => true,
+        })
+      );
     }
-  ;
 
     Ok(())
   }
@@ -930,19 +967,29 @@ mod tests {
         ];
     let mut buf = font_test_data::bebuffer::BeBuffer::default();
     buf.extend(words);
-    let lookup = crate::test_support::fixture_value(LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
-      &[::core::primitive::u8],
-    >>::from(&*buf)), "fixture value")?;
+    let lookup = crate::test_support::fixture_value(
+      LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+        &[::core::primitive::u8],
+      >>::from(&*buf)),
+      "fixture value",
+    )?;
     let expected = [(50, 600), (51, 601), (201, 602), (202, 900)];
 
     for (in_glyph, out_glyph) in expected {
-      assert_eq!(lookup.value(in_glyph), ::core::result::Result::Ok(out_glyph));
+      assert_eq!(
+        lookup.value(in_glyph),
+        ::core::result::Result::Ok(out_glyph)
+      );
     }
 
     for fail in [0, 10, 49, 52, 203, 0xFFFF] {
-      assert!((match &(lookup.value(fail)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+      assert!(
+        (match &(lookup.value(fail)) {
+          Ok(_validated_input) => false,
+          Err(_invalid_fixture_input) => true,
+        })
+      );
     }
-  ;
 
     Ok(())
   }
@@ -958,9 +1005,12 @@ mod tests {
         ];
     let mut buf = font_test_data::bebuffer::BeBuffer::default();
     buf.extend(words);
-    let lookup = crate::test_support::fixture_value(LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
-      &[::core::primitive::u8],
-    >>::from(&*buf)), "fixture value")?;
+    let lookup = crate::test_support::fixture_value(
+      LookupU16::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+        &[::core::primitive::u8],
+      >>::from(&*buf)),
+      "fixture value",
+    )?;
     let expected = {
       let [_, _, _, _explicit_part @ ..] = &words;
       let _explicit_slice: &[_] = _explicit_part;
@@ -973,9 +1023,13 @@ mod tests {
     }
 
     for fail in [0, 10, 200, 210, 0xFFFF] {
-      assert!((match &(lookup.value(fail)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+      assert!(
+        (match &(lookup.value(fail)) {
+          Ok(_validated_input) => false,
+          Err(_invalid_fixture_input) => true,
+        })
+      );
     }
-  ;
 
     Ok(())
   }
@@ -998,18 +1052,25 @@ mod tests {
       buf.extend(mapped);
     };
 
-    let lookup = crate::test_support::fixture_value(LookupU32::read(<crate::font_data::FontData<'_> as ::core::convert::From<
-      &[::core::primitive::u8],
-    >>::from(&*buf)), "fixture value")?;
+    let lookup = crate::test_support::fixture_value(
+      LookupU32::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+        &[::core::primitive::u8],
+      >>::from(&*buf)),
+      "fixture value",
+    )?;
 
     for (gid, expected) in (201..209).zip(mapped) {
       assert_eq!(lookup.value(gid), ::core::result::Result::Ok(expected));
     }
 
     for fail in [0, 10, 200, 210, 0xFFFF] {
-      assert!((match &(lookup.value(fail)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+      assert!(
+        (match &(lookup.value(fail)) {
+          Ok(_validated_input) => false,
+          Err(_invalid_fixture_input) => true,
+        })
+      );
     }
-  ;
 
     Ok(())
   }
@@ -1129,23 +1190,25 @@ mod tests {
             18, 0x8116,
         ];
     let buf = font_test_data::be_buffer! { (..(header)), (..(class_table)), (..(classes)), (..(state_array)), (..(entry_table)) };
-    let table = crate::test_support::fixture_value(StateTable::read(<crate::font_data::FontData<'_> as ::core::convert::From<
-      &[::core::primitive::u8],
-    >>::from(&*buf)), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      StateTable::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+        &[::core::primitive::u8],
+      >>::from(&*buf)),
+      "fixture value",
+    )?;
 
     for i in 0..4u8 {
-      let fixture_value = crate::test_support::fixture_value(table
-        .class(GlyphId16::from(::core::primitive::u16::wrapping_add(
+      let fixture_value = crate::test_support::fixture_value(
+        table.class(GlyphId16::from(::core::primitive::u16::wrapping_add(
           {
             let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(i);
             migrated_value
           },
-          3
-        ))), "fixture value")?;
-      assert_eq!(
-        fixture_value,
-        ::core::primitive::u8::wrapping_add(i, 1)
-      );
+          3,
+        ))),
+        "fixture value",
+      )?;
+      assert_eq!(fixture_value, ::core::primitive::u8::wrapping_add(i, 1));
     }
 
     let cases = [
@@ -1167,7 +1230,6 @@ mod tests {
         entry.flags
       );
     }
-  ;
 
     Ok(())
   }

@@ -44,8 +44,9 @@ impl core::fmt::Display for Error {
           write!(
             f,
             "expected '{}' not '{actual}' at position {pos}",
-            list.join("', '")
-          , actual = actual_2)
+            list.join("', '"),
+            actual = actual_2
+          )
         }
         None => write!(f, "invalid character at position {pos}"),
       },

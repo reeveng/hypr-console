@@ -133,7 +133,9 @@ fn git(root: &Path, arguments: &[&str]) -> Result<String, Unread> {
     .map_err(|fault| Unread::Unstarted(asked.clone(), fault))?;
 
   match ::core::primitive::bool::then_some(said.status.success(), ()) {
-    ::core::option::Option::Some(()) => String::from_utf8(said.stdout).map_err(|fault| Unread::NotText(asked, fault)),
+    ::core::option::Option::Some(()) => {
+      String::from_utf8(said.stdout).map_err(|fault| Unread::NotText(asked, fault))
+    }
     ::core::option::Option::None => {
       let diagnostic = match String::from_utf8(said.stderr) {
         Ok(text) => text.trim().to_string(),

@@ -536,16 +536,18 @@ pub fn alert(
   };
 
   Ok(match reached {
-    Some(now) => match ::core::primitive::bool::then_some(held.is_none_or(|before| now > before), ()) {
-      ::core::option::Option::Some(()) => Alert {
-        act: Some(now),
-        told: Some(now),
-      },
-      ::core::option::Option::None => Alert {
-        act: None,
-        told: held,
-      },
-    },
+    Some(now) => {
+      match ::core::primitive::bool::then_some(held.is_none_or(|before| now > before), ()) {
+        ::core::option::Option::Some(()) => Alert {
+          act: Some(now),
+          told: Some(now),
+        },
+        ::core::option::Option::None => Alert {
+          act: None,
+          told: held,
+        },
+      }
+    }
     None => Alert {
       act: None,
       told: held,

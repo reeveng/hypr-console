@@ -6,7 +6,8 @@
 //! the list only ever gets shorter. A crate that is fixed takes its line out
 //! of the list in the same commit.
 //!
-//! The facts are `docs/architecture/facts.jsonl`, collected by `just map`. A
+//! Run `just map-check` to check the facts collected in
+//! `docs/architecture/facts.jsonl` by `just map`. A
 //! test crate's own code is not in them -- the lint leaves test builds out --
 //! and neither is a crate's use of its own definitions, so "names" below means
 //! a crate reaching across into another one.
@@ -84,6 +85,7 @@ const COMPOSITOR_EVENTS_EXCUSED: [(&str, &str); 2] = [
 ];
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn nothing_but_the_pool_opens_the_compositors_events() -> Result<(), Failure> {
   let architecture = architecture()?;
   let Ok(found) = facts::whose(&architecture.facts, Kind::Socket, "Events");
@@ -103,6 +105,7 @@ const COMPOSITOR: &str = "console-compositor";
 const TEST_FAMILY: &str = "console-test-";
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn nothing_but_the_compositor_crate_runs_hyprctl() -> Result<(), Failure> {
   let architecture = architecture()?;
   let Ok(found) = facts::whose(&architecture.facts, Kind::Runs, "Hyprctl");
@@ -129,6 +132,7 @@ const SOURCELESS: [(&str, &str); 1] = [(
 )];
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn every_event_group_the_pool_serves_has_a_source() -> Result<(), Failure> {
   let architecture = architecture()?;
   let Ok(handled) = facts::of_kind(&architecture.facts, Kind::Handles);
@@ -182,6 +186,7 @@ const TICKING: [(&str, &str); 6] = [
 ];
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn nothing_both_subscribes_and_keeps_a_clock() -> Result<(), Failure> {
   let architecture = architecture()?;
   let Ok(subscribing) = facts::packages(&architecture.facts, Kind::Subscribes);

@@ -101,10 +101,12 @@ impl Binding {
   }
 
   pub fn played(&self) -> Result<Played, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.pressed.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Played::ByNothing,
-      ::core::option::Option::None => Played::ByAPress,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.pressed.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Played::ByNothing,
+        ::core::option::Option::None => Played::ByAPress,
+      },
+    )
   }
 
   pub fn depth(&self) -> Result<u32, Never> {

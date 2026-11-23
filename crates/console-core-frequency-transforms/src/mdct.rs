@@ -11,9 +11,9 @@ use console_core_never::Never;
 use console_core_number_conversion::narrow_f32;
 use core::f64::consts::PI;
 
-use crate::{BufferLength, Fault, TransformSize};
 use crate::complex::Complex;
 use crate::fft::Fft;
+use crate::{BufferLength, TransformError, TransformSize};
 
 pub struct Imdct {
   fft: Fft,
@@ -69,13 +69,13 @@ fn twiddles(count: u32, scale: Scale) -> Result<Box<[Complex]>, Never> {
 }
 
 impl Imdct {
-  pub fn new(n: u32) -> Result<Self, Fault> {
+  pub fn new(n: u32) -> Result<Self, TransformError> {
     Imdct::new_scaled(n, Scale(1.0))
   }
 
-  pub fn new_scaled(n: u32, scale: Scale) -> Result<Self, Fault> {
+  pub fn new_scaled(n: u32, scale: Scale) -> Result<Self, TransformError> {
     match TransformSize::from(n.is_power_of_two()) {
-      TransformSize::Unsupported => Err(Fault::Size),
+      TransformSize::Unsupported => Err(TransformError::Size),
       TransformSize::Supported => {
         let half = n.wrapping_shr(1);
         let fft = Fft::new(half)?;
@@ -93,16 +93,16 @@ impl Imdct {
     }
   }
 
-  pub fn imdct(&mut self, spec: &[f32], out: &mut [f32]) -> Result<(), Fault> {
+  pub fn imdct(&mut self, spec: &[f32], out: &mut [f32]) -> Result<(), TransformError> {
     match (
       BufferLength::from(spec.len() == self.fft_in.len().saturating_mul(2)),
       BufferLength::from(out.len() == self.fft_in.len().saturating_mul(4)),
     ) {
       (BufferLength::Exact, BufferLength::Exact) => {}
       (BufferLength::Mismatched, BufferLength::Exact | BufferLength::Mismatched) => {
-        return Err(Fault::Spectrum);
+        return Err(TransformError::Spectrum);
       }
-      (BufferLength::Exact, BufferLength::Mismatched) => return Err(Fault::Output),
+      (BufferLength::Exact, BufferLength::Mismatched) => return Err(TransformError::Output),
     }
 
     let (pairs, _) = spec.as_chunks::<2>();

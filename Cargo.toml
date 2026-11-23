@@ -223,6 +223,9 @@ string_cache = { path = "forks/console-core-string-interning/compat" }
 debug = "line-tables-only"
 incremental = false
 
+[profile.dev.package.console-core-path-rasterizer]
+opt-level = 2
+
 [profile.dev.package.console-repository]
 opt-level = 2
 

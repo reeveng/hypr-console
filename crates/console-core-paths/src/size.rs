@@ -5,7 +5,7 @@ use console_core_number_conversion::{nearest_f32_from_u64, toward_zero_u32};
 use console_core_size::Size as Dimensions;
 use core::cmp::Ordering;
 
-use crate::{IntRect, LengthU32, NonZeroRect, Rect};
+use crate::{IntRect, LengthU32, NonZeroRect, FloatRectangle};
 
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use crate::NoStdFloat;
@@ -341,8 +341,8 @@ impl Size {
       reason = "The position is in path coordinate units"
     )
   )]
-  pub fn to_rect(&self, x: f32, y: f32) -> Result<Option<Rect>, Never> {
-    Rect::from_xywh(x, y, self.0.width.get(), self.0.height.get())
+  pub fn to_rect(&self, x: f32, y: f32) -> Result<Option<FloatRectangle>, Never> {
+    FloatRectangle::from_xywh(x, y, self.0.width.get(), self.0.height.get())
   }
 
   #[cfg_attr(

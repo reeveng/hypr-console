@@ -120,10 +120,12 @@ pub(crate) fn fast_bounding_box(path: &BezPath) -> Result<Rect, Never> {
     }
   }
 
-  Ok(match ::core::primitive::bool::then_some(low.x > high.x, ()) {
-    ::core::option::Option::Some(()) => Rect::ZERO,
-    ::core::option::Option::None => Rect::from_points(low, high),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(low.x > high.x, ()) {
+      ::core::option::Option::Some(()) => Rect::ZERO,
+      ::core::option::Option::None => Rect::from_points(low, high),
+    },
+  )
 }
 
 pub trait TransformExt {
@@ -142,7 +144,7 @@ pub trait RectExt {
   fn to_kurbo(&self) -> Rect;
 }
 
-impl RectExt for console_core_portable_document_syntax::object::Rect {
+impl RectExt for console_core_portable_document_syntax::object::Rectangle {
   fn to_kurbo(&self) -> Rect {
     Rect::from_bounds(*self)
   }

@@ -48,7 +48,7 @@ enum Piece {
 }
 
 enum Tweak {
-  Keep,
+  Retain,
   Truncated,
   Marker([u8; 4]),
   Replace(&'static [u8]),
@@ -208,7 +208,7 @@ fn file_bytes(case: &Case) -> Result<Vec<u8>, TryFromIntError> {
   file.extend(body);
 
   match &case.tweak {
-    Tweak::Keep => (),
+    Tweak::Retain => (),
     Tweak::Truncated => file.truncate(2000),
     Tweak::Marker(marker) => file.splice(0..4, *marker).for_each(drop),
     Tweak::Replace(bytes) => file = bytes.to_vec(),
@@ -239,7 +239,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff 8 mono",
@@ -257,7 +257,7 @@ mod fixtures {
           count: 3001,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff 24 stereo",
@@ -275,7 +275,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff 32 stereo",
@@ -293,7 +293,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff 12 bits",
@@ -311,7 +311,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff no channels",
@@ -329,7 +329,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff negative channels",
@@ -347,7 +347,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff negative bits",
@@ -365,7 +365,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff rate 8000",
@@ -383,7 +383,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff rate 1",
@@ -401,7 +401,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff rate max",
@@ -419,7 +419,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff rate past max",
@@ -441,7 +441,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff rate fraction",
@@ -463,7 +463,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff offset",
@@ -481,7 +481,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff block size",
@@ -499,7 +499,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff unknown chunks",
@@ -525,7 +525,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
   ];
 
@@ -539,7 +539,7 @@ mod fixtures {
         rate: Rate::Whole(44100),
         tail: Tail::None,
       }],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff no common",
@@ -549,7 +549,7 @@ mod fixtures {
         block: 0,
         count: 6000,
       }],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff empty sound",
@@ -567,7 +567,7 @@ mod fixtures {
           count: 0,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff short common",
@@ -583,7 +583,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aiff truncated",
@@ -619,7 +619,7 @@ mod fixtures {
           body: &[0; 8],
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc none",
@@ -640,7 +640,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc none lowercase 24",
@@ -661,7 +661,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc none 12 bits",
@@ -682,7 +682,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc sowt",
@@ -703,7 +703,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc sowt uppercase",
@@ -724,7 +724,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc sowt 8 bits",
@@ -745,7 +745,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
   ];
 
@@ -769,7 +769,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc twos 24 bits",
@@ -790,7 +790,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc fl32",
@@ -811,7 +811,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc fl64",
@@ -832,7 +832,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc fl32 16 bits",
@@ -853,7 +853,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc alaw",
@@ -874,7 +874,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc alaw uppercase",
@@ -895,7 +895,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc ulaw",
@@ -916,7 +916,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc ulaw uppercase",
@@ -937,7 +937,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc unsupported",
@@ -958,7 +958,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc even name",
@@ -979,7 +979,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc empty name",
@@ -1000,7 +1000,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc long name",
@@ -1021,7 +1021,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc name past chunk",
@@ -1039,7 +1039,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc no name",
@@ -1057,7 +1057,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "aifc no channels",
@@ -1078,7 +1078,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "form unknown",
@@ -1096,7 +1096,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "not form",

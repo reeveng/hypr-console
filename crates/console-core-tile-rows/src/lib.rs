@@ -65,7 +65,7 @@ pub struct Tile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Laid {
+pub struct Layout {
   pub tiles: Vec<Tile>,
   pub scrolled: u32,
 }
@@ -203,28 +203,30 @@ impl TileRow {
     let left = view.left.saturating_add(offset).saturating_sub(behind);
     let right = left.saturating_add(i64::from(size.width));
 
-    Ok(match Visibility::from(right > view.left && left < view.right) {
-      Visibility::Visible => {
-        let Ok(across) = fitted::<i64, i32>(left);
-        let Ok(width) = fitted::<u32, i32>(size.width);
-        let Ok(height) = fitted::<u32, i32>(size.height);
+    Ok(
+      match Visibility::from(right > view.left && left < view.right) {
+        Visibility::Visible => {
+          let Ok(across) = fitted::<i64, i32>(left);
+          let Ok(width) = fitted::<u32, i32>(size.width);
+          let Ok(height) = fitted::<u32, i32>(size.height);
 
-        Some(Tile {
-          at,
-          frame: Rectangle {
-            origin: Point {
-              x: across,
-              y: view.top,
+          Some(Tile {
+            at,
+            frame: Rectangle {
+              origin: Point {
+                x: across,
+                y: view.top,
+              },
+              size: Size { width, height },
             },
-            size: Size { width, height },
-          },
-        })
-      }
-      Visibility::Outside => None,
-    })
+          })
+        }
+        Visibility::Outside => None,
+      },
+    )
   }
 
-  pub fn laid(self, view: Rectangle<i32>, scroll: Scroll) -> Result<Laid, Never> {
+  pub fn laid(self, view: Rectangle<i32>, scroll: Scroll) -> Result<Layout, Never> {
     let Ok(seen) = view_of(view);
     let Ok(scrolled) = self.scrolled(seen, scroll);
     let Ok(held) = fitted::<u64, u32>(scrolled);
@@ -237,7 +239,7 @@ impl TileRow {
       })
       .collect();
 
-    Ok(Laid {
+    Ok(Layout {
       tiles,
       scrolled: held,
     })
@@ -363,7 +365,7 @@ mod tests {
     })
   }
 
-  fn frame_of(laid: &Laid, at: u32) -> Result<Option<Rectangle<i32>>, Never> {
+  fn frame_of(laid: &Layout, at: u32) -> Result<Option<Rectangle<i32>>, Never> {
     Ok(
       laid
         .tiles

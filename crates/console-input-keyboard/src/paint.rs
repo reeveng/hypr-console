@@ -215,10 +215,12 @@ fn one(
     | Kind::Next
     | Kind::Symbols
     | Kind::Compose
-    | Kind::EndRow => match ::core::primitive::bool::then_some(shifted && !key.shift.is_empty(), ()) {
-      ::core::option::Option::Some(()) => key.shift,
-      ::core::option::Option::None => key.label,
-    },
+    | Kind::EndRow => {
+      match ::core::primitive::bool::then_some(shifted && !key.shift.is_empty(), ()) {
+        ::core::option::Option::Some(()) => key.shift,
+        ::core::option::Option::None => key.label,
+      }
+    }
   };
 
   match ::core::primitive::bool::then_some(label.is_empty(), ()) {

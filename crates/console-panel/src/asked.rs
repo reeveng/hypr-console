@@ -124,7 +124,10 @@ extern "C" fn on_signal(_number: core::ffi::c_int) {
 
       #[cfg_attr(
         dylint_lib = "explicit058_contain_unsafe",
-        expect(explicit058_contain_unsafe, reason = "the signal handler can borrow only the atomic descriptor number; HELD owns the write end throughout the process lifetime")
+        expect(
+          explicit058_contain_unsafe,
+          reason = "the signal handler can borrow only the atomic descriptor number; HELD owns the write end throughout the process lifetime"
+        )
       )]
       // SAFETY: the pipe write end stays owned by HELD during this nonblocking write.
       let held = unsafe { BorrowedFd::borrow_raw(fd) };

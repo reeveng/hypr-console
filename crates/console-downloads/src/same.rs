@@ -75,7 +75,10 @@ pub fn wants_at(path: &Path) -> Result<Wants, Never> {
 fn want_extension(end: &str) -> Result<Wants, Never> {
   let end_2 = end.to_lowercase();
 
-  match ::core::primitive::bool::then_some(end_2 == crate::getting::SOUND || end_2 == crate::getting::FILM, ()) {
+  match ::core::primitive::bool::then_some(
+    end_2 == crate::getting::SOUND || end_2 == crate::getting::FILM,
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Ok(Wants::None),
     ::core::option::Option::None => {}
   }
@@ -90,10 +93,12 @@ fn want_extension(end: &str) -> Result<Wants, Never> {
     ::core::option::Option::None => {}
   }
 
-  Ok(match ::core::primitive::bool::then_some(FILMS.contains(&end_2.as_str()), ()) {
-    ::core::option::Option::Some(()) => Wants::Made(Kind::Film),
-    ::core::option::Option::None => Wants::Leave,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(FILMS.contains(&end_2.as_str()), ()) {
+      ::core::option::Option::Some(()) => Wants::Made(Kind::Film),
+      ::core::option::Option::None => Wants::Leave,
+    },
+  )
 }
 
 pub fn beside(path: &Path, kind: Kind) -> Result<PathBuf, Never> {
@@ -332,7 +337,12 @@ mod tests {
 
     assert!(with.contains(&OsString::from("METADATA_BLOCK_PICTURE=Zm9v")));
     assert!(with.contains(&OsString::from("-map_metadata")));
-    assert!(!without.iter().filter_map(|word| word.to_str()).any(|word| word.contains("PICTURE")));
+    assert!(
+      !without
+        .iter()
+        .filter_map(|word| word.to_str())
+        .any(|word| word.contains("PICTURE"))
+    );
   }
 
   #[test]

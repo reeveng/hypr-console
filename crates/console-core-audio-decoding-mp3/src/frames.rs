@@ -53,11 +53,15 @@ pub fn read_mpeg_frame(reader: &mut MediaSourceStream) -> Result<(FrameHeader, V
 
   let (header, word) = finished(found)?;
 
-  match ::core::primitive::bool::then_some(u64::from(header.frame_size).saturating_add(u64::from(MPEG_HEADER_LEN))
-    <= MAX_MPEG_FRAME_SIZE, ())
-  {
+  match ::core::primitive::bool::then_some(
+    u64::from(header.frame_size).saturating_add(u64::from(MPEG_HEADER_LEN))
+      <= MAX_MPEG_FRAME_SIZE,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return decode_error("mpa: frame exceeds the maximum MPEG audio packet size"),
+    ::core::option::Option::None => {
+      return decode_error("mpa: frame exceeds the maximum MPEG audio packet size");
+    }
   }
 
   let Ok(body_len) = index(header.frame_size);
@@ -184,7 +188,10 @@ pub fn estimate_num_mpeg_frames(reader: &mut MediaSourceStream) -> Infallible<Op
           frames: tally.frames.saturating_add(1),
         };
 
-        match ::core::primitive::bool::then_some(tally_2.frames > MAX_FRAMES || tally_2.len > MAX_LEN, ()) {
+        match ::core::primitive::bool::then_some(
+          tally_2.frames > MAX_FRAMES || tally_2.len > MAX_LEN,
+          (),
+        ) {
           ::core::option::Option::Some(()) => Step::Halt(Some(tally_2)),
           ::core::option::Option::None => Step::Again((reader_2, tally_2)),
         }

@@ -125,7 +125,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::data` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::data` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn data(&self) -> &'a [u8] {
     self.data
@@ -134,7 +137,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::version` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::version` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn version(&self) -> u16 {
     match self.version {
@@ -146,7 +152,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::metadata` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::metadata` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn metadata(&self) -> Option<Metadata<'a>> {
     let Ok(metadata) = Metadata::new(self.data, self.top_dict_index);
@@ -157,7 +166,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::glyph_indexing` method returns `GlyphIndexing` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::glyph_indexing` method returns `GlyphIndexing` directly in the existing parser interface"
+    )
   )]
   pub fn glyph_indexing(&self) -> GlyphIndexing {
     match &self.top_dict.kind {
@@ -170,7 +182,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::global_subrs` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::global_subrs` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn global_subrs(&self) -> &Index<'a> {
     &self.global_subrs
@@ -179,7 +194,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::num_glyphs` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::num_glyphs` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn num_glyphs(&self) -> u32 {
     self.top_dict.charstrings.count()
@@ -188,7 +206,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::charstrings` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::charstrings` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn charstrings(&self) -> &Index<'a> {
     &self.top_dict.charstrings
@@ -197,7 +218,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::strings` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::strings` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn strings(&self) -> Option<&Index<'a>> {
     match &self.top_dict.kind {
@@ -209,7 +233,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::string` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::string` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn string(&self, sid: Sid) -> Option<&'a [u8]> {
     match sid.resolve_standard() {
@@ -217,7 +244,10 @@ impl<'a> CffFontRef<'a> {
       Err(idx) => {
         let strings = self.strings()?;
 
-        match strings.get(idx) { Ok(value) => Some(value), Err(_invalid_string_index) => None }
+        match strings.get(idx) {
+          Ok(value) => Some(value),
+          Err(_invalid_string_index) => None,
+        }
       }
     }
   }
@@ -225,7 +255,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::charset` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::charset` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn charset(&self) -> Option<Charset<'a>> {
     let Ok(value_30) = self.top_dict.charset_offset.get();
@@ -248,7 +281,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::encoding` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::encoding` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn encoding(&self) -> Option<Encoding<'a>> {
     let charset = self.charset()?;
@@ -267,7 +303,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::matrix` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::matrix` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn matrix(&self) -> Option<&ScaledFontMatrix> {
     self.top_dict.matrix.as_ref()
@@ -276,7 +315,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::upem` method returns `i32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::upem` method returns `i32` directly in the existing parser interface"
+    )
   )]
   pub fn upem(&self) -> i32 {
     self.upem
@@ -285,7 +327,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::var_store` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::var_store` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn var_store(&self) -> Option<&ItemVariationStore<'a>> {
     self.top_dict.var_store.as_ref()
@@ -294,7 +339,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::num_subfonts` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::num_subfonts` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn num_subfonts(&self) -> u16 {
     match &self.top_dict.kind {
@@ -310,7 +358,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::subfont_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::subfont_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn subfont_index(&self, gid: GlyphId) -> Option<u16> {
     match &self.top_dict.kind {
@@ -396,7 +447,10 @@ impl<'a> CffFontRef<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CffFontRef::transform` method returns `Transform` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CffFontRef::transform` method returns `Transform` directly in the existing parser interface"
+    )
   )]
   pub fn transform(&self, subfont: &Subfont, ppem: Option<f32>) -> Transform {
     let mut scale = ppem.map(|ppem_2| Transform::compute_scale(ppem_2, self.upem));
@@ -404,7 +458,10 @@ impl<'a> CffFontRef<'a> {
     let scaled_matrix = match self.top_dict.matrix {
       Some(top_matrix) => match subfont.matrix {
         Some(sub_matrix) => {
-          let scaling = match ::core::primitive::bool::then_some(top_matrix.scale > 1 && sub_matrix.scale > 1, ()) {
+          let scaling = match ::core::primitive::bool::then_some(
+            top_matrix.scale > 1 && sub_matrix.scale > 1,
+            (),
+          ) {
             ::core::option::Option::Some(()) => top_matrix.scale.min(sub_matrix.scale),
             ::core::option::Option::None => 1,
           };
@@ -522,12 +579,17 @@ impl<'a> CffFontRef<'a> {
   }
 
   #[must_use]
-  fn blend_state(&self, vs_index: u16, coords: &'a [F2Dot14]) -> core::result::Result<Option<BlendState<'a>>, console_core_never::Never> {
-      Ok(self
-        .top_dict
-        .var_store
-        .as_ref()
-        .and_then(|store| match BlendState::new(store.clone(), coords, vs_index) { Ok(value) => Some(value), Err(_invalid_blend_state) => None }))
+  fn blend_state(
+    &self,
+    vs_index: u16,
+    coords: &'a [F2Dot14],
+  ) -> core::result::Result<Option<BlendState<'a>>, console_core_never::Never> {
+    Ok(self.top_dict.var_store.as_ref().and_then(|store| {
+      match BlendState::new(store.clone(), coords, vs_index) {
+        Ok(value) => Some(value),
+        Err(_invalid_blend_state) => None,
+      }
+    }))
   }
 }
 
@@ -541,7 +603,10 @@ impl<'a> Encoding<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Encoding::predefined` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Encoding::predefined` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn predefined(&self) -> Option<PredefinedEncoding> {
     match &self.encoding {
@@ -553,7 +618,10 @@ impl<'a> Encoding<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Encoding::charset` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Encoding::charset` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn charset(&self) -> &Charset<'a> {
     &self.charset
@@ -562,7 +630,10 @@ impl<'a> Encoding<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Encoding::map` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Encoding::map` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn map(&self, code: u8) -> Option<GlyphId> {
     self.encoding.map(&self.charset, code)
@@ -588,7 +659,10 @@ enum CffFontKind<'a> {
 #[derive(Copy, Clone, Default, Debug)]
 #[cfg_attr(
   dylint_lib = "explicit065_checked_constructors",
-  expect(explicit065_checked_constructors, reason = "the published Subfont default represents empty local subroutines, widths, and matrix, with the default variation store index")
+  expect(
+    explicit065_checked_constructors,
+    reason = "the published Subfont default represents empty local subroutines, widths, and matrix, with the default variation store index"
+  )
 )]
 pub struct Subfont {
   subrs_offset: u32,
@@ -613,7 +687,10 @@ impl Subfont {
 
     let data_2 = data.get(value_20).ok_or(ReadError::OutOfBounds)?;
 
-    for entry in dict::entries(data_2, blend).filter_map(|e| match e { Ok(value) => Some(value), Err(_unreadable_cff_dict_entry) => None }) {
+    for entry in dict::entries(data_2, blend).filter_map(|e| match e {
+      Ok(value) => Some(value),
+      Err(_unreadable_cff_dict_entry) => None,
+    }) {
       match entry {
         dict::Entry::SubrsOffset(offset) => {
           subfont.subrs_offset = {
@@ -638,24 +715,55 @@ impl Subfont {
 
           subfont.nominal_width = value_8
         }
-        dict::Entry::Version(_) | dict::Entry::Notice(_) | dict::Entry::FullName(_)
-        | dict::Entry::FamilyName(_) | dict::Entry::Weight(_) | dict::Entry::FontBbox(_)
-        | dict::Entry::CharstringsOffset(_) | dict::Entry::PrivateDictRange(_)
-        | dict::Entry::VariationStoreOffset(_) | dict::Entry::Copyright(_)
-        | dict::Entry::IsFixedPitch(_) | dict::Entry::ItalicAngle(_)
-        | dict::Entry::UnderlinePosition(_) | dict::Entry::UnderlineThickness(_)
-        | dict::Entry::PaintType(_) | dict::Entry::CharstringType(_) | dict::Entry::FontMatrix(_)
-        | dict::Entry::StrokeWidth(_) | dict::Entry::FdArrayOffset(_)
-        | dict::Entry::FdSelectOffset(_) | dict::Entry::BlueValues(_) | dict::Entry::OtherBlues(_)
-        | dict::Entry::FamilyBlues(_) | dict::Entry::FamilyOtherBlues(_) | dict::Entry::BlueScale(_)
-        | dict::Entry::BlueShift(_) | dict::Entry::BlueFuzz(_) | dict::Entry::LanguageGroup(_)
-        | dict::Entry::ExpansionFactor(_) | dict::Entry::Encoding(_) | dict::Entry::Charset(_)
-        | dict::Entry::UniqueId(_) | dict::Entry::Xuid | dict::Entry::SyntheticBase(_)
-        | dict::Entry::PostScript(_) | dict::Entry::BaseFontName(_) | dict::Entry::BaseFontBlend
-        | dict::Entry::Ros { .. } | dict::Entry::CidFontVersion(_) | dict::Entry::CidFontRevision(_)
-        | dict::Entry::CidFontType(_) | dict::Entry::CidCount(_) | dict::Entry::UidBase(_)
-        | dict::Entry::FontName(_) | dict::Entry::StdHw(_) | dict::Entry::StdVw(_)
-        | dict::Entry::StemSnapH(_) | dict::Entry::StemSnapV(_) | dict::Entry::ForceBold(_)
+        dict::Entry::Version(_)
+        | dict::Entry::Notice(_)
+        | dict::Entry::FullName(_)
+        | dict::Entry::FamilyName(_)
+        | dict::Entry::Weight(_)
+        | dict::Entry::FontBbox(_)
+        | dict::Entry::CharstringsOffset(_)
+        | dict::Entry::PrivateDictRange(_)
+        | dict::Entry::VariationStoreOffset(_)
+        | dict::Entry::Copyright(_)
+        | dict::Entry::IsFixedPitch(_)
+        | dict::Entry::ItalicAngle(_)
+        | dict::Entry::UnderlinePosition(_)
+        | dict::Entry::UnderlineThickness(_)
+        | dict::Entry::PaintType(_)
+        | dict::Entry::CharstringType(_)
+        | dict::Entry::FontMatrix(_)
+        | dict::Entry::StrokeWidth(_)
+        | dict::Entry::FdArrayOffset(_)
+        | dict::Entry::FdSelectOffset(_)
+        | dict::Entry::BlueValues(_)
+        | dict::Entry::OtherBlues(_)
+        | dict::Entry::FamilyBlues(_)
+        | dict::Entry::FamilyOtherBlues(_)
+        | dict::Entry::BlueScale(_)
+        | dict::Entry::BlueShift(_)
+        | dict::Entry::BlueFuzz(_)
+        | dict::Entry::LanguageGroup(_)
+        | dict::Entry::ExpansionFactor(_)
+        | dict::Entry::Encoding(_)
+        | dict::Entry::Charset(_)
+        | dict::Entry::UniqueId(_)
+        | dict::Entry::Xuid
+        | dict::Entry::SyntheticBase(_)
+        | dict::Entry::PostScript(_)
+        | dict::Entry::BaseFontName(_)
+        | dict::Entry::BaseFontBlend
+        | dict::Entry::Ros { .. }
+        | dict::Entry::CidFontVersion(_)
+        | dict::Entry::CidFontRevision(_)
+        | dict::Entry::CidFontType(_)
+        | dict::Entry::CidCount(_)
+        | dict::Entry::UidBase(_)
+        | dict::Entry::FontName(_)
+        | dict::Entry::StdHw(_)
+        | dict::Entry::StdVw(_)
+        | dict::Entry::StemSnapH(_)
+        | dict::Entry::StemSnapV(_)
+        | dict::Entry::ForceBold(_)
         | dict::Entry::InitialRandomSeed(_) => {}
       }
     }
@@ -678,7 +786,10 @@ impl Subfont {
 
     let data_2 = data.get(value_21).ok_or(ReadError::OutOfBounds)?;
 
-    for entry in dict::entries(data_2, blend).filter_map(|e| match e { Ok(value) => Some(value), Err(_unreadable_cff_dict_entry) => None }) {
+    for entry in dict::entries(data_2, blend).filter_map(|e| match e {
+      Ok(value) => Some(value),
+      Err(_unreadable_cff_dict_entry) => None,
+    }) {
       match entry {
         dict::Entry::SubrsOffset(offset) => {
           subfont.subrs_offset = {
@@ -711,22 +822,47 @@ impl Subfont {
         dict::Entry::BlueShift(value) => params.blue_shift = value,
         dict::Entry::BlueFuzz(value) => params.blue_fuzz = value,
         dict::Entry::LanguageGroup(group) => params.language_group = group,
-        dict::Entry::Version(_) | dict::Entry::Notice(_) | dict::Entry::FullName(_)
-        | dict::Entry::FamilyName(_) | dict::Entry::Weight(_) | dict::Entry::FontBbox(_)
-        | dict::Entry::CharstringsOffset(_) | dict::Entry::PrivateDictRange(_)
-        | dict::Entry::VariationStoreOffset(_) | dict::Entry::Copyright(_)
-        | dict::Entry::IsFixedPitch(_) | dict::Entry::ItalicAngle(_)
-        | dict::Entry::UnderlinePosition(_) | dict::Entry::UnderlineThickness(_)
-        | dict::Entry::PaintType(_) | dict::Entry::CharstringType(_) | dict::Entry::FontMatrix(_)
-        | dict::Entry::StrokeWidth(_) | dict::Entry::FdArrayOffset(_)
-        | dict::Entry::FdSelectOffset(_) | dict::Entry::ExpansionFactor(_)
-        | dict::Entry::Encoding(_) | dict::Entry::Charset(_) | dict::Entry::UniqueId(_)
-        | dict::Entry::Xuid | dict::Entry::SyntheticBase(_) | dict::Entry::PostScript(_)
-        | dict::Entry::BaseFontName(_) | dict::Entry::BaseFontBlend | dict::Entry::Ros { .. }
-        | dict::Entry::CidFontVersion(_) | dict::Entry::CidFontRevision(_)
-        | dict::Entry::CidFontType(_) | dict::Entry::CidCount(_) | dict::Entry::UidBase(_)
-        | dict::Entry::FontName(_) | dict::Entry::StdHw(_) | dict::Entry::StdVw(_)
-        | dict::Entry::StemSnapH(_) | dict::Entry::StemSnapV(_) | dict::Entry::ForceBold(_)
+        dict::Entry::Version(_)
+        | dict::Entry::Notice(_)
+        | dict::Entry::FullName(_)
+        | dict::Entry::FamilyName(_)
+        | dict::Entry::Weight(_)
+        | dict::Entry::FontBbox(_)
+        | dict::Entry::CharstringsOffset(_)
+        | dict::Entry::PrivateDictRange(_)
+        | dict::Entry::VariationStoreOffset(_)
+        | dict::Entry::Copyright(_)
+        | dict::Entry::IsFixedPitch(_)
+        | dict::Entry::ItalicAngle(_)
+        | dict::Entry::UnderlinePosition(_)
+        | dict::Entry::UnderlineThickness(_)
+        | dict::Entry::PaintType(_)
+        | dict::Entry::CharstringType(_)
+        | dict::Entry::FontMatrix(_)
+        | dict::Entry::StrokeWidth(_)
+        | dict::Entry::FdArrayOffset(_)
+        | dict::Entry::FdSelectOffset(_)
+        | dict::Entry::ExpansionFactor(_)
+        | dict::Entry::Encoding(_)
+        | dict::Entry::Charset(_)
+        | dict::Entry::UniqueId(_)
+        | dict::Entry::Xuid
+        | dict::Entry::SyntheticBase(_)
+        | dict::Entry::PostScript(_)
+        | dict::Entry::BaseFontName(_)
+        | dict::Entry::BaseFontBlend
+        | dict::Entry::Ros { .. }
+        | dict::Entry::CidFontVersion(_)
+        | dict::Entry::CidFontRevision(_)
+        | dict::Entry::CidFontType(_)
+        | dict::Entry::CidCount(_)
+        | dict::Entry::UidBase(_)
+        | dict::Entry::FontName(_)
+        | dict::Entry::StdHw(_)
+        | dict::Entry::StdVw(_)
+        | dict::Entry::StemSnapH(_)
+        | dict::Entry::StemSnapV(_)
+        | dict::Entry::ForceBold(_)
         | dict::Entry::InitialRandomSeed(_) => {}
       }
     }
@@ -737,7 +873,10 @@ impl Subfont {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subfont::subrs_offset` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subfont::subrs_offset` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn subrs_offset(&self) -> u32 {
     self.subrs_offset
@@ -746,7 +885,10 @@ impl Subfont {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subfont::default_width` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subfont::default_width` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn default_width(&self) -> Option<Fixed> {
     self.default_width
@@ -755,7 +897,10 @@ impl Subfont {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subfont::nominal_width` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subfont::nominal_width` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn nominal_width(&self) -> Fixed {
     self.nominal_width
@@ -764,7 +909,10 @@ impl Subfont {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subfont::matrix` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subfont::matrix` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn matrix(&self) -> Option<&ScaledFontMatrix> {
     self.matrix.as_ref()
@@ -773,7 +921,10 @@ impl Subfont {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subfont::vs_index` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subfont::vs_index` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn vs_index(&self) -> u16 {
     self.vs_index
@@ -790,7 +941,11 @@ impl MaybeOffset {
   }
 
   fn get(self) -> Result<Option<u64>, console_core_never::Never> {
-    Ok(self.0.map(|encoded| u64::from(encoded.get().wrapping_sub(1))))
+    Ok(
+      self
+        .0
+        .map(|encoded| u64::from(encoded.get().wrapping_sub(1))),
+    )
   }
 }
 
@@ -826,7 +981,10 @@ impl<'a> TopDict<'a> {
     let mut matrix = None;
     let mut var_store = None;
 
-    for entry in dict::entries(top_dict_data, None).filter_map(|e| match e { Ok(value) => Some(value), Err(_unreadable_cff_dict_entry) => None }) {
+    for entry in dict::entries(top_dict_data, None).filter_map(|e| match e {
+      Ok(value) => Some(value),
+      Err(_unreadable_cff_dict_entry) => None,
+    }) {
       match entry {
         dict::Entry::Ros { .. } => ros = crate::Presence::Present,
         dict::Entry::CharstringsOffset(offset) => {
@@ -834,7 +992,10 @@ impl<'a> TopDict<'a> {
 
           charstrings = cff_data
             .get(value_25)
-            .and_then(|data| match Index::new(data, version) { Ok(value) => Some(value), Err(_malformed_subroutine_index) => None });
+            .and_then(|data| match Index::new(data, version) {
+              Ok(value) => Some(value),
+              Err(_malformed_subroutine_index) => None,
+            });
         }
         dict::Entry::Charset(offset) => {
           let Ok(decoded) = MaybeOffset::new(offset);
@@ -849,7 +1010,10 @@ impl<'a> TopDict<'a> {
 
           fd_array = cff_data
             .get(value_26)
-            .and_then(|data| match Index::new(data, version) { Ok(value) => Some(value), Err(_malformed_subroutine_index) => None });
+            .and_then(|data| match Index::new(data, version) {
+              Ok(value) => Some(value),
+              Err(_malformed_subroutine_index) => None,
+            });
         }
         dict::Entry::FdSelectOffset(offset) => {
           let Ok(value_27) = console_core_number_conversion::indices_from(offset..);
@@ -878,35 +1042,62 @@ impl<'a> TopDict<'a> {
             let offset_2 = offset.checked_add(2).ok_or(ReadError::OutOfBounds)?;
             let Ok(value_29) = console_core_number_conversion::indices_from(offset_2..);
 
-            let read =
-              ItemVariationStore::read(
-                <crate::font_data::FontData<'_> as ::core::convert::From<
-                  &[::core::primitive::u8],
-                >>::from(match cff_data.get(value_29) {
-                  ::core::option::Option::Some(option_value) => option_value,
-                  ::core::option::Option::None => &[],
-                }),
-              )?;
+            let read = ItemVariationStore::read(
+              <crate::font_data::FontData<'_> as ::core::convert::From<
+                &[::core::primitive::u8],
+              >>::from(match cff_data.get(value_29) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => &[],
+              }),
+            )?;
             var_store = Some(read);
           }
           CffVersion::Cff1 => {}
         },
-        dict::Entry::Version(_) | dict::Entry::Notice(_) | dict::Entry::FullName(_)
-        | dict::Entry::FamilyName(_) | dict::Entry::Weight(_) | dict::Entry::FontBbox(_)
-        | dict::Entry::Copyright(_) | dict::Entry::IsFixedPitch(_) | dict::Entry::ItalicAngle(_)
-        | dict::Entry::UnderlinePosition(_) | dict::Entry::UnderlineThickness(_)
-        | dict::Entry::PaintType(_) | dict::Entry::CharstringType(_) | dict::Entry::StrokeWidth(_)
-        | dict::Entry::BlueValues(_) | dict::Entry::OtherBlues(_) | dict::Entry::FamilyBlues(_)
-        | dict::Entry::FamilyOtherBlues(_) | dict::Entry::SubrsOffset(_)
-        | dict::Entry::VariationStoreIndex(_) | dict::Entry::BlueScale(_)
-        | dict::Entry::BlueShift(_) | dict::Entry::BlueFuzz(_) | dict::Entry::LanguageGroup(_)
-        | dict::Entry::ExpansionFactor(_) | dict::Entry::UniqueId(_) | dict::Entry::Xuid
-        | dict::Entry::SyntheticBase(_) | dict::Entry::PostScript(_) | dict::Entry::BaseFontName(_)
-        | dict::Entry::BaseFontBlend | dict::Entry::CidFontVersion(_)
-        | dict::Entry::CidFontRevision(_) | dict::Entry::CidFontType(_) | dict::Entry::CidCount(_)
-        | dict::Entry::UidBase(_) | dict::Entry::FontName(_) | dict::Entry::StdHw(_)
-        | dict::Entry::StdVw(_) | dict::Entry::DefaultWidthX(_) | dict::Entry::NominalWidthX(_)
-        | dict::Entry::StemSnapH(_) | dict::Entry::StemSnapV(_) | dict::Entry::ForceBold(_)
+        dict::Entry::Version(_)
+        | dict::Entry::Notice(_)
+        | dict::Entry::FullName(_)
+        | dict::Entry::FamilyName(_)
+        | dict::Entry::Weight(_)
+        | dict::Entry::FontBbox(_)
+        | dict::Entry::Copyright(_)
+        | dict::Entry::IsFixedPitch(_)
+        | dict::Entry::ItalicAngle(_)
+        | dict::Entry::UnderlinePosition(_)
+        | dict::Entry::UnderlineThickness(_)
+        | dict::Entry::PaintType(_)
+        | dict::Entry::CharstringType(_)
+        | dict::Entry::StrokeWidth(_)
+        | dict::Entry::BlueValues(_)
+        | dict::Entry::OtherBlues(_)
+        | dict::Entry::FamilyBlues(_)
+        | dict::Entry::FamilyOtherBlues(_)
+        | dict::Entry::SubrsOffset(_)
+        | dict::Entry::VariationStoreIndex(_)
+        | dict::Entry::BlueScale(_)
+        | dict::Entry::BlueShift(_)
+        | dict::Entry::BlueFuzz(_)
+        | dict::Entry::LanguageGroup(_)
+        | dict::Entry::ExpansionFactor(_)
+        | dict::Entry::UniqueId(_)
+        | dict::Entry::Xuid
+        | dict::Entry::SyntheticBase(_)
+        | dict::Entry::PostScript(_)
+        | dict::Entry::BaseFontName(_)
+        | dict::Entry::BaseFontBlend
+        | dict::Entry::CidFontVersion(_)
+        | dict::Entry::CidFontRevision(_)
+        | dict::Entry::CidFontType(_)
+        | dict::Entry::CidCount(_)
+        | dict::Entry::UidBase(_)
+        | dict::Entry::FontName(_)
+        | dict::Entry::StdHw(_)
+        | dict::Entry::StdVw(_)
+        | dict::Entry::DefaultWidthX(_)
+        | dict::Entry::NominalWidthX(_)
+        | dict::Entry::StemSnapH(_)
+        | dict::Entry::StemSnapV(_)
+        | dict::Entry::ForceBold(_)
         | dict::Entry::InitialRandomSeed(_) => {}
       }
     }
@@ -967,32 +1158,68 @@ impl FontDict {
     let mut matrix = None;
 
     for entry in dict::entries(dict_data, None) {
-      match { let checked_value_3 = entry?; checked_value_3 } {
+      match {
+        let checked_value_3 = entry?;
+        checked_value_3
+      } {
         dict::Entry::PrivateDictRange(dict_range) => {
           range = Some(dict_range);
         }
         dict::Entry::FontMatrix(font_matrix) => {
           matrix = Some(font_matrix);
         }
-        dict::Entry::Version(_) | dict::Entry::Notice(_) | dict::Entry::FullName(_)
-        | dict::Entry::FamilyName(_) | dict::Entry::Weight(_) | dict::Entry::FontBbox(_)
-        | dict::Entry::CharstringsOffset(_) | dict::Entry::VariationStoreOffset(_)
-        | dict::Entry::Copyright(_) | dict::Entry::IsFixedPitch(_) | dict::Entry::ItalicAngle(_)
-        | dict::Entry::UnderlinePosition(_) | dict::Entry::UnderlineThickness(_)
-        | dict::Entry::PaintType(_) | dict::Entry::CharstringType(_) | dict::Entry::StrokeWidth(_)
-        | dict::Entry::FdArrayOffset(_) | dict::Entry::FdSelectOffset(_)
-        | dict::Entry::BlueValues(_) | dict::Entry::OtherBlues(_) | dict::Entry::FamilyBlues(_)
-        | dict::Entry::FamilyOtherBlues(_) | dict::Entry::SubrsOffset(_)
-        | dict::Entry::VariationStoreIndex(_) | dict::Entry::BlueScale(_)
-        | dict::Entry::BlueShift(_) | dict::Entry::BlueFuzz(_) | dict::Entry::LanguageGroup(_)
-        | dict::Entry::ExpansionFactor(_) | dict::Entry::Encoding(_) | dict::Entry::Charset(_)
-        | dict::Entry::UniqueId(_) | dict::Entry::Xuid | dict::Entry::SyntheticBase(_)
-        | dict::Entry::PostScript(_) | dict::Entry::BaseFontName(_) | dict::Entry::BaseFontBlend
-        | dict::Entry::Ros { .. } | dict::Entry::CidFontVersion(_) | dict::Entry::CidFontRevision(_)
-        | dict::Entry::CidFontType(_) | dict::Entry::CidCount(_) | dict::Entry::UidBase(_)
-        | dict::Entry::FontName(_) | dict::Entry::StdHw(_) | dict::Entry::StdVw(_)
-        | dict::Entry::DefaultWidthX(_) | dict::Entry::NominalWidthX(_) | dict::Entry::StemSnapH(_)
-        | dict::Entry::StemSnapV(_) | dict::Entry::ForceBold(_) | dict::Entry::InitialRandomSeed(_) => {}
+        dict::Entry::Version(_)
+        | dict::Entry::Notice(_)
+        | dict::Entry::FullName(_)
+        | dict::Entry::FamilyName(_)
+        | dict::Entry::Weight(_)
+        | dict::Entry::FontBbox(_)
+        | dict::Entry::CharstringsOffset(_)
+        | dict::Entry::VariationStoreOffset(_)
+        | dict::Entry::Copyright(_)
+        | dict::Entry::IsFixedPitch(_)
+        | dict::Entry::ItalicAngle(_)
+        | dict::Entry::UnderlinePosition(_)
+        | dict::Entry::UnderlineThickness(_)
+        | dict::Entry::PaintType(_)
+        | dict::Entry::CharstringType(_)
+        | dict::Entry::StrokeWidth(_)
+        | dict::Entry::FdArrayOffset(_)
+        | dict::Entry::FdSelectOffset(_)
+        | dict::Entry::BlueValues(_)
+        | dict::Entry::OtherBlues(_)
+        | dict::Entry::FamilyBlues(_)
+        | dict::Entry::FamilyOtherBlues(_)
+        | dict::Entry::SubrsOffset(_)
+        | dict::Entry::VariationStoreIndex(_)
+        | dict::Entry::BlueScale(_)
+        | dict::Entry::BlueShift(_)
+        | dict::Entry::BlueFuzz(_)
+        | dict::Entry::LanguageGroup(_)
+        | dict::Entry::ExpansionFactor(_)
+        | dict::Entry::Encoding(_)
+        | dict::Entry::Charset(_)
+        | dict::Entry::UniqueId(_)
+        | dict::Entry::Xuid
+        | dict::Entry::SyntheticBase(_)
+        | dict::Entry::PostScript(_)
+        | dict::Entry::BaseFontName(_)
+        | dict::Entry::BaseFontBlend
+        | dict::Entry::Ros { .. }
+        | dict::Entry::CidFontVersion(_)
+        | dict::Entry::CidFontRevision(_)
+        | dict::Entry::CidFontType(_)
+        | dict::Entry::CidCount(_)
+        | dict::Entry::UidBase(_)
+        | dict::Entry::FontName(_)
+        | dict::Entry::StdHw(_)
+        | dict::Entry::StdVw(_)
+        | dict::Entry::DefaultWidthX(_)
+        | dict::Entry::NominalWidthX(_)
+        | dict::Entry::StemSnapH(_)
+        | dict::Entry::StemSnapV(_)
+        | dict::Entry::ForceBold(_)
+        | dict::Entry::InitialRandomSeed(_) => {}
       }
     }
 
@@ -1020,92 +1247,140 @@ pub struct Metadata<'a> {
 
 impl<'a> Metadata<'a> {
   #[must_use]
-  fn new(data: &'a [u8], top_dict_index: u16) -> core::result::Result<Option<Self>, console_core_never::Never> {
-      let Ok(value_11) = FontData::new(data);
+  fn new(
+    data: &'a [u8],
+    top_dict_index: u16,
+  ) -> core::result::Result<Option<Self>, console_core_never::Never> {
+    let Ok(value_11) = FontData::new(data);
 
-      let cff = match match cff::Cff::read(value_11) {
+    let cff = match match cff::Cff::read(value_11) {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let strings = cff.strings();
+    let get_str = |sid: Sid| {
+      let bytes = match sid.resolve_standard() {
+        Ok(bytes) => bytes,
+        Err(idx) => {
+          (match strings.get(idx) {
+            Ok(value) => Some(value),
+            Err(_invalid_string_index) => None,
+          })?
+        }
+      };
+
+      match core::str::from_utf8(bytes) {
         ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let strings = cff.strings();
-      let get_str = |sid: Sid| {
-        let bytes = match sid.resolve_standard() {
-          Ok(bytes) => bytes,
-          Err(idx) => (match strings.get(idx) { Ok(value) => Some(value), Err(_invalid_string_index) => None })?,
-        };
-
-        match core::str::from_utf8(bytes) {
-          ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-          ::core::result::Result::Err(_invalid_utf8) => ::core::option::Option::None,
-        }
-      };
-      let top_dict_data = match match cff
-        .top_dicts()
-        .get({
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(top_dict_index);
-          migrated_value
-        }) { Ok(value) => Some(value), Err(_invalid_top_dictionary_index) => None } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let name = cff
-        .name({
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(top_dict_index);
-          migrated_value
-        })
-        .and_then(|bytes| match core::str::from_utf8(bytes) {
-          ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-          ::core::result::Result::Err(_invalid_utf8) => ::core::option::Option::None,
-        });
-      let mut meta = Metadata {
-        name,
-        ..Default::default()
-      };
-
-      for entry in dict::entries(top_dict_data, None).filter_map(|e| match e { Ok(value) => Some(value), Err(_unreadable_cff_dict_entry) => None }) {
-        match entry {
-          dict::Entry::FullName(sid) => meta.full_name = get_str(sid),
-          dict::Entry::FamilyName(sid) => meta.family_name = get_str(sid),
-          dict::Entry::Weight(sid) => meta.weight = get_str(sid),
-          dict::Entry::FontBbox([x_min, y_min, x_max, y_max]) => {
-            meta.bbox = BoundingBox {
-              x_min,
-              x_max,
-              y_min,
-              y_max,
-            }
-          }
-          dict::Entry::ItalicAngle(angle) => meta.italic_angle = angle,
-          dict::Entry::IsFixedPitch(pitch) => meta.pitch = pitch,
-          dict::Entry::UnderlinePosition(pos) => meta.underline_position = pos,
-          dict::Entry::UnderlineThickness(size) => meta.underline_thickness = size,
-          dict::Entry::Version(_) | dict::Entry::Notice(_) | dict::Entry::CharstringsOffset(_)
-          | dict::Entry::PrivateDictRange(_) | dict::Entry::VariationStoreOffset(_)
-          | dict::Entry::Copyright(_) | dict::Entry::PaintType(_) | dict::Entry::CharstringType(_)
-          | dict::Entry::FontMatrix(_) | dict::Entry::StrokeWidth(_) | dict::Entry::FdArrayOffset(_)
-          | dict::Entry::FdSelectOffset(_) | dict::Entry::BlueValues(_) | dict::Entry::OtherBlues(_)
-          | dict::Entry::FamilyBlues(_) | dict::Entry::FamilyOtherBlues(_)
-          | dict::Entry::SubrsOffset(_) | dict::Entry::VariationStoreIndex(_)
-          | dict::Entry::BlueScale(_) | dict::Entry::BlueShift(_) | dict::Entry::BlueFuzz(_)
-          | dict::Entry::LanguageGroup(_) | dict::Entry::ExpansionFactor(_)
-          | dict::Entry::Encoding(_) | dict::Entry::Charset(_) | dict::Entry::UniqueId(_)
-          | dict::Entry::Xuid | dict::Entry::SyntheticBase(_) | dict::Entry::PostScript(_)
-          | dict::Entry::BaseFontName(_) | dict::Entry::BaseFontBlend | dict::Entry::Ros { .. }
-          | dict::Entry::CidFontVersion(_) | dict::Entry::CidFontRevision(_)
-          | dict::Entry::CidFontType(_) | dict::Entry::CidCount(_) | dict::Entry::UidBase(_)
-          | dict::Entry::FontName(_) | dict::Entry::StdHw(_) | dict::Entry::StdVw(_)
-          | dict::Entry::DefaultWidthX(_) | dict::Entry::NominalWidthX(_)
-          | dict::Entry::StemSnapH(_) | dict::Entry::StemSnapV(_) | dict::Entry::ForceBold(_)
-          | dict::Entry::InitialRandomSeed(_) => {}
-        }
+        ::core::result::Result::Err(_invalid_utf8) => ::core::option::Option::None,
       }
+    };
+    let top_dict_data = match match cff.top_dicts().get({
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(top_dict_index);
+      migrated_value
+    }) {
+      Ok(value) => Some(value),
+      Err(_invalid_top_dictionary_index) => None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let name = cff
+      .name({
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(top_dict_index);
+        migrated_value
+      })
+      .and_then(|bytes| match core::str::from_utf8(bytes) {
+        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+        ::core::result::Result::Err(_invalid_utf8) => ::core::option::Option::None,
+      });
+    let mut meta = Metadata {
+      name,
+      ..Default::default()
+    };
 
-      Ok(Some(meta))
+    for entry in dict::entries(top_dict_data, None).filter_map(|e| match e {
+      Ok(value) => Some(value),
+      Err(_unreadable_cff_dict_entry) => None,
+    }) {
+      match entry {
+        dict::Entry::FullName(sid) => meta.full_name = get_str(sid),
+        dict::Entry::FamilyName(sid) => meta.family_name = get_str(sid),
+        dict::Entry::Weight(sid) => meta.weight = get_str(sid),
+        dict::Entry::FontBbox([x_min, y_min, x_max, y_max]) => {
+          meta.bbox = BoundingBox {
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+          }
+        }
+        dict::Entry::ItalicAngle(angle) => meta.italic_angle = angle,
+        dict::Entry::IsFixedPitch(pitch) => meta.pitch = pitch,
+        dict::Entry::UnderlinePosition(pos) => meta.underline_position = pos,
+        dict::Entry::UnderlineThickness(size) => meta.underline_thickness = size,
+        dict::Entry::Version(_)
+        | dict::Entry::Notice(_)
+        | dict::Entry::CharstringsOffset(_)
+        | dict::Entry::PrivateDictRange(_)
+        | dict::Entry::VariationStoreOffset(_)
+        | dict::Entry::Copyright(_)
+        | dict::Entry::PaintType(_)
+        | dict::Entry::CharstringType(_)
+        | dict::Entry::FontMatrix(_)
+        | dict::Entry::StrokeWidth(_)
+        | dict::Entry::FdArrayOffset(_)
+        | dict::Entry::FdSelectOffset(_)
+        | dict::Entry::BlueValues(_)
+        | dict::Entry::OtherBlues(_)
+        | dict::Entry::FamilyBlues(_)
+        | dict::Entry::FamilyOtherBlues(_)
+        | dict::Entry::SubrsOffset(_)
+        | dict::Entry::VariationStoreIndex(_)
+        | dict::Entry::BlueScale(_)
+        | dict::Entry::BlueShift(_)
+        | dict::Entry::BlueFuzz(_)
+        | dict::Entry::LanguageGroup(_)
+        | dict::Entry::ExpansionFactor(_)
+        | dict::Entry::Encoding(_)
+        | dict::Entry::Charset(_)
+        | dict::Entry::UniqueId(_)
+        | dict::Entry::Xuid
+        | dict::Entry::SyntheticBase(_)
+        | dict::Entry::PostScript(_)
+        | dict::Entry::BaseFontName(_)
+        | dict::Entry::BaseFontBlend
+        | dict::Entry::Ros { .. }
+        | dict::Entry::CidFontVersion(_)
+        | dict::Entry::CidFontRevision(_)
+        | dict::Entry::CidFontType(_)
+        | dict::Entry::CidCount(_)
+        | dict::Entry::UidBase(_)
+        | dict::Entry::FontName(_)
+        | dict::Entry::StdHw(_)
+        | dict::Entry::StdVw(_)
+        | dict::Entry::DefaultWidthX(_)
+        | dict::Entry::NominalWidthX(_)
+        | dict::Entry::StemSnapH(_)
+        | dict::Entry::StemSnapV(_)
+        | dict::Entry::ForceBold(_)
+        | dict::Entry::InitialRandomSeed(_) => {}
+      }
+    }
+
+    Ok(Some(meta))
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::name` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::name` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn name(&self) -> Option<&'a str> {
     self.name
@@ -1114,7 +1389,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::full_name` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::full_name` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn full_name(&self) -> Option<&'a str> {
     self.full_name
@@ -1123,7 +1401,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::family_name` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::family_name` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn family_name(&self) -> Option<&'a str> {
     self.family_name
@@ -1132,7 +1413,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::weight` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::weight` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn weight(&self) -> Option<&'a str> {
     self.weight
@@ -1141,7 +1425,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::italic_angle` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::italic_angle` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn italic_angle(&self) -> Fixed {
     self.italic_angle
@@ -1150,7 +1437,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::pitch` method returns `Pitch` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::pitch` method returns `Pitch` directly in the existing parser interface"
+    )
   )]
   pub fn pitch(&self) -> Pitch {
     self.pitch
@@ -1159,7 +1449,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::underline_position` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::underline_position` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn underline_position(&self) -> Fixed {
     self.underline_position
@@ -1168,7 +1461,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::underline_thickness` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::underline_thickness` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn underline_thickness(&self) -> Fixed {
     self.underline_thickness
@@ -1177,7 +1473,10 @@ impl<'a> Metadata<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Metadata::bbox` method returns `BoundingBox` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Metadata::bbox` method returns `BoundingBox` directly in the existing parser interface"
+    )
   )]
   pub fn bbox(&self) -> BoundingBox<Fixed> {
     self.bbox
@@ -1215,27 +1514,38 @@ mod tests {
   #[test]
   fn read_cff_static() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     assert_eq!(cff.version(), 1);
     assert!(cff.var_store().is_none());
 
     let private_dict = match &cff.top_dict.kind {
-        CffFontKind::Sid { private_dict: matched_private_dict, .. } => matched_private_dict,
-        crate::ps::cff::font::CffFontKind::Cid { .. } | crate::ps::cff::font::CffFontKind::Cff2 { .. } => return Err(crate::test_support::Failure::from(alloc::format!("this is an SID font"))),
+      CffFontKind::Sid {
+        private_dict: matched_private_dict,
+        ..
+      } => matched_private_dict,
+      crate::ps::cff::font::CffFontKind::Cid { .. }
+      | crate::ps::cff::font::CffFontKind::Cff2 { .. } => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "this is an SID font"
+        )));
+      }
     };
 
     assert!(!private_dict.is_empty());
@@ -1288,7 +1598,15 @@ mod tests {
       assert_eq!(metadata.full_name(), Some(full_name));
       assert_eq!(metadata.family_name(), family_name);
       assert_eq!(metadata.weight(), None);
-      assert_eq!(metadata.bbox(), BoundingBox { x_min, y_min, x_max, y_max });
+      assert_eq!(
+        metadata.bbox(),
+        BoundingBox {
+          x_min,
+          y_min,
+          x_max,
+          y_max
+        }
+      );
       assert_eq!(metadata.italic_angle(), Fixed::ZERO);
       assert_eq!(metadata.pitch(), Pitch::Proportional);
       assert_eq!(metadata.underline_position(), underline_position);
@@ -1301,26 +1619,37 @@ mod tests {
   #[test]
   fn read_cff2_static() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff2(
-      {
-        let Ok(explicit_value) = match font.cff2() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff2(
+        {
+          let Ok(explicit_value) = match font.cff2() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        None,
+      ),
+      "fixture value",
+    )?;
     assert_eq!(cff.version(), 2);
     assert!(cff.var_store().is_some());
 
     let fd_array = match &cff.top_dict.kind {
-        CffFontKind::Cff2 { fd_array: matched_fd_array, .. } => matched_fd_array,
-        crate::ps::cff::font::CffFontKind::Sid { .. } | crate::ps::cff::font::CffFontKind::Cid { .. } => return Err(crate::test_support::Failure::from(alloc::format!("this is a CFF2 font"))),
+      CffFontKind::Cff2 {
+        fd_array: matched_fd_array,
+        ..
+      } => matched_fd_array,
+      crate::ps::cff::font::CffFontKind::Sid { .. }
+      | crate::ps::cff::font::CffFontKind::Cid { .. } => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "this is a CFF2 font"
+        )));
+      }
     };
 
     assert_eq!(fd_array.count(), 1);
@@ -1344,8 +1673,16 @@ mod tests {
     assert!(cff.var_store().is_some());
 
     let fd_array = match &cff.top_dict.kind {
-        CffFontKind::Cff2 { fd_array: matched_fd_array, .. } => matched_fd_array,
-        crate::ps::cff::font::CffFontKind::Sid { .. } | crate::ps::cff::font::CffFontKind::Cid { .. } => return Err(crate::test_support::Failure::from(alloc::format!("this is a CFF2 font"))),
+      CffFontKind::Cff2 {
+        fd_array: matched_fd_array,
+        ..
+      } => matched_fd_array,
+      crate::ps::cff::font::CffFontKind::Sid { .. }
+      | crate::ps::cff::font::CffFontKind::Cid { .. } => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "this is a CFF2 font"
+        )));
+      }
     };
 
     assert_eq!(fd_array.count(), 1);
@@ -1364,30 +1701,36 @@ mod tests {
 
   #[test]
   fn charset() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED), "fixture value")?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let fixture_value = crate::test_support::fixture_value(font.cff(), "fixture value")?;
-        let Ok(explicit_value) = fixture_value.offset_data().as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED),
+      "fixture value",
+    )?;
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let fixture_value = crate::test_support::fixture_value(font.cff(), "fixture value")?;
+          let Ok(explicit_value) = fixture_value.offset_data().as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     let charset = crate::test_support::fixture_value(cff.charset(), "fixture value")?;
     let glyph_names = charset
       .iter()
       .map(|(glyph, sid)| -> Result<_, crate::test_support::Failure> {
         let Ok(id) = glyph.to_u32();
-        let bytes = crate::test_support::fixture_value(sid.resolve_standard(), "standard CFF glyph name")?;
+        let bytes =
+          crate::test_support::fixture_value(sid.resolve_standard(), "standard CFF glyph name")?;
         let name = std::str::from_utf8(bytes)?;
         Ok((id, name))
       })
       .collect::<Result<Vec<_>, _>>()?;
     let expected = [(0, ".notdef"), (1, "i"), (2, "j"), (3, "k"), (4, "l")];
 
-    assert_eq!(glyph_names, expected)
-  ;
+    assert_eq!(glyph_names, expected);
     Ok(())
   }
 
@@ -1395,7 +1738,12 @@ mod tests {
   fn top_dict_ivs_offset_overflow() {
     let top_dict = font_test_data::be_buffer! { (29u8), (-1i32), (24u8) }.to_vec();
 
-    assert!((match &(TopDict::new(&[], &top_dict, Index::Empty, CffVersion::Cff2)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+    assert!(
+      (match &(TopDict::new(&[], &top_dict, Index::Empty, CffVersion::Cff2)) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
   }
 
   #[test]
@@ -1412,32 +1760,46 @@ mod tests {
         }),
         None,
         None
-      )) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true })
+      )) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
     );
   }
 
   #[test]
   fn empty_private_dict() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
 
     let private_dict = match &cff.top_dict.kind {
-        CffFontKind::Sid { private_dict: matched_private_dict, .. } => matched_private_dict,
-        crate::ps::cff::font::CffFontKind::Cid { .. } | crate::ps::cff::font::CffFontKind::Cff2 { .. } => return Err(crate::test_support::Failure::from(alloc::format!("this is an SID font"))),
+      CffFontKind::Sid {
+        private_dict: matched_private_dict,
+        ..
+      } => matched_private_dict,
+      crate::ps::cff::font::CffFontKind::Cid { .. }
+      | crate::ps::cff::font::CffFontKind::Cff2 { .. } => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "this is an SID font"
+        )));
+      }
     };
 
     assert!(private_dict.is_empty());
@@ -1460,17 +1822,21 @@ mod tests {
       let Ok(value) = F2Dot14::from_f32(0.0);
       value
     }];
-    let blend_state = crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
-    let (_subfont, hint_params) = crate::test_support::fixture_value(Subfont::new_hinted(
-      private_dict_data,
-      0..({
-        let Ok(explicit_index) =
-          console_core_number_conversion::fitted::<_, u64>(private_dict_data.len());
-        explicit_index
-      }),
-      Some(blend_state),
-      None,
-    ), "fixture value")?;
+    let blend_state =
+      crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
+    let (_subfont, hint_params) = crate::test_support::fixture_value(
+      Subfont::new_hinted(
+        private_dict_data,
+        0..({
+          let Ok(explicit_index) =
+            console_core_number_conversion::fitted::<_, u64>(private_dict_data.len());
+          explicit_index
+        }),
+        Some(blend_state),
+        None,
+      ),
+      "fixture value",
+    )?;
 
     assert_eq!(
       hint_params.family_other_blues,
@@ -1483,29 +1849,31 @@ mod tests {
           })
           .into_iter()
       )
-    )
-  ;
+    );
     Ok(())
   }
 
   #[test]
   fn subfont_cff() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     let subfont = crate::test_support::fixture_value(cff.subfont(0, &[]), "fixture value")?;
     assert_eq!(subfont.default_width, None);
     assert_eq!(
@@ -1521,37 +1889,43 @@ mod tests {
   }
 
   #[must_use]
-  fn make_blues<const N: usize>(values: [i32; N]) -> core::result::Result<Blues, console_core_never::Never> {
-      Ok(Blues::new(
-        values
-          .map(|argument| {
-            let Ok(value_23) = Fixed::from_i32(argument);
+  fn make_blues<const N: usize>(
+    values: [i32; N],
+  ) -> core::result::Result<Blues, console_core_never::Never> {
+    Ok(Blues::new(
+      values
+        .map(|argument| {
+          let Ok(value_23) = Fixed::from_i32(argument);
 
-            value_23
-          })
-          .into_iter(),
-      ))
+          value_23
+        })
+        .into_iter(),
+    ))
   }
 
   #[test]
   fn hinted_subfont_cff() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
-    let (subfont, hinting) = crate::test_support::fixture_value(cff.subfont_hinted(0, &[]), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
+    let (subfont, hinting) =
+      crate::test_support::fixture_value(cff.subfont_hinted(0, &[]), "fixture value")?;
     assert_eq!(subfont.default_width, None);
     assert_eq!(
       subfont.nominal_width,
@@ -1566,7 +1940,10 @@ mod tests {
     let expected_hinting = HintingParams {
       blues,
       family_blues: Blues::default(),
-      other_blues: ({ let Ok(explicit_value) = make_blues([-255, -240]); explicit_value }),
+      other_blues: ({
+        let Ok(explicit_value) = make_blues([-255, -240]);
+        explicit_value
+      }),
       family_other_blues: Blues::default(),
       blue_scale: ({
         let Ok(explicit_value) = Fixed::from_f64(0.0500030517578125);
@@ -1586,20 +1963,23 @@ mod tests {
   #[test]
   fn subfont_cff2() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff2(
-      {
-        let Ok(explicit_value) = match font.cff2() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff2(
+        {
+          let Ok(explicit_value) = match font.cff2() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        None,
+      ),
+      "fixture value",
+    )?;
     let subfont = crate::test_support::fixture_value(cff.subfont(0, &[]), "fixture value")?;
     assert_eq!(subfont.default_width, None);
     assert_eq!(subfont.nominal_width, Fixed::ZERO);
@@ -1611,21 +1991,25 @@ mod tests {
   #[test]
   fn hinted_subfont_cff2() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff2(
-      {
-        let Ok(explicit_value) = match font.cff2() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff2(
+        {
+          let Ok(explicit_value) = match font.cff2() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      None,
-    ), "fixture value")?;
-    let (subfont, hinting) = crate::test_support::fixture_value(cff.subfont_hinted(0, &[]), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        None,
+      ),
+      "fixture value",
+    )?;
+    let (subfont, hinting) =
+      crate::test_support::fixture_value(cff.subfont_hinted(0, &[]), "fixture value")?;
     assert_eq!(subfont.default_width, None);
     assert_eq!(subfont.nominal_width, Fixed::ZERO);
     assert_eq!(subfont.vs_index, 0);
@@ -1634,7 +2018,10 @@ mod tests {
     let expected_hinting = HintingParams {
       blues,
       family_blues: Blues::default(),
-      other_blues: ({ let Ok(explicit_value) = make_blues([-227, -217]); explicit_value }),
+      other_blues: ({
+        let Ok(explicit_value) = make_blues([-227, -217]);
+        explicit_value
+      }),
       family_other_blues: Blues::default(),
       blue_scale: ({
         let Ok(explicit_value) = Fixed::from_f64(0.0625);
@@ -1654,21 +2041,24 @@ mod tests {
   #[test]
   fn subfont_matrix() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET_MATRIX)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     let subfont = crate::test_support::fixture_value(cff.subfont(0, &[]), "fixture value")?;
     assert_eq!(subfont.default_width, None);
     assert_eq!(subfont.nominal_width, Fixed::ZERO);
@@ -1701,25 +2091,28 @@ mod tests {
   #[test]
   fn eval_charstring_cff() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     let mut sink = CharstringCommandCounter::default();
     let subfont = crate::test_support::fixture_value(cff.subfont(0, &[]), "fixture value")?;
-    crate::test_support::fixture_value(cff
-      .evaluate_charstring(
+    crate::test_support::fixture_value(
+      cff.evaluate_charstring(
         &subfont,
         {
           let Ok(explicit_value) = GlyphId::new(2);
@@ -1727,7 +2120,9 @@ mod tests {
         },
         &[],
         &mut sink,
-      ), "fixture value")?;
+      ),
+      "fixture value",
+    )?;
 
     assert_eq!(sink.0, 18);
     ::core::result::Result::Ok(())
@@ -1736,24 +2131,27 @@ mod tests {
   #[test]
   fn eval_charstring_cff2() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new_cff2(
-      {
-        let Ok(explicit_value) = match font.cff2() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new_cff2(
+        {
+          let Ok(explicit_value) = match font.cff2() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        None,
+      ),
+      "fixture value",
+    )?;
     let mut sink = CharstringCommandCounter::default();
     let subfont = crate::test_support::fixture_value(cff.subfont(0, &[]), "fixture value")?;
-    crate::test_support::fixture_value(cff
-      .evaluate_charstring(
+    crate::test_support::fixture_value(
+      cff.evaluate_charstring(
         &subfont,
         {
           let Ok(explicit_value) = GlyphId::new(2);
@@ -1761,7 +2159,9 @@ mod tests {
         },
         &[],
         &mut sink,
-      ), "fixture value")?;
+      ),
+      "fixture value",
+    )?;
 
     assert_eq!(sink.0, 11);
     ::core::result::Result::Ok(())
@@ -1769,71 +2169,92 @@ mod tests {
 
   #[test]
   fn select_version() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let fixture_value = crate::test_support::fixture_value(CffFontRef::new(
-      {
-        let Ok(explicit_value) = match match FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)
+    let fixture_value = crate::test_support::fixture_value(
+      CffFontRef::new(
         {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
-          }
-        }
-        .cff2()
-        {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
-          }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None
-    ), "fixture value")?;
-    assert_eq!(
-      fixture_value
-      .version(),
-      2
-    );
-
-    assert_eq!(
-      {
-        let matrix_fixture_font = crate::test_support::fixture_value(CffFontRef::new(
-        {
-          let Ok(explicit_value) =
-            match match FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET_MATRIX) {
-              ::core::result::Result::Ok(read_value) => read_value,
-              ::core::result::Result::Err(read_error) => {
-                return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
-              }
+          let Ok(explicit_value) = match match FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)
+          {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
             }
-            .cff()
-            {
-              ::core::result::Result::Ok(read_value) => read_value,
-              ::core::result::Result::Err(read_error) => {
-                return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
-              }
+          }
+          .cff2()
+          {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
             }
-            .offset_data()
-            .as_bytes();
+          }
+          .offset_data()
+          .as_bytes();
           explicit_value
         },
         0,
-        None
-      ), "fixture value")?;
+        None,
+      ),
+      "fixture value",
+    )?;
+    assert_eq!(fixture_value.version(), 2);
+
+    assert_eq!(
+      {
+        let matrix_fixture_font = crate::test_support::fixture_value(
+          CffFontRef::new(
+            {
+              let Ok(explicit_value) =
+                match match FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET_MATRIX) {
+                  ::core::result::Result::Ok(read_value) => read_value,
+                  ::core::result::Result::Err(read_error) => {
+                    return ::core::result::Result::Err(crate::test_support::Failure::from(
+                      read_error,
+                    ));
+                  }
+                }
+                .cff()
+                {
+                  ::core::result::Result::Ok(read_value) => read_value,
+                  ::core::result::Result::Err(read_error) => {
+                    return ::core::result::Result::Err(crate::test_support::Failure::from(
+                      read_error,
+                    ));
+                  }
+                }
+                .offset_data()
+                .as_bytes();
+              explicit_value
+            },
+            0,
+            None,
+          ),
+          "fixture value",
+        )?;
         matrix_fixture_font
       }
       .version(),
       1
     );
 
-    assert!((match &(CffFontRef::new(&[0, 1, 4, 5], 0, None)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+    assert!(
+      (match &(CffFontRef::new(&[0, 1, 4, 5], 0, None)) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
 
-    assert!((match &(CffFontRef::new(&[1, 1, 4, 5], 0, None)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+    assert!(
+      (match &(CffFontRef::new(&[1, 1, 4, 5], 0, None)) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
 
-    assert!((match &(CffFontRef::new(&[2, 1, 4, 5], 0, None)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+    assert!(
+      (match &(CffFontRef::new(&[2, 1, 4, 5], 0, None)) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
     ::core::result::Result::Ok(())
   }
 
@@ -1841,21 +2262,24 @@ mod tests {
   fn transform() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET_MATRIX)?;
 
-    let cff = crate::test_support::fixture_value(CffFontRef::new(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      Some(512),
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        Some(512),
+      ),
+      "fixture value",
+    )?;
     let subfont = crate::test_support::fixture_value(cff.subfont(0, &[]), "fixture value")?;
 
     let expected_matrix = [65536, 0, 5604, 65536, 0, 0].map(|argument| {
@@ -1901,21 +2325,24 @@ mod tests {
   #[test]
   fn cff_encoding() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new(
-      {
-        let Ok(explicit_value) = match font.cff() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new(
+        {
+          let Ok(explicit_value) = match font.cff() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     let encoding = crate::test_support::fixture_value(cff.encoding(), "fixture value")?;
     assert_eq!(encoding.predefined(), Some(PredefinedEncoding::Standard));
     ::core::result::Result::Ok(())
@@ -1924,21 +2351,24 @@ mod tests {
   #[test]
   fn cff2_lacks_encoding() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED)?;
-    let cff = crate::test_support::fixture_value(CffFontRef::new(
-      {
-        let Ok(explicit_value) = match font.cff2() {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+    let cff = crate::test_support::fixture_value(
+      CffFontRef::new(
+        {
+          let Ok(explicit_value) = match font.cff2() {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
           }
-        }
-        .offset_data()
-        .as_bytes();
-        explicit_value
-      },
-      0,
-      None,
-    ), "fixture value")?;
+          .offset_data()
+          .as_bytes();
+          explicit_value
+        },
+        0,
+        None,
+      ),
+      "fixture value",
+    )?;
     assert!(cff.encoding().is_none());
     ::core::result::Result::Ok(())
   }

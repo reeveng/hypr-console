@@ -43,11 +43,9 @@
 //! is the wallpaper, and reads exactly like a card that never came up. It did
 //! that first, and the checks were green and red in the wrong order.
 //!
-//! What is raised is critical, which is the one urgency that stays. Five
-//! seconds is longer than a picture takes and shorter than a hand takes, so a
-//! card that goes by itself would make the second check green whether touching
-//! it did anything or not -- and a check that says the same thing when the
-//! feature is broken is not a check.
+//! Both checks ask the card to stay until dismissed. Otherwise a card that
+//! expires during the touch check could make it pass without a working
+//! touch handler.
 //!
 //! What the second one presses is the card itself. A notification is the only
 //! thing on this desktop someone can reach without opening anything, and
@@ -111,11 +109,12 @@ fn draws(stage: &mut Desktop) -> CheckResult {
 
 fn raising() -> Result<String, Never> {
   let Ok(notify) = Program::NotifySend.name();
-  let where_ = serving::WHERE;
+  let Ok(wait) = Program::Gdbus.name();
+  let service = serving::NOTIFICATIONS;
 
   Ok(format!(
-    "console-notify >/dev/null 2>&1 & while [ ! -f \"${where_}\" ]; do sleep 0.05; done; \
-         {notify} --urgency=critical '{SUMMARY}' '{SAID}'"
+    "console-notify >/dev/null 2>&1 & {wait} wait --session --timeout=5 {service} && \
+         {notify} --expire-time=0 '{SUMMARY}' '{SAID}'"
   ))
 }
 

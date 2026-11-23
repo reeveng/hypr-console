@@ -2653,7 +2653,11 @@ fn intersect_quad_ray<'a>(
 
   let [quadratic, linear, constant] = kurbo::bezier::projected_quadratic_coefficients(r);
   let Ok(count) = path_geometry::quadratic_roots(
-    path_geometry::QuadraticPolynomial { quadratic, linear, constant },
+    path_geometry::QuadraticPolynomial {
+      quadratic,
+      linear,
+      constant,
+    },
     roots,
   );
   let Ok(length) = console_core_number_conversion::index(u64::from(count));

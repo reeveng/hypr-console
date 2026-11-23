@@ -12,21 +12,23 @@ impl GraphicsState<'_> {
         ::core::option::Option::Some(()) => {
           self.fdotp = self.proj_vector.x;
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(self.freedom_vector.y == ONE, ()) {
-          ::core::option::Option::Some(()) => {
-            self.fdotp = self.proj_vector.y;
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(self.freedom_vector.y == ONE, ()) {
+            ::core::option::Option::Some(()) => {
+              self.fdotp = self.proj_vector.y;
+            }
+            ::core::option::Option::None => {
+              let px = self.proj_vector.x;
+              let py = self.proj_vector.y;
+              let fx = self.freedom_vector.x;
+              let fy = self.freedom_vector.y;
+              self.fdotp = i32::wrapping_shr(
+                i32::wrapping_add(i32::wrapping_mul(px, fx), i32::wrapping_mul(py, fy)),
+                14_u32,
+              );
+            }
           }
-          ::core::option::Option::None => {
-            let px = self.proj_vector.x;
-            let py = self.proj_vector.y;
-            let fx = self.freedom_vector.x;
-            let fy = self.freedom_vector.y;
-            self.fdotp = i32::wrapping_shr(
-              i32::wrapping_add(i32::wrapping_mul(px, fx), i32::wrapping_mul(py, fy)),
-              14_u32,
-            );
-          }
-        },
+        }
       }
 
       self.proj_axis = CoordAxis::Both;
@@ -35,12 +37,14 @@ impl GraphicsState<'_> {
         ::core::option::Option::Some(()) => {
           self.proj_axis = CoordAxis::X;
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(self.proj_vector.y == ONE, ()) {
-          ::core::option::Option::Some(()) => {
-            self.proj_axis = CoordAxis::Y;
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(self.proj_vector.y == ONE, ()) {
+            ::core::option::Option::Some(()) => {
+              self.proj_axis = CoordAxis::Y;
+            }
+            ::core::option::Option::None => {}
           }
-          ::core::option::Option::None => {}
-        },
+        }
       }
 
       self.dual_proj_axis = CoordAxis::Both;
@@ -49,28 +53,34 @@ impl GraphicsState<'_> {
         ::core::option::Option::Some(()) => {
           self.dual_proj_axis = CoordAxis::X;
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(self.dual_proj_vector.y == ONE, ()) {
-          ::core::option::Option::Some(()) => {
-            self.dual_proj_axis = CoordAxis::Y;
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(self.dual_proj_vector.y == ONE, ()) {
+            ::core::option::Option::Some(()) => {
+              self.dual_proj_axis = CoordAxis::Y;
+            }
+            ::core::option::Option::None => {}
           }
-          ::core::option::Option::None => {}
-        },
+        }
       }
 
       self.freedom_axis = CoordAxis::Both;
 
       match ::core::primitive::bool::then_some(self.fdotp == ONE, ()) {
-        ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(self.freedom_vector.x == ONE, ()) {
-          ::core::option::Option::Some(()) => {
-            self.freedom_axis = CoordAxis::X;
-          }
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(self.freedom_vector.y == ONE, ()) {
+        ::core::option::Option::Some(()) => {
+          match ::core::primitive::bool::then_some(self.freedom_vector.x == ONE, ()) {
             ::core::option::Option::Some(()) => {
-              self.freedom_axis = CoordAxis::Y;
+              self.freedom_axis = CoordAxis::X;
             }
-            ::core::option::Option::None => {}
-          },
-        },
+            ::core::option::Option::None => {
+              match ::core::primitive::bool::then_some(self.freedom_vector.y == ONE, ()) {
+                ::core::option::Option::Some(()) => {
+                  self.freedom_axis = CoordAxis::Y;
+                }
+                ::core::option::Option::None => {}
+              }
+            }
+          }
+        }
         ::core::option::Option::None => {}
       }
 

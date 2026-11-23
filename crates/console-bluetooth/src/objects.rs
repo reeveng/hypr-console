@@ -45,11 +45,13 @@ pub struct Objects {
 impl Objects {
   pub fn power(&self) -> Result<Power, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self
-        .adapters
-        .iter()
-        .any(|adapter| adapter.power == Power::On), ())
-      {
+      match ::core::primitive::bool::then_some(
+        self
+          .adapters
+          .iter()
+          .any(|adapter| adapter.power == Power::On),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Power::On,
         ::core::option::Option::None => Power::Off,
       },
@@ -58,11 +60,13 @@ impl Objects {
 
   pub fn discovery(&self) -> Result<Discovery, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self
-        .adapters
-        .iter()
-        .any(|adapter| adapter.discovery == Discovery::Searching), ())
-      {
+      match ::core::primitive::bool::then_some(
+        self
+          .adapters
+          .iter()
+          .any(|adapter| adapter.discovery == Discovery::Searching),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Discovery::Searching,
         ::core::option::Option::None => Discovery::NotSearching,
       },

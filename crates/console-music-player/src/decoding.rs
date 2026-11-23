@@ -323,10 +323,14 @@ fn base_seconds(base: Option<TimeBase>, ts: u64) -> Result<f64, Never> {
 
 fn ended(fault: &Fault) -> Result<Audio, Never> {
   match fault {
-    Fault::IoError(fault_2) => match ::core::primitive::bool::then_some(fault_2.kind() == ErrorKind::UnexpectedEof, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => console_core_logging::warn!("the song stops short: {fault}", fault = fault_2),
-    },
+    Fault::IoError(fault_2) => {
+      match ::core::primitive::bool::then_some(fault_2.kind() == ErrorKind::UnexpectedEof, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => {
+          console_core_logging::warn!("the song stops short: {fault}", fault = fault_2)
+        }
+      }
+    }
     Fault::DecodeError(_)
     | Fault::SeekError(_)
     | Fault::Unsupported(_)

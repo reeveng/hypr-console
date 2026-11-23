@@ -7,7 +7,6 @@ use console_core_number_conversion::wrapped;
 
 use crate::places::{read, table_row};
 
-
 #[rustfmt::skip]
 pub static SCAN_1: [[(u8, u8); 1]; 3] = [
   [
@@ -131,7 +130,10 @@ mod tests {
     let s = &*match &SCAN_4 {
       [element, ..] => element,
     };
-    assert_eq!(s.first_chunk::<6>(), Some(&[(0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0)]));
+    assert_eq!(
+      s.first_chunk::<6>(),
+      Some(&[(0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0)])
+    );
     assert_eq!(
       *match &*s {
         [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, element, ..] => element,

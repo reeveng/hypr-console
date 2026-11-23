@@ -194,9 +194,11 @@ pub fn file_name(title: &str) -> Result<String, Never> {
 
   let plain: String = title
     .chars()
-    .map(|letter| match ::core::primitive::bool::then_some(letter == '/' || letter.is_control(), ()) {
-      ::core::option::Option::Some(()) => ' ',
-      ::core::option::Option::None => letter,
+    .map(|letter| {
+      match ::core::primitive::bool::then_some(letter == '/' || letter.is_control(), ()) {
+        ::core::option::Option::Some(()) => ' ',
+        ::core::option::Option::None => letter,
+      }
     })
     .take(longest)
     .collect();
@@ -205,10 +207,12 @@ pub fn file_name(title: &str) -> Result<String, Never> {
     .trim_start_matches(|letter: char| letter == '.' || letter.is_whitespace())
     .trim_end();
 
-  Ok(match ::core::primitive::bool::then_some(plain_2.is_empty(), ()) {
-    ::core::option::Option::Some(()) => "Book".to_string(),
-    ::core::option::Option::None => plain_2.to_string(),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(plain_2.is_empty(), ()) {
+      ::core::option::Option::Some(()) => "Book".to_string(),
+      ::core::option::Option::None => plain_2.to_string(),
+    },
+  )
 }
 
 pub fn id_in(url: &str) -> Result<Option<String>, Never> {
@@ -275,7 +279,11 @@ pub fn matches_id(name: &OsStr, id: &str) -> Result<Have, Never> {
     .iter()
     .enumerate()
     .filter(|(_, byte)| **byte == b'[')
-    .any(|(offset, _)| bytes.get(offset..).is_some_and(|tail| tail.starts_with(mark.as_bytes())));
+    .any(|(offset, _)| {
+      bytes
+        .get(offset..)
+        .is_some_and(|tail| tail.starts_with(mark.as_bytes()))
+    });
 
   Ok(match (litter == Litter::No && marked).then_some(()) {
     Some(()) => Have::It,
@@ -287,10 +295,16 @@ pub fn have_it(
   names: impl IntoIterator<Item = impl AsRef<OsStr>>,
   id: &str,
 ) -> Result<Have, Never> {
-  Ok(match names.into_iter().any(|name| matches_id(name.as_ref(), id) == Ok(Have::It)).then_some(()) {
-    Some(()) => Have::It,
-    None => Have::Not,
-  })
+  Ok(
+    match names
+      .into_iter()
+      .any(|name| matches_id(name.as_ref(), id) == Ok(Have::It))
+      .then_some(())
+    {
+      Some(()) => Have::It,
+      None => Have::Not,
+    },
+  )
 }
 
 pub const UNFINISHED: &str = ".part";
@@ -333,9 +347,7 @@ pub fn holds(folder: &Path, id: &str) -> Result<Have, Never> {
     Err(_unreadable) => return Ok(Have::Not),
   };
 
-  let names = reading
-    .flatten()
-    .map(|entry| entry.file_name());
+  let names = reading.flatten().map(|entry| entry.file_name());
 
   have_it(names, id)
 }

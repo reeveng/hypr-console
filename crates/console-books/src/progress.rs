@@ -170,7 +170,8 @@ pub fn page_holding(through: Fraction, letters: &[u64]) -> Result<u32, Never> {
   let mut begun = 0_u32;
 
   for page in letters {
-    match ::core::primitive::bool::then_some(start.saturating_mul(u64::from(WHOLE)) <= wanted, ()) {
+    match ::core::primitive::bool::then_some(start.saturating_mul(u64::from(WHOLE)) <= wanted, ())
+    {
       ::core::option::Option::Some(()) => begun = begun.saturating_add(1),
       ::core::option::Option::None => {}
     }

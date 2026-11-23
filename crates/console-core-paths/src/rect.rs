@@ -364,8 +364,8 @@ impl IntRect {
       reason = "Increasing signed 32-bit bounds remain ordered and finite in f32, and Rect permits bounds that round to the same coordinate"
     )
   )]
-  pub fn to_rect(&self) -> core::result::Result<Rect, console_core_never::Never> {
-    let Ok(rect) = Rect::from_ltrb(
+  pub fn to_rect(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+    let Ok(rect) = FloatRectangle::from_ltrb(
       match ::console_core_number_conversion::nearest_f32_from_i64(
         <::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(self.x),
       ) {
@@ -444,11 +444,11 @@ mod int_rect_tests {
 }
 
 #[derive(Copy, Clone, PartialEq, Hash, Eq)]
-pub struct Rect {
+pub struct FloatRectangle {
   bounds: Bounds<FiniteF32>,
 }
 
-impl core::fmt::Debug for Rect {
+impl core::fmt::Debug for FloatRectangle {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     f.debug_struct("Rect")
       .field("left", &self.bounds.x0.get())
@@ -459,7 +459,7 @@ impl core::fmt::Debug for Rect {
   }
 }
 
-impl Rect {
+impl FloatRectangle {
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
     expect(
@@ -522,7 +522,7 @@ impl Rect {
             None => return Ok(None),
           };
 
-          Some(Rect {
+          Some(FloatRectangle {
             bounds: Bounds {
               x0: left_2,
               y0: top_2,
@@ -556,7 +556,7 @@ impl Rect {
     w: f32,
     h: f32,
   ) -> core::result::Result<Option<Self>, console_core_never::Never> {
-    let Ok(rect) = Rect::from_ltrb(x, y, w + x, h + y);
+    let Ok(rect) = FloatRectangle::from_ltrb(x, y, w + x, h + y);
 
     Ok(rect)
   }
@@ -694,7 +694,7 @@ impl Rect {
     let Ok(other_bottom) = other.bottom();
     let bottom = own_bottom.min(other_bottom);
 
-    let Ok(rect) = Rect::from_ltrb(left, top, right, bottom);
+    let Ok(rect) = FloatRectangle::from_ltrb(left, top, right, bottom);
 
     Ok(rect)
   }
@@ -745,7 +745,7 @@ impl Rect {
     let Ok(other_bottom) = other.bottom();
     let bottom = own_bottom.max(other_bottom);
 
-    let Ok(rect) = Rect::from_ltrb(left, top, right, bottom);
+    let Ok(rect) = FloatRectangle::from_ltrb(left, top, right, bottom);
 
     Ok(rect)
   }
@@ -796,10 +796,10 @@ impl Rect {
     }
 
     match ::core::primitive::bool::then_some(accum * f32x4::default() != f32x4::default(), ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(None);
-        },
-        ::core::option::Option::None => {},
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
+      }
+      ::core::option::Option::None => {}
     }
 
     let [min_x0, min_y0, min_x1, min_y1] = min.0;
@@ -836,7 +836,7 @@ impl Rect {
     let Ok(top) = self.top();
     let Ok(right) = self.right();
     let Ok(bottom) = self.bottom();
-    let Ok(rect) = Rect::from_ltrb(left + dx, top + dy, right - dx, bottom - dy);
+    let Ok(rect) = FloatRectangle::from_ltrb(left + dx, top + dy, right - dx, bottom - dy);
 
     Ok(rect)
   }
@@ -962,11 +962,14 @@ fn checked_f32_sub(
 ) -> core::result::Result<Option<f32>, console_core_never::Never> {
   let difference = f64::from(end.get()) - f64::from(start.get());
 
-  match ::core::primitive::bool::then_some(difference <= f64::from(f32::MIN) || difference >= f64::from(f32::MAX), ()) {
-      ::core::option::Option::Some(()) => {
-        return Ok(None);
-      },
-      ::core::option::Option::None => {},
+  match ::core::primitive::bool::then_some(
+    difference <= f64::from(f32::MIN) || difference >= f64::from(f32::MAX),
+    (),
+  ) {
+    ::core::option::Option::Some(()) => {
+      return Ok(None);
+    }
+    ::core::option::Option::None => {}
   }
 
   let Ok(value) = console_core_number_conversion::nearest_f32_from_f64(difference);
@@ -986,15 +989,15 @@ mod rect_tests {
 
   #[test]
   fn tests() -> Result<(), TestFailure> {
-    assert_eq!(Rect::from_ltrb(10.0, 10.0, 5.0, 10.0), Ok(None));
-    assert_eq!(Rect::from_ltrb(10.0, 10.0, 10.0, 5.0), Ok(None));
-    assert_eq!(Rect::from_ltrb(f32::NAN, 10.0, 10.0, 10.0), Ok(None));
-    assert_eq!(Rect::from_ltrb(10.0, f32::NAN, 10.0, 10.0), Ok(None));
-    assert_eq!(Rect::from_ltrb(10.0, 10.0, f32::NAN, 10.0), Ok(None));
-    assert_eq!(Rect::from_ltrb(10.0, 10.0, 10.0, f32::NAN), Ok(None));
-    assert_eq!(Rect::from_ltrb(10.0, 10.0, 10.0, f32::INFINITY), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 5.0, 10.0), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 10.0, 5.0), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(f32::NAN, 10.0, 10.0, 10.0), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(10.0, f32::NAN, 10.0, 10.0), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, f32::NAN, 10.0), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 10.0, f32::NAN), Ok(None));
+    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 10.0, f32::INFINITY), Ok(None));
 
-    let Ok(made_positive) = Rect::from_ltrb(10.0, 20.0, 30.0, 40.0);
+    let Ok(made_positive) = FloatRectangle::from_ltrb(10.0, 20.0, 30.0, 40.0);
     let positive = made_positive.required()?;
     assert_eq!(positive.left(), Ok(10.0));
     assert_eq!(positive.top(), Ok(20.0));
@@ -1003,7 +1006,7 @@ mod rect_tests {
     assert_eq!(positive.width(), Ok(20.0));
     assert_eq!(positive.height(), Ok(20.0));
 
-    let Ok(made_negative) = Rect::from_ltrb(-30.0, 20.0, -10.0, 40.0);
+    let Ok(made_negative) = FloatRectangle::from_ltrb(-30.0, 20.0, -10.0, 40.0);
     let negative = made_negative.required()?;
     assert_eq!(negative.width(), Ok(20.0));
     assert_eq!(negative.height(), Ok(20.0));
@@ -1013,7 +1016,7 @@ mod rect_tests {
 
   #[test]
   fn transform() -> Result<(), TestFailure> {
-    let Ok(made_original) = Rect::from_ltrb(1.0, 2.0, 3.0, 4.0);
+    let Ok(made_original) = FloatRectangle::from_ltrb(1.0, 2.0, 3.0, 4.0);
     let original = made_original.required()?;
 
     let Ok(identity) = Transform::identity();
@@ -1022,19 +1025,19 @@ mod rect_tests {
     let Ok(scale) = Transform::from_scale_factors(crate::ScaleFactors { x: 1.0, y: 2.0 });
     assert_eq!(
       original.transform(scale),
-      Rect::from_ltrb(1.0, 4.0, 3.0, 8.0)
+      FloatRectangle::from_ltrb(1.0, 4.0, 3.0, 8.0)
     );
 
     let Ok(skew_x) = Transform::from_skew(1.0, 0.0);
     assert_eq!(
       original.transform(skew_x),
-      Rect::from_ltrb(3.0, 2.0, 7.0, 4.0)
+      FloatRectangle::from_ltrb(3.0, 2.0, 7.0, 4.0)
     );
 
     let Ok(skew_y) = Transform::from_skew(0.0, 2.0);
     assert_eq!(
       original.transform(skew_y),
-      Rect::from_ltrb(1.0, 4.0, 3.0, 10.0)
+      FloatRectangle::from_ltrb(1.0, 4.0, 3.0, 10.0)
     );
 
     Ok(())
@@ -1271,15 +1274,22 @@ impl NonZeroRect {
     )
   }
 
-  pub fn to_rect(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn to_rect(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     let Ok(width) = self.width();
     let Ok(height) = self.height();
-    let Ok(rect) = Rect::from_xywh(self.bounds.x0.get(), self.bounds.y0.get(), width, height);
+    let Ok(rect) = FloatRectangle::from_xywh(self.bounds.x0.get(), self.bounds.y0.get(), width, height);
 
-    Ok(match (rect, Rect { bounds: self.bounds }) {
-      (::core::option::Option::Some(present), _) => present,
-      (::core::option::Option::None, alternate) => alternate,
-    })
+    Ok(
+      match (
+        rect,
+        FloatRectangle {
+          bounds: self.bounds,
+        },
+      ) {
+        (::core::option::Option::Some(present), _) => present,
+        (::core::option::Option::None, alternate) => alternate,
+      },
+    )
   }
 
   pub fn to_int_rect(&self) -> core::result::Result<Option<IntRect>, console_core_never::Never> {

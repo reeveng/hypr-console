@@ -36,13 +36,19 @@ cfg_if::cfg_if! {
 
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "all selected lane storage layouts have a valid zero bit pattern in every lane")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "all selected lane storage layouts have a valid zero bit pattern in every lane"
+  )
 )]
 unsafe impl bytemuck::Zeroable for f32x4 {}
 
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "each selected layout is one register, a fixed lane array, or adjacent equal-width lane blocks without padding")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "each selected layout is one register, a fixed lane array, or adjacent equal-width lane blocks without padding"
+  )
 )]
 unsafe impl bytemuck::Pod for f32x4 {}
 
@@ -57,7 +63,10 @@ impl Default for f32x4 {
 impl f32x4 {
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the generic SIMD broadcast preserves the units of its caller's lane value")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the generic SIMD broadcast preserves the units of its caller's lane value"
+    )
   )]
   pub fn splat(n: f32) -> core::result::Result<Self, console_core_never::Never> {
     Ok(Self::from([n, n, n, n]))

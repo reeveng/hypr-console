@@ -184,7 +184,10 @@ pub fn inspect(pid: i32) -> Result<Occupant, Never> {
     None => return Ok(Occupant::default()),
   };
 
-  let foreground = match ::core::primitive::bool::then_some(stat.foreground > 0 && stat.foreground != stat.group, ()) {
+  let foreground = match ::core::primitive::bool::then_some(
+    stat.foreground > 0 && stat.foreground != stat.group,
+    (),
+  ) {
     ::core::option::Option::Some(()) => Some(stat.foreground),
     ::core::option::Option::None => None,
   };
@@ -392,7 +395,8 @@ fn options(words: &[String], configuration: &Configuration) -> Result<Vec<String
       ::core::option::Option::None => {}
     }
 
-    match ::core::primitive::bool::then_some(Some(word.as_str()) == configuration.subcommand, ()) {
+    match ::core::primitive::bool::then_some(Some(word.as_str()) == configuration.subcommand, ())
+    {
       ::core::option::Option::Some(()) => continue,
       ::core::option::Option::None => {}
     }
@@ -600,10 +604,12 @@ fn argv_of(pid: i32) -> Result<Option<Vec<String>>, Never> {
     .map(str::to_string)
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(words.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(words),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(words.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(words),
+    },
+  )
 }
 
 fn directory(pid: i32) -> Result<Option<String>, Never> {

@@ -2338,7 +2338,8 @@ fn handle_action_global<T: ActionParameters>(
     None => ActionParameterValue::Boolean(match var.not {
       Some(_) => BooleanValue::Off,
       None => BooleanValue::On,
-    }).spanned2(span),
+    })
+    .spanned2(span),
   };
   let Ok(meaning) = context
     .meaning_cache
@@ -3279,10 +3280,12 @@ fn key_type_named(
 
   match built_in {
     Some(kind) => Ok(KeyTypeRef::BuiltIn(kind)),
-    None => match ::core::primitive::bool::then_some(key_types.key_types.contains_key(&name.val), ()) {
-      ::core::option::Option::Some(()) => Ok(KeyTypeRef::Named(name)),
-      ::core::option::Option::None => Err(UnknownKeyType.spanned2(name.span)),
-    },
+    None => {
+      match ::core::primitive::bool::then_some(key_types.key_types.contains_key(&name.val), ()) {
+        ::core::option::Option::Some(()) => Ok(KeyTypeRef::Named(name)),
+        ::core::option::Option::None => Err(UnknownKeyType.spanned2(name.span)),
+      }
+    }
   }
 }
 

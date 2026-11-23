@@ -300,10 +300,7 @@ fn put_back() -> Result<(), Never> {
   match known {
     Some(known_2) => console_panel::left_open::started(known_2.program, left_3.arguments),
     None => {
-      console_core_logging::warn!(
-        "{:?} was left open and nothing here draws it",
-        left_3.who
-      );
+      console_core_logging::warn!("{:?} was left open and nothing here draws it", left_3.who);
 
       Ok(())
     }
@@ -338,10 +335,11 @@ fn wait_for_request(
   stopping: Option<&OwnedFd>,
   up: Option<Descriptors<'_>>,
 ) -> Result<PanelRequest, Never> {
-  match ::core::primitive::bool::then_some(up
-    .as_ref()
-    .is_some_and(|up_2| up_2.pending.contains(&b'\n')), ())
-  {
+  match ::core::primitive::bool::then_some(
+    up.as_ref()
+      .is_some_and(|up_2| up_2.pending.contains(&b'\n')),
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Ok(PanelRequest::ByThePanel),
     ::core::option::Option::None => {}
   }
@@ -610,10 +608,7 @@ fn put_up(
       }
     }
     Err(fault) => {
-      console_core_logging::warn!(
-        "{} did not present its first frame: {fault:?}",
-        asked.who
-      );
+      console_core_logging::warn!("{} did not present its first frame: {fault:?}", asked.who);
       let Ok(()) = finish(incoming, Finish::Unpresented(fault));
     }
   }

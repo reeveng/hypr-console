@@ -495,8 +495,14 @@ fn statement_shape(ahead: &[Spanned<Token>]) -> Result<Shape, Never> {
 
   Ok(match after_not {
     [
-      Spanned { val: Token::Ident(_), .. },
-      Spanned { val: token![.] | token![=] | token![,] | Token::Punctuation(Cbrace | Obracket), .. },
+      Spanned {
+        val: Token::Ident(_),
+        ..
+      },
+      Spanned {
+        val: token![.] | token![=] | token![,] | Token::Punctuation(Cbrace | Obracket),
+        ..
+      },
       ..,
     ] => Shape::Var,
     _ => Shape::Expr,
@@ -620,13 +626,15 @@ impl Parser<'_, '_, '_> {
     let Ok(peeked) = self.try_peek();
 
     Ok(match peeked {
-      Some(token) => match ::core::primitive::bool::then_some(token.val == Token::Punctuation(wanted), ()) {
-        ::core::option::Option::Some(()) => {
-          self.pos = self.pos.saturating_add(1);
-          Some(token)
+      Some(token) => {
+        match ::core::primitive::bool::then_some(token.val == Token::Punctuation(wanted), ()) {
+          ::core::option::Option::Some(()) => {
+            self.pos = self.pos.saturating_add(1);
+            Some(token)
+          }
+          ::core::option::Option::None => None,
         }
-        ::core::option::Option::None => None,
-      },
+      }
       None => None,
     })
   }
@@ -1630,10 +1638,12 @@ impl Parser<'_, '_, '_> {
           Some(Token::String(_)) => DeclCandidate::IndicatorMap,
           Some(_) | None => DeclCandidate::IndicatorName(None),
         },
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(meaning == Meaning::Virtual, ()) {
-          ::core::option::Option::Some(()) => DeclCandidate::IndicatorName(Some(t.span)),
-          ::core::option::Option::None => DeclCandidate::None,
-        },
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(meaning == Meaning::Virtual, ()) {
+            ::core::option::Option::Some(()) => DeclCandidate::IndicatorName(Some(t.span)),
+            ::core::option::Option::None => DeclCandidate::None,
+          }
+        }
       },
     })
   }
@@ -1713,7 +1723,8 @@ impl Parser<'_, '_, '_> {
   fn list_open(&mut self, listing: Listing) -> Result<ListStep, Spanned<ParserError>> {
     let t = self.peek(listing.expected)?;
 
-    match ::core::primitive::bool::then_some(t.val == Token::Punctuation(listing.terminator), ()) {
+    match ::core::primitive::bool::then_some(t.val == Token::Punctuation(listing.terminator), ())
+    {
       ::core::option::Option::Some(()) => {
         let end = self.consume_token(listing.terminator)?;
         Ok(ListStep::Ended(end.hi))
@@ -1735,7 +1746,8 @@ impl Parser<'_, '_, '_> {
     };
     let t = self.peek(expected)?;
 
-    match ::core::primitive::bool::then_some(t.val == Token::Punctuation(listing.terminator), ()) {
+    match ::core::primitive::bool::then_some(t.val == Token::Punctuation(listing.terminator), ())
+    {
       ::core::option::Option::Some(()) => {
         let end = self.consume_token(listing.terminator)?;
         return Ok(ListStep::Ended(end.hi));

@@ -6,8 +6,8 @@
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index, toward_zero_u8, toward_zero_u32};
-use core::{cmp::Ordering, fmt};
 use core::ops::Range;
+use core::{cmp::Ordering, fmt};
 
 const MAX_PIXELS: u64 = 268_435_456;
 const MAX_WORK_BYTES: u64 = 1 << 30;
@@ -160,12 +160,10 @@ fn normalize(taps: &mut [f64]) -> Result<(), Never> {
     }
 
     let direction = CoefficientChange::from(residual.is_sign_positive());
-    let eligible = taps
-      .iter_mut()
-      .filter(|weight| match direction {
-        CoefficientChange::Raise => **weight < Q15_UNIT - 1.0,
-        CoefficientChange::Lower => **weight > -Q15_UNIT,
-      });
+    let eligible = taps.iter_mut().filter(|weight| match direction {
+      CoefficientChange::Raise => **weight < Q15_UNIT - 1.0,
+      CoefficientChange::Lower => **weight > -Q15_UNIT,
+    });
     let strongest = eligible.max_by(|a, b| a.abs().total_cmp(&b.abs()));
     let tap = match strongest {
       Some(tap) => tap,
@@ -211,9 +209,13 @@ impl From<bool> for Alpha {
 
 fn associate(bytes: &mut [u8], channels: Channels) -> Result<Alpha, Never> {
   let alpha_mode = match (channels, bytes.first_chunk::<4>()) {
-    (Channels::Rgba, Some([_, _, _, first])) => {
-      Alpha::from(bytes.as_chunks::<4>().0.iter().any(|[_, _, _, alpha]| alpha != first))
-    }
+    (Channels::Rgba, Some([_, _, _, first])) => Alpha::from(
+      bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|[_, _, _, alpha]| alpha != first),
+    ),
     (Channels::Grey | Channels::Rgb, _) | (Channels::Rgba, None) => Alpha::Straight,
   };
 

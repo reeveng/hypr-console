@@ -10,14 +10,19 @@ pub fn of(live: &str, head: &[u8]) -> Result<u32, Never> {
   if live == "/etc/sudoers" || live.starts_with("/etc/sudoers.d/") {
     return Ok(0o440);
   }
-  Ok(match ::core::primitive::bool::then_some(live.contains("/bin/") || live.contains("/sbin/"), ()) {
-    ::core::option::Option::Some(()) => 0o755,
-    ::core::option::Option::None => match head {
-      [b'#', b'!', ..] => 0o755,
-      [0x7f, b'E', b'L', b'F', ..] => 0o755,
-      _ => 0o644,
+  Ok(
+    match ::core::primitive::bool::then_some(
+      live.contains("/bin/") || live.contains("/sbin/"),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => 0o755,
+      ::core::option::Option::None => match head {
+        [b'#', b'!', ..] => 0o755,
+        [0x7f, b'E', b'L', b'F', ..] => 0o755,
+        _ => 0o644,
+      },
     },
-  })
+  )
 }
 
 #[cfg(test)]

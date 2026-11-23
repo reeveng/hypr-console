@@ -78,14 +78,16 @@ impl TextField {
         });
       }
       Keysym::Delete => {
-        return Ok(match ::core::primitive::bool::then_some(self.caret < last, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(edited) = self.remove(self.caret..self.caret.saturating_add(1));
+        return Ok(
+          match ::core::primitive::bool::then_some(self.caret < last, ()) {
+            ::core::option::Option::Some(()) => {
+              let Ok(edited) = self.remove(self.caret..self.caret.saturating_add(1));
 
-            edited
-          }
-          ::core::option::Option::None => Typed::None,
-        });
+              edited
+            }
+            ::core::option::Option::None => Typed::None,
+          },
+        );
       }
       Keysym::Left => return self.moved_to(self.caret.saturating_sub(1)),
       Keysym::Right => return self.moved_to(self.caret.saturating_add(1).min(last)),
@@ -148,14 +150,16 @@ impl TextField {
     let Ok(last) = self.letters();
     let caret_2 = caret.min(last);
 
-    Ok(match ::core::primitive::bool::then_some(caret_2 == self.caret, ()) {
-      ::core::option::Option::Some(()) => Typed::None,
-      ::core::option::Option::None => {
-        self.caret = caret_2;
+    Ok(
+      match ::core::primitive::bool::then_some(caret_2 == self.caret, ()) {
+        ::core::option::Option::Some(()) => Typed::None,
+        ::core::option::Option::None => {
+          self.caret = caret_2;
 
-        Typed::Moved
-      }
-    })
+          Typed::Moved
+        }
+      },
+    )
   }
 
   fn remove(&mut self, range: std::ops::Range<u32>) -> Result<Typed, Never> {

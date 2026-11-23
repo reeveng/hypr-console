@@ -29,10 +29,10 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
 pub use selector::{AttributeOperator, Element, Matching, PseudoClass, Selector};
-use stream::{Stream, Taken};
+use stream::{Stream, Consumption};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Fault {
+pub(crate) enum Error {
   UnexpectedEnd,
   InvalidIdent,
   InvalidComment,
@@ -47,29 +47,29 @@ pub(crate) enum Fault {
   UnsupportedPseudoClass,
 }
 
-impl fmt::Display for Fault {
+impl fmt::Display for Error {
   fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Fault::UnexpectedEnd => write!(to, "unexpected end of stream"),
-      Fault::InvalidIdent => write!(to, "invalid ident"),
-      Fault::InvalidComment => write!(to, "unclosed comment"),
-      Fault::InvalidValue => write!(to, "invalid value"),
-      Fault::InvalidByte => write!(to, "an unexpected byte"),
-      Fault::Misaligned => write!(to, "a span that does not belong to the text"),
-      Fault::SelectorMissing => write!(to, "selector missing"),
-      Fault::UnexpectedSelector => write!(to, "unexpected selector"),
-      Fault::UnexpectedCombinator => write!(to, "unexpected combinator"),
-      Fault::InvalidAttributeSelector => write!(to, "invalid or unsupported attribute selector"),
-      Fault::InvalidLanguagePseudoClass => write!(to, "invalid language pseudo-class"),
-      Fault::UnsupportedPseudoClass => write!(to, "a pseudo-class that is not supported"),
+      Error::UnexpectedEnd => write!(to, "unexpected end of stream"),
+      Error::InvalidIdent => write!(to, "invalid ident"),
+      Error::InvalidComment => write!(to, "unclosed comment"),
+      Error::InvalidValue => write!(to, "invalid value"),
+      Error::InvalidByte => write!(to, "an unexpected byte"),
+      Error::Misaligned => write!(to, "a span that does not belong to the text"),
+      Error::SelectorMissing => write!(to, "selector missing"),
+      Error::UnexpectedSelector => write!(to, "unexpected selector"),
+      Error::UnexpectedCombinator => write!(to, "unexpected combinator"),
+      Error::InvalidAttributeSelector => write!(to, "invalid or unsupported attribute selector"),
+      Error::InvalidLanguagePseudoClass => write!(to, "invalid language pseudo-class"),
+      Error::UnsupportedPseudoClass => write!(to, "a pseudo-class that is not supported"),
     }
   }
 }
 
-impl std::error::Error for Fault {}
+impl std::error::Error for Error {}
 
-impl From<Never> for Fault {
-  fn from(never: Never) -> Fault {
+impl From<Never> for Error {
+  fn from(never: Never) -> Error {
     match never {}
   }
 }
@@ -140,7 +140,7 @@ impl<'a> StyleSheet<'a> {
   }
 }
 
-fn consume_statement<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Result<(), Fault> {
+fn consume_statement<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Result<(), Error> {
   let Ok(first) = s.first();
 
   match first {
@@ -152,7 +152,7 @@ fn consume_statement<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Resul
   }
 }
 
-fn consume_at_rule(s: &mut Stream<'_>) -> Result<(), Fault> {
+fn consume_at_rule(s: &mut Stream<'_>) -> Result<(), Error> {
   let ident = s.consume_ident()?;
 
   warn!("The @{} rule is not supported. Skipped.", ident);
@@ -160,7 +160,7 @@ fn consume_at_rule(s: &mut Stream<'_>) -> Result<(), Fault> {
   s.skip_while(|c| c != ';' && c != '{')?;
 
   let Ok(first) = s.first();
-  let byte = first.ok_or(Fault::UnexpectedEnd)?;
+  let byte = first.ok_or(Error::UnexpectedEnd)?;
 
   match byte {
     b';' => {
@@ -176,13 +176,13 @@ fn consume_at_rule(s: &mut Stream<'_>) -> Result<(), Fault> {
   Ok(())
 }
 
-fn consume_rule_set<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Result<(), Fault> {
+fn consume_rule_set<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Result<(), Error> {
   let mut selectors = Vec::new();
   let bound = s.budget()?;
 
   for _selector in 0..=bound {
     let Ok(first) = s.first();
-    let byte = first.ok_or(Fault::UnexpectedEnd)?;
+    let byte = first.ok_or(Error::UnexpectedEnd)?;
 
     match (byte, selectors.is_empty()) {
       (b',', _) | (_, true) => {}
@@ -199,7 +199,7 @@ fn consume_rule_set<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Result
     s.skip_spaces()?;
 
     let Ok(next) = s.first();
-    let delimiter = next.ok_or(Fault::UnexpectedEnd)?;
+    let delimiter = next.ok_or(Error::UnexpectedEnd)?;
 
     match delimiter {
       b'{' => break,
@@ -225,7 +225,7 @@ fn consume_rule_set<'a>(s: &mut Stream<'a>, rules: &mut Vec<Rule<'a>>) -> Result
   Ok(())
 }
 
-fn consume_declarations<'a>(s: &mut Stream<'a>) -> Result<Vec<Declaration<'a>>, Fault> {
+fn consume_declarations<'a>(s: &mut Stream<'a>) -> Result<Vec<Declaration<'a>>, Error> {
   let mut declarations = Vec::new();
   let bound = s.budget()?;
 
@@ -286,7 +286,7 @@ impl<'a> Iterator for DeclarationTokenizer<'a> {
   }
 }
 
-fn consume_declaration<'a>(s: &mut Stream<'a>) -> Result<Declaration<'a>, Fault> {
+fn consume_declaration<'a>(s: &mut Stream<'a>) -> Result<Declaration<'a>, Error> {
   s.skip_spaces_and_comments()?;
   s.try_consume("*")?;
 
@@ -318,17 +318,17 @@ fn consume_declaration<'a>(s: &mut Stream<'a>) -> Result<Declaration<'a>, Fault>
   let Ok(bang) = s.try_consume("!");
 
   let important = match bang {
-    Taken::Yes => {
+    Consumption::Yes => {
       s.skip_spaces_and_comments()?;
 
       let Ok(word) = s.try_consume("important");
 
       match word {
-        Taken::Yes => true,
-        Taken::No => false,
+        Consumption::Yes => true,
+        Consumption::No => false,
       }
     }
-    Taken::No => false,
+    Consumption::No => false,
   };
 
   s.skip_spaces_and_comments()?;
@@ -339,17 +339,17 @@ fn consume_declaration<'a>(s: &mut Stream<'a>) -> Result<Declaration<'a>, Fault>
     let Ok(semicolon) = s.try_consume(";");
 
     match semicolon {
-      Taken::Yes => {
+      Consumption::Yes => {
         s.skip_spaces_and_comments()?;
       }
-      Taken::No => break,
+      Consumption::No => break,
     }
   }
 
   s.skip_spaces_and_comments()?;
 
   match ::core::primitive::bool::then_some(value.is_empty(), ()) {
-    ::core::option::Option::Some(()) => Err(Fault::InvalidValue),
+    ::core::option::Option::Some(()) => Err(Error::InvalidValue),
     ::core::option::Option::None => Ok(Declaration {
       name,
       value,
@@ -358,9 +358,9 @@ fn consume_declaration<'a>(s: &mut Stream<'a>) -> Result<Declaration<'a>, Fault>
   }
 }
 
-fn consume_term(s: &mut Stream<'_>) -> Result<(), Fault> {
+fn consume_term(s: &mut Stream<'_>) -> Result<(), Error> {
   let Ok(first) = s.first();
-  let byte = first.ok_or(Fault::UnexpectedEnd)?;
+  let byte = first.ok_or(Error::UnexpectedEnd)?;
 
   match byte {
     b'#' => {
@@ -386,11 +386,11 @@ fn consume_term(s: &mut Stream<'_>) -> Result<(), Fault> {
       let Ok(parenthesis) = s.try_consume("(");
 
       match parenthesis {
-        Taken::Yes => {
+        Consumption::Yes => {
           s.skip_while(|c| c != ')')?;
           s.consume(")")?;
         }
-        Taken::No => {}
+        Consumption::No => {}
       }
     }
   }
@@ -398,24 +398,24 @@ fn consume_term(s: &mut Stream<'_>) -> Result<(), Fault> {
   Ok(())
 }
 
-fn consume_number(s: &mut Stream<'_>) -> Result<(), Fault> {
+fn consume_number(s: &mut Stream<'_>) -> Result<(), Error> {
   s.bump()?;
   s.skip_while(|c| c.is_ascii_digit())?;
 
   let Ok(point) = s.try_consume(".");
 
   match point {
-    Taken::Yes => {
+    Consumption::Yes => {
       s.skip_while(|c| c.is_ascii_digit())?;
     }
-    Taken::No => {}
+    Consumption::No => {}
   }
 
   let Ok(percent) = s.try_consume("%");
 
   match percent {
-    Taken::Yes => Ok(()),
-    Taken::No => match s.consume_ident() {
+    Consumption::Yes => Ok(()),
+    Consumption::No => match s.consume_ident() {
       Ok(_suffix) => Ok(()),
       Err(_no_optional_unit) => Ok(()),
     },

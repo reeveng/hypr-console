@@ -606,7 +606,7 @@ fn thresholds(offsets: &FilterOffsets, input: Quantization) -> Result<Thresholds
 #[derive(Clone, Copy)]
 struct SampleRun {
   center: u64,
-  across: u64,
+  column: u64,
   along: u64,
 }
 
@@ -616,12 +616,12 @@ impl SampleRun {
     Ok(match axis {
       Axis::AcrossColumns => Self {
         center,
-        across: 1,
+        column: 1,
         along: stride,
       },
       Axis::AcrossRows => Self {
         center,
-        across: stride,
+        column: stride,
         along: 1,
       },
     })
@@ -631,7 +631,7 @@ impl SampleRun {
     let center = self.center.wrapping_add(lane.wrapping_mul(self.along));
     Ok(SampleLine {
       center,
-      step: self.across,
+      step: self.column,
     })
   }
 }
@@ -745,8 +745,8 @@ fn filter_luma(values: &mut [u16], filter: LumaKernel) -> Result<(), Never> {
   let weak = WeakFilter {
     tc: filter.limits.tc,
     maximum,
-    before: Reach::from(dp < secondary),
-    after: Reach::from(dq < secondary),
+    before: Reachability::from(dp < secondary),
+    after: Reachability::from(dq < secondary),
   };
 
   for lane in 0u64..4 {
@@ -767,12 +767,12 @@ fn filter_luma(values: &mut [u16], filter: LumaKernel) -> Result<(), Never> {
   Ok(())
 }
 
-enum Reach {
+enum Reachability {
   Primary,
   Secondary,
 }
 
-impl From<bool> for Reach {
+impl From<bool> for Reachability {
   fn from(extended: bool) -> Self {
     match extended.then_some(()) {
       Some(()) => Self::Secondary,
@@ -784,8 +784,8 @@ impl From<bool> for Reach {
 struct WeakFilter {
   tc: i32,
   maximum: i32,
-  before: Reach,
-  after: Reach,
+  before: Reachability,
+  after: Reachability,
 }
 
 fn filter_weak(
@@ -828,7 +828,7 @@ fn filter_weak(
   let half = tc.wrapping_shr(1);
 
   match (&kernel.before, side.p) {
-    (Reach::Secondary, Side::Writable) => {
+    (Reachability::Secondary, Side::Writable) => {
       let update = p2
         .wrapping_add(p0)
         .wrapping_add(1)
@@ -848,7 +848,7 @@ fn filter_weak(
   }
 
   match (&kernel.after, side.q) {
-    (Reach::Secondary, Side::Writable) => {
+    (Reachability::Secondary, Side::Writable) => {
       let update = q2
         .wrapping_add(q0)
         .wrapping_add(1)

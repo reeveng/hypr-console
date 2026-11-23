@@ -41,7 +41,10 @@ pub struct Title<'a>(pub &'a str);
 pub fn keep(program: &str, title: Title<'_>) -> Result<(), Never> {
   let Ok(last) = last(program);
 
-  match ::core::primitive::bool::then_some(title.0.is_empty() || last.as_deref() == Some(title.0), ()) {
+  match ::core::primitive::bool::then_some(
+    title.0.is_empty() || last.as_deref() == Some(title.0),
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Ok(()),
     ::core::option::Option::None => {}
   }

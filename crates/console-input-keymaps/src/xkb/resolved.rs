@@ -141,16 +141,16 @@ pub(crate) struct Interp {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) enum Reach {
+pub(crate) enum Reachability {
   LevelOne,
   EveryLevel,
 }
 
 impl Interp {
-  pub(crate) fn reach(&self) -> Result<Reach, Never> {
+  pub(crate) fn reach(&self) -> Result<Reachability, Never> {
     Ok(match self.level_one_only {
-      Some(Spanned { val: true, .. }) => Reach::LevelOne,
-      Some(Spanned { val: false, .. }) | None => Reach::EveryLevel,
+      Some(Spanned { val: true, .. }) => Reachability::LevelOne,
+      Some(Spanned { val: false, .. }) | None => Reachability::EveryLevel,
     })
   }
 }

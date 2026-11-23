@@ -106,19 +106,21 @@ pub fn networks(said: &str) -> Result<Vec<Network>, Never> {
     };
 
     match strongest.entry(found.name.clone()) {
-      Entry::Occupied(mut already) => match ::core::primitive::bool::then_some(already.get().signal < found.signal, ()) {
-        ::core::option::Option::Some(()) => {
-          let here_2 = already.get().here || found.here;
-          let _ = already.insert(Network {
-            here: here_2,
-            ..found
-          });
+      Entry::Occupied(mut already) => {
+        match ::core::primitive::bool::then_some(already.get().signal < found.signal, ()) {
+          ::core::option::Option::Some(()) => {
+            let here_2 = already.get().here || found.here;
+            let _ = already.insert(Network {
+              here: here_2,
+              ..found
+            });
+          }
+          ::core::option::Option::None => {
+            let here_3 = already.get().here || found.here;
+            already.get_mut().here = here_3;
+          }
         }
-        ::core::option::Option::None => {
-          let here_3 = already.get().here || found.here;
-          already.get_mut().here = here_3;
-        }
-      },
+      }
       Entry::Vacant(nothing) => {
         let _ = nothing.insert(found);
       }
@@ -317,10 +319,12 @@ pub fn password(said: &str) -> Result<Option<String>, Never> {
     None => said,
   };
 
-  Ok(match ::core::primitive::bool::then_some(line.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(line.to_string()),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(line.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(line.to_string()),
+    },
+  )
 }
 
 pub fn joining(name: &str, known: Known) -> Result<Command, Never> {
@@ -356,10 +360,11 @@ pub fn joined(name: &str, answer: &Answer) -> Result<Notification, Never> {
         Some(rest) => rest,
         None => said,
       };
-      let body = match ::core::primitive::bool::then_some(said_2.contains("Secrets were required"), ()) {
-        ::core::option::Option::Some(()) => "The password was not accepted.",
-        ::core::option::Option::None => said_2,
-      };
+      let body =
+        match ::core::primitive::bool::then_some(said_2.contains("Secrets were required"), ()) {
+          ::core::option::Option::Some(()) => "The password was not accepted.",
+          ::core::option::Option::None => said_2,
+        };
 
       Notification {
         summary: format!("Couldn't connect to {name}"),

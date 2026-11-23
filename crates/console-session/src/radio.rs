@@ -210,13 +210,12 @@ pub fn forget(runtime: &Path) -> Result<(), Unkept> {
 
   match std::fs::remove_file(&at) {
     Ok(()) => Ok(()),
-    Err(fault) => match ::core::primitive::bool::then_some(
-      fault.kind() == std::io::ErrorKind::NotFound,
-      (),
-    ) {
-      ::core::option::Option::Some(()) => Ok(()),
-      ::core::option::Option::None => Err(Unkept::Read(fault.to_string())),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => Err(Unkept::Read(fault.to_string())),
+      }
+    }
   }
 }
 

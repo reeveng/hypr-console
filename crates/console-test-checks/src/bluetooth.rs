@@ -39,10 +39,12 @@ const TAB: &str = "settings-panel Bluetooth";
 fn looking(stage: &mut Device) -> Result<Ready, Never> {
   let Ok(said) = stage.user(SEARCHING);
 
-  Ok(match ::core::primitive::bool::then_some(said.lines().any(|line| line.trim() == YES), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.lines().any(|line| line.trim() == YES), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn there(stage: &mut Device) -> CheckResult {
@@ -50,7 +52,9 @@ fn there(stage: &mut Device) -> CheckResult {
 
   match ::core::primitive::bool::then_some(said.lines().any(|line| line.trim() == YES), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return cannot("the radio is off, so there is nothing here that can look"),
+    ::core::option::Option::None => {
+      return cannot("the radio is off, so there is nothing here that can look");
+    }
   }
 
   let Ok(_) = stage.exec_cmd(TAB);

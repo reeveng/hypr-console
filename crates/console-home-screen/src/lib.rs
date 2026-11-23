@@ -105,20 +105,20 @@ pub fn keep(home: &Path, standing: Standing, layout: &HomeScreen) -> Result<(), 
 
   match LayoutChange::from(followed == theirs) {
     LayoutChange::Unchanged => Ok(()),
-    LayoutChange::Changed => written(&there, &followed),
+    LayoutChange::Different => written(&there, &followed),
   }
 }
 
 enum LayoutChange {
   Unchanged,
-  Changed,
+  Different,
 }
 
 impl From<bool> for LayoutChange {
   fn from(unchanged: bool) -> Self {
     match bool::then_some(unchanged, ()) {
       Some(()) => Self::Unchanged,
-      None => Self::Changed,
+      None => Self::Different,
     }
   }
 }
@@ -130,11 +130,10 @@ fn written(at: &Path, layout: &HomeScreen) -> Result<(), Unkept> {
   match before {
     Stored::Text(text) => match LayoutChange::from(text == said) {
       LayoutChange::Unchanged => return Ok(()),
-      LayoutChange::Changed => {}
+      LayoutChange::Different => {}
     },
     Stored::Absent | Stored::Failed(_) => {}
   }
-
 
   console_core_atomic_writes::whole_with_folders(at, said.as_bytes())
     .map_err(|fault| Unkept::Unwritten(at.to_path_buf(), fault))
@@ -189,10 +188,15 @@ impl Spot {
   };
 
   pub fn on_the_grid(self, shape: Shape) -> Result<On, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.row < shape.rows && self.column < shape.columns, ()) {
-      ::core::option::Option::Some(()) => On::TheGrid,
-      ::core::option::Option::None => On::None,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        self.row < shape.rows && self.column < shape.columns,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => On::TheGrid,
+        ::core::option::Option::None => On::None,
+      },
+    )
   }
 
   pub fn serialize(self) -> Result<String, Never> {
@@ -309,10 +313,12 @@ pub enum Touch {
 }
 
 pub fn classify_touch(from: (f64, f64), to: (f64, f64)) -> Result<Touch, Never> {
-  Ok(match ::core::primitive::bool::then_some((to.0 - from.0).hypot(to.1 - from.1) <= DRIFT, ()) {
-    ::core::option::Option::Some(()) => Touch::Pressed,
-    ::core::option::Option::None => Touch::Travelled,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some((to.0 - from.0).hypot(to.1 - from.1) <= DRIFT, ()) {
+      ::core::option::Option::Some(()) => Touch::Pressed,
+      ::core::option::Option::None => Touch::Travelled,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,10 +359,12 @@ pub fn flicked(from: (f64, f64), to: (f64, f64)) -> Result<Flick, Never> {
     (true, false, false) | (false, _, _) => {}
   }
 
-  Ok(match ::core::primitive::bool::then_some(down < -FLICK && down.abs() > across.abs(), ()) {
-    ::core::option::Option::Some(()) => Flick::Upward,
-    ::core::option::Option::None => Flick::Nowhere,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(down < -FLICK && down.abs() > across.abs(), ()) {
+      ::core::option::Option::Some(()) => Flick::Upward,
+      ::core::option::Option::None => Flick::Nowhere,
+    },
+  )
 }
 
 pub const HELD: std::time::Duration = std::time::Duration::from_millis(500);
@@ -389,10 +397,12 @@ pub enum Moved {
 }
 
 pub fn nudged(from: (f64, f64), to: (f64, f64)) -> Result<Moved, Never> {
-  Ok(match ::core::primitive::bool::then_some((to.0 - from.0).hypot(to.1 - from.1) < A_HAIR, ()) {
-    ::core::option::Option::Some(()) => Moved::NotAtAll,
-    ::core::option::Option::None => Moved::Somewhere,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some((to.0 - from.0).hypot(to.1 - from.1) < A_HAIR, ()) {
+      ::core::option::Option::Some(()) => Moved::NotAtAll,
+      ::core::option::Option::None => Moved::Somewhere,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -640,10 +650,12 @@ impl HomeScreen {
   }
 
   pub fn occupancy(&self) -> Result<Holding, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.placed.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Holding::None,
-      ::core::option::Option::None => Holding::Some,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.placed.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Holding::None,
+        ::core::option::Option::None => Holding::Some,
+      },
+    )
   }
 }
 
@@ -666,7 +678,10 @@ mod tests {
   fn all_on(home: &HomeScreen, shape: Shape) -> Result<On, Never> {
     let Ok(mut every) = home.every();
 
-    match ::core::primitive::bool::then_some(every.all(|(spot, _)| spot.on_the_grid(shape) == Ok(On::TheGrid)), ()) {
+    match ::core::primitive::bool::then_some(
+      every.all(|(spot, _)| spot.on_the_grid(shape) == Ok(On::TheGrid)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(On::TheGrid),
       ::core::option::Option::None => Ok(On::None),
     }

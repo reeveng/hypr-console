@@ -359,7 +359,10 @@ pub fn home_path(user: User<'_>) -> Result<PathBuf, Never> {
   let path = Path::new(name);
 
   Ok(
-    match ::core::primitive::bool::then_some(path.file_name() == Some(name) && !name.as_encoded_bytes().contains(&0), ()) {
+    match ::core::primitive::bool::then_some(
+      path.file_name() == Some(name) && !name.as_encoded_bytes().contains(&0),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Path::new("/home").join(path),
       ::core::option::Option::None => PathBuf::from("/home/@user@"),
     },
@@ -384,9 +387,11 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
   for holding in holds {
     match std::fs::create_dir(&holding) {
       Ok(()) => {}
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::AlreadyExists
-        && std::fs::metadata(&holding).is_ok_and(|metadata| metadata.is_dir()), ())
-      {
+      Err(fault) => match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::AlreadyExists
+          && std::fs::metadata(&holding).is_ok_and(|metadata| metadata.is_dir()),
+        (),
+      ) {
         ::core::option::Option::Some(()) => continue,
         ::core::option::Option::None => return Err(complain("its directory", fault)),
       },
@@ -433,8 +438,7 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
 const MAX_STAGING_BYTES: u32 = 67_108_864;
 
 fn staging_bytes(from: &Path) -> std::io::Result<Vec<u8>> {
-  let held =
-    console_core_atomic_writes::read_prefix(from, MAX_STAGING_BYTES.saturating_add(1))?;
+  let held = console_core_atomic_writes::read_prefix(from, MAX_STAGING_BYTES.saturating_add(1))?;
 
   match u32::try_from(held.len()) {
     Ok(length) if length <= MAX_STAGING_BYTES => Ok(held),
@@ -619,7 +623,10 @@ pub fn commit(root: &Path, what: &str, wrote: &[std::path::PathBuf]) -> Result<(
   };
   let _ = said(&arguments(&["add"]));
 
-  match ::core::primitive::bool::then_some(!said(&arguments(&["status", "--porcelain"])).out.is_empty(), ()) {
+  match ::core::primitive::bool::then_some(
+    !said(&arguments(&["status", "--porcelain"])).out.is_empty(),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let _ = said(&arguments(&["commit", "-m", what]));
     }
@@ -678,14 +685,17 @@ impl laying::Lays for Here {
 
     match std::fs::symlink_metadata(&on) {
       Ok(_held) => Back::Retained,
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => Back::Closed,
-        ::core::option::Option::None => {
-          eprintln!("console apply: {on}: {fault}");
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => Back::Closed,
+          ::core::option::Option::None => {
+            eprintln!("console apply: {on}: {fault}");
 
-          Back::Retained
+            Back::Retained
+          }
         }
-      },
+      }
     }
   }
 

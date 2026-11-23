@@ -27,10 +27,10 @@ fn height(seen: &mut Device) -> Result<Option<u32>, Never> {
   let Ok(open) = seen.layer(console_onscreen::CONTROL_CENTER_PANEL);
 
   match open {
-      Some((_, _, _, height)) => {
-        return Ok(Some(height));
-      },
-      ::core::option::Option::None => {},
+    Some((_, _, _, height)) => {
+      return Ok(Some(height));
+    }
+    ::core::option::Option::None => {}
   }
 
   let Ok(layer) = seen.layer(console_onscreen::CONTROL_CENTER);
@@ -41,19 +41,23 @@ fn height(seen: &mut Device) -> Result<Option<u32>, Never> {
 fn opened(seen: &mut Device) -> Result<Ready, Never> {
   let Ok(now) = height(seen);
 
-  Ok(match ::core::primitive::bool::then_some(now.is_some_and(|height| height > EDGE), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(now.is_some_and(|height| height > EDGE), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn put_away(seen: &mut Device) -> Result<Ready, Never> {
   let Ok(now) = height(seen);
 
-  Ok(match ::core::primitive::bool::then_some(now == Some(EDGE), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(now == Some(EDGE), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn pulled(stage: &mut Device) -> CheckResult {

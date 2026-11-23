@@ -65,7 +65,10 @@ impl<'a> PositionLookup<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PositionLookup::lookup_flag` method returns `LookupFlag` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PositionLookup::lookup_flag` method returns `LookupFlag` directly in the existing parser interface"
+    )
   )]
   pub fn lookup_flag(&self) -> LookupFlag {
     let Ok(of_unit_type) = self.of_unit_type();
@@ -77,7 +80,10 @@ impl<'a> PositionLookup<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PositionLookup::lookup_type` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PositionLookup::lookup_type` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn lookup_type(&self) -> u16 {
     let Ok(of_unit_type) = self.of_unit_type();
@@ -89,7 +95,10 @@ impl<'a> PositionLookup<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PositionLookup::mark_filtering_set` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PositionLookup::mark_filtering_set` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn mark_filtering_set(&self) -> Option<u16> {
     let Ok(of_unit_type) = self.of_unit_type();
@@ -106,46 +115,44 @@ impl<'a> PositionLookup<'a> {
 
     match read_lookup_type {
       1 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::Single(subtables))
+        Ok(PositionSubtables::Single(subtables))
       }
       2 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::Pair(subtables))
+        Ok(PositionSubtables::Pair(subtables))
       }
       3 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::Cursive(subtables))
+        Ok(PositionSubtables::Cursive(subtables))
       }
       4 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::MarkToBase(subtables))
+        Ok(PositionSubtables::MarkToBase(subtables))
       }
       5 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::MarkToLig(subtables))
+        Ok(PositionSubtables::MarkToLig(subtables))
       }
       6 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::MarkToMark(subtables))
+        Ok(PositionSubtables::MarkToMark(subtables))
       }
       7 => {
-          let Ok(subtables) = Subtables::new(offsets, data);
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::Contextual(subtables))
+        Ok(PositionSubtables::Contextual(subtables))
       }
       8 => {
-          let Ok(subtables) = Subtables::new(
-            offsets, data,
-          );
+        let Ok(subtables) = Subtables::new(offsets, data);
 
-          Ok(PositionSubtables::ChainContextual(subtables))
+        Ok(PositionSubtables::ChainContextual(subtables))
       }
       9 => {
         let extension_type = offsets.iter().find_map(|off| {
@@ -171,56 +178,44 @@ impl<'a> PositionLookup<'a> {
 
         match lookup_type {
           1 => {
-              let Ok(subtables) = Subtables::new_ext(offsets, data);
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::Single(subtables))
+            Ok(PositionSubtables::Single(subtables))
           }
           2 => {
-              let Ok(subtables) = Subtables::new_ext(offsets, data);
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::Pair(subtables))
+            Ok(PositionSubtables::Pair(subtables))
           }
           3 => {
-              let Ok(subtables) = Subtables::new_ext(
-                offsets, data,
-              );
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::Cursive(subtables))
+            Ok(PositionSubtables::Cursive(subtables))
           }
           4 => {
-              let Ok(subtables) = Subtables::new_ext(
-                offsets, data,
-              );
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::MarkToBase(subtables))
+            Ok(PositionSubtables::MarkToBase(subtables))
           }
           5 => {
-              let Ok(subtables) = Subtables::new_ext(
-                offsets, data,
-              );
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::MarkToLig(subtables))
+            Ok(PositionSubtables::MarkToLig(subtables))
           }
           6 => {
-              let Ok(subtables) = Subtables::new_ext(
-                offsets, data,
-              );
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::MarkToMark(subtables))
+            Ok(PositionSubtables::MarkToMark(subtables))
           }
           7 => {
-              let Ok(subtables) = Subtables::new_ext(
-                offsets, data,
-              );
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::Contextual(subtables))
+            Ok(PositionSubtables::Contextual(subtables))
           }
           8 => {
-              let Ok(subtables) = Subtables::new_ext(
-                offsets, data,
-              );
+            let Ok(subtables) = Subtables::new_ext(offsets, data);
 
-              Ok(PositionSubtables::ChainContextual(subtables))
+            Ok(PositionSubtables::ChainContextual(subtables))
           }
           other => Err(ReadError::InvalidFormat({
             let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i64>(other);
@@ -240,7 +235,10 @@ impl PairPosFormat2<'_> {
   #[inline]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `PairPosFormat2::values` method retains the positional argument order for `class1`, `class2`, `context`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `PairPosFormat2::values` method retains the positional argument order for `class1`, `class2`, `context`"
+    )
   )]
   pub fn values(
     &self,
@@ -303,7 +301,8 @@ mod tests {
   use super::*;
 
   #[test]
-  fn pair_pos2_values_match_value_records() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn pair_pos2_values_match_value_records()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     let Ok(data) = FontData::new(font_test_data::gpos::PAIRPOSFORMAT2);
     let table = crate::test_support::fixture_value(PairPosFormat2::read(data), "fixture value")?;
     let Ok(class1_count) = table.class1_count();
@@ -312,27 +311,33 @@ mod tests {
     let context = ValueContext::default();
 
     for class1 in 0..class1_count {
-      let class1_record = crate::test_support::fixture_value(records
-        .get({
+      let class1_record = crate::test_support::fixture_value(
+        records.get({
           let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(class1);
           migrated_value
-        }), "fixture value")?;
+        }),
+        "fixture value",
+      )?;
       let Ok(class2_records) = class1_record.class2_records();
 
       for class2 in 0..class2_count {
-        let record = crate::test_support::fixture_value(class2_records
-          .get({
+        let record = crate::test_support::fixture_value(
+          class2_records.get({
             let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(class2);
             migrated_value
-          }), "fixture value")?;
+          }),
+          "fixture value",
+        )?;
         let first = record.value_record1.value(data, &context)?;
         let second = record.value_record2.value(data, &context)?;
         let value_records = [first, second];
-        let values = crate::test_support::fixture_value(table.values(class1, class2, &context), "fixture value")?;
+        let values = crate::test_support::fixture_value(
+          table.values(class1, class2, &context),
+          "fixture value",
+        )?;
         assert_eq!(value_records, values);
       }
     }
-  ;
 
     Ok(())
   }
@@ -340,12 +345,22 @@ mod tests {
   #[test]
   fn default_for_generics() -> ::core::result::Result<(), crate::test_support::Failure> {
     let inner = {
-        let outcome_inner = ExtensionSubtable::default();
+      let outcome_inner = ExtensionSubtable::default();
 
-        match outcome_inner {
-            ExtensionSubtable::Single(matched_inner) => matched_inner,
-            crate::tables::gpos::ExtensionSubtable::Pair(..) | crate::tables::gpos::ExtensionSubtable::Cursive(..) | crate::tables::gpos::ExtensionSubtable::MarkToBase(..) | crate::tables::gpos::ExtensionSubtable::MarkToLig(..) | crate::tables::gpos::ExtensionSubtable::MarkToMark(..) | crate::tables::gpos::ExtensionSubtable::Contextual(..) | crate::tables::gpos::ExtensionSubtable::ChainContextual(..) => return Err(crate::test_support::Failure::from(alloc::format!("this is quite bad"))),
+      match outcome_inner {
+        ExtensionSubtable::Single(matched_inner) => matched_inner,
+        crate::tables::gpos::ExtensionSubtable::Pair(..)
+        | crate::tables::gpos::ExtensionSubtable::Cursive(..)
+        | crate::tables::gpos::ExtensionSubtable::MarkToBase(..)
+        | crate::tables::gpos::ExtensionSubtable::MarkToLig(..)
+        | crate::tables::gpos::ExtensionSubtable::MarkToMark(..)
+        | crate::tables::gpos::ExtensionSubtable::Contextual(..)
+        | crate::tables::gpos::ExtensionSubtable::ChainContextual(..) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "this is quite bad"
+          )));
         }
+      }
     };
 
     assert_eq!(inner.extension_lookup_type(), Ok(0));
@@ -357,7 +372,9 @@ mod tests {
 
     match extension {
       SinglePos::Format1(_) => Ok(()),
-      SinglePos::Format2(_) => Err(crate::test_support::Failure::from("expected a format 1 extension")),
+      SinglePos::Format2(_) => Err(crate::test_support::Failure::from(
+        "expected a format 1 extension",
+      )),
     }
   }
 }

@@ -36,10 +36,12 @@ pub enum PackageState {
 
 impl PackageState {
   pub fn up_to_date(self) -> Result<UpToDate, Never> {
-    Ok(match ::core::primitive::bool::then_some(self == PackageState::Ok, ()) {
-      ::core::option::Option::Some(()) => UpToDate::Yes,
-      ::core::option::Option::None => UpToDate::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self == PackageState::Ok, ()) {
+        ::core::option::Option::Some(()) => UpToDate::Yes,
+        ::core::option::Option::None => UpToDate::No,
+      },
+    )
   }
 }
 

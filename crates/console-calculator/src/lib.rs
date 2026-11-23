@@ -7,6 +7,7 @@
 //! [`card`] draws them; the launcher can ask `sum` the day it wants to answer
 //! a sum typed into it.
 
+mod arithmetic;
 pub mod card;
 pub mod sum;
 

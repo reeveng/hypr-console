@@ -504,7 +504,10 @@ impl Subfont {
           range
         }))
         .unwrap_or_default();
-        Ok(Some(Index::new(index_data, CffVersion::from(self.is_cff2))?))
+        Ok(Some(Index::new(
+          index_data,
+          CffVersion::from(self.is_cff2),
+        )?))
       }
       None => Ok(None),
     }

@@ -326,7 +326,7 @@ struct Reference {
 #[derive(Clone, Copy)]
 enum ReferenceLocation {
   Buffered(u64),
-  Missing(i32),
+  Absent(i32),
 }
 
 impl Reference {
@@ -337,7 +337,7 @@ impl Reference {
   ) -> core::result::Result<Self, Never> {
     let location_2 = match location {
       Some(&entry) => ReferenceLocation::Buffered(entry),
-      None => ReferenceLocation::Missing(poc),
+      None => ReferenceLocation::Absent(poc),
     };
     Ok(Self {
       location: location_2,
@@ -444,7 +444,7 @@ fn mark_references<'a>(
 ) -> core::result::Result<(), Never> {
   for entry in references.filter_map(|reference| match reference.location {
     ReferenceLocation::Buffered(place) => Some(place),
-    ReferenceLocation::Missing(_) => None,
+    ReferenceLocation::Absent(_) => None,
   }) {
     let Ok(()) = write(keep, entry, Some(marking));
   }
@@ -478,7 +478,7 @@ fn add_references(
           None => continue,
         }
       }
-      ReferenceLocation::Missing(poc) => {
+      ReferenceLocation::Absent(poc) => {
         let id = *missing.next_id;
         *missing.next_id = id.wrapping_add(1);
         missing.made = missing.made.wrapping_add(1);

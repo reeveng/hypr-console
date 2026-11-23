@@ -414,7 +414,9 @@ fn home_set(shape: Shape) -> Result<(), Never> {
   let at = match home {
     Some(at) => at,
     None => {
-      console_core_logging::warn!("settings-panel: this machine will not say whose home to write the grid in");
+      console_core_logging::warn!(
+        "settings-panel: this machine will not say whose home to write the grid in"
+      );
 
       return Ok(());
     }
@@ -442,7 +444,9 @@ fn home_set(shape: Shape) -> Result<(), Never> {
 
   match console_panel::door::send_to_home(console_panel::door::PadInput::Again) {
     Ok(()) => {}
-    Err(fault) => console_core_logging::warn!("settings-panel: the home screen was not told: {fault}"),
+    Err(fault) => {
+      console_core_logging::warn!("settings-panel: the home screen was not told: {fault}")
+    }
   }
 
   Ok(())
@@ -495,7 +499,9 @@ fn grid(held: &ActorAddress, heard: SettingsEvent) -> Result<(), Never> {
   let effects = match held.send(Event::Custom(heard)) {
     Ok(effects) => effects,
     Err(_the_actor_has_gone) => {
-      console_core_logging::warn!("settings-panel: the panel's own state is missing, so the grid did not move");
+      console_core_logging::warn!(
+        "settings-panel: the panel's own state is missing, so the grid did not move"
+      );
 
       Vec::new()
     }
@@ -516,7 +522,9 @@ fn shaped(effect: &Effect<SettingsEffect>) -> Result<Option<&shape::Shape>, Neve
   Ok(match effect {
     Effect::Custom(SettingsEffect::HomeScreen(shape)) => Some(shape),
 
-    Effect::Custom(SettingsEffect::Replace(_) | SettingsEffect::NetworkShown | SettingsEffect::NetworkHidden)
+    Effect::Custom(
+      SettingsEffect::Replace(_) | SettingsEffect::NetworkShown | SettingsEffect::NetworkHidden,
+    )
     | Effect::Run(_)
     | Effect::Stream(_)
     | Effect::Fork(_)
@@ -547,10 +555,10 @@ pub(crate) fn join(network: wifi::Network, known: wifi::Known) -> Result<Handler
         let asking = name.clone();
 
         let Ok(respond) = answer(move |showing_2, word| {
-            let Ok(typed) = wifi::joining_with(&asking, wifi::Password(word));
-            let Ok(joins) = joining(&asking, typed);
+          let Ok(typed) = wifi::joining_with(&asking, wifi::Password(word));
+          let Ok(joins) = joining(&asking, typed);
 
-            showing_2.run(joins);
+          showing_2.run(joins);
         });
         showing.ask(&format!("Password for {name}"), respond);
       }
@@ -1008,8 +1016,8 @@ fn opening(kind: &defaults::Kind, applications: &[Application]) -> Result<String
       let Ok(app) = editor.preferred(kind.mime, applications);
 
       Ok(match app.map(|app_2| app_2.id.clone()) {
-          ::core::option::Option::Some(present) => present,
-          ::core::option::Option::None => ::std::string::String::new(),
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => ::std::string::String::new(),
       })
     }
     None => run_output(Program::XdgMime, &["query", "default", kind.mime]),
@@ -1075,7 +1083,9 @@ fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Re
   let effects = match held.send(Event::Custom(heard)) {
     Ok(effects) => effects,
     Err(_the_actor_has_gone) => {
-      console_core_logging::warn!("settings-panel: the panel's own state is missing, so the press did nothing");
+      console_core_logging::warn!(
+        "settings-panel: the panel's own state is missing, so the press did nothing"
+      );
 
       Vec::new()
     }
@@ -1091,7 +1101,9 @@ fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Re
       Effect::Custom(SettingsEffect::HomeScreen(shape)) => {
         let Ok(()) = home_set(shape);
       }
-      Effect::Custom(SettingsEffect::NetworkShown | SettingsEffect::NetworkHidden) => showing.refresh(),
+      Effect::Custom(SettingsEffect::NetworkShown | SettingsEffect::NetworkHidden) => {
+        showing.refresh()
+      }
 
       Effect::Run(_)
       | Effect::Stream(_)
@@ -1672,7 +1684,9 @@ fn wifi_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
   });
   let Ok(page_3) = page_2.on_back(move |showing| {
     let closed = match sharing.send(Event::Custom(SettingsEvent::HideNetwork)) {
-      Ok(effects) => effects.iter().any(|effect| matches!(effect, Effect::Custom(SettingsEffect::NetworkHidden))),
+      Ok(effects) => effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Custom(SettingsEffect::NetworkHidden))),
       Err(fault) => {
         console_core_logging::warn!("could not close the active Wi-Fi share: {fault}");
         false

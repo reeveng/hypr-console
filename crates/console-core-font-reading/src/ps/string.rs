@@ -7,7 +7,10 @@ impl Sid {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Sid::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Sid::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub const fn new(raw: u16) -> Self {
     Self(raw)
@@ -453,7 +456,6 @@ mod tests {
       let s = crate::test_support::fixture_value(sid.resolve_standard(), "fixture value")?;
       assert_eq!(s, std_string.as_bytes());
     }
-  ;
 
     Ok(())
   }
@@ -465,8 +467,14 @@ mod tests {
         console_core_number_conversion::wrapped::<_, u16>(STANDARD_STRINGS.len());
       migrated_value
     });
-    assert!((match &(sid.resolve_standard()) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
-    let fixture_error = crate::test_support::fixture_error(sid.resolve_standard(), "expected fixture rejection")?;
+    assert!(
+      (match &(sid.resolve_standard()) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
+    let fixture_error =
+      crate::test_support::fixture_error(sid.resolve_standard(), "expected fixture rejection")?;
     assert_eq!(fixture_error, 0);
 
     Ok(())

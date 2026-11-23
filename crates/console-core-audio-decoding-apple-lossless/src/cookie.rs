@@ -10,7 +10,7 @@ use console_core_audio_decoding_interfaces::audio::Channels;
 use console_core_byte_streams::{FiniteStream, ReadBytes};
 use console_core_never::Never;
 
-use crate::fault::Fault;
+use crate::fault::DecodeError;
 
 pub(crate) const MAX_FRAME_LENGTH: u32 = 1 << 20;
 
@@ -48,7 +48,7 @@ pub(crate) enum ChannelLayout {
 }
 
 impl ChannelLayout {
-  fn named(tag: u32) -> Result<ChannelLayout, Fault> {
+  fn named(tag: u32) -> Result<ChannelLayout, DecodeError> {
     match tag {
       MONO => Ok(ChannelLayout::Mono),
       STEREO => Ok(ChannelLayout::Stereo),
@@ -58,11 +58,11 @@ impl ChannelLayout {
       MPEG_5_1_D => Ok(ChannelLayout::Mpeg5p1D),
       AAC_6_1 => Ok(ChannelLayout::Aac6p1),
       MPEG_7_1_B => Ok(ChannelLayout::Mpeg7p1B),
-      _ => Err(Fault::LayoutTag),
+      _ => Err(DecodeError::LayoutTag),
     }
   }
 
-  fn implied(channels: u8) -> Result<ChannelLayout, Fault> {
+  fn implied(channels: u8) -> Result<ChannelLayout, DecodeError> {
     match channels {
       1 => Ok(ChannelLayout::Mono),
       2 => Ok(ChannelLayout::Stereo),
@@ -72,7 +72,7 @@ impl ChannelLayout {
       6 => Ok(ChannelLayout::Mpeg5p1D),
       7 => Ok(ChannelLayout::Aac6p1),
       8 => Ok(ChannelLayout::Mpeg7p1B),
-      _ => Err(Fault::ChannelCount),
+      _ => Err(DecodeError::ChannelCount),
     }
   }
 
@@ -164,7 +164,7 @@ struct Fixed {
 }
 
 impl Fixed {
-  fn read<B: ReadBytes>(reader: &mut B) -> Result<Fixed, Fault> {
+  fn read<B: ReadBytes>(reader: &mut B) -> Result<Fixed, DecodeError> {
     let frame_length = reader.read_be_u32()?;
     let version = reader.read_u8()?;
     let bit_depth = reader.read_u8()?;
@@ -193,26 +193,26 @@ impl Fixed {
 fn explicit_layout<B: ReadBytes>(
   reader: &mut B,
   num_channels: u8,
-) -> Result<ChannelLayout, Fault> {
+) -> Result<ChannelLayout, DecodeError> {
   let size = reader.read_be_u32()?;
 
   match size {
     LAYOUT_INFO_SIZE => {}
-    _ => return Err(Fault::LayoutSize),
+    _ => return Err(DecodeError::LayoutSize),
   }
 
   let id = reader.read_quad_bytes()?;
 
   match id {
     LAYOUT_INFO_ID => {}
-    _unexpected_id => return Err(Fault::LayoutId),
+    _unexpected_id => return Err(DecodeError::LayoutId),
   }
 
   let version = reader.read_be_u32()?;
 
   match version {
     LAYOUT_INFO_VERSION => {}
-    _ => return Err(Fault::LayoutVersion),
+    _ => return Err(DecodeError::LayoutVersion),
   }
 
   let tag = reader.read_be_u32()?;
@@ -223,7 +223,7 @@ fn explicit_layout<B: ReadBytes>(
 
   match u32::from(num_channels).cmp(&value_1) {
     Ordering::Equal => {}
-    Ordering::Less | Ordering::Greater => return Err(Fault::LayoutChannels),
+    Ordering::Less | Ordering::Greater => return Err(DecodeError::LayoutChannels),
   }
 
   let first_reserved = reader.read_be_u32()?;
@@ -231,36 +231,36 @@ fn explicit_layout<B: ReadBytes>(
 
   match (first_reserved, second_reserved) {
     (0, 0) => Ok(layout),
-    _ => Err(Fault::LayoutReserved),
+    _ => Err(DecodeError::LayoutReserved),
   }
 }
 
 impl MagicCookie {
   pub(crate) fn try_read<B: ReadBytes + FiniteStream>(
     reader: &mut B,
-  ) -> Result<MagicCookie, Fault> {
+  ) -> Result<MagicCookie, DecodeError> {
     let length = reader.byte_len();
 
     match length {
       SHORT | LONG => {}
-      _ => return Err(Fault::CookieSize),
+      _ => return Err(DecodeError::CookieSize),
     }
 
     let fixed = Fixed::read(reader)?;
 
     match fixed.version {
       SUPPORTED_VERSION => {}
-      _ => return Err(Fault::Version),
+      _ => return Err(DecodeError::Version),
     }
 
     match fixed.bit_depth {
       0..=32 => {}
-      _ => return Err(Fault::BitDepth),
+      _ => return Err(DecodeError::BitDepth),
     }
 
     match fixed.frame_length {
       0..=MAX_FRAME_LENGTH => {}
-      _ => return Err(Fault::FrameLength),
+      _ => return Err(DecodeError::FrameLength),
     }
 
     let implied = ChannelLayout::implied(fixed.num_channels)?;

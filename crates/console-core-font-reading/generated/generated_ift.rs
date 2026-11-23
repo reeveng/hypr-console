@@ -786,7 +786,7 @@ impl<'a> MinByteRange<'a> for GlyphMap<'a> {
 }
 
 impl ReadArgs for GlyphMap<'_> {
-    type Args = (Uint24, u16);
+    type Arguments = (Uint24, u16);
 }
 
 impl<'a> FontReadWithArgs<'a> for GlyphMap<'a> {
@@ -926,7 +926,7 @@ impl<'a> MinByteRange<'a> for FeatureMap<'a> {
 }
 
 impl ReadArgs for FeatureMap<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for FeatureMap<'a> {
@@ -1073,7 +1073,7 @@ impl FeatureRecord {
 }
 
 impl ReadArgs for FeatureRecord {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for FeatureRecord {
@@ -1160,7 +1160,7 @@ impl EntryMapRecord {
 }
 
 impl ReadArgs for EntryMapRecord {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for EntryMapRecord {
@@ -3311,7 +3311,7 @@ impl<'a> MinByteRange<'a> for GlyphPatches<'a> {
 }
 
 impl ReadArgs for GlyphPatches<'_> {
-    type Args = GlyphKeyedFlags;
+    type Arguments = GlyphKeyedFlags;
 }
 
 impl<'a> FontReadWithArgs<'a> for GlyphPatches<'a> {

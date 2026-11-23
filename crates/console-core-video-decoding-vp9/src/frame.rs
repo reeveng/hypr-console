@@ -568,8 +568,6 @@ impl<T: Clone, const LIMIT: usize> Pool<T, LIMIT> {
   }
 }
 
-
-
 pub struct Pools {
   pub samples: Pool<u16, 268435456>,
   pub bands: Pool<u16, 1179648>,

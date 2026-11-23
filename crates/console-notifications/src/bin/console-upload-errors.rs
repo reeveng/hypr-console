@@ -17,10 +17,14 @@ fn main() {
   #[cfg(target_os = "linux")]
   match upload() {
     Ok(()) => {}
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotConnected, ()) {
-      ::core::option::Option::Some(()) => return,
-      ::core::option::Option::None => console_core_logging::warn!("Orbit reports are still queued: {fault}"),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotConnected, ()) {
+        ::core::option::Option::Some(()) => return,
+        ::core::option::Option::None => {
+          console_core_logging::warn!("Orbit reports are still queued: {fault}")
+        }
+      }
+    }
   }
 }
 

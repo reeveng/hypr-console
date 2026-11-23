@@ -59,7 +59,10 @@ pub enum Continues {
 pub fn continues(after: Option<char>) -> Result<Continues, Never> {
   Ok(match after {
     None => Continues::No,
-    Some(held) => match ::core::primitive::bool::then_some(held.is_alphanumeric() || held == '-' || held == '_', ()) {
+    Some(held) => match ::core::primitive::bool::then_some(
+      held.is_alphanumeric() || held == '-' || held == '_',
+      (),
+    ) {
       ::core::option::Option::Some(()) => Continues::Yes,
       ::core::option::Option::None => Continues::No,
     },
@@ -142,10 +145,12 @@ pub fn renamed_path(at: &Path, renaming: Renaming<'_>) -> Result<Option<PathBuf>
 
   let Ok(swept) = through(name, renaming);
 
-  Ok(match ::core::primitive::bool::then_some(swept == name, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(at.with_file_name(swept)),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(swept == name, ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(at.with_file_name(swept)),
+    },
+  )
 }
 
 pub fn installed(root: &Path, at: &Path) -> Result<Option<String>, Never> {

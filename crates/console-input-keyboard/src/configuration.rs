@@ -333,7 +333,10 @@ impl Scheme {
 }
 
 fn parse_color(value: &str) -> Result<Color, Error> {
-  match ::core::primitive::bool::then_some(value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()), ()) {
+  match ::core::primitive::bool::then_some(
+    value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()),
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Err(Error::Unknown(value.to_string())),
     ::core::option::Option::None => {}
   }

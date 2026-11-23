@@ -667,7 +667,9 @@ mod test {
   use super::*;
 
   fn among(ranges: &[RangeInclusive<u32>], value: u32) -> Result<Presence, Never> {
-    Ok(Presence::from(ranges.iter().any(|range| range.contains(&value))))
+    Ok(Presence::from(
+      ranges.iter().any(|range| range.contains(&value)),
+    ))
   }
 
   fn raw_bounds<T: Domain>(range: &RangeInclusive<T>) -> Result<RangeInclusive<u32>, Never> {

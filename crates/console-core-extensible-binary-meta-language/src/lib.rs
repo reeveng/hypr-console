@@ -108,12 +108,10 @@ pub fn read_vint(data: &[u8]) -> Result<Option<(u64, u32, VintBits)>, Never> {
 pub fn read_size(data: &[u8]) -> Result<Option<(Size, u32)>, Never> {
   let Ok(read) = read_vint(data);
 
-  Ok(
-    read.map(|(value, width, bits)| match bits {
-      VintBits::AllOnes => (Size::Unknown, width),
-      VintBits::ContainsZero => (Size::Known(value), width),
-    }),
-  )
+  Ok(read.map(|(value, width, bits)| match bits {
+    VintBits::AllOnes => (Size::Unknown, width),
+    VintBits::ContainsZero => (Size::Known(value), width),
+  }))
 }
 
 pub fn read_id(data: &[u8]) -> Result<Option<(u32, u32)>, Never> {
@@ -133,7 +131,9 @@ pub fn read_id(data: &[u8]) -> Result<Option<(u32, u32)>, Never> {
 
         match (bits, value, width) {
           (VintBits::AllOnes, _, _) | (VintBits::ContainsZero, 0, 2..) => None,
-          (VintBits::ContainsZero, 0, 0 | 1) | (VintBits::ContainsZero, 1.., _) => Some((id, width)),
+          (VintBits::ContainsZero, 0, 0 | 1) | (VintBits::ContainsZero, 1.., _) => {
+            Some((id, width))
+          }
         }
       }),
   )

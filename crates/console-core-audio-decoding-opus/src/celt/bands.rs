@@ -2028,14 +2028,14 @@ fn fold_masks(
 }
 
 #[derive(Clone, Copy)]
-struct Reach {
+struct Reachability {
   band: u32,
   effective: u32,
   size: u32,
   lm: u32,
 }
 
-fn folds(folding: &Folding, reach: Reach) -> Result<(u32, u32), Never> {
+fn folds(folding: &Folding, reach: Reachability) -> Result<(u32, u32), Never> {
   let mut fold_start = folding.lowband_offset;
 
   for candidate in (0..folding.lowband_offset).rev() {
@@ -2232,7 +2232,7 @@ fn lowband_choice(
       let effective = low.saturating_sub(folding.norm_offset.wrapping_add(placement.size));
       let Ok(range) = folds(
         folding,
-        Reach {
+        Reachability {
           band: placement.band,
           effective,
           size: placement.size,

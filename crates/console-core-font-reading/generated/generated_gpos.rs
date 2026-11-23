@@ -2020,7 +2020,7 @@ impl<'a> MinByteRange<'a> for PairSet<'a> {
 }
 
 impl ReadArgs for PairSet<'_> {
-    type Args = (ValueFormat, ValueFormat);
+    type Arguments = (ValueFormat, ValueFormat);
 }
 
 impl<'a> FontReadWithArgs<'a> for PairSet<'a> {
@@ -2179,7 +2179,7 @@ impl PairValueRecord {
 }
 
 impl ReadArgs for PairValueRecord {
-    type Args = (ValueFormat, ValueFormat);
+    type Arguments = (ValueFormat, ValueFormat);
 }
 
 impl ComputeSize for PairValueRecord {
@@ -2523,7 +2523,7 @@ impl<'a> Class1Record<'a> {
 }
 
 impl ReadArgs for Class1Record<'_> {
-    type Args = (u16, ValueFormat, ValueFormat);
+    type Arguments = (u16, ValueFormat, ValueFormat);
 }
 
 impl ComputeSize for Class1Record<'_> {
@@ -2613,7 +2613,7 @@ impl Class2Record {
 }
 
 impl ReadArgs for Class2Record {
-    type Args = (ValueFormat, ValueFormat);
+    type Arguments = (ValueFormat, ValueFormat);
 }
 
 impl ComputeSize for Class2Record {
@@ -3119,7 +3119,7 @@ impl<'a> MinByteRange<'a> for BaseArray<'a> {
 }
 
 impl ReadArgs for BaseArray<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for BaseArray<'a> {
@@ -3258,7 +3258,7 @@ impl<'a> BaseRecord<'a> {
 }
 
 impl ReadArgs for BaseRecord<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for BaseRecord<'_> {
@@ -3523,7 +3523,7 @@ impl<'a> MinByteRange<'a> for LigatureArray<'a> {
 }
 
 impl ReadArgs for LigatureArray<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for LigatureArray<'a> {
@@ -3654,7 +3654,7 @@ impl<'a> MinByteRange<'a> for LigatureAttach<'a> {
 }
 
 impl ReadArgs for LigatureAttach<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for LigatureAttach<'a> {
@@ -3793,7 +3793,7 @@ impl<'a> ComponentRecord<'a> {
 }
 
 impl ReadArgs for ComponentRecord<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for ComponentRecord<'_> {
@@ -4058,7 +4058,7 @@ impl<'a> MinByteRange<'a> for Mark2Array<'a> {
 }
 
 impl ReadArgs for Mark2Array<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for Mark2Array<'a> {
@@ -4197,7 +4197,7 @@ impl<'a> Mark2Record<'a> {
 }
 
 impl ReadArgs for Mark2Record<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for Mark2Record<'_> {

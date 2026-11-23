@@ -54,7 +54,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::on_curve` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::on_curve` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub const fn on_curve() -> Self {
     Self(Self::ON_CURVE)
@@ -63,7 +66,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::off_curve_quad` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::off_curve_quad` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub const fn off_curve_quad() -> Self {
     Self(0)
@@ -72,7 +78,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::off_curve_cubic` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::off_curve_cubic` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub const fn off_curve_cubic() -> Self {
     Self(Self::OFF_CURVE_CUBIC)
@@ -81,7 +90,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::from_bits` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::from_bits` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub const fn from_bits(bits: u8) -> Self {
     Self(bits & Self::CURVE_MASK)
@@ -91,7 +103,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::curve_membership` method returns `CurveMembership` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::curve_membership` method returns `CurveMembership` directly in the existing parser interface"
+    )
   )]
   pub const fn curve_membership(self) -> CurveMembership {
     match self.0 & Self::ON_CURVE {
@@ -104,7 +119,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::point_control` method returns `PointControl` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::point_control` method returns `PointControl` directly in the existing parser interface"
+    )
   )]
   pub const fn point_control(self) -> PointControl {
     match self.0 & Self::CURVE_MASK {
@@ -116,7 +134,10 @@ impl PointFlags {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::flip_on_curve` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::flip_on_curve` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn flip_on_curve(&mut self) {
     self.0 ^= 1;
@@ -124,7 +145,10 @@ impl PointFlags {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::set_on_curve` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::set_on_curve` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn set_on_curve(&mut self) {
     self.0 |= Self::ON_CURVE;
@@ -132,7 +156,10 @@ impl PointFlags {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::clear_on_curve` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::clear_on_curve` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn clear_on_curve(&mut self) {
     self.0 &= !Self::ON_CURVE;
@@ -141,7 +168,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::marker_presence` method returns `Presence` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::marker_presence` method returns `Presence` directly in the existing parser interface"
+    )
   )]
   pub fn marker_presence(self, marker: PointMarker) -> Presence {
     match self.0 & marker.0 {
@@ -152,7 +182,10 @@ impl PointFlags {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::set_marker` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::set_marker` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn set_marker(&mut self, marker: PointMarker) {
     self.0 |= marker.0;
@@ -160,7 +193,10 @@ impl PointFlags {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::clear_marker` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::clear_marker` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn clear_marker(&mut self, marker: PointMarker) {
     self.0 &= !marker.0
@@ -169,7 +205,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::without_markers` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::without_markers` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub const fn without_markers(self) -> Self {
     Self(self.0 & Self::CURVE_MASK)
@@ -178,7 +217,10 @@ impl PointFlags {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PointFlags::to_bits` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PointFlags::to_bits` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub const fn to_bits(self) -> u8 {
     self.0
@@ -204,7 +246,10 @@ pub trait PointCoord:
 
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "external PointCoord implementations return an f32 glyph coordinate through this published trait")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "external PointCoord implementations return an f32 glyph coordinate through this published trait"
+    )
   )]
   fn to_f32(self) -> f32;
 
@@ -215,7 +260,10 @@ impl<'a> SimpleGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SimpleGlyph::num_points` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SimpleGlyph::num_points` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn num_points(&self) -> u64 {
     match ({
@@ -242,7 +290,10 @@ impl<'a> SimpleGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SimpleGlyph::overlap_flag` method returns `Presence` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SimpleGlyph::overlap_flag` method returns `Presence` directly in the existing parser interface"
+    )
   )]
   pub fn overlap_flag(&self) -> Presence {
     let Ok(glyph_data) = self.glyph_data();
@@ -306,7 +357,10 @@ impl<'a> SimpleGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SimpleGlyph::points` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SimpleGlyph::points` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn points(&self) -> impl Iterator<Item = CurvePoint> + 'a + Clone + use<'a> {
     let Ok(points_impl) = self.points_impl();
@@ -314,41 +368,61 @@ impl<'a> SimpleGlyph<'a> {
     match points_impl {
       ::core::option::Option::Some(option_value) => option_value,
       ::core::option::Option::None => {
-          let Ok(point_iter) = PointIter::new(&[], &[], &[]);
+        let Ok(point_iter) = PointIter::new(&[], &[], &[]);
 
-          point_iter
+        point_iter
       }
     }
   }
 
   #[must_use]
-  fn points_impl(&self) -> core::result::Result<Option<PointIter<'a>>, console_core_never::Never> {
-      let end_points = {
-        let Ok(explicit_value) = self.end_pts_of_contours();
-        explicit_value
-      };
-      let end_point = match end_points.last() { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let Ok(value_5) = end_point.get();
+  fn points_impl(
+    &self,
+  ) -> core::result::Result<Option<PointIter<'a>>, console_core_never::Never> {
+    let end_points = {
+      let Ok(explicit_value) = self.end_pts_of_contours();
+      explicit_value
+    };
+    let end_point = match end_points.last() {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let Ok(value_5) = end_point.get();
 
-      let n_points = match value_5.checked_add(1) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let data = {
-        let Ok(explicit_value) = self.glyph_data();
-        explicit_value
-      };
-      let lens = match match resolve_coords_len(data, n_points) {
-        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let Ok(flag_bytes) = console_core_number_conversion::index(lens.flags);
-      let Ok(x_bytes) = console_core_number_conversion::index(lens.x_coords);
-      let Ok(y_bytes) = console_core_number_conversion::index(lens.y_coords);
-      let (flags, coordinates) = match data.split_at_checked(flag_bytes) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let (x_coords, remaining) = match coordinates.split_at_checked(x_bytes) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let y_coords = match remaining.get(..y_bytes) { Some(explicit_value) => explicit_value, None => return Ok(None) };
+    let n_points = match value_5.checked_add(1) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let data = {
+      let Ok(explicit_value) = self.glyph_data();
+      explicit_value
+    };
+    let lens = match match resolve_coords_len(data, n_points) {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let Ok(flag_bytes) = console_core_number_conversion::index(lens.flags);
+    let Ok(x_bytes) = console_core_number_conversion::index(lens.x_coords);
+    let Ok(y_bytes) = console_core_number_conversion::index(lens.y_coords);
+    let (flags, coordinates) = match data.split_at_checked(flag_bytes) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let (x_coords, remaining) = match coordinates.split_at_checked(x_bytes) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let y_coords = match remaining.get(..y_bytes) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
 
-      let Ok(point_iter) = PointIter::new(flags, x_coords, y_coords);
+    let Ok(point_iter) = PointIter::new(flags, x_coords, y_coords);
 
-      Ok(Some(point_iter))
+    Ok(Some(point_iter))
   }
 }
 
@@ -369,11 +443,17 @@ impl CurvePoint {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CurvePoint::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CurvePoint::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `CurvePoint::new` method retains the positional argument order for `x`, `y`, `membership`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `CurvePoint::new` method retains the positional argument order for `x`, `y`, `membership`"
+    )
   )]
   pub fn new(x: i16, y: i16, membership: CurveMembership) -> Self {
     Self { x, y, membership }
@@ -382,11 +462,17 @@ impl CurvePoint {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CurvePoint::on_curve` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CurvePoint::on_curve` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `CurvePoint::on_curve` method retains the positional argument order for `x`, `y`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `CurvePoint::on_curve` method retains the positional argument order for `x`, `y`"
+    )
   )]
   pub fn on_curve(x: i16, y: i16) -> Self {
     Self::new(x, y, CurveMembership::OnCurve)
@@ -395,11 +481,17 @@ impl CurvePoint {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CurvePoint::off_curve` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CurvePoint::off_curve` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `CurvePoint::off_curve` method retains the positional argument order for `x`, `y`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `CurvePoint::off_curve` method retains the positional argument order for `x`, `y`"
+    )
   )]
   pub fn off_curve(x: i16, y: i16) -> Self {
     Self::new(x, y, CurveMembership::OffCurve)
@@ -436,113 +528,137 @@ impl Iterator for PointIter<'_> {
 
 impl<'a> PointIter<'a> {
   #[must_use]
-  fn new(flags: &'a [u8], x_coords: &'a [u8], y_coords: &'a [u8]) -> core::result::Result<Self, console_core_never::Never> {
-      let Ok(value_6) = FontData::new(flags);
-      let Ok(value_7) = FontData::new(x_coords);
-      let Ok(value_8) = FontData::new(y_coords);
+  fn new(
+    flags: &'a [u8],
+    x_coords: &'a [u8],
+    y_coords: &'a [u8],
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    let Ok(value_6) = FontData::new(flags);
+    let Ok(value_7) = FontData::new(x_coords);
+    let Ok(value_8) = FontData::new(y_coords);
 
-      let Ok(value_26) = value_6.cursor();
-      let Ok(value_27) = value_7.cursor();
-      let Ok(value_28) = value_8.cursor();
+    let Ok(value_26) = value_6.cursor();
+    let Ok(value_27) = value_7.cursor();
+    let Ok(value_28) = value_8.cursor();
 
-      Ok(Self {
-        flags: value_26,
-        x_coords: value_27,
-        y_coords: value_28,
-        flag_repeats: 0,
-        cur_flags: ({
-          let Ok(explicit_value) = SimpleGlyphFlags::empty();
-          explicit_value
-        }),
-        cur_x: 0,
-        cur_y: 0,
-      })
+    Ok(Self {
+      flags: value_26,
+      x_coords: value_27,
+      y_coords: value_28,
+      flag_repeats: 0,
+      cur_flags: ({
+        let Ok(explicit_value) = SimpleGlyphFlags::empty();
+        explicit_value
+      }),
+      cur_x: 0,
+      cur_y: 0,
+    })
   }
 
   fn advance_flags(&mut self) -> core::result::Result<Option<()>, console_core_never::Never> {
-      match ::core::primitive::bool::then_some(self.flag_repeats == 0, ()) {
-        ::core::option::Option::Some(()) => {
-          self.cur_flags = {
-            let read = match match self.flags.read() {
-              ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-              ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-            } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-            let Ok(explicit_value) = SimpleGlyphFlags::from_bits_truncate(read);
-            explicit_value
+    match ::core::primitive::bool::then_some(self.flag_repeats == 0, ()) {
+      ::core::option::Option::Some(()) => {
+        self.cur_flags = {
+          let read = match match self.flags.read() {
+            ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+            ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+          } {
+            Some(explicit_value) => explicit_value,
+            None => return Ok(None),
           };
-          let Ok(repeat) = self.cur_flags.contains(SimpleGlyphFlags::REPEAT_FLAG);
-          let repeats = match repeat {
-            Presence::Present => match self.flags.read::<u8>() {
-              Ok(repeats) => repeats,
-              Err(_unreadable) => 0,
-            },
-            Presence::Absent => 0,
-          };
+          let Ok(explicit_value) = SimpleGlyphFlags::from_bits_truncate(read);
+          explicit_value
+        };
+        let Ok(repeat) = self.cur_flags.contains(SimpleGlyphFlags::REPEAT_FLAG);
+        let repeats = match repeat {
+          Presence::Present => match self.flags.read::<u8>() {
+            Ok(repeats) => repeats,
+            Err(_unreadable) => 0,
+          },
+          Presence::Absent => 0,
+        };
 
-          self.flag_repeats = repeats.wrapping_add(1);
-        }
-        ::core::option::Option::None => {}
+        self.flag_repeats = repeats.wrapping_add(1);
       }
+      ::core::option::Option::None => {}
+    }
 
-      match (1, &mut self.flag_repeats) {
-        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-          *explicit_arithmetic_place = ::core::primitive::u8::wrapping_sub(
-            *explicit_arithmetic_place,
-            explicit_arithmetic_amount,
-          )
-        }
-      };
+    match (1, &mut self.flag_repeats) {
+      (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+        *explicit_arithmetic_place = ::core::primitive::u8::wrapping_sub(
+          *explicit_arithmetic_place,
+          explicit_arithmetic_amount,
+        )
+      }
+    };
 
-      Ok(Some(()))
+    Ok(Some(()))
   }
 
-  fn advance_points(&mut self) -> core::result::Result<(), console_core_never::Never> { {
-    let Ok(x_short) = self.cur_flags.contains(SimpleGlyphFlags::X_SHORT_VECTOR);
-    let Ok(x_same_or_pos) = self
-      .cur_flags
-      .contains(SimpleGlyphFlags::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR);
-    let Ok(y_short) = self.cur_flags.contains(SimpleGlyphFlags::Y_SHORT_VECTOR);
-    let Ok(y_same_or_pos) = self
-      .cur_flags
-      .contains(SimpleGlyphFlags::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR);
+  fn advance_points(&mut self) -> core::result::Result<(), console_core_never::Never> {
+    {
+      let Ok(x_short) = self.cur_flags.contains(SimpleGlyphFlags::X_SHORT_VECTOR);
+      let Ok(x_same_or_pos) = self
+        .cur_flags
+        .contains(SimpleGlyphFlags::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR);
+      let Ok(y_short) = self.cur_flags.contains(SimpleGlyphFlags::Y_SHORT_VECTOR);
+      let Ok(y_same_or_pos) = self
+        .cur_flags
+        .contains(SimpleGlyphFlags::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR);
 
-    let delta_x = match (x_short, x_same_or_pos) {
-      (Presence::Present, Presence::Absent) => ::core::primitive::i16::wrapping_neg({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i16>(
-          match self.x_coords.read::<u8>() { Ok(value) => value, Err(_truncated_x_coordinates) => 0 },
-        );
-        migrated_value
-      }),
-      (Presence::Present, Presence::Present) => {
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i16>(
-          match self.x_coords.read::<u8>() { Ok(value) => value, Err(_truncated_x_coordinates) => 0 },
-        );
-        migrated_value
-      }
-      (Presence::Absent, Presence::Absent) => match self.x_coords.read::<i16>() { Ok(value) => value, Err(_truncated_x_coordinates) => 0 },
-      (Presence::Absent, Presence::Present) => 0,
+      let delta_x = match (x_short, x_same_or_pos) {
+        (Presence::Present, Presence::Absent) => ::core::primitive::i16::wrapping_neg({
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, i16>(match self.x_coords.read::<u8>() {
+              Ok(value) => value,
+              Err(_truncated_x_coordinates) => 0,
+            });
+          migrated_value
+        }),
+        (Presence::Present, Presence::Present) => {
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, i16>(match self.x_coords.read::<u8>() {
+              Ok(value) => value,
+              Err(_truncated_x_coordinates) => 0,
+            });
+          migrated_value
+        }
+        (Presence::Absent, Presence::Absent) => match self.x_coords.read::<i16>() {
+          Ok(value) => value,
+          Err(_truncated_x_coordinates) => 0,
+        },
+        (Presence::Absent, Presence::Present) => 0,
+      };
+
+      let delta_y = match (y_short, y_same_or_pos) {
+        (Presence::Present, Presence::Absent) => ::core::primitive::i16::wrapping_neg({
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, i16>(match self.y_coords.read::<u8>() {
+              Ok(value) => value,
+              Err(_truncated_y_coordinates) => 0,
+            });
+          migrated_value
+        }),
+        (Presence::Present, Presence::Present) => {
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, i16>(match self.y_coords.read::<u8>() {
+              Ok(value) => value,
+              Err(_truncated_y_coordinates) => 0,
+            });
+          migrated_value
+        }
+        (Presence::Absent, Presence::Absent) => match self.y_coords.read::<i16>() {
+          Ok(value) => value,
+          Err(_truncated_y_coordinates) => 0,
+        },
+        (Presence::Absent, Presence::Present) => 0,
+      };
+
+      self.cur_x = self.cur_x.wrapping_add(delta_x);
+      self.cur_y = self.cur_y.wrapping_add(delta_y);
     };
-
-    let delta_y = match (y_short, y_same_or_pos) {
-      (Presence::Present, Presence::Absent) => ::core::primitive::i16::wrapping_neg({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i16>(
-          match self.y_coords.read::<u8>() { Ok(value) => value, Err(_truncated_y_coordinates) => 0 },
-        );
-        migrated_value
-      }),
-      (Presence::Present, Presence::Present) => {
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i16>(
-          match self.y_coords.read::<u8>() { Ok(value) => value, Err(_truncated_y_coordinates) => 0 },
-        );
-        migrated_value
-      }
-      (Presence::Absent, Presence::Absent) => match self.y_coords.read::<i16>() { Ok(value) => value, Err(_truncated_y_coordinates) => 0 },
-      (Presence::Absent, Presence::Present) => 0,
-    };
-
-    self.cur_x = self.cur_x.wrapping_add(delta_x);
-    self.cur_y = self.cur_y.wrapping_add(delta_y);
-  }; Ok(()) }
+    Ok(())
+  }
 }
 
 fn read_point_flags(data: &[u8], flags: &mut [PointFlags]) -> Result<u64, ReadError> {
@@ -562,7 +678,9 @@ fn read_point_flags(data: &[u8], flags: &mut [PointFlags]) -> Result<u64, ReadEr
       Ok(Presence::Present) => {
         let repetitions = payload.next().ok_or(ReadError::OutOfBounds)?;
         consumed = consumed.wrapping_add(1);
-        u64::from(repetitions).wrapping_add(1).min(point_count.wrapping_sub(decoded))
+        u64::from(repetitions)
+          .wrapping_add(1)
+          .min(point_count.wrapping_sub(decoded))
       }
       Ok(Presence::Absent) => 1,
     };
@@ -589,10 +707,19 @@ enum CoordinateAxis {
 
 impl CoordinateAxis {
   #[inline]
-  fn encoding(self, flags: SimpleGlyphFlags) -> Result<CoordinateEncoding, console_core_never::Never> {
+  fn encoding(
+    self,
+    flags: SimpleGlyphFlags,
+  ) -> Result<CoordinateEncoding, console_core_never::Never> {
     let (short_vector, same_or_positive) = match self {
-      Self::X => (SimpleGlyphFlags::X_SHORT_VECTOR, SimpleGlyphFlags::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR),
-      Self::Y => (SimpleGlyphFlags::Y_SHORT_VECTOR, SimpleGlyphFlags::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR),
+      Self::X => (
+        SimpleGlyphFlags::X_SHORT_VECTOR,
+        SimpleGlyphFlags::X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR,
+      ),
+      Self::Y => (
+        SimpleGlyphFlags::Y_SHORT_VECTOR,
+        SimpleGlyphFlags::Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR,
+      ),
     };
     let Ok(short) = flags.contains(short_vector);
     let Ok(same) = flags.contains(same_or_positive);
@@ -618,7 +745,9 @@ impl CoordinateEncoding {
     match self {
       Self::Unchanged => Ok(0),
       Self::PositiveByte => cursor.read::<u8>().map(i32::from),
-      Self::NegativeByte => cursor.read::<u8>().map(|value| i32::from(value).wrapping_neg()),
+      Self::NegativeByte => cursor
+        .read::<u8>()
+        .map(|value| i32::from(value).wrapping_neg()),
       Self::SignedWord => cursor.read::<i16>().map(i32::from),
     }
   }
@@ -654,7 +783,8 @@ fn resolve_coords_len(data: &[u8], points_total: u16) -> Result<FieldLengths, Re
       }
       Ok(Presence::Absent) => 1,
     };
-    let checked_value = flags_left.checked_sub(repeats)
+    let checked_value = flags_left
+      .checked_sub(repeats)
       .ok_or(ReadError::MalformedData("repeat count too large in glyf"))?;
     flags_left = checked_value;
     let Ok(x_encoding) = CoordinateAxis::X.encoding(flags);
@@ -667,7 +797,11 @@ fn resolve_coords_len(data: &[u8], points_total: u16) -> Result<FieldLengths, Re
 
   let position = cursor.position()?;
   let Ok(flags) = console_core_number_conversion::wrapped::<_, u32>(position);
-  Ok(FieldLengths { flags, x_coords, y_coords })
+  Ok(FieldLengths {
+    flags,
+    x_coords,
+    y_coords,
+  })
 }
 
 struct FieldLengths {
@@ -718,7 +852,10 @@ impl<'a> CompositeGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompositeGlyph::components` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompositeGlyph::components` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn components(&self) -> impl Iterator<Item = Component> + 'a + Clone + use<'a> {
     let Ok(value_14) = FontData::new({
@@ -741,7 +878,10 @@ impl<'a> CompositeGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompositeGlyph::component_glyphs_and_flags` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompositeGlyph::component_glyphs_and_flags` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn component_glyphs_and_flags(
     &self,
@@ -766,7 +906,10 @@ impl<'a> CompositeGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompositeGlyph::count_and_instructions` method returns its tuple directly for existing callers to destructure")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompositeGlyph::count_and_instructions` method returns its tuple directly for existing callers to destructure"
+    )
   )]
   pub fn count_and_instructions(&self) -> (u64, Option<&'a [u8]>) {
     let Ok(value_16) = FontData::new({
@@ -810,7 +953,10 @@ impl<'a> CompositeGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompositeGlyph::instructions` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompositeGlyph::instructions` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn instructions(&self) -> Option<&'a [u8]> {
     self.count_and_instructions().1
@@ -1092,7 +1238,10 @@ impl Anchor {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Anchor::compute_flags` method returns `CompositeGlyphFlags` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Anchor::compute_flags` method returns `CompositeGlyphFlags` directly in the existing parser interface"
+    )
   )]
   pub fn compute_flags(&self) -> CompositeGlyphFlags {
     const I8_RANGE: Range<i16> = ::console_core_number_conversion::const_wrapped_integer!(signed ::core::primitive::i8 => ::core::primitive::i16, i8::MIN)
@@ -1109,19 +1258,24 @@ impl Anchor {
       Anchor::Offset { x, y } => {
         flags |= CompositeGlyphFlags::ARGS_ARE_XY_VALUES;
 
-        match ::core::primitive::bool::then_some(!I8_RANGE.contains(x) || !I8_RANGE.contains(y), ()) {
+        match ::core::primitive::bool::then_some(
+          !I8_RANGE.contains(x) || !I8_RANGE.contains(y),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             flags |= CompositeGlyphFlags::ARG_1_AND_2_ARE_WORDS;
           }
           ::core::option::Option::None => {}
         }
       }
-      Anchor::Point { base, component } => match ::core::primitive::bool::then_some(base > &U8_MAX || component > &U8_MAX, ()) {
-        ::core::option::Option::Some(()) => {
-          flags |= CompositeGlyphFlags::ARG_1_AND_2_ARE_WORDS;
+      Anchor::Point { base, component } => {
+        match ::core::primitive::bool::then_some(base > &U8_MAX || component > &U8_MAX, ()) {
+          ::core::option::Option::Some(()) => {
+            flags |= CompositeGlyphFlags::ARG_1_AND_2_ARE_WORDS;
+          }
+          ::core::option::Option::None => {}
         }
-        ::core::option::Option::None => {}
-      },
+      }
     }
 
     flags
@@ -1132,21 +1286,31 @@ impl Transform {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Transform::compute_flags` method returns `CompositeGlyphFlags` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Transform::compute_flags` method returns `CompositeGlyphFlags` directly in the existing parser interface"
+    )
   )]
   pub fn compute_flags(&self) -> CompositeGlyphFlags {
-    match ::core::primitive::bool::then_some(self.yx != F2Dot14::ZERO || self.xy != F2Dot14::ZERO, ()) {
+    match ::core::primitive::bool::then_some(
+      self.yx != F2Dot14::ZERO || self.xy != F2Dot14::ZERO,
+      (),
+    ) {
       ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_A_TWO_BY_TWO,
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(self.xx != self.yy, ()) {
-        ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_AN_X_AND_Y_SCALE,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(self.xx != F2Dot14::ONE, ()) {
-          ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_A_SCALE,
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(self.xx != self.yy, ()) {
+          ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_AN_X_AND_Y_SCALE,
           ::core::option::Option::None => {
-            let Ok(explicit_value) = CompositeGlyphFlags::empty();
-            explicit_value
+            match ::core::primitive::bool::then_some(self.xx != F2Dot14::ONE, ()) {
+              ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_A_SCALE,
+              ::core::option::Option::None => {
+                let Ok(explicit_value) = CompositeGlyphFlags::empty();
+                explicit_value
+              }
+            }
           }
-        },
-      },
+        }
+      }
     }
   }
 }
@@ -1178,7 +1342,10 @@ impl PointCoord for F26Dot6 {
       let Ok(left) = self.to_bits();
       let Ok(right) = other.to_bits();
 
-      { let Ok(explicit_value) = midpoint_i32([left, right]); explicit_value }
+      {
+        let Ok(explicit_value) = midpoint_i32([left, right]);
+        explicit_value
+      }
     });
 
     value_20
@@ -1207,7 +1374,10 @@ impl PointCoord for Fixed {
       let Ok(left) = self.to_bits();
       let Ok(right) = other.to_bits();
 
-      { let Ok(explicit_value) = midpoint_i32([left, right]); explicit_value }
+      {
+        let Ok(explicit_value) = midpoint_i32([left, right]);
+        explicit_value
+      }
     });
 
     value_23
@@ -1234,7 +1404,10 @@ impl PointCoord for i32 {
   }
 
   fn midpoint(self, other: Self) -> Self {
-    { let Ok(explicit_value) = midpoint_i32([self, other]); explicit_value }
+    {
+      let Ok(explicit_value) = midpoint_i32([self, other]);
+      explicit_value
+    }
   }
 }
 
@@ -1279,20 +1452,29 @@ mod tests {
     let font = FontRef::new(font_test_data::COLR_GRADIENT_RECT)?;
     let loca = font.loca(None)?;
     let glyf = font.glyf()?;
-    let glyph = crate::test_support::fixture_value(match loca.get_glyf(
-      {
-        let Ok(explicit_value) = GlyphId::new(0);
-        explicit_value
+    let glyph = crate::test_support::fixture_value(
+      match loca.get_glyf(
+        {
+          let Ok(explicit_value) = GlyphId::new(0);
+          explicit_value
+        },
+        &glyf,
+      ) {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
       },
-      &glyf,
-    ) {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+      "fixture value",
+    )?;
     assert_eq!(glyph.number_of_contours(), Ok(2));
     let simple_glyph = match glyph {
       Glyph::Simple(simple) => simple,
-      Glyph::Composite(_) => return Err(crate::test_support::Failure::from(alloc::format!("expected simple glyph"))),
+      Glyph::Composite(_) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected simple glyph"
+        )));
+      }
     };
     assert_eq!(
       ({
@@ -1332,16 +1514,20 @@ mod tests {
     let glyf = font.glyf()?;
     let maxp = font.maxp()?;
     let Ok(count) = maxp.num_glyphs();
-    (0..u32::from(count)).map(|id| {
-      let Ok(glyph) = GlyphId::new(id);
-      loca.get_glyf(glyph, &glyf)
-    }).collect()
+    (0..u32::from(count))
+      .map(|id| {
+        let Ok(glyph) = GlyphId::new(id);
+        loca.get_glyf(glyph, &glyf)
+      })
+      .collect()
   }
 
   #[test]
   fn simple_glyph_overlapping_contour_flag() -> Result<(), ReadError> {
     let glyphs = all_glyphs(font_test_data::VAZIRMATN_VAR)?;
-    let gids_with_overlap: Vec<_> = glyphs.into_iter().enumerate()
+    let gids_with_overlap: Vec<_> = glyphs
+      .into_iter()
+      .enumerate()
       .filter_map(|(gid, glyph)| match glyph {
         Some(Glyph::Simple(glyph_2)) => match glyph_2.overlap_flag() {
           Presence::Present => Some(gid),
@@ -1358,7 +1544,9 @@ mod tests {
   #[test]
   fn composite_glyph_overlapping_contour_flag() -> Result<(), ReadError> {
     let glyphs = all_glyphs(font_test_data::VAZIRMATN_VAR)?;
-    let gids_components_with_overlap: Vec<_> = glyphs.into_iter().enumerate()
+    let gids_components_with_overlap: Vec<_> = glyphs
+      .into_iter()
+      .enumerate()
       .filter_map(|(gid, glyph)| match glyph {
         Some(Glyph::Composite(glyph_2)) => Some((gid, glyph_2)),
         ::core::option::Option::None | ::core::option::Option::Some(_) => None,
@@ -1428,44 +1616,60 @@ mod tests {
   fn compute_transform_flags() {
     #[must_use]
     fn make_xform(elements: [f32; 4]) -> Result<Transform, console_core_never::Never> {
-        let [xx, yx, xy, yy] = elements;
-        Ok(Transform {
-          xx: ({
-            let Ok(explicit_value) = F2Dot14::from_f32(xx);
-            explicit_value
-          }),
-          yx: ({
-            let Ok(explicit_value) = F2Dot14::from_f32(yx);
-            explicit_value
-          }),
-          xy: ({
-            let Ok(explicit_value) = F2Dot14::from_f32(xy);
-            explicit_value
-          }),
-          yy: ({
-            let Ok(explicit_value) = F2Dot14::from_f32(yy);
-            explicit_value
-          }),
-        })
+      let [xx, yx, xy, yy] = elements;
+      Ok(Transform {
+        xx: ({
+          let Ok(explicit_value) = F2Dot14::from_f32(xx);
+          explicit_value
+        }),
+        yx: ({
+          let Ok(explicit_value) = F2Dot14::from_f32(yx);
+          explicit_value
+        }),
+        xy: ({
+          let Ok(explicit_value) = F2Dot14::from_f32(xy);
+          explicit_value
+        }),
+        yy: ({
+          let Ok(explicit_value) = F2Dot14::from_f32(yy);
+          explicit_value
+        }),
+      })
     }
 
     assert_eq!(
-      ({ let Ok(explicit_value) = make_xform([1.0, 0., 0., 1.0]); explicit_value }).compute_flags(),
+      ({
+        let Ok(explicit_value) = make_xform([1.0, 0., 0., 1.0]);
+        explicit_value
+      })
+      .compute_flags(),
       ({
         let Ok(explicit_value) = CompositeGlyphFlags::empty();
         explicit_value
       })
     );
     assert_eq!(
-      ({ let Ok(explicit_value) = make_xform([2.0, 0., 0., 2.0]); explicit_value }).compute_flags(),
+      ({
+        let Ok(explicit_value) = make_xform([2.0, 0., 0., 2.0]);
+        explicit_value
+      })
+      .compute_flags(),
       CompositeGlyphFlags::WE_HAVE_A_SCALE
     );
     assert_eq!(
-      ({ let Ok(explicit_value) = make_xform([2.0, 0., 0., 1.0]); explicit_value }).compute_flags(),
+      ({
+        let Ok(explicit_value) = make_xform([2.0, 0., 0., 1.0]);
+        explicit_value
+      })
+      .compute_flags(),
       CompositeGlyphFlags::WE_HAVE_AN_X_AND_Y_SCALE
     );
     assert_eq!(
-      ({ let Ok(explicit_value) = make_xform([2.0, 0., 1.0, 1.0]); explicit_value }).compute_flags(),
+      ({
+        let Ok(explicit_value) = make_xform([2.0, 0., 1.0, 1.0]);
+        explicit_value
+      })
+      .compute_flags(),
       CompositeGlyphFlags::WE_HAVE_A_TWO_BY_TWO
     );
   }
@@ -1492,20 +1696,29 @@ mod tests {
     let font = FontRef::new(font_test_data::CUBIC_GLYF)?;
     let loca = font.loca(None)?;
     let glyf = font.glyf()?;
-    let glyph = crate::test_support::fixture_value(match loca.get_glyf(
-      {
-        let Ok(explicit_value) = GlyphId::new(2);
-        explicit_value
+    let glyph = crate::test_support::fixture_value(
+      match loca.get_glyf(
+        {
+          let Ok(explicit_value) = GlyphId::new(2);
+          explicit_value
+        },
+        &glyf,
+      ) {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
       },
-      &glyf,
-    ) {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+      "fixture value",
+    )?;
     assert_eq!(glyph.number_of_contours(), Ok(1));
     let simple_glyph = match glyph {
       Glyph::Simple(simple) => simple,
-      Glyph::Composite(_) => return Err(crate::test_support::Failure::from(alloc::format!("expected simple glyph"))),
+      Glyph::Composite(_) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected simple glyph"
+        )));
+      }
     };
     assert_eq!(
       simple_glyph

@@ -174,10 +174,12 @@ fn highlight(day: &str, at: Month, today: Day) -> Result<Active, Never> {
     Holds::Yes => {}
   }
 
-  Ok(match ::core::primitive::bool::then_some(day.parse::<i32>() == Ok(today.day), ()) {
-    ::core::option::Option::Some(()) => Active::Yes,
-    ::core::option::Option::None => Active::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(day.parse::<i32>() == Ok(today.day), ()) {
+      ::core::option::Option::Some(()) => Active::Yes,
+      ::core::option::Option::None => Active::No,
+    },
+  )
 }
 
 fn run_cal(at: Month) -> Result<String, Never> {

@@ -34,8 +34,8 @@ use console_input_controller::effect::{CompositorAction, Payload, WorkspaceTarge
 use console_input_controller::mode::Mode;
 use console_input_event_devices::{EventType, KeyCode};
 use console_test_flows::screens;
-use console_test_stages::device::TriggerTravel;
 use console_test_stages::device::Ready;
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::here::{Here, TURNS};
 
 type Failure = Box<dyn Error>;
@@ -138,8 +138,10 @@ fn anything(here: &Here) -> Result<Yes, Never> {
 
   let Ok(written) = here.written();
 
-  match ::core::primitive::bool::then_some(commands.is_empty() && dispatches.is_empty() && written.is_empty() && told.is_empty(), ())
-  {
+  match ::core::primitive::bool::then_some(
+    commands.is_empty() && dispatches.is_empty() && written.is_empty() && told.is_empty(),
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ok(Yes::Not),
     ::core::option::Option::None => Ok(Yes::It),
   }

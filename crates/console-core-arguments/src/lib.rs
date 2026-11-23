@@ -255,10 +255,12 @@ impl<S: Subcommand> Reading<'_, S> {
           ..read
         }),
         "--help" | "-h" => Err(Reason::HelpRequest),
-        _flag_or_operand => match ::core::primitive::bool::then_some(word.starts_with(LONG), ()) {
-          ::core::option::Option::Some(()) => self.flag(read, word),
-          ::core::option::Option::None => self.subcommand_or_operand(read, word),
-        },
+        _flag_or_operand => {
+          match ::core::primitive::bool::then_some(word.starts_with(LONG), ()) {
+            ::core::option::Option::Some(()) => self.flag(read, word),
+            ::core::option::Option::None => self.subcommand_or_operand(read, word),
+          }
+        }
       },
     }
   }
@@ -310,14 +312,18 @@ impl<S: Subcommand> Reading<'_, S> {
   fn operand(&self, read: Progress<S>, word: &str) -> Result<Progress<S>, Reason> {
     match self.command.operands {
       Operands::None => Err(Reason::ExtraArgument(word.to_string())),
-      Operands::Optional(_name) => match ::core::primitive::bool::then_some(read.line.operands.is_empty(), ()) {
-        ::core::option::Option::Some(()) => self.keep(read, word),
-        ::core::option::Option::None => Err(Reason::ExtraArgument(word.to_string())),
-      },
-      Operands::Named(names) => match ::core::primitive::bool::then_some(read.line.operands.len() < names.len(), ()) {
-        ::core::option::Option::Some(()) => self.keep(read, word),
-        ::core::option::Option::None => Err(Reason::ExtraArgument(word.to_string())),
-      },
+      Operands::Optional(_name) => {
+        match ::core::primitive::bool::then_some(read.line.operands.is_empty(), ()) {
+          ::core::option::Option::Some(()) => self.keep(read, word),
+          ::core::option::Option::None => Err(Reason::ExtraArgument(word.to_string())),
+        }
+      }
+      Operands::Named(names) => {
+        match ::core::primitive::bool::then_some(read.line.operands.len() < names.len(), ()) {
+          ::core::option::Option::Some(()) => self.keep(read, word),
+          ::core::option::Option::None => Err(Reason::ExtraArgument(word.to_string())),
+        }
+      }
       Operands::Any(_name) | Operands::Verbatim(_name) => self.keep(read, word),
     }
   }
@@ -389,10 +395,12 @@ impl<S: Copy> CommandLine<S> {
   }
 
   pub fn presence(&self, flag: Flag) -> Result<Presence, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.values.contains_key(flag.spelling), ()) {
-      ::core::option::Option::Some(()) => Presence::Present,
-      ::core::option::Option::None => Presence::Absent,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.values.contains_key(flag.spelling), ()) {
+        ::core::option::Option::Some(()) => Presence::Present,
+        ::core::option::Option::None => Presence::Absent,
+      },
+    )
   }
 
   pub fn value(&self, flag: Flag) -> Result<Option<&str>, Never> {
@@ -673,10 +681,12 @@ fn section(heading: &str, rows: &[(String, &'static str)], widest: u32) -> Resul
     .map(|(left, about)| format!("  {left:<width$}  {about}"))
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(lines.is_empty(), ()) {
-    ::core::option::Option::Some(()) => String::new(),
-    ::core::option::Option::None => format!("{heading}:\n{}", lines.join("\n")),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(lines.is_empty(), ()) {
+      ::core::option::Option::Some(()) => String::new(),
+      ::core::option::Option::None => format!("{heading}:\n{}", lines.join("\n")),
+    },
+  )
 }
 
 #[cfg(test)]

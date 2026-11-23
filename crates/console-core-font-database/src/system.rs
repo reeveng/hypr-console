@@ -41,7 +41,7 @@ enum Merged {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Configured {
   Directories,
-  Nothing,
+  Absent,
 }
 
 impl Database {
@@ -51,7 +51,7 @@ impl Database {
 
     match configured {
       Configured::Directories => {}
-      Configured::Nothing => {
+      Configured::Absent => {
         console_core_logging::warn!("Fallback to loading from known font dir paths.");
 
         let Ok(()) = self.load_known_dirs();
@@ -110,7 +110,7 @@ impl Database {
     let Ok(()) = self.apply_aliases(fontconfig.aliases);
 
     match fontconfig.dirs.as_slice() {
-      [] => Ok(Configured::Nothing),
+      [] => Ok(Configured::Absent),
       [_, ..] => {
         let Ok(()) = self.load_configured_dirs(fontconfig.dirs, bases.home.as_deref());
 

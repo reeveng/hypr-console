@@ -172,27 +172,29 @@ pub fn or_the_cache(screen: &mut impl Viewport, picture: &str) -> Result<String,
     Ok((None, _)) | Ok((_, None)) | Err(_) => return Ok(String::new()),
   };
 
-  Ok(match ::core::primitive::bool::then_some(frames < drawn, ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(older) = how_long(drawn.saturating_sub(frames));
+  Ok(
+    match ::core::primitive::bool::then_some(frames < drawn, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(older) = how_long(drawn.saturating_sub(frames));
 
-      format!(
-        " The decoded frames under ~/.cache/awww are {older} older than the picture, so \
+        format!(
+          " The decoded frames under ~/.cache/awww are {older} older than the picture, so \
                  this is the cache and not the drawing: restart console-wallpaper.service and look \
                  again."
-      )
-    }
-    ::core::option::Option::None => {
-      let Ok(after) = how_long(frames.saturating_sub(drawn));
+        )
+      }
+      ::core::option::Option::None => {
+        let Ok(after) = how_long(frames.saturating_sub(drawn));
 
-      format!(
-        " The decoded frames under ~/.cache/awww were written {after} after the picture, \
+        format!(
+          " The decoded frames under ~/.cache/awww were written {after} after the picture, \
                  which does not clear them: a picture restored or copied with its own dates is \
                  new bytes under an old one. Restart console-wallpaper.service and look again before \
                  reading anything into the drawing."
-      )
-    }
-  })
+        )
+      }
+    },
+  )
 }
 
 pub fn grounded(screen: &mut impl Viewport) -> CheckResult {
@@ -238,7 +240,9 @@ pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, Uncheck
 
   match ::core::primitive::bool::then_some(names.iter().any(|named_2| named_2 == name), ()) {
     ::core::option::Option::Some(()) => Ok(path.to_string()),
-    ::core::option::Option::None => Err(Unchecked::NotInTheTable(path.to_string(), names.to_vec())),
+    ::core::option::Option::None => {
+      Err(Unchecked::NotInTheTable(path.to_string(), names.to_vec()))
+    }
   }
 }
 

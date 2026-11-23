@@ -62,7 +62,10 @@ use std::ffi::c_uint;
 
 use crate::include::common::bitdepth::{BPC, BitDepth};
 use crate::include::dav1d::picture::PicOffset;
-use crate::src::cdef::{CdefBlockShape, CdefDispatch, CdefFilter, CdefTapOffsets, cdef_best_direction, cdef_line_costs, cdef_padding, cdef_tap_offsets, cdef_widen_direction_lines};
+use crate::src::cdef::{
+  CdefBlockShape, CdefDispatch, CdefFilter, CdefTapOffsets, cdef_best_direction, cdef_line_costs,
+  cdef_padding, cdef_tap_offsets, cdef_widen_direction_lines,
+};
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
 use console_core_geometry::Size;
 use console_core_never::Never;
@@ -75,7 +78,10 @@ const CDEF_VERY_LARGE: u16 = 0x8000;
 fn cdef_tap(tmp: &[u16; 144], coordinate: i32) -> Rav1dResult<uint16x8_t> {
   let column = u16::try_from(coordinate).map_err(|_outside_padding| EINVAL)?;
   let Ok(position) = index(column);
-  let samples = tmp.get(position..).and_then(<[_]>::first_chunk).ok_or(EINVAL)?;
+  let samples = tmp
+    .get(position..)
+    .and_then(<[_]>::first_chunk)
+    .ok_or(EINVAL)?;
   Ok(safe_simd::vld1q_u16(samples))
 }
 
@@ -123,7 +129,9 @@ struct CdefStrengths {
 fn filter_params(strengths: CdefStrengths) -> Result<FilterParams, Never> {
   let shift = |threshold: u32| {
     let log = threshold.checked_ilog2();
-    let difference = log.map_or(0, |power| strengths.damping.wrapping_sub(power.cast_signed()));
+    let difference = log.map_or(0, |power| {
+      strengths.damping.wrapping_sub(power.cast_signed())
+    });
     let Ok(negative) = wrapped::<_, i16>(difference.max(0).wrapping_neg());
     negative
   };
@@ -212,7 +220,10 @@ fn cdef_filter_row<const PRI: bool, const SEC: bool>(
 ) -> Rav1dResult<int16x8_t> {
   let mut sum = vdupq_n_s16(0);
   let original = vreinterpretq_s16_u16(pixels);
-  let mut range = CdefRange { minimum: pixels, maximum: original };
+  let mut range = CdefRange {
+    minimum: pixels,
+    maximum: original,
+  };
   let offsets = context.offsets;
   let vectors = &context.vectors;
 
@@ -223,11 +234,19 @@ fn cdef_filter_row<const PRI: bool, const SEC: bool>(
   for (primary, weight) in offsets.primary.into_iter().zip(primary_weights) {
     match ::core::primitive::bool::then_some(PRI, ()) {
       ::core::option::Option::Some(()) => {
-        let position = CdefTapPosition { center: base, distance: primary };
+        let position = CdefTapPosition {
+          center: base,
+          distance: primary,
+        };
         let taps = cdef_tap_pair(context.pixels, position)?;
 
         for tap in taps {
-          let Ok(delta) = cdef_constrain(tap, pixels, vectors.primary_threshold, vectors.primary_shift);
+          let Ok(delta) = cdef_constrain(
+            tap,
+            pixels,
+            vectors.primary_threshold,
+            vectors.primary_shift,
+          );
           sum = vmlaq_n_s16(sum, delta, weight);
         }
 
@@ -246,12 +265,20 @@ fn cdef_filter_row<const PRI: bool, const SEC: bool>(
     for (distance, weight) in directions.into_iter().zip(secondary_weights) {
       match ::core::primitive::bool::then_some(SEC, ()) {
         ::core::option::Option::Some(()) => {
-          let position = CdefTapPosition { center: base, distance };
+          let position = CdefTapPosition {
+            center: base,
+            distance,
+          };
           let taps = cdef_tap_pair(context.pixels, position)?;
           let Ok(()) = include_cdef_taps(&mut range, taps);
 
           for tap in taps {
-            let Ok(delta) = cdef_constrain(tap, pixels, vectors.secondary_threshold, vectors.secondary_shift);
+            let Ok(delta) = cdef_constrain(
+              tap,
+              pixels,
+              vectors.secondary_threshold,
+              vectors.secondary_shift,
+            );
             sum = vmlaq_n_s16(sum, delta, weight);
           }
         }
@@ -262,7 +289,10 @@ fn cdef_filter_row<const PRI: bool, const SEC: bool>(
 
   let Ok(output) = cdef_apply(original, sum);
   Ok(match ::core::primitive::bool::then_some(SEC, ()) {
-    ::core::option::Option::Some(()) => vminq_s16(vmaxq_s16(output, vreinterpretq_s16_u16(range.minimum)), range.maximum),
+    ::core::option::Option::Some(()) => vminq_s16(
+      vmaxq_s16(output, vreinterpretq_s16_u16(range.minimum)),
+      range.maximum,
+    ),
     ::core::option::Option::None => output,
   })
 }
@@ -275,19 +305,17 @@ fn cdef_row_base(row: u64) -> Rav1dResult<i32> {
 
 #[cfg(target_arch = "aarch64")]
 #[arcane]
-fn cdef_filter_block_8bpc_neon<
-  const W: u8,
-  const H: u8,
-  const PRI: bool,
-  const SEC: bool,
->(
+fn cdef_filter_block_8bpc_neon<const W: u8, const H: u8, const PRI: bool, const SEC: bool>(
   _token: Arm64,
   dst: PicOffset,
   context: &mut CdefRowContext<'_>,
 ) -> Rav1dResult {
   use crate::include::common::bitdepth::BitDepth8;
 
-  let extent = Size { width: u64::from(W), height: u64::from(H) };
+  let extent = Size {
+    width: u64::from(W),
+    height: u64::from(H),
+  };
   dst.for_rows_mut_with_context::<BitDepth8, _, _>(extent, context, |row, output, state| {
     let base = cdef_row_base(row)?;
     let pixels = cdef_tap(state.pixels, base)?;
@@ -315,19 +343,17 @@ fn cdef_filter_block_8bpc_neon<
 
 #[cfg(target_arch = "aarch64")]
 #[arcane]
-fn cdef_filter_block_16bpc_neon<
-  const W: u8,
-  const H: u8,
-  const PRI: bool,
-  const SEC: bool,
->(
+fn cdef_filter_block_16bpc_neon<const W: u8, const H: u8, const PRI: bool, const SEC: bool>(
   _token: Arm64,
   dst: PicOffset,
   context: &mut CdefRowContext<'_>,
 ) -> Rav1dResult {
   use crate::include::common::bitdepth::BitDepth16;
 
-  let extent = Size { width: u64::from(W), height: u64::from(H) };
+  let extent = Size {
+    width: u64::from(W),
+    height: u64::from(H),
+  };
   dst.for_rows_mut_with_context::<BitDepth16, _, _>(extent, context, |row, output, state| {
     let base = cdef_row_base(row)?;
     let pixels = cdef_tap(state.pixels, base)?;
@@ -375,12 +401,24 @@ fn filter_neon_block<const W: u8, const H: u8>(
   let context = &mut block.context;
 
   match (block.depth, block.strength) {
-    (BPC::BPC8, CdefFilterStrength::Primary) => cdef_filter_block_8bpc_neon::<W, H, true, false>(token, dst, context),
-    (BPC::BPC8, CdefFilterStrength::Secondary) => cdef_filter_block_8bpc_neon::<W, H, false, true>(token, dst, context),
-    (BPC::BPC8, CdefFilterStrength::Both) => cdef_filter_block_8bpc_neon::<W, H, true, true>(token, dst, context),
-    (BPC::BPC16, CdefFilterStrength::Primary) => cdef_filter_block_16bpc_neon::<W, H, true, false>(token, dst, context),
-    (BPC::BPC16, CdefFilterStrength::Secondary) => cdef_filter_block_16bpc_neon::<W, H, false, true>(token, dst, context),
-    (BPC::BPC16, CdefFilterStrength::Both) => cdef_filter_block_16bpc_neon::<W, H, true, true>(token, dst, context),
+    (BPC::BPC8, CdefFilterStrength::Primary) => {
+      cdef_filter_block_8bpc_neon::<W, H, true, false>(token, dst, context)
+    }
+    (BPC::BPC8, CdefFilterStrength::Secondary) => {
+      cdef_filter_block_8bpc_neon::<W, H, false, true>(token, dst, context)
+    }
+    (BPC::BPC8, CdefFilterStrength::Both) => {
+      cdef_filter_block_8bpc_neon::<W, H, true, true>(token, dst, context)
+    }
+    (BPC::BPC16, CdefFilterStrength::Primary) => {
+      cdef_filter_block_16bpc_neon::<W, H, true, false>(token, dst, context)
+    }
+    (BPC::BPC16, CdefFilterStrength::Secondary) => {
+      cdef_filter_block_16bpc_neon::<W, H, false, true>(token, dst, context)
+    }
+    (BPC::BPC16, CdefFilterStrength::Both) => {
+      cdef_filter_block_16bpc_neon::<W, H, true, true>(token, dst, context)
+    }
   }
 }
 
@@ -453,29 +491,36 @@ fn cdef_dir_core(rows: &[int16x8_t; 8], variance: &mut c_uint) -> Rav1dResult<i3
   let Ok(line_5) = cdef_widen_direction_lines(offset_2);
   let Ok(line_6) = cdef_widen_direction_lines(vertical_sums);
   let Ok(line_7) = cdef_widen_direction_lines(offset_3);
-  let Ok(costs) = cdef_line_costs([line_0, line_1, line_2, line_3, line_4, line_5, line_6, line_7]);
+  let Ok(costs) = cdef_line_costs([
+    line_0, line_1, line_2, line_3, line_4, line_5, line_6, line_7,
+  ]);
 
   cdef_best_direction(costs, variance)
 }
 
 #[cfg(target_arch = "aarch64")]
 #[arcane]
-fn cdef_find_dir_8bpc_neon(_token: Arm64, image: PicOffset, variance: &mut c_uint) -> Rav1dResult<i32> {
+fn cdef_find_dir_8bpc_neon(
+  _token: Arm64,
+  image: PicOffset,
+  variance: &mut c_uint,
+) -> Rav1dResult<i32> {
   use crate::include::common::bitdepth::BitDepth8;
 
   let mut rows = [vdupq_n_s16(0); 8];
   let mut context = (rows.iter_mut(), Ok(()), vdupq_n_s16(128));
   let Ok(()) = image.for_rows_with_context::<BitDepth8, _, _>(
-    Size { width: 8, height: 8 },
+    Size {
+      width: 8,
+      height: 8,
+    },
     &mut context,
-    |_row, pixels, (outputs, result, center)| {
-      match (outputs.next(), pixels.first_chunk::<8>()) {
-        (Some(output), Some(chunk)) => {
-          let values = safe_simd::vld1_u8(chunk);
-          *output = vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(values)), *center);
-        }
-        (None, None | Some(_)) | (Some(_), None) => *result = Err(EINVAL),
+    |_row, pixels, (outputs, result, center)| match (outputs.next(), pixels.first_chunk::<8>()) {
+      (Some(output), Some(chunk)) => {
+        let values = safe_simd::vld1_u8(chunk);
+        *output = vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(values)), *center);
       }
+      (None, None | Some(_)) | (Some(_), None) => *result = Err(EINVAL),
     },
   );
   context.1?;
@@ -497,16 +542,23 @@ fn cdef_find_dir_16bpc_neon(
   let shift = vdupq_n_s16(i16::from(reduced_bitdepth).wrapping_neg());
   let mut context = (rows.iter_mut(), Ok(()), vdupq_n_s16(128), shift);
   let Ok(()) = image.for_rows_with_context::<BitDepth16, _, _>(
-    Size { width: 8, height: 8 },
+    Size {
+      width: 8,
+      height: 8,
+    },
     &mut context,
-    |_row, pixels, (outputs, result, center, lanes_shift)| {
-      match (outputs.next(), pixels.first_chunk::<8>()) {
-        (Some(output), Some(chunk)) => {
-          let values = safe_simd::vld1q_u16(chunk);
-          *output = vsubq_s16(vreinterpretq_s16_u16(vshlq_u16(values, *lanes_shift)), *center);
-        }
-        (None, None | Some(_)) | (Some(_), None) => *result = Err(EINVAL),
+    |_row, pixels, (outputs, result, center, lanes_shift)| match (
+      outputs.next(),
+      pixels.first_chunk::<8>(),
+    ) {
+      (Some(output), Some(chunk)) => {
+        let values = safe_simd::vld1q_u16(chunk);
+        *output = vsubq_s16(
+          vreinterpretq_s16_u16(vshlq_u16(values, *lanes_shift)),
+          *center,
+        );
       }
+      (None, None | Some(_)) | (Some(_), None) => *result = Err(EINVAL),
     },
   );
   context.1?;
@@ -515,7 +567,9 @@ fn cdef_find_dir_16bpc_neon(
 }
 
 #[cfg(target_arch = "aarch64")]
-pub(crate) fn cdef_filter_dispatch<BD: BitDepth>(request: &CdefFilter<'_, '_, BD>) -> Rav1dResult<CdefDispatch> {
+pub(crate) fn cdef_filter_dispatch<BD: BitDepth>(
+  request: &CdefFilter<'_, '_, BD>,
+) -> Rav1dResult<CdefDispatch> {
   use crate::src::ablate::{Family, is_off, note};
   use archmage::SimdToken as _;
 
@@ -614,11 +668,7 @@ mod tests {
     strengths: CdefStrengths,
   }
 
-  fn neon_filter(
-    tmp: &[i16; 144],
-    dst: &[i32; 8],
-    input: TestCdefRow,
-  ) -> Rav1dResult<[i16; 8]> {
+  fn neon_filter(tmp: &[i16; 144], dst: &[i32; 8], input: TestCdefRow) -> Rav1dResult<[i16; 8]> {
     let token = Arm64::summon().ok_or(EINVAL)?;
     let px = dst.map(|pixel| {
       let Ok(component) = wrapped::<_, u16>(pixel);
@@ -675,7 +725,10 @@ mod tests {
 
   fn reference_constrain(input: OracleDelta) -> Result<i32, Never> {
     let magnitude = input.difference.unsigned_abs();
-    let limit = input.threshold.cast_unsigned().saturating_sub(magnitude.wrapping_shr(input.shift));
+    let limit = input
+      .threshold
+      .cast_unsigned()
+      .saturating_sub(magnitude.wrapping_shr(input.shift));
     let limited = magnitude.min(limit).cast_signed();
 
     Ok(match input.difference.cmp(&0) {
@@ -699,15 +752,26 @@ mod tests {
     let (offset, weight, threshold) = match channel {
       0 => (
         2_i32,
-        4_i32.wrapping_sub(strengths.primary.wrapping_shr(strengths.depth_shift).cast_signed() & 1),
+        4_i32.wrapping_sub(
+          strengths
+            .primary
+            .wrapping_shr(strengths.depth_shift)
+            .cast_signed()
+            & 1,
+        ),
         strengths.primary,
       ),
       1 => (0, 2, strengths.secondary),
       2 => (4, 2, strengths.secondary),
       _invalid => return Err(EINVAL),
     };
-    let shift = threshold.checked_ilog2()
-      .map_or(0, |log| strengths.damping.wrapping_sub(log.cast_signed()).max(0).cast_unsigned());
+    let shift = threshold.checked_ilog2().map_or(0, |log| {
+      strengths
+        .damping
+        .wrapping_sub(log.cast_signed())
+        .max(0)
+        .cast_unsigned()
+    });
     let Ok(position) = index(direction.wrapping_add(offset).cast_unsigned());
     let &distances = dav1d_cdef_directions.get(position).ok_or(EINVAL)?;
     let weights = match channel {
@@ -715,7 +779,12 @@ mod tests {
       _secondary => [2, 1],
     };
 
-    Ok(OracleGroup { distances, weights, threshold: threshold.cast_signed(), shift })
+    Ok(OracleGroup {
+      distances,
+      weights,
+      threshold: threshold.cast_signed(),
+      shift,
+    })
   }
 
   #[derive(Clone, Copy)]
@@ -818,8 +887,8 @@ mod tests {
     fn below(&mut self, limit: u32) -> Result<u32, Never> {
       let Ok(value) = self.next();
       Ok(match value.checked_rem(limit) {
-          ::core::option::Option::Some(option_value) => option_value,
-          ::core::option::Option::None => 0,
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0,
       })
     }
 
@@ -848,19 +917,29 @@ mod tests {
   fn param_space(depth_shift: u32) -> Result<ParameterSpace, Never> {
     let primary_maximum = 15_u32.wrapping_shl(depth_shift);
     let secondary = [0, 1, 2, 4].map(|strength: u32| strength.wrapping_shl(depth_shift));
-    let damping = [2, 3, 4, 5, 6].map(|strength: i32| strength.wrapping_add(depth_shift.cast_signed()));
+    let damping =
+      [2, 3, 4, 5, 6].map(|strength: i32| strength.wrapping_add(depth_shift.cast_signed()));
 
-    Ok(ParameterSpace { primary_maximum, secondary, damping })
+    Ok(ParameterSpace {
+      primary_maximum,
+      secondary,
+      damping,
+    })
   }
 
   fn assert_neutral_sentinel(space: &ParameterSpace, maximum: i32) -> Result<(), Never> {
     for &damping in &space.damping {
-      for threshold in (1..=space.primary_maximum).chain(space.secondary.into_iter().filter(|&value| value != 0)) {
+      for threshold in
+        (1..=space.primary_maximum).chain(space.secondary.into_iter().filter(|&value| value != 0))
+      {
         let log = match threshold.checked_ilog2() {
-            ::core::option::Option::Some(option_value) => option_value,
-            ::core::option::Option::None => 0,
+          ::core::option::Option::Some(option_value) => option_value,
+          ::core::option::Option::None => 0,
         };
-        let shift = damping.wrapping_sub(log.cast_signed()).max(0).cast_unsigned();
+        let shift = damping
+          .wrapping_sub(log.cast_signed())
+          .max(0)
+          .cast_unsigned();
 
         for pixel in [0, 1, 128, maximum.wrapping_div(2), maximum] {
           let Ok(scalar) = reference_constrain(OracleDelta {
@@ -870,8 +949,14 @@ mod tests {
           });
           let absolute = 32768_u32.wrapping_sub(pixel.cast_unsigned());
           let vector = threshold.saturating_sub(absolute.wrapping_shr(shift.min(15)));
-          assert_eq!(scalar, 0, "scalar sentinel threshold={threshold} damping={damping} pixel={pixel}");
-          assert_eq!(vector, 0, "vector sentinel threshold={threshold} damping={damping} pixel={pixel}");
+          assert_eq!(
+            scalar, 0,
+            "scalar sentinel threshold={threshold} damping={damping} pixel={pixel}"
+          );
+          assert_eq!(
+            vector, 0,
+            "vector sentinel threshold={threshold} damping={damping} pixel={pixel}"
+          );
         }
       }
     }
@@ -894,8 +979,10 @@ mod tests {
     let mut edges = CdefEdgeFlags::empty();
 
     for edge in [
-      CdefEdgeFlags::HAVE_TOP, CdefEdgeFlags::HAVE_BOTTOM,
-      CdefEdgeFlags::HAVE_LEFT, CdefEdgeFlags::HAVE_RIGHT,
+      CdefEdgeFlags::HAVE_TOP,
+      CdefEdgeFlags::HAVE_BOTTOM,
+      CdefEdgeFlags::HAVE_LEFT,
+      CdefEdgeFlags::HAVE_RIGHT,
     ] {
       let Ok(bit) = random.bit();
 
@@ -916,10 +1003,18 @@ mod tests {
     mut generate: impl FnMut(&mut Rng, i32) -> Result<i32, Never>,
   ) -> Rav1dResult<[i16; 144]> {
     let mut pad = [[i16::MIN; 12]; 12];
-    let start_y = 2_u8.wrapping_sub(u8::from(edges.contains(CdefEdgeFlags::HAVE_TOP)).wrapping_mul(2));
-    let start_x = 2_u8.wrapping_sub(u8::from(edges.contains(CdefEdgeFlags::HAVE_LEFT)).wrapping_mul(2));
-    let end_y = size.height.wrapping_add(2).wrapping_add(u8::from(edges.contains(CdefEdgeFlags::HAVE_BOTTOM)).wrapping_mul(2));
-    let end_x = size.width.wrapping_add(2).wrapping_add(u8::from(edges.contains(CdefEdgeFlags::HAVE_RIGHT)).wrapping_mul(2));
+    let start_y =
+      2_u8.wrapping_sub(u8::from(edges.contains(CdefEdgeFlags::HAVE_TOP)).wrapping_mul(2));
+    let start_x =
+      2_u8.wrapping_sub(u8::from(edges.contains(CdefEdgeFlags::HAVE_LEFT)).wrapping_mul(2));
+    let end_y = size
+      .height
+      .wrapping_add(2)
+      .wrapping_add(u8::from(edges.contains(CdefEdgeFlags::HAVE_BOTTOM)).wrapping_mul(2));
+    let end_x = size
+      .width
+      .wrapping_add(2)
+      .wrapping_add(u8::from(edges.contains(CdefEdgeFlags::HAVE_RIGHT)).wrapping_mul(2));
     let Ok(top) = index(start_y);
     let Ok(bottom) = index(end_y);
     let Ok(left) = index(start_x);
@@ -957,14 +1052,22 @@ mod tests {
     Ok(Some(TestCdefRow {
       coordinate: 0,
       direction: direction.cast_signed(),
-      strengths: CdefStrengths { primary, secondary, damping, depth_shift },
+      strengths: CdefStrengths {
+        primary,
+        secondary,
+        damping,
+        depth_shift,
+      },
     }))
   }
 
   fn fixture_input(padding: &[i16; 144], row: TestCdefRow) -> Rav1dResult<[i32; 8]> {
     let start = cdef_row_base(row.coordinate)?;
     let Ok(position) = index(start.cast_unsigned());
-    let samples = padding.get(position..).and_then(<[_]>::first_chunk::<8>).ok_or(EINVAL)?;
+    let samples = padding
+      .get(position..)
+      .and_then(<[_]>::first_chunk::<8>)
+      .ok_or(EINVAL)?;
     Ok(samples.map(i32::from))
   }
 
@@ -997,7 +1100,11 @@ mod tests {
           i32::from(word)
         }
       };
-      assert_eq!(actual, reference, "filter row {} dir={}", row.coordinate, row.direction);
+      assert_eq!(
+        actual, reference,
+        "filter row {} dir={}",
+        row.coordinate, row.direction
+      );
     }
 
     Ok(expected)
@@ -1010,7 +1117,10 @@ mod tests {
       1 => maximum,
       2 => {
         let Ok(offset) = random.below(3);
-        maximum.wrapping_div(2).wrapping_add(offset.cast_signed()).wrapping_sub(1)
+        maximum
+          .wrapping_div(2)
+          .wrapping_add(offset.cast_signed())
+          .wrapping_sub(1)
       }
       _uniform => {
         let Ok(output) = random.below(maximum.cast_unsigned().wrapping_add(1));
@@ -1025,9 +1135,17 @@ mod tests {
     iterations: u32,
   }
 
-  fn differential_rows(DifferentialRows { depth_shift, seed, iterations }: DifferentialRows) -> Rav1dResult {
+  fn differential_rows(
+    DifferentialRows {
+      depth_shift,
+      seed,
+      iterations,
+    }: DifferentialRows,
+  ) -> Rav1dResult {
     let Ok(_lock) = crate::src::safe_simd::token_test_lock();
-    let maximum = 1_i32.wrapping_shl(8_u32.wrapping_add(depth_shift)).wrapping_sub(1);
+    let maximum = 1_i32
+      .wrapping_shl(8_u32.wrapping_add(depth_shift))
+      .wrapping_sub(1);
     let Ok(space) = param_space(depth_shift);
     let mut random = Rng(seed);
     let mut checked = 0_u32;
@@ -1050,7 +1168,13 @@ mod tests {
         _large => 8,
       };
       let Ok(edges) = random_edges(&mut random);
-      let padding = test_padding(Size { width, height }, edges, &mut random, maximum, random_pixel)?;
+      let padding = test_padding(
+        Size { width, height },
+        edges,
+        &mut random,
+        maximum,
+        random_pixel,
+      )?;
       let scenario = random_scenario(&mut random, &space, depth_shift)?;
       let mut row = match scenario {
         Some(row) => row,
@@ -1070,17 +1194,29 @@ mod tests {
 
   #[test]
   fn neon_row_matches_oracle_8bpc() -> Rav1dResult {
-    differential_rows(DifferentialRows { depth_shift: 0, seed: 0x1234_5678_9abc_def0, iterations: 4000 })
+    differential_rows(DifferentialRows {
+      depth_shift: 0,
+      seed: 0x1234_5678_9abc_def0,
+      iterations: 4000,
+    })
   }
 
   #[test]
   fn neon_row_matches_oracle_10bpc() -> Rav1dResult {
-    differential_rows(DifferentialRows { depth_shift: 2, seed: 0x0fed_cba9_8765_4321, iterations: 4000 })
+    differential_rows(DifferentialRows {
+      depth_shift: 2,
+      seed: 0x0fed_cba9_8765_4321,
+      iterations: 4000,
+    })
   }
 
   #[test]
   fn neon_row_matches_oracle_12bpc() -> Rav1dResult {
-    differential_rows(DifferentialRows { depth_shift: 4, seed: 0xdead_beef_cafe_f00d, iterations: 4000 })
+    differential_rows(DifferentialRows {
+      depth_shift: 4,
+      seed: 0xdead_beef_cafe_f00d,
+      iterations: 4000,
+    })
   }
 
   struct FlatPixels {
@@ -1088,8 +1224,15 @@ mod tests {
     spread: u32,
   }
 
-  fn flat_padding(random: &mut Rng, edges: CdefEdgeFlags, params: FlatPixels) -> Rav1dResult<[i16; 144]> {
-    let size = Size { width: 8, height: 8 };
+  fn flat_padding(
+    random: &mut Rng,
+    edges: CdefEdgeFlags,
+    params: FlatPixels,
+  ) -> Rav1dResult<[i16; 144]> {
+    let size = Size {
+      width: 8,
+      height: 8,
+    };
     test_padding(size, edges, random, params.level, |random_2, level| {
       let Ok(value) = random_2.below(params.spread.wrapping_add(1));
       Ok(level.wrapping_add(value.cast_signed()))
@@ -1113,10 +1256,14 @@ mod tests {
         None => {}
       }
 
-      let padding = flat_padding(&mut random, edges, FlatPixels {
-        level: 8_i32.wrapping_add(center.cast_signed()),
-        spread: 1_u32.wrapping_add(range),
-      })?;
+      let padding = flat_padding(
+        &mut random,
+        edges,
+        FlatPixels {
+          level: 8_i32.wrapping_add(center.cast_signed()),
+          spread: 1_u32.wrapping_add(range),
+        },
+      )?;
       let scenario = random_scenario(&mut random, &space, 0)?;
       let mut row = match scenario {
         Some(row) => row,
@@ -1139,24 +1286,29 @@ mod tests {
       }
     }
 
-    assert!(divergences > 0, "previous sentinel behavior must diverge on flat blocks");
+    assert!(
+      divergences > 0,
+      "previous sentinel behavior must diverge on flat blocks"
+    );
     Ok(())
   }
 
-  fn compare_direction(
-    token: Arm64,
-    picture: [[i32; 8]; 8],
-    ties: &mut u32,
-  ) -> Rav1dResult {
+  fn compare_direction(token: Arm64, picture: [[i32; 8]; 8], ties: &mut u32) -> Rav1dResult {
     for depth_shift in [0_i32, 2, 4] {
-      let rows = picture.map(|row| row.map(|value| {
-        let Ok(pixel) = wrapped::<_, u16>(value.wrapping_shl(depth_shift.cast_unsigned()));
-        pixel
-      }));
+      let rows = picture.map(|row| {
+        row.map(|value| {
+          let Ok(pixel) = wrapped::<_, u16>(value.wrapping_shl(depth_shift.cast_unsigned()));
+          pixel
+        })
+      });
       let exact = dir_oracle(&rows, depth_shift)?;
       let mut variance = 0_u32;
       let direction = run_dir(token, &rows, depth_shift, &mut variance)?;
-      assert_eq!((direction, variance), exact, "projection scores with depth shift {depth_shift}");
+      assert_eq!(
+        (direction, variance),
+        exact,
+        "projection scores with depth shift {depth_shift}"
+      );
       *ties = ties.wrapping_add(u32::from(exact.0 == 0));
     }
 
@@ -1231,7 +1383,12 @@ mod tests {
     variance: &mut c_uint,
   ) -> Rav1dResult<i32> {
     let c128 = vdupq_n_s16(128);
-    let neg_shift = vdupq_n_s16(::core::primitive::i16::wrapping_neg(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_min_8) { ::core::result::Result::Ok(converted_position) => converted_position }));
+    let neg_shift = vdupq_n_s16(::core::primitive::i16::wrapping_neg(
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_min_8)
+      {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      },
+    ));
     let mut v = [vdupq_n_s16(0); 8];
 
     for (rows_element, v_element) in <[_]>::iter(rows).zip(<[_]>::iter_mut(&mut v)) {
@@ -1259,11 +1416,15 @@ mod tests {
   fn oracle_edge_cost(lines: &[i32], weights: &[u32]) -> Result<u32, Never> {
     let pairs = lines.iter().zip(lines.iter().rev());
 
-    Ok(pairs.zip(weights).fold(0_u32, |sum, ((&first, &last), &weight)| {
-      let first_square = first.wrapping_mul(first).cast_unsigned();
-      let last_square = last.wrapping_mul(last).cast_unsigned();
-      sum.wrapping_add(first_square.wrapping_add(last_square).wrapping_mul(weight))
-    }))
+    Ok(
+      pairs
+        .zip(weights)
+        .fold(0_u32, |sum, ((&first, &last), &weight)| {
+          let first_square = first.wrapping_mul(first).cast_unsigned();
+          let last_square = last.wrapping_mul(last).cast_unsigned();
+          sum.wrapping_add(first_square.wrapping_add(last_square).wrapping_mul(weight))
+        }),
+    )
   }
 
   fn dir_oracle(rows: &[[u16; 8]; 8], bitdepth_min_8: i32) -> Rav1dResult<(i32, u32)> {
@@ -1272,11 +1433,18 @@ mod tests {
     let mut half_lines = [[0_i32; 11]; 4];
     let [horizontal_sum, vertical_sum] = &mut axes;
     let [down_sum, up_sum] = &mut diagonals;
-    let [shallow_down_sum, shallow_up_sum, steep_down_sum, steep_up_sum] = &mut half_lines;
+    let [
+      shallow_down_sum,
+      shallow_up_sum,
+      steep_down_sum,
+      steep_up_sum,
+    ] = &mut half_lines;
 
     for (y, row) in (0..8_u8).zip(rows) {
       for (x, &sample) in (0..8_u8).zip(row) {
-        let pixel = i32::from(sample).wrapping_shr(bitdepth_min_8.cast_unsigned()).wrapping_sub(128);
+        let pixel = i32::from(sample)
+          .wrapping_shr(bitdepth_min_8.cast_unsigned())
+          .wrapping_sub(128);
         let half_x = x.wrapping_shr(1);
         let half_y = y.wrapping_shr(1);
         oracle_add_projection(horizontal_sum, y, pixel)?;
@@ -1284,8 +1452,16 @@ mod tests {
         oracle_add_projection(down_sum, y.wrapping_add(x), pixel)?;
         oracle_add_projection(up_sum, 7_u8.wrapping_add(y).wrapping_sub(x), pixel)?;
         oracle_add_projection(shallow_down_sum, y.wrapping_add(half_x), pixel)?;
-        oracle_add_projection(shallow_up_sum, 3_u8.wrapping_add(y).wrapping_sub(half_x), pixel)?;
-        oracle_add_projection(steep_down_sum, 3_u8.wrapping_sub(half_y).wrapping_add(x), pixel)?;
+        oracle_add_projection(
+          shallow_up_sum,
+          3_u8.wrapping_add(y).wrapping_sub(half_x),
+          pixel,
+        )?;
+        oracle_add_projection(
+          steep_down_sum,
+          3_u8.wrapping_sub(half_y).wrapping_add(x),
+          pixel,
+        )?;
         oracle_add_projection(steep_up_sum, half_y.wrapping_add(x), pixel)?;
       }
     }
@@ -1296,18 +1472,43 @@ mod tests {
     let Ok(cost_horizontal) = oracle_sum_squares(&horizontal);
     let Ok(cost_vertical) = oracle_sum_squares(&vertical);
     let mut costs = [
-      0, 0, cost_horizontal.wrapping_mul(105), 0, 0, 0, cost_vertical.wrapping_mul(105), 0,
+      0,
+      0,
+      cost_horizontal.wrapping_mul(105),
+      0,
+      0,
+      0,
+      cost_vertical.wrapping_mul(105),
+      0,
     ];
-    let [cost_down, cost_shallow_down, _, cost_shallow_up, cost_up, cost_steep_down, _, cost_steep_up] = &mut costs;
+    let [
+      cost_down,
+      cost_shallow_down,
+      _,
+      cost_shallow_up,
+      cost_up,
+      cost_steep_down,
+      _,
+      cost_steep_up,
+    ] = &mut costs;
 
     for (lines, cost) in [(down, cost_down), (up, cost_up)] {
       let [_, _, _, _, _, _, _, center, ..] = lines;
       let Ok(edge) = oracle_edge_cost(&lines, &[840, 420, 280, 210, 168, 140, 120]);
-      *cost = edge.wrapping_add(center.wrapping_mul(center).cast_unsigned().wrapping_mul(105));
+      *cost = edge.wrapping_add(
+        center
+          .wrapping_mul(center)
+          .cast_unsigned()
+          .wrapping_mul(105),
+      );
     }
 
-    for (lines, cost) in [(shallow_down, cost_shallow_down), (shallow_up, cost_shallow_up),
-                           (steep_down, cost_steep_down), (steep_up, cost_steep_up)] {
+    for (lines, cost) in [
+      (shallow_down, cost_shallow_down),
+      (shallow_up, cost_shallow_up),
+      (steep_down, cost_steep_down),
+      (steep_up, cost_steep_up),
+    ] {
       let middle = lines.get(3..8).ok_or(EINVAL)?;
       let Ok(interior) = oracle_sum_squares(middle);
       let Ok(edge) = oracle_edge_cost(&lines, &[420, 210, 140]);

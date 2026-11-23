@@ -91,7 +91,7 @@ pub(crate) struct TabLabel {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum PageLoad {
   #[default]
-  Settled,
+  Ready,
   Loading,
 }
 
@@ -105,13 +105,13 @@ pub(crate) enum ButtonAvailability {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ToolbarChange {
   Unchanged,
-  Changed,
+  Different,
 }
 
 impl From<bool> for ToolbarChange {
   fn from(changed: bool) -> Self {
     match changed.then_some(()) {
-      Some(()) => Self::Changed,
+      Some(()) => Self::Different,
       None => Self::Unchanged,
     }
   }
@@ -203,7 +203,7 @@ impl Toolbar {
     }
     self.tabs = tabs;
     self.active_tab = active;
-    ToolbarChange::Changed
+    ToolbarChange::Different
   }
 
   pub(crate) fn reader_colors(&self) -> (Oklch, Oklch) {
@@ -225,7 +225,7 @@ impl Toolbar {
     let change = ToolbarChange::from(self.status != status);
 
     match change {
-      ToolbarChange::Changed => self.status = status,
+      ToolbarChange::Different => self.status = status,
       ToolbarChange::Unchanged => {}
     }
 
@@ -237,7 +237,7 @@ impl Toolbar {
     let change = ToolbarChange::from(self.editing == Editing::Inactive && current != address);
 
     match change {
-      ToolbarChange::Changed => {
+      ToolbarChange::Different => {
         let Ok(field) = TextField::holding(address);
         self.address = field;
       }
@@ -328,7 +328,7 @@ impl Toolbar {
       },
       Control::Reload => match self.status.loading {
         PageLoad::Loading => Action::Stop,
-        PageLoad::Settled => Action::Reload,
+        PageLoad::Ready => Action::Reload,
       },
       Control::Close => Action::Close,
       Control::Settings => {
@@ -697,7 +697,7 @@ impl Toolbar {
           stroke((direction, 5), tip),
         ]);
       }
-      (Control::Reload, PageLoad::Settled) => {
+      (Control::Reload, PageLoad::Ready) => {
         let mut font = self.font.clone();
         font.height = 20;
         let Ok(size) = measured("↻", &font);
@@ -1103,21 +1103,21 @@ mod tests {
       (
         Control::Back,
         3,
-        PageLoad::Settled,
+        PageLoad::Ready,
         ButtonAvailability::Enabled,
         Action::Back,
       ),
       (
         Control::Forward,
         2,
-        PageLoad::Settled,
+        PageLoad::Ready,
         ButtonAvailability::Enabled,
         Action::Forward,
       ),
       (
         Control::Reload,
         1,
-        PageLoad::Settled,
+        PageLoad::Ready,
         ButtonAvailability::Enabled,
         Action::Reload,
       ),
@@ -1131,14 +1131,14 @@ mod tests {
       (
         Control::Back,
         3,
-        PageLoad::Settled,
+        PageLoad::Ready,
         ButtonAvailability::Disabled,
         Action::Handled,
       ),
       (
         Control::Forward,
         2,
-        PageLoad::Settled,
+        PageLoad::Ready,
         ButtonAvailability::Disabled,
         Action::Handled,
       ),
@@ -1219,14 +1219,14 @@ mod tests {
     toolbar.paint_tooltip(&mut shapes, 1100);
     assert!(shapes.is_empty());
     let Ok(button) = toolbar.at(Control::Settings);
-    assert_eq!(toolbar.hover(Some(button.origin)), ToolbarChange::Changed);
+    assert_eq!(toolbar.hover(Some(button.origin)), ToolbarChange::Different);
     toolbar.paint_tooltip(&mut shapes, 1100);
     let label = shapes.iter().find_map(|shape| match shape {
       Shape::Text(label) => Some(label.said.as_str()),
       _ => None,
     });
     assert_eq!(label, Some("Settings"));
-    assert_eq!(toolbar.hover(None), ToolbarChange::Changed);
+    assert_eq!(toolbar.hover(None), ToolbarChange::Different);
     shapes.clear();
     toolbar.paint_tooltip(&mut shapes, 1100);
     assert!(shapes.is_empty());

@@ -132,18 +132,18 @@ fn invalid_padding_and_symbols_are_rejected() {
 }
 
 #[derive(Debug)]
-struct Refused;
+struct Rejected;
 
 #[test]
 fn writer_failures_are_returned_even_for_an_empty_body() -> Result<(), Box<dyn std::error::Error>>
 {
   for input in ["data:,", "data:,plain", "data:;base64,dGVzdA=="] {
     let url = DataUrl::process(input)?;
-    let result = url.decode(|_bytes| Err(Refused));
+    let result = url.decode(|_bytes| Err(Rejected));
 
     assert!(matches!(
       result,
-      Err(forgiving_base64::DecodeError::WriteError(Refused))
+      Err(forgiving_base64::DecodeError::WriteError(Rejected))
     ));
   }
 

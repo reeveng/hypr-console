@@ -150,7 +150,9 @@ impl Drop for DocumentDepth {
     match DOCUMENT_DEPTH.try_with(|depth| depth.set(depth.get().saturating_sub(1))) {
       Ok(()) => {}
       Err(closed_thread_context) => {
-        console_core_logging::debug!("SVG document depth is unavailable: {closed_thread_context}");
+        console_core_logging::debug!(
+          "SVG document depth is unavailable: {closed_thread_context}"
+        );
       }
     }
   }

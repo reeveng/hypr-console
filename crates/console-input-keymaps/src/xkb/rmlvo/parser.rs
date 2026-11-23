@@ -297,7 +297,8 @@ impl Parser<'_, '_, '_> {
   ) -> Result<Spanned<Line<'a>>, Spanned<ParserError>> {
     let t = self.peek(START_OF_LINE)?;
 
-    match ::core::primitive::bool::then_some(t.val == Token::Punctuation(Punctuation::Exclam), ()) {
+    match ::core::primitive::bool::then_some(t.val == Token::Punctuation(Punctuation::Exclam), ())
+    {
       ::core::option::Option::Some(()) => self.parse_exclam_line(cache),
       ::core::option::Option::None => self.parse_rule(cache),
     }

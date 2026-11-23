@@ -90,9 +90,9 @@ struct Drained {
   channels: u32,
 }
 
-enum Taken {
+enum Outcome {
   Decoded,
-  Refused,
+  Rejected,
 }
 
 fn refused<T>(what: &str) -> Result<T, Failure> {
@@ -117,7 +117,7 @@ fn take(
   decoder: &mut MpaDecoder,
   packet: &Packet,
   drained: &mut Drained,
-) -> Result<Taken, Failure> {
+) -> Result<Outcome, Failure> {
   match decoder.decode(packet) {
     Ok(AudioBufferRef::F32(buffer)) => {
       let Ok(value_1) = buffer.spec();
@@ -149,13 +149,13 @@ fn take(
 
       drained.packets = drained.packets.saturating_add(1);
 
-      Ok(Taken::Decoded)
+      Ok(Outcome::Decoded)
     }
     Ok(_) => refused("the decoder did not make f32"),
     Err(_declined) => {
       drained.refused = drained.refused.saturating_add(1);
 
-      Ok(Taken::Refused)
+      Ok(Outcome::Rejected)
     }
   }
 }
@@ -177,7 +177,7 @@ fn drain(reader: &mut MpaReader) -> Result<Decoded, Failure> {
       Ok(match reader_2.next_packet() {
         Err(_ended) => Step::Halt(Ok(drained)),
         Ok(packet) => match take(&mut decoder_3, &packet, &mut drained) {
-          Ok(Taken::Decoded | Taken::Refused) => Step::Again((reader_2, decoder_3, drained)),
+          Ok(Outcome::Decoded | Outcome::Rejected) => Step::Again((reader_2, decoder_3, drained)),
           Err(fault) => Step::Halt(Err(fault)),
         },
       })
@@ -452,7 +452,10 @@ fn the_constructed_layer_one_mono_stream_matches_an_independent_decoder() -> Res
     let packet = match whole.next_packet() {
       Ok(packet) => packet,
       Err(console_core_audio_decoding_interfaces::errors::Error::IoError(fault)) => {
-        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::UnexpectedEof, ()) {
+        match ::core::primitive::bool::then_some(
+          fault.kind() == std::io::ErrorKind::UnexpectedEof,
+          (),
+        ) {
           ::core::option::Option::Some(()) => break,
           ::core::option::Option::None => return Err(Failure::from(fault)),
         }

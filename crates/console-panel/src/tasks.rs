@@ -198,11 +198,13 @@ enum Cards {
 impl Running {
   pub fn running(&self, command: &Command) -> Result<Progress, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self
-        .started
-        .iter()
-        .any(|started| &started.command == command), ())
-      {
+      match ::core::primitive::bool::then_some(
+        self
+          .started
+          .iter()
+          .any(|started| &started.command == command),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Progress::Running,
         ::core::option::Option::None => Progress::Idle,
       },
@@ -211,11 +213,13 @@ impl Running {
 
   pub fn stands_for(&self, named: &Command) -> Result<Progress, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self
-        .started
-        .iter()
-        .any(|started| &started.command == named || &started.row == named), ())
-      {
+      match ::core::primitive::bool::then_some(
+        self
+          .started
+          .iter()
+          .any(|started| &started.command == named || &started.row == named),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Progress::Running,
         ::core::option::Option::None => Progress::Idle,
       },

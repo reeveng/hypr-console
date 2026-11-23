@@ -16,12 +16,17 @@ use std::sync::Arc;
 )]
 #[cfg_attr(
   dylint_lib = "explicit088_no_arriving_length",
-  expect(explicit088_no_arriving_length, reason = "the reservation comes from the type layout and the fixed reference count header")
+  expect(
+    explicit088_no_arriving_length,
+    reason = "the reservation comes from the type layout and the fixed reference count header"
+  )
 )]
 pub(crate) fn try_arc<T>(value: T) -> Rav1dResult<Arc<T>> {
   let layout = Layout::new::<([*const (); 2], T)>();
   let mut probe = Vec::<u8>::new();
-  probe.try_reserve(layout.size()).map_err(|_allocation| ENOMEM)?;
+  probe
+    .try_reserve(layout.size())
+    .map_err(|_allocation| ENOMEM)?;
   drop(probe);
   Ok(Arc::new(value))
 }
@@ -41,7 +46,10 @@ impl<T> MemPool<T> {
 
   #[cfg_attr(
     dylint_lib = "explicit088_no_arriving_length",
-    expect(explicit088_no_arriving_length, reason = "the requested length must fit the target's native index and the allocation layout before reserving storage")
+    expect(
+      explicit088_no_arriving_length,
+      reason = "the requested length must fit the target's native index and the allocation layout before reserving storage"
+    )
   )]
   pub fn pop_init(&self, size: u64, init_value: T) -> Rav1dResult<Vec<T>>
   where

@@ -34,14 +34,16 @@ impl Splitting {
       (Place::Between | Place::Word, '\'' | '"') => Place::Quoted(letter),
       (Place::Between | Place::Word, '\\') => Place::Escaped,
       (Place::Quoted('"'), '\\') => Place::EscapedQuoted,
-      (Place::Quoted(quote), letter_2) => match ::core::primitive::bool::then_some(letter_2 == quote, ()) {
-        ::core::option::Option::Some(()) => Place::Word,
-        ::core::option::Option::None => {
-          self.word.push(letter_2);
+      (Place::Quoted(quote), letter_2) => {
+        match ::core::primitive::bool::then_some(letter_2 == quote, ()) {
+          ::core::option::Option::Some(()) => Place::Word,
+          ::core::option::Option::None => {
+            self.word.push(letter_2);
 
-          Place::Quoted(quote)
+            Place::Quoted(quote)
+          }
         }
-      },
+      }
       (Place::Escaped, letter_3) => {
         self.word.push(letter_3);
 

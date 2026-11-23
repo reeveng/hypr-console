@@ -248,13 +248,15 @@ struct State<'a> {
 impl State<'_> {
   fn while_open(&mut self) -> Result<(), Unopened> {
     let ended = console_core_iteration::iterate(self, |state| {
-      Ok(match ::core::primitive::bool::then_some(state.screen.closed() == Ok(Closed::No), ()) {
-        ::core::option::Option::Some(()) => match state.once_around() {
-          Ok(()) => Step::Again(state),
-          Err(fault) => Step::Halt(Err(fault)),
+      Ok(
+        match ::core::primitive::bool::then_some(state.screen.closed() == Ok(Closed::No), ()) {
+          ::core::option::Option::Some(()) => match state.once_around() {
+            Ok(()) => Step::Again(state),
+            Err(fault) => Step::Halt(Err(fault)),
+          },
+          ::core::option::Option::None => Step::Halt(Ok(())),
         },
-        ::core::option::Option::None => Step::Halt(Ok(())),
-      })
+      )
     });
 
     match ended {
@@ -325,7 +327,10 @@ impl State<'_> {
       scale,
     };
 
-    match ::core::primitive::bool::then_some(showing_now == Showing::Yes && self.shown != Some(frame), ()) {
+    match ::core::primitive::bool::then_some(
+      showing_now == Showing::Yes && self.shown != Some(frame),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(layout) = self.typist.layout();
         let modifiers = self.typist.held;
@@ -556,14 +561,14 @@ impl State<'_> {
       }
       KeyboardCommand::Select => {
         match ::core::primitive::bool::then_some(self.selected.is_none(), ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(onto) = toward(&keys, None, Point { x: 0, y: 0 });
+          ::core::option::Option::Some(()) => {
+            let Ok(onto) = toward(&keys, None, Point { x: 0, y: 0 });
 
-              self.selected = onto;
+            self.selected = onto;
 
-              return Ok(RepeatMode::Once);
-            },
-            ::core::option::Option::None => {},
+            return Ok(RepeatMode::Once);
+          }
+          ::core::option::Option::None => {}
         }
 
         let Ok(mode) = self.activate_key(Activation::Focused);
@@ -666,12 +671,12 @@ impl State<'_> {
 
   fn activate_key(&mut self, activation: Activation<u32>) -> Result<RepeatMode, Never> {
     let at = {
-        let Ok(optional_at) = activation.resolve(|| self.selected, Some);
+      let Ok(optional_at) = activation.resolve(|| self.selected, Some);
 
-        match optional_at {
-            Some(matched_at) => matched_at,
-            ::core::option::Option::None => return Ok(RepeatMode::Once),
-        }
+      match optional_at {
+        Some(matched_at) => matched_at,
+        ::core::option::Option::None => return Ok(RepeatMode::Once),
+      }
     };
 
     let Ok(layout) = self.typist.layout();
@@ -685,27 +690,28 @@ impl State<'_> {
     let pointing = matches!(activation, Activation::At(_));
 
     match ::core::primitive::bool::then_some(pointing, ()) {
-        ::core::option::Option::Some(()) => {
-          self.pressed = Some(at);
-        },
-        ::core::option::Option::None => {},
+      ::core::option::Option::Some(()) => {
+        self.pressed = Some(at);
+      }
+      ::core::option::Option::None => {}
     }
 
     let kind = key.kind;
     let force = key.force;
     let reset = key.reset;
     let before = self.typist.showing;
-    let changing = match ::core::primitive::bool::then_some(pointing && matches!(kind, Kind::Language), ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(waiting) = Waiting::here(Wait {
-          who: "keyboard",
-          what: "language",
-        });
+    let changing =
+      match ::core::primitive::bool::then_some(pointing && matches!(kind, Kind::Language), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(waiting) = Waiting::here(Wait {
+            who: "keyboard",
+            what: "language",
+          });
 
-        Some(waiting)
-      }
-      ::core::option::Option::None => None,
-    };
+          Some(waiting)
+        }
+        ::core::option::Option::None => None,
+      };
     let Ok(after) = self.typist.pressed(kind, force, reset);
 
     match changing {
@@ -716,18 +722,21 @@ impl State<'_> {
       None => {}
     }
 
-    match ::core::primitive::bool::then_some(after == After::Draw && !matches!(kind, Kind::Code { .. }), ()) {
-        ::core::option::Option::Some(()) => {
-          match ::core::primitive::bool::then_some(pointing, ()) {
-              ::core::option::Option::Some(()) => {
-                self.pressed = None;
-              },
-              ::core::option::Option::None => {
-                self.selected = None;
-              },
+    match ::core::primitive::bool::then_some(
+      after == After::Draw && !matches!(kind, Kind::Code { .. }),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        match ::core::primitive::bool::then_some(pointing, ()) {
+          ::core::option::Option::Some(()) => {
+            self.pressed = None;
           }
-        },
-        ::core::option::Option::None => {},
+          ::core::option::Option::None => {
+            self.selected = None;
+          }
+        }
+      }
+      ::core::option::Option::None => {}
     }
 
     typing::repeat_mode(kind, before, self.typist.showing)

@@ -442,7 +442,8 @@ pub fn command(application: &Application) -> Result<Option<Vec<String>>, Never> 
     None => {
       console_core_logging::warn!(
         "{}: {:?} is not a command",
-        application.name, application.command
+        application.name,
+        application.command
       );
 
       return Ok(None);

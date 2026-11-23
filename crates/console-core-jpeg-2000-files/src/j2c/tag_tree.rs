@@ -20,7 +20,15 @@ pub(crate) enum TagNode {
 pub(crate) type TagPosition = console_core_point::Point<u32>;
 
 fn root_level(size: Size<u32>) -> core::result::Result<u32, Never> {
-  Ok(u32::BITS.wrapping_sub(size.width.max(size.height).saturating_sub(1).leading_zeros()))
+  Ok(
+    u32::BITS.wrapping_sub(
+      size
+        .width
+        .max(size.height)
+        .saturating_sub(1)
+        .leading_zeros(),
+    ),
+  )
 }
 
 #[derive(Copy, Clone)]

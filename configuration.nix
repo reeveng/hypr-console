@@ -1,0 +1,3 @@
+{
+  programs.calculator.enable = true;
+}

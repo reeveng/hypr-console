@@ -16,8 +16,8 @@ use crate::src::tables::{TxfmInfo, dav1d_txfm_dimensions};
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{checked_index, index, wrapped};
-use core::num::NonZeroU32;
 use console_core_synchronization::nonpoison::RwLock;
+use core::num::NonZeroU32;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -1094,10 +1094,10 @@ fn calc_lf_value(
 
 pub(crate) fn rav1d_calc_lf_values(
   levels: &mut [Align16<[[[u8; 2]; 8]; 4]>; {
-    match console_core_number_conversion::const_u8_index(SegmentId::COUNT) {
-      Ok(extent) => extent,
-    }
-  }],
+         match console_core_number_conversion::const_u8_index(SegmentId::COUNT) {
+           Ok(extent) => extent,
+         }
+       }],
   header: &Rav1dFrameHeader,
   block_deltas: &[i8; 4],
 ) -> Result<(), Never> {

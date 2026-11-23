@@ -494,7 +494,10 @@ impl Walk<'_> {
   ) -> Result<Next, Never> {
     self.num_includes_processed = self.num_includes_processed.saturating_add(1);
 
-    match ::core::primitive::bool::then_some(self.num_includes_processed >= self.names.max_includes, ()) {
+    match ::core::primitive::bool::then_some(
+      self.num_includes_processed >= self.names.max_includes,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(()) = tables.diagnostics.push(
           tables.map,
@@ -530,7 +533,8 @@ impl Walk<'_> {
   }
 
   fn mapping(&mut self, keys: &[MappingKey], values: &[MappingValue]) -> Result<(), Never> {
-    let options = match ::core::primitive::bool::then_some(keys.contains(&MappingKey::Option), ()) {
+    let options = match ::core::primitive::bool::then_some(keys.contains(&MappingKey::Option), ())
+    {
       ::core::option::Option::Some(()) => OptionKey::Present,
       ::core::option::Option::None => OptionKey::Absent,
     };
@@ -1097,10 +1101,12 @@ impl Expansions<'_, '_, '_> {
     let segment = expansion.segment;
 
     match (segment.merge_mode, expansion.includes.front()) {
-      (None, Some(first)) => match ::core::primitive::bool::then_some(first.val.mm.val == MergeMode::Include, ()) {
-        ::core::option::Option::Some(()) => return Ok(Flushed::Abandoned),
-        ::core::option::Option::None => {}
-      },
+      (None, Some(first)) => {
+        match ::core::primitive::bool::then_some(first.val.mm.val == MergeMode::Include, ()) {
+          ::core::option::Option::Some(()) => return Ok(Flushed::Abandoned),
+          ::core::option::Option::None => {}
+        }
+      }
       (None, None) | (Some(_), _) => {}
     }
 

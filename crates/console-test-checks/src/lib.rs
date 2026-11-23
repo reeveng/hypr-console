@@ -227,13 +227,18 @@ pub const CHECKS: [&Check; 69] = [
 ];
 
 pub fn select(words: &[String]) -> Result<Vec<&'static Check>, Never> {
-  Ok(match ::core::primitive::bool::then_some(words.is_empty(), ()) {
-    ::core::option::Option::Some(()) => CHECKS.to_vec(),
-    ::core::option::Option::None => CHECKS
-      .into_iter()
-      .filter(|check| check.named_by(words) == Ok(Named::Yes))
-      .collect(),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(words.is_empty(), ()) {
+      ::core::option::Option::Some(()) => CHECKS
+        .into_iter()
+        .filter(|check| check.name != architecture::MAPPED.name)
+        .collect(),
+      ::core::option::Option::None => CHECKS
+        .into_iter()
+        .filter(|check| check.named_by(words) == Ok(Named::Yes))
+        .collect(),
+    },
+  )
 }
 
 #[cfg(test)]
@@ -317,13 +322,17 @@ mod tests {
   }
 
   #[test]
-  fn a_word_chooses_the_checks_about_it_and_nothing_chooses_all_of_them() {
+  fn a_word_chooses_the_checks_about_it_and_the_map_requires_a_request() {
     let Ok(every) = select(&[]);
     let Ok(about) = select(&["brightness".to_string()]);
+    let Ok(mapped) = select(&["architecture".to_string()]);
     let Ok(none) = select(&["nothing-by-that-name".to_string()]);
     let brightness: Vec<&str> = about.iter().map(|check| check.name).collect();
+    let map_checks: Vec<&str> = mapped.iter().map(|check| check.name).collect();
 
-    assert_eq!(every.len(), CHECKS.len());
+    assert_eq!(every.len().saturating_add(1), CHECKS.len());
+    assert!(every.iter().all(|check| check.name != architecture::MAPPED.name));
+    assert_eq!(map_checks, [architecture::MAPPED.name]);
     assert_eq!(brightness, ["090-brighter", "091-dimmer"]);
     assert!(none.is_empty());
   }

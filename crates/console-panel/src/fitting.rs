@@ -61,19 +61,25 @@ pub fn visible_height(card: i32, strip: TabBar, under: u32) -> Result<i32, Never
 const SMALLEST: i32 = EM * 32 / 9;
 
 pub fn x(room: Room) -> Result<i32, Never> {
-  shape::part_of(match ::core::primitive::bool::then_some(room.granted > 1, ()) {
-    ::core::option::Option::Some(()) => room.granted,
-    ::core::option::Option::None => room.monitor,
-  })
+  shape::part_of(
+    match ::core::primitive::bool::then_some(room.granted > 1, ()) {
+      ::core::option::Option::Some(()) => room.granted,
+      ::core::option::Option::None => room.monitor,
+    },
+  )
 }
 
 pub fn ceiling(room: Room) -> Result<i32, Never> {
   let Ok(wanted) = shape::tall_part_of(room.monitor);
 
-  Ok(match ::core::primitive::bool::then_some(room.granted > 1, ()) {
-    ::core::option::Option::Some(()) => wanted.min(room.granted.saturating_sub(2i32.saturating_mul(BREATH))),
-    ::core::option::Option::None => wanted,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(room.granted > 1, ()) {
+      ::core::option::Option::Some(()) => {
+        wanted.min(room.granted.saturating_sub(2i32.saturating_mul(BREATH)))
+      }
+      ::core::option::Option::None => wanted,
+    },
+  )
 }
 
 pub fn tall_enough(tall: Tall) -> Result<i32, Never> {

@@ -228,7 +228,8 @@ type Effects = Queue<Effect<console_core_never::Never>>;
 fn initial(
   migration: &Migration,
 ) -> Result<Transition<Migrating, Effect<console_core_never::Never>>, Never> {
-  let Ok(opening) = match ::core::primitive::bool::then_some(migration.host.trim().is_empty(), ()) {
+  let Ok(opening) = match ::core::primitive::bool::then_some(migration.host.trim().is_empty(), ())
+  {
     ::core::option::Option::Some(()) => Transition::without_effects(Migrating::Nowhere),
     ::core::option::Option::None => Transition::without_effects(Migrating::At(
       Step::Owning,
@@ -386,22 +387,24 @@ fn at(
 
     (Step::Locally, Event::Replied(answer)) => after_local_listing(&at, going, &answer.output),
 
-    (Step::Committed, Event::Replied(answer)) => match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(runs) = once(going, &format!("pgrep -u {} -x librewolf", going.whom));
+    (Step::Committed, Event::Replied(answer)) => {
+      match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(runs) = once(going, &format!("pgrep -u {} -x librewolf", going.whom));
 
-        Transition::new(
-          Migrating::At(Step::Browsing, going.clone()),
-          vec![Effect::Run(runs)],
-        )
-      }
-      ::core::option::Option::None => stopped(
-        step,
-        going,
-        "there are changes here that are not committed; the machine is brought to a \
+          Transition::new(
+            Migrating::At(Step::Browsing, going.clone()),
+            vec![Effect::Run(runs)],
+          )
+        }
+        ::core::option::Option::None => stopped(
+          step,
+          going,
+          "there are changes here that are not committed; the machine is brought to a \
                  commit, not to a working tree",
-      ),
-    },
+        ),
+      }
+    }
 
     (Step::Browsing, Event::Replied(answer)) => match answer.status {
       ExitStatus::Success => stopped(
@@ -500,7 +503,8 @@ fn at(
           going,
           "a step of the migration would not go, and the machine is halfway",
         ),
-        (Some(_), _) | (None, _) => match ::core::primitive::bool::then_some(rest.is_empty(), ()) {
+        (Some(_), _) | (None, _) => match ::core::primitive::bool::then_some(rest.is_empty(), ())
+        {
           ::core::option::Option::None => {
             let Ok(said) = sending(&rest);
 
@@ -856,10 +860,12 @@ fn lines(said: &str) -> Result<Vec<String>, Never> {
 }
 
 fn listed(what: &[String]) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(what.is_empty(), ()) {
-    ::core::option::Option::Some(()) => "none".to_string(),
-    ::core::option::Option::None => what.join(" "),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(what.is_empty(), ()) {
+      ::core::option::Option::Some(()) => "none".to_string(),
+      ::core::option::Option::None => what.join(" "),
+    },
+  )
 }
 
 fn looking_in_a_home() -> Result<String, Never> {

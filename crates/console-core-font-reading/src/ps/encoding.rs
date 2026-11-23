@@ -19,10 +19,14 @@ impl PredefinedEncoding {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PredefinedEncoding::name` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PredefinedEncoding::name` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn name(&self, code: u8) -> &'static str {
-    let ::core::result::Result::Ok(slot) = ::console_core_number_conversion::index::<::core::primitive::u8>(code);
+    let ::core::result::Result::Ok(slot) =
+      ::console_core_number_conversion::index::<::core::primitive::u8>(code);
     let sid = match self {
       Self::IsoLatin1 => match code {
         0xA0 => return "nonbreakingspace",
@@ -33,19 +37,31 @@ impl PredefinedEncoding {
       Self::Expert => EXPERT_ENCODING.get(slot).copied(),
     };
 
-    match sid.and_then(|id| STANDARD_STRINGS.get(match ::console_core_number_conversion::index::<::core::primitive::u16>(id) { ::core::result::Result::Ok(converted_position) => converted_position }).copied()) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => "",
+    match sid.and_then(|id| {
+      STANDARD_STRINGS
+        .get(
+          match ::console_core_number_conversion::index::<::core::primitive::u16>(id) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          },
+        )
+        .copied()
+    }) {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => "",
     }
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PredefinedEncoding::sid` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PredefinedEncoding::sid` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn sid(&self, code: u8) -> Option<Sid> {
-    let ::core::result::Result::Ok(slot) = ::console_core_number_conversion::index::<::core::primitive::u8>(code);
+    let ::core::result::Result::Ok(slot) =
+      ::console_core_number_conversion::index::<::core::primitive::u8>(code);
     let sid = match self {
       Self::Standard => STANDARD_ENCODING.get(slot).copied().map(u16::from),
       Self::Expert => EXPERT_ENCODING.get(slot).copied(),

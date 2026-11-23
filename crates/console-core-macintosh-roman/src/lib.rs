@@ -38,13 +38,12 @@ pub fn decode(code: u8) -> Result<u16, Never> {
 
 pub fn encode(unicode: u32) -> Result<Option<u8>, Never> {
   Ok(
-    MACINTOSH_ROMAN
-      .iter()
-      .zip(0u8..=u8::MAX)
-      .find_map(|(mapped, code)| match CodePointMatch::from(u32::from(*mapped) == unicode) {
+    MACINTOSH_ROMAN.iter().zip(0u8..=u8::MAX).find_map(
+      |(mapped, code)| match CodePointMatch::from(u32::from(*mapped) == unicode) {
         CodePointMatch::Same => Some(code),
         CodePointMatch::Different => None,
-      }),
+      },
+    ),
   )
 }
 

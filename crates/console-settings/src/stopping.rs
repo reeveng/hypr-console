@@ -31,10 +31,12 @@ impl Stop {
     let can = state.split_whitespace().any(|word| word == "disk");
     let somewhere = !matches!(resume.0.trim(), "" | "0:0");
 
-    Ok(match ::core::primitive::bool::then_some(can && somewhere, ()) {
-      ::core::option::Option::Some(()) => Stop::Hibernate,
-      ::core::option::Option::None => Stop::PowerOff,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(can && somewhere, ()) {
+        ::core::option::Option::Some(()) => Stop::Hibernate,
+        ::core::option::Option::None => Stop::PowerOff,
+      },
+    )
   }
 
   pub fn arguments(self) -> Result<Vec<String>, Never> {

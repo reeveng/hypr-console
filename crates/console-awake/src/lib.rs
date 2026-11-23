@@ -358,13 +358,13 @@ mod tests {
           "the child holding the lock outlived the lock",
         ));
       }
-      Err(fault) => match ::core::primitive::bool::then_some(
-        fault.kind() == std::io::ErrorKind::NotFound,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => return Err(fault),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => return Err(fault),
+        }
+      }
     }
 
     Ok(())

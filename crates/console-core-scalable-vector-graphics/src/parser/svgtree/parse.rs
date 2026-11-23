@@ -3,11 +3,13 @@ use std::collections::HashMap;
 use console_core_cascading_style_sheets::{
   AttributeOperator, Declaration, Matching, PseudoClass,
 };
-use console_core_never::Never;
 use console_core_extensible_markup::{Children as XmlChildren, Error, Node as XmlSource};
+use console_core_never::Never;
 use console_core_scalable_vector_graphics_values::FontShorthand;
 
-use super::{AId, Attribute, DeclarationImportance, Document, EId, NodeData, NodeId, NodeKind, ShortRange};
+use super::{
+  AId, Attribute, DeclarationImportance, Document, EId, NodeData, NodeId, NodeKind, ShortRange,
+};
 
 const SVG_NS: &str = "http://www.w3.org/2000/svg";
 const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
@@ -21,11 +23,7 @@ impl<'input> Document<'input> {
     parse(xml, injected_stylesheet)
   }
 
-  pub(crate) fn append(
-    &mut self,
-    parent_id: NodeId,
-    kind: NodeKind,
-  ) -> Result<NodeId, Error> {
+  pub(crate) fn append(&mut self, parent_id: NodeId, kind: NodeKind) -> Result<NodeId, Error> {
     match ::core::primitive::bool::then_some(self.nodes.len() > 1_000_000, ()) {
       ::core::option::Option::Some(()) => return Err(Error::NodesLimitReached),
       ::core::option::Option::None => {}
@@ -166,21 +164,27 @@ fn parse<'input>(
 pub(crate) fn parse_tag_name(
   node: console_core_extensible_markup::Node,
 ) -> core::result::Result<Option<EId>, console_core_never::Never> {
-  match ::core::primitive::bool::then_some({
-    let Ok(is_element) = node.is_element();
-    !(is_element == console_core_extensible_markup::NodeMatch::Matches)
-  }, ()) {
+  match ::core::primitive::bool::then_some(
+    {
+      let Ok(is_element) = node.is_element();
+      !(is_element == console_core_extensible_markup::NodeMatch::Matches)
+    },
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(None);
     }
     ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some({
-    let Ok(tag_name) = node.tag_name();
-    let Ok(namespace) = tag_name.namespace();
-    !matches!(namespace, None | Some(SVG_NS))
-  }, ()) {
+  match ::core::primitive::bool::then_some(
+    {
+      let Ok(tag_name) = node.tag_name();
+      let Ok(namespace) = tag_name.namespace();
+      !matches!(namespace, None | Some(SVG_NS))
+    },
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(None);
     }
@@ -269,7 +273,8 @@ fn parse_xml_nodes<'a, 'input: 'a>(
       Some(EId::A) => EId::G,
       Some(tag_name) => tag_name,
     };
-    let node_id = parse_svg_element(node, frame.parent_id, tag_name, style_sheet, frame.ids, doc)?;
+    let node_id =
+      parse_svg_element(node, frame.parent_id, tag_name, style_sheet, frame.ids, doc)?;
     let child_frame = xml_child_frame(node, node_id, tag_name, &frame, id_map, style_sheet, doc)?;
     pending.push(frame);
 
@@ -284,7 +289,10 @@ fn parse_xml_nodes<'a, 'input: 'a>(
 
 #[cfg_attr(
   dylint_lib = "explicit016_no_wildcard_arm",
-  expect(explicit016_no_wildcard_arm, reason = "Text and use need special child handling, and all other SVG elements traverse their XML children")
+  expect(
+    explicit016_no_wildcard_arm,
+    reason = "Text and use need special child handling, and all other SVG elements traverse their XML children"
+  )
 )]
 fn xml_child_frame<'a, 'input: 'a>(
   node: XmlSource<'a, 'input>,
@@ -335,15 +343,30 @@ pub(crate) fn parse_svg_element<'input>(
   ids: IdPolicy,
   doc: &mut Document<'input>,
 ) -> Result<NodeId, Error> {
-  let range_start = u32::try_from(doc.attrs.len()).map_err(|_oversized| Error::NodesLimitReached)?;
-  let mut attributes = ElementAttributes { doc, start: range_start, parent: parent_id, tag: tag_name };
+  let range_start =
+    u32::try_from(doc.attrs.len()).map_err(|_oversized| Error::NodesLimitReached)?;
+  let mut attributes = ElementAttributes {
+    doc,
+    start: range_start,
+    parent: parent_id,
+    tag: tag_name,
+  };
   let Ok(()) = attributes.read_literal(xml_node, ids);
   let Ok(()) = attributes.apply_style(xml_node, style_sheet);
-  let range_end = u32::try_from(attributes.doc.attrs.len())
-    .map_err(|_oversized| Error::NodesLimitReached)?;
-  let range = ShortRange { start: range_start, end: range_end };
+  let range_end =
+    u32::try_from(attributes.doc.attrs.len()).map_err(|_oversized| Error::NodesLimitReached)?;
+  let range = ShortRange {
+    start: range_start,
+    end: range_end,
+  };
 
-  attributes.doc.append(parent_id, NodeKind::Element { tag_name, attributes: range })
+  attributes.doc.append(
+    parent_id,
+    NodeKind::Element {
+      tag_name,
+      attributes: range,
+    },
+  )
 }
 
 struct ElementAttributes<'a, 'input> {
@@ -354,7 +377,11 @@ struct ElementAttributes<'a, 'input> {
 }
 
 impl<'input> ElementAttributes<'_, 'input> {
-  fn read_literal(&mut self, xml_node: XmlSource<'_, 'input>, ids: IdPolicy) -> Result<(), Never> {
+  fn read_literal(
+    &mut self,
+    xml_node: XmlSource<'_, 'input>,
+    ids: IdPolicy,
+  ) -> Result<(), Never> {
     let mut href = None;
     let Ok(attributes) = xml_node.attributes();
 
@@ -376,7 +403,9 @@ impl<'input> ElementAttributes<'_, 'input> {
       match (ids, aid, value) {
         (IdPolicy::Omit, AId::Id, _)
         | (_, AId::MixBlendMode | AId::Isolation | AId::FontKerning, _)
-        | (_, AId::ImageRendering, "smooth" | "high-quality" | "crisp-edges" | "pixelated") => continue,
+        | (_, AId::ImageRendering, "smooth" | "high-quality" | "crisp-edges" | "pixelated") => {
+          continue;
+        }
         (_, _, _) => {}
       }
 
@@ -393,12 +422,18 @@ impl<'input> ElementAttributes<'_, 'input> {
 
           continue;
         }
-        (AId::Href, Some(XLINK_NS), Some(_)) | (AId::Href, Some(SVG_NS | XML_NAMESPACE_NS), _) => continue,
+        (AId::Href, Some(XLINK_NS), Some(_))
+        | (AId::Href, Some(SVG_NS | XML_NAMESPACE_NS), _) => continue,
         (_, _, _) => {}
       }
 
       let Ok(added) = append_attribute(
-        self.parent, self.tag, aid, storage.clone(), DeclarationImportance::Normal, self.doc,
+        self.parent,
+        self.tag,
+        aid,
+        storage.clone(),
+        DeclarationImportance::Normal,
+        self.doc,
       );
 
       match (added, aid) {
@@ -533,7 +568,9 @@ impl<'input> ElementAttributes<'_, 'input> {
   ) -> Result<(), Never> {
     let Ok(start) = console_core_number_conversion::index(self.start);
     let existing = self.doc.attrs.get(start..).and_then(|attributes| {
-      let (_, position) = attributes.iter().zip(u64::from(self.start)..)
+      let (_, position) = attributes
+        .iter()
+        .zip(u64::from(self.start)..)
         .find(|(attribute, _)| attribute.name == id)?;
 
       Some(position)
@@ -587,15 +624,16 @@ fn append_attribute<'input>(
 
   let Ok(allows_inherit_value) = aid.allows_inherit_value();
 
-  match ::core::primitive::bool::then_some(matches!(allows_inherit_value, crate::AllowsInheritValueAnswer::Yes)
-    && &*value == "inherit", ())
-  {
+  match ::core::primitive::bool::then_some(
+    matches!(allows_inherit_value, crate::AllowsInheritValueAnswer::Yes) && &*value == "inherit",
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(
         match {
-            let Ok(explicit_value) = resolve_inherit(parent_id, aid, doc);
-            explicit_value
-          } {
+          let Ok(explicit_value) = resolve_inherit(parent_id, aid, doc);
+          explicit_value
+        } {
           crate::ResolveInheritAnswer::Yes => crate::AppendAttributeAnswer::Yes,
           crate::ResolveInheritAnswer::No => crate::AppendAttributeAnswer::No,
         },
@@ -614,7 +652,10 @@ fn append_attribute<'input>(
 
 #[cfg_attr(
   dylint_lib = "explicit016_no_wildcard_arm",
-  expect(explicit016_no_wildcard_arm, reason = "Only the presentation attributes with declared initial values have a fallback when no ancestor supplies a value")
+  expect(
+    explicit016_no_wildcard_arm,
+    reason = "Only the presentation attributes with declared initial values have a fallback when no ancestor supplies a value"
+  )
 )]
 fn resolve_inherit(
   parent_id: NodeId,
@@ -633,7 +674,10 @@ fn resolve_inherit(
   let inherited = match source {
     Some(node) => {
       let Ok(attributes) = node.attributes();
-      attributes.iter().find(|attribute| attribute.name == aid).cloned()
+      attributes
+        .iter()
+        .find(|attribute| attribute.name == aid)
+        .cloned()
     }
     None => None,
   };
@@ -926,7 +970,7 @@ fn fix_recursive_patterns(doc: &mut Document) -> Result<(), console_core_never::
 
       match doc.clear_reference(node, attribute) {
         Ok(ReferenceChange::Removed) => {}
-        Ok(ReferenceChange::Missing) => break 'inner_for_2,
+        Ok(ReferenceChange::Absent) => break 'inner_for_2,
       }
     }
   }
@@ -936,7 +980,7 @@ fn fix_recursive_patterns(doc: &mut Document) -> Result<(), console_core_never::
 
 enum ReferenceChange {
   Removed,
-  Missing,
+  Absent,
 }
 
 impl Document<'_> {
@@ -949,12 +993,12 @@ impl Document<'_> {
     let Ok(position) = node.attribute_id(attribute);
     let index = match position {
       Some(index) => index,
-      None => return Ok(ReferenceChange::Missing),
+      None => return Ok(ReferenceChange::Absent),
     };
     let Ok(slot) = console_core_number_conversion::index(index);
     let entry = match self.attrs.get_mut(slot) {
       Some(entry) => entry,
-      None => return Ok(ReferenceChange::Missing),
+      None => return Ok(ReferenceChange::Absent),
     };
 
     entry.value = console_core_extensible_markup::StringStorage::Borrowed("none");
@@ -977,8 +1021,14 @@ fn paint_reference<'a>(
 
   match Paint::from_str(value) {
     Ok(Paint::FuncIRI(link, _)) => Ok(Some(link)),
-    Ok(Paint::None | Paint::Inherit | Paint::CurrentColor | Paint::Color(_)
-      | Paint::ContextFill | Paint::ContextStroke) => Ok(None),
+    Ok(
+      Paint::None
+      | Paint::Inherit
+      | Paint::CurrentColor
+      | Paint::Color(_)
+      | Paint::ContextFill
+      | Paint::ContextStroke,
+    ) => Ok(None),
     Err(problem) => {
       console_core_logging::debug!("Invalid SVG paint reference: {problem}");
 
@@ -1063,7 +1113,7 @@ fn fix_recursive_links(
 
     match doc.clear_reference(node, attribute) {
       Ok(ReferenceChange::Removed) => {}
-      Ok(ReferenceChange::Missing) => break,
+      Ok(ReferenceChange::Absent) => break,
     }
   }
 
@@ -1092,7 +1142,8 @@ fn find_recursive_link(
       }
 
       let Ok(mut references) = linked.descendants();
-      let back_link = references.find(|reference| reference.node_attribute(attribute) == Ok(Some(node)));
+      let back_link =
+        references.find(|reference| reference.node_attribute(attribute) == Ok(Some(node)));
 
       match back_link {
         Some(reference) => return Ok(Some(reference.id)),

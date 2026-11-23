@@ -10,14 +10,20 @@ pub struct WithOffset<T> {
   pub data: T,
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the public PicOffset view stores its established Rust slice position at native width")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the public PicOffset view stores its established Rust slice position at native width"
+    )
   )]
   pub offset: usize,
 }
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native unsigned index operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native unsigned index operand"
+  )
 )]
 impl<T> AddAssign<usize> for WithOffset<T> {
   #[cfg_attr(debug_assertions, track_caller)]
@@ -29,7 +35,10 @@ impl<T> AddAssign<usize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native unsigned index operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native unsigned index operand"
+  )
 )]
 impl<T> SubAssign<usize> for WithOffset<T> {
   #[cfg_attr(debug_assertions, track_caller)]
@@ -41,7 +50,10 @@ impl<T> SubAssign<usize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native signed displacement operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native signed displacement operand"
+  )
 )]
 impl<T> AddAssign<isize> for WithOffset<T> {
   #[cfg_attr(debug_assertions, track_caller)]
@@ -52,7 +64,10 @@ impl<T> AddAssign<isize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native signed displacement operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native signed displacement operand"
+  )
 )]
 impl<T> SubAssign<isize> for WithOffset<T> {
   #[cfg_attr(debug_assertions, track_caller)]
@@ -63,7 +78,10 @@ impl<T> SubAssign<isize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native unsigned index operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native unsigned index operand"
+  )
 )]
 impl<T> Add<usize> for WithOffset<T> {
   type Output = Self;
@@ -77,7 +95,10 @@ impl<T> Add<usize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native unsigned index operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native unsigned index operand"
+  )
 )]
 impl<T> Sub<usize> for WithOffset<T> {
   type Output = Self;
@@ -91,7 +112,10 @@ impl<T> Sub<usize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native signed displacement operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native signed displacement operand"
+  )
 )]
 impl<T> Add<isize> for WithOffset<T> {
   type Output = Self;
@@ -105,7 +129,10 @@ impl<T> Add<isize> for WithOffset<T> {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the public picture offset operator retains its native signed displacement operand")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the public picture offset operator retains its native signed displacement operand"
+  )
 )]
 impl<T> Sub<isize> for WithOffset<T> {
   type Output = Self;

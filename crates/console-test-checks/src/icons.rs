@@ -28,7 +28,9 @@ fn there(stage: &mut Device) -> CheckResult {
   let Ok(theme) = stage.icon_theme();
 
   match ::core::primitive::bool::then_some(theme.is_empty(), ()) {
-    ::core::option::Option::Some(()) => return cannot("the machine's gtk-4.0 settings name no icon theme"),
+    ::core::option::Option::Some(()) => {
+      return cannot("the machine's gtk-4.0 settings name no icon theme");
+    }
     ::core::option::Option::None => {}
   }
 

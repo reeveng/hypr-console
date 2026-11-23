@@ -6,8 +6,7 @@ use console_core_number_conversion::{fixed_index, index};
 
 use crate::path_builder::PathBuilder;
 use crate::transform::Transform;
-use crate::{Point, Rect};
-
+use crate::{Point, FloatRectangle};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
 pub enum PathVerb {
@@ -22,7 +21,7 @@ pub enum PathVerb {
 pub struct Path {
   pub(crate) verbs: Vec<PathVerb>,
   pub(crate) points: Vec<Point>,
-  pub(crate) bounds: Rect,
+  pub(crate) bounds: FloatRectangle,
 }
 
 impl Path {
@@ -46,13 +45,13 @@ impl Path {
     )
   }
 
-  pub fn bounds(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn bounds(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.bounds)
   }
 
   pub fn compute_tight_bounds(
     &self,
-  ) -> core::result::Result<Option<Rect>, console_core_never::Never> {
+  ) -> core::result::Result<Option<FloatRectangle>, console_core_never::Never> {
     let first = match self.points.first().copied() {
       Some(first) => first,
       None => return Ok(None),
@@ -89,7 +88,7 @@ impl Path {
       }
     }
 
-    Rect::from_ltrb(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y)
+    FloatRectangle::from_ltrb(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y)
   }
 
   pub fn verbs(&self) -> core::result::Result<&[PathVerb], console_core_never::Never> {
@@ -113,7 +112,7 @@ impl Path {
 
     let Ok(()) = ts.map_points(&mut self.points);
 
-    let Ok(rect) = Rect::from_points(&self.points);
+    let Ok(rect) = FloatRectangle::from_points(&self.points);
     self.bounds = match rect {
       Some(value) => value,
       None => return Ok(None),

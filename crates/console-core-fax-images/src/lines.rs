@@ -77,10 +77,12 @@ impl DecoderContext {
   }
 
   pub(crate) fn at_end_of_line(&self) -> Result<Block, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.decoded == self.settings.columns, ()) {
-      ::core::option::Option::Some(()) => Block::Ended,
-      ::core::option::Option::None => Block::Continues,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.decoded == self.settings.columns, ()) {
+        ::core::option::Option::Some(()) => Block::Ended,
+        ::core::option::Option::None => Block::Continues,
+      },
+    )
   }
 
   pub(crate) fn pass(&mut self, decoder: &mut impl Decoder) -> Result<(), Never> {
@@ -160,14 +162,16 @@ impl DecoderContext {
 
       match ::core::primitive::bool::then_some(change.at < least, ()) {
         ::core::option::Option::Some(()) => self.walked_from = place.saturating_add(1),
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(change.color == wanted, ()) {
-          ::core::option::Option::Some(()) => {
-            self.b1 = Some(place);
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(change.color == wanted, ()) {
+            ::core::option::Option::Some(()) => {
+              self.b1 = Some(place);
 
-            return Ok(());
+              return Ok(());
+            }
+            ::core::option::Option::None => {}
           }
-          ::core::option::Option::None => {}
-        },
+        }
       }
     }
 

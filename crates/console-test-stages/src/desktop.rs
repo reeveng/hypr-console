@@ -60,8 +60,8 @@
 //! take away what it found, and a bus name is the largest thing on this machine
 //! that could be taken.
 
-use std::path::{Path, PathBuf};
 use std::os::unix::fs::FileTypeExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -74,8 +74,8 @@ use console_notifications::updating::{self, Progress};
 use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
 use console_waiting::{Outcome, Ready, Schedule, until};
 
-use crate::{Error, RuntimeName, missing_is_removed, remove_scratch};
 use crate::picture::{Picture, where_};
+use crate::{Error, RuntimeName, missing_is_removed, remove_scratch};
 
 const NESTING: &str = "console-desktop";
 
@@ -214,9 +214,8 @@ impl Desktop {
     let talking = alongside(&mut asking).map_err(Error::Machine)?;
     let Ok(patience) = Schedule::of(LISTENING);
     let Ok(listening) = until(patience, || {
-      let listening = std::fs::symlink_metadata(&socket).is_ok_and(|entry| {
-        entry.file_type().is_socket()
-      });
+      let listening =
+        std::fs::symlink_metadata(&socket).is_ok_and(|entry| entry.file_type().is_socket());
 
       Ok(match bool::then_some(listening, ()) {
         Some(()) => Ready::Yes,
@@ -364,10 +363,12 @@ impl Desktop {
   }
 
   fn pressing(&self) -> Result<Option<String>, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.press_these.is_empty(), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => Some(self.press_these.join("; ")),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.press_these.is_empty(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(self.press_these.join("; ")),
+      },
+    )
   }
 
   fn picture(&mut self) -> Result<&Picture, Error> {
@@ -375,7 +376,8 @@ impl Desktop {
       ::core::option::Option::Some(()) => {
         std::fs::create_dir_all(&self.here).map_err(Error::Machine)?;
         missing_is_removed(std::fs::remove_file(self.here.join(SEEN))).map_err(Error::Machine)?;
-        missing_is_removed(std::fs::remove_file(self.here.join(SCREEN))).map_err(Error::Machine)?;
+        missing_is_removed(std::fs::remove_file(self.here.join(SCREEN)))
+          .map_err(Error::Machine)?;
         let shot = self.here.join("screen.png");
         let Ok(program) = console_core_internal_programs::beside_this_program(NESTING);
         let mut nesting = Command::new(program);

@@ -154,12 +154,15 @@ pub fn rewrite(said: &str, rewrite: &Rewrite) -> Result<Option<String>, Never> {
     ::core::option::Option::Some(()) => Some(
       said
         .split_inclusive('\n')
-        .map(
-          |line| match ::core::primitive::bool::then_some(line.strip_suffix('\n') == Some(rewrite.was) || line == rewrite.was, ()) {
+        .map(|line| {
+          match ::core::primitive::bool::then_some(
+            line.strip_suffix('\n') == Some(rewrite.was) || line == rewrite.was,
+            (),
+          ) {
             ::core::option::Option::Some(()) => line.replacen(rewrite.was, rewrite.becomes, 1),
             ::core::option::Option::None => line.to_string(),
-          },
-        )
+          }
+        })
         .collect(),
     ),
     ::core::option::Option::None => None,

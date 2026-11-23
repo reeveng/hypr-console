@@ -49,7 +49,7 @@ pub enum Whitespace {
 }
 
 #[derive(Debug)]
-pub enum Fault {
+pub enum Error {
   DeclarationAlreadyWritten,
   AttributeOutsideElement,
   TextOutsideElement,
@@ -58,7 +58,7 @@ pub enum Fault {
   InvalidText(FromUtf8Error),
 }
 
-impl fmt::Display for Fault {
+impl fmt::Display for Error {
   fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::DeclarationAlreadyWritten => write!(to, "declaration was already written"),
@@ -73,9 +73,9 @@ impl fmt::Display for Fault {
   }
 }
 
-impl std::error::Error for Fault {}
+impl std::error::Error for Error {}
 
-impl From<Never> for Fault {
+impl From<Never> for Error {
   fn from(never: Never) -> Self {
     never.absurd()
   }
@@ -143,10 +143,10 @@ impl XmlWriter {
     Self::from_vec(Vec::with_capacity(capacity_index.min(65_536)), opt)
   }
 
-  pub fn write_declaration(&mut self) -> Result<(), Fault> {
+  pub fn write_declaration(&mut self) -> Result<(), Error> {
     match self.state {
       State::Empty => self.state = State::Attributes,
-      State::Document | State::Attributes => return Err(Fault::DeclarationAlreadyWritten),
+      State::Document | State::Attributes => return Err(Error::DeclarationAlreadyWritten),
     }
 
     self.buf.extend_from_slice(b"<?xml");
@@ -159,16 +159,16 @@ impl XmlWriter {
     Ok(())
   }
 
-  pub fn write_comment(&mut self, text: &str) -> Result<(), Fault> {
+  pub fn write_comment(&mut self, text: &str) -> Result<(), Error> {
     self.write_comment_fmt(format_args!("{text}"))
   }
 
-  pub fn write_comment_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Fault> {
+  pub fn write_comment_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Error> {
     let Ok(()) = self.prepare_node();
     let Ok(()) = self.write_node_indent();
 
     self.buf.extend_from_slice(b"<!--");
-    fmt::write(&mut Buffer(&mut self.buf), args).map_err(Fault::Formatting)?;
+    fmt::write(&mut Buffer(&mut self.buf), args).map_err(Error::Formatting)?;
     self.buf.extend_from_slice(b"-->");
     self.state = State::Document;
 
@@ -200,7 +200,7 @@ impl XmlWriter {
     &mut self,
     name: &str,
     value: &V,
-  ) -> Result<(), Fault> {
+  ) -> Result<(), Error> {
     self.write_attribute_fmt(name, format_args!("{value}"))
   }
 
@@ -208,12 +208,12 @@ impl XmlWriter {
     &mut self,
     name: &str,
     args: fmt::Arguments<'_>,
-  ) -> Result<(), Fault> {
+  ) -> Result<(), Error> {
     self.write_attribute_prefix(name)?;
 
     let Ok(start) = fitted::<_, u64>(self.buf.len());
 
-    fmt::write(&mut Buffer(&mut self.buf), args).map_err(Fault::Formatting)?;
+    fmt::write(&mut Buffer(&mut self.buf), args).map_err(Error::Formatting)?;
 
     let Ok(quote) = self.quote();
 
@@ -223,7 +223,7 @@ impl XmlWriter {
     Ok(())
   }
 
-  pub fn write_attribute_raw<F>(&mut self, name: &str, write: F) -> Result<(), Fault>
+  pub fn write_attribute_raw<F>(&mut self, name: &str, write: F) -> Result<(), Error>
   where
     F: FnOnce(&mut Vec<u8>),
   {
@@ -241,10 +241,10 @@ impl XmlWriter {
     Ok(())
   }
 
-  fn write_attribute_prefix(&mut self, name: &str) -> Result<(), Fault> {
+  fn write_attribute_prefix(&mut self, name: &str) -> Result<(), Error> {
     match self.state {
       State::Attributes => {}
-      State::Empty | State::Document => return Err(Fault::AttributeOutsideElement),
+      State::Empty | State::Document => return Err(Error::AttributeOutsideElement),
     }
 
     match self.opt.attributes_indent {
@@ -268,12 +268,12 @@ impl XmlWriter {
     Ok(())
   }
 
-  fn escape(&mut self, start: u64, escape: Escape) -> Result<(), Fault> {
+  fn escape(&mut self, start: u64, escape: Escape) -> Result<(), Error> {
     let Ok(end) = fitted::<_, u64>(self.buf.len());
 
     match start.cmp(&end) {
       Ordering::Less | Ordering::Equal => {}
-      Ordering::Greater => return Err(Fault::InvalidElementName),
+      Ordering::Greater => return Err(Error::InvalidElementName),
     }
 
     let mut at = start;
@@ -284,7 +284,7 @@ impl XmlWriter {
         .buf
         .get(position)
         .copied()
-        .ok_or(Fault::InvalidElementName)?;
+        .ok_or(Error::InvalidElementName)?;
       let replacement: Option<&[u8]> = match (byte, escape) {
         (b'\'', Escape::Quote(b'\'')) => Some(b"&apos;"),
         (b'"', Escape::Quote(b'"')) => Some(b"&quot;"),
@@ -315,13 +315,13 @@ impl XmlWriter {
     Ok(())
   }
 
-  pub fn write_text(&mut self, text: &str) -> Result<(), Fault> {
+  pub fn write_text(&mut self, text: &str) -> Result<(), Error> {
     self.write_text_fmt(format_args!("{text}"))
   }
 
-  pub fn write_text_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Fault> {
+  pub fn write_text_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Error> {
     match (self.state, self.depth_stack.as_slice()) {
-      (State::Empty, _) | (_, []) => return Err(Fault::TextOutsideElement),
+      (State::Empty, _) | (_, []) => return Err(Error::TextOutsideElement),
       (State::Attributes | State::Document, [_, ..]) => {}
     }
 
@@ -329,14 +329,14 @@ impl XmlWriter {
     let Ok(()) = self.write_node_indent();
     let Ok(start) = fitted::<_, u64>(self.buf.len());
 
-    fmt::write(&mut Buffer(&mut self.buf), args).map_err(Fault::Formatting)?;
+    fmt::write(&mut Buffer(&mut self.buf), args).map_err(Error::Formatting)?;
     self.escape(start, Escape::Text)?;
     self.state = State::Document;
 
     Ok(())
   }
 
-  pub fn end_element(&mut self) -> Result<(), Fault> {
+  pub fn end_element(&mut self) -> Result<(), Error> {
     self.state = State::Document;
 
     let depth = match self.depth_stack.pop() {
@@ -355,7 +355,7 @@ impl XmlWriter {
 
         match self.buf.get(range.clone()) {
           Some(_name) => self.buf.extend_from_within(range),
-          None => return Err(Fault::InvalidElementName),
+          None => return Err(Error::InvalidElementName),
         }
 
         self.buf.push(b'>');
@@ -366,7 +366,7 @@ impl XmlWriter {
     Ok(())
   }
 
-  pub fn end_document(mut self) -> Result<String, Fault> {
+  pub fn end_document(mut self) -> Result<String, Error> {
     let Ok(depth) = fitted::<_, u64>(self.depth_stack.len());
 
     for _element in 0..depth {
@@ -375,7 +375,7 @@ impl XmlWriter {
 
     let Ok(()) = self.write_new_line();
 
-    String::from_utf8(self.buf).map_err(Fault::InvalidText)
+    String::from_utf8(self.buf).map_err(Error::InvalidText)
   }
 
   fn quote(&self) -> Result<u8, Never> {

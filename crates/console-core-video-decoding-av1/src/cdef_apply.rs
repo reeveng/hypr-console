@@ -7,7 +7,9 @@ use crate::include::dav1d::headers::{Rav1dFrameHeaderCdef, Rav1dPixelLayout};
 use crate::include::dav1d::picture::PicOffset;
 use crate::src::align::Align16;
 use crate::src::align::AlignedVec64;
-use crate::src::cdef::{CdefBlockShape, CdefBottom, CdefEdgeFlags, CdefFilter, CdefTop, Rav1dCdefDSPContext};
+use crate::src::cdef::{
+  CdefBlockShape, CdefBottom, CdefEdgeFlags, CdefFilter, CdefTop, Rav1dCdefDSPContext,
+};
 use crate::src::disjoint_mut::DisjointMut;
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
 use crate::src::internal::Rav1dContext;
@@ -84,26 +86,35 @@ fn backup2lines<BD: BitDepth>(
 ) -> Result<(), Never> {
   let [y, u, v] = src;
   let [y_offset, u_offset, v_offset] = offsets;
-  let Ok(()) = backup_plane_rows::<BD>(dest, BackupPlane {
-    destination: y_offset,
-    source: y,
-    first_row: 6,
-  });
+  let Ok(()) = backup_plane_rows::<BD>(
+    dest,
+    BackupPlane {
+      destination: y_offset,
+      source: y,
+      first_row: 6,
+    },
+  );
   let chroma_row = match layout {
     Rav1dPixelLayout::I400 => return Ok(()),
     Rav1dPixelLayout::I420 => 2,
     Rav1dPixelLayout::I422 | Rav1dPixelLayout::I444 => 6,
   };
-  let Ok(()) = backup_plane_rows::<BD>(dest, BackupPlane {
-    destination: u_offset,
-    source: u,
-    first_row: chroma_row,
-  });
-  let Ok(()) = backup_plane_rows::<BD>(dest, BackupPlane {
-    destination: v_offset,
-    source: v,
-    first_row: chroma_row,
-  });
+  let Ok(()) = backup_plane_rows::<BD>(
+    dest,
+    BackupPlane {
+      destination: u_offset,
+      source: u,
+      first_row: chroma_row,
+    },
+  );
+  let Ok(()) = backup_plane_rows::<BD>(
+    dest,
+    BackupPlane {
+      destination: v_offset,
+      source: v,
+      first_row: chroma_row,
+    },
+  );
 
   Ok(())
 }
@@ -118,7 +129,10 @@ fn backup_columns<BD: BitDepth>(
   let Ok(column_offset) = wrapped_offset(i64::from(first_column).wrapping_sub(2));
   let edge = source + column_offset;
   let Ok(()) = edge.for_rows_with_context::<BD, _, _>(
-    Size { width: 2, height: u64::from(row_count) },
+    Size {
+      width: 2,
+      height: u64::from(row_count),
+    },
     &mut destination.iter_mut(),
     |_row, pixels, targets| match targets.next() {
       Some(target) => BD::pixel_copy(target, pixels, 2),
@@ -251,7 +265,10 @@ fn cdef_line_view<'frame>(
     .wrapping_add(i64::from(origin.x));
   let Ok(offset) = wrapped_index(base.wrapping_add_signed(delta));
 
-  Ok(WithOffset { data: buffer, offset })
+  Ok(WithOffset {
+    data: buffer,
+    offset,
+  })
 }
 
 #[inline(always)]
@@ -263,13 +280,19 @@ fn cdef_neighbour_rows<'frame>(
     CdefBoundary::PreviousSuperblock => cdef_line_view(
       lines.loop_filter,
       plane.loop_filter_offset,
-      Point { x: plane.column, y: lines.previous_row },
+      Point {
+        x: plane.column,
+        y: lines.previous_row,
+      },
       plane.stride,
     ),
     CdefBoundary::FollowingSuperblock | CdefBoundary::PictureRows => cdef_line_view(
       lines.saved,
       plane.saved_offset,
-      Point { x: plane.column, y: plane.saved_row },
+      Point {
+        x: plane.column,
+        y: plane.saved_row,
+      },
       plane.stride,
     ),
   };
@@ -278,11 +301,17 @@ fn cdef_neighbour_rows<'frame>(
       let Ok(buf) = cdef_line_view(
         lines.loop_filter,
         plane.loop_filter_offset,
-        Point { x: plane.column, y: lines.following_row },
+        Point {
+          x: plane.column,
+          y: lines.following_row,
+        },
         plane.stride,
       );
       WithOffset {
-        data: PicOrBuf::Buf(WithStride { buf: buf.data, stride: plane.stride }),
+        data: PicOrBuf::Buf(WithStride {
+          buf: buf.data,
+          stride: plane.stride,
+        }),
         offset: buf.offset,
       }
     }
@@ -366,10 +395,16 @@ struct CdefBlock<'frame, 'row, BD: BitDepth> {
 }
 
 #[inline(always)]
-fn filter_cdef_block<BD: BitDepth>(dsp: &Rav1dCdefDSPContext, block: CdefBlock<'_, '_, BD>) -> Rav1dResult {
+fn filter_cdef_block<BD: BitDepth>(
+  dsp: &Rav1dCdefDSPContext,
+  block: CdefBlock<'_, '_, BD>,
+) -> Rav1dResult {
   let [luma, _, _] = block.planes;
   let mut variance = 0;
-  let direction = match (block.luma.primary, block.chroma.as_ref().map(|strength| strength.primary)) {
+  let direction = match (
+    block.luma.primary,
+    block.chroma.as_ref().map(|strength| strength.primary),
+  ) {
     (0, None | Some(0)) => 0,
     (_luma, _chroma) => {
       let found = dsp.dir.call::<BD>(luma, &mut variance, block.bitdepth)?;
@@ -391,19 +426,26 @@ fn filter_cdef_block<BD: BitDepth>(dsp: &Rav1dCdefDSPContext, block: CdefBlock<'
       let [left, _, _] = block.backups;
       let [saved, _, _] = block.lines.saved_offsets;
       let [filter, _, _] = block.lines.filter_offsets;
-      let Ok((top, bottom)) = cdef_neighbour_rows(block.lines, CdefPlaneRows {
-        source: luma,
-        saved_offset: saved,
-        loop_filter_offset: filter,
-        column: block.column,
-        saved_row: block.lines.saved_luma_row,
-        height: 8,
-        stride: block.lines.luma_stride,
-      });
+      let Ok((top, bottom)) = cdef_neighbour_rows(
+        block.lines,
+        CdefPlaneRows {
+          source: luma,
+          saved_offset: saved,
+          loop_filter_offset: filter,
+          column: block.column,
+          saved_row: block.lines.saved_luma_row,
+          height: 8,
+          stride: block.lines.luma_stride,
+        },
+      );
       luma_filter.call(CdefFilter {
         shape: CdefBlockShape::EightByEight,
         destination: luma,
-        left, top, bottom, primary, secondary,
+        left,
+        top,
+        bottom,
+        primary,
+        secondary,
         direction: luma_direction,
         damping: block.damping,
         edges: block.edges,
@@ -429,9 +471,21 @@ fn filter_cdef_chroma<BD: BitDepth>(
 ) -> Rav1dResult {
   let [eight_square, four_wide, four_square] = &dsp.fb;
   let (shape, filter, remap) = match block.layout {
-    Rav1dPixelLayout::I444 => (CdefBlockShape::EightByEight, eight_square, &[0_u8, 1, 2, 3, 4, 5, 6, 7]),
-    Rav1dPixelLayout::I422 => (CdefBlockShape::FourByEight, four_wide, &[7_u8, 0, 2, 4, 5, 6, 6, 6]),
-    Rav1dPixelLayout::I420 => (CdefBlockShape::FourByFour, four_square, &[0_u8, 1, 2, 3, 4, 5, 6, 7]),
+    Rav1dPixelLayout::I444 => (
+      CdefBlockShape::EightByEight,
+      eight_square,
+      &[0_u8, 1, 2, 3, 4, 5, 6, 7],
+    ),
+    Rav1dPixelLayout::I422 => (
+      CdefBlockShape::FourByEight,
+      four_wide,
+      &[7_u8, 0, 2, 4, 5, 6, 6, 6],
+    ),
+    Rav1dPixelLayout::I420 => (
+      CdefBlockShape::FourByFour,
+      four_square,
+      &[0_u8, 1, 2, 3, 4, 5, 6, 7],
+    ),
     Rav1dPixelLayout::I400 => return Err(EINVAL),
   };
   let chroma_direction = match strength.primary {
@@ -442,23 +496,32 @@ fn filter_cdef_chroma<BD: BitDepth>(
       i32::from(*mapped)
     }
   };
-  let offsets = block.lines.saved_offsets.into_iter().zip(block.lines.filter_offsets);
+  let offsets = block
+    .lines
+    .saved_offsets
+    .into_iter()
+    .zip(block.lines.filter_offsets);
   let planes = block.planes.into_iter().zip(block.backups).zip(offsets);
 
   for ((source, left), (saved, next)) in planes.skip(1) {
-    let Ok((top, bottom)) = cdef_neighbour_rows(block.lines, CdefPlaneRows {
-      source,
-      saved_offset: saved,
-      loop_filter_offset: next,
-      column: block.column.wrapping_shr(block.sampling.x),
-      saved_row: block.lines.saved_chroma_row,
-      height: 8_u8.wrapping_shr(block.sampling.y),
-      stride: block.lines.chroma_stride,
-    });
+    let Ok((top, bottom)) = cdef_neighbour_rows(
+      block.lines,
+      CdefPlaneRows {
+        source,
+        saved_offset: saved,
+        loop_filter_offset: next,
+        column: block.column.wrapping_shr(block.sampling.x),
+        saved_row: block.lines.saved_chroma_row,
+        height: 8_u8.wrapping_shr(block.sampling.y),
+        stride: block.lines.chroma_stride,
+      },
+    );
     filter.call(CdefFilter {
       shape,
       destination: source,
-      left, top, bottom,
+      left,
+      top,
+      bottom,
       primary: i32::from(strength.primary),
       secondary: strength.secondary,
       direction: chroma_direction,
@@ -505,7 +568,11 @@ fn cdef_block_presets(
     }
   };
 
-  Ok(Some(CdefBlockPresets { luma, chroma, planes }))
+  Ok(Some(CdefBlockPresets {
+    luma,
+    chroma,
+    planes,
+  }))
 }
 
 #[inline(always)]
@@ -621,7 +688,9 @@ fn filter_cdef_row<BD: BitDepth>(row: CdefFilterRow<'_, '_, BD>) -> Rav1dResult 
         None => (first, second),
       };
 
-      match (left_planes != BackupPlanes::None && row.edges.contains(CdefEdgeFlags::HAVE_LEFT)).then_some(()) {
+      match (left_planes != BackupPlanes::None && row.edges.contains(CdefEdgeFlags::HAVE_LEFT))
+        .then_some(())
+      {
         Some(()) => {
           let Ok(()) = backup2x8::<BD>(left, &current_pictures, 0, row.layout, left_planes);
         }
@@ -697,8 +766,12 @@ pub(crate) fn rav1d_cdef_brow<BD: BitDepth>(
       _current => (second, first),
     };
     let after_row = by.wrapping_add(2);
-    let previous = (threaded && bounds.span == CdefRowSpan::AboveBoundary && by == bounds.rows.start).then_some(());
-    let following = (threaded && bounds.span == CdefRowSpan::Body && after_row >= bounds.rows.end).then_some(());
+    let previous =
+      (threaded && bounds.span == CdefRowSpan::AboveBoundary && by == bounds.rows.start)
+        .then_some(());
+    let following =
+      (threaded && bounds.span == CdefRowSpan::Body && after_row >= bounds.rows.end)
+        .then_some(());
     let boundary = match (previous, following) {
       (Some(()), _) => CdefBoundary::PreviousSuperblock,
       (None, Some(())) => CdefBoundary::FollowingSuperblock,
@@ -723,14 +796,20 @@ pub(crate) fn rav1d_cdef_brow<BD: BitDepth>(
       None => {}
     }
 
-    match ((!threaded || bounds.span == CdefRowSpan::AboveBoundary || after_row < bounds.rows.end)
-        && edges.contains(CdefEdgeFlags::HAVE_BOTTOM)).then_some(()) {
+    match ((!threaded
+      || bounds.span == CdefRowSpan::AboveBoundary
+      || after_row < bounds.rows.end)
+      && edges.contains(CdefEdgeFlags::HAVE_BOTTOM))
+    .then_some(())
+    {
       Some(()) => {
         let [luma, u, v] = future_offsets;
         let y_delta = i64::from(saved_luma_row).wrapping_mul(sources.luma_stride);
         let uv_delta = i64::from(saved_chroma_row).wrapping_mul(sources.chroma_stride);
         let offsets = [
-          luma.wrapping_add_signed(y_delta), u.wrapping_add_signed(uv_delta), v.wrapping_add_signed(uv_delta),
+          luma.wrapping_add_signed(y_delta),
+          u.wrapping_add_signed(uv_delta),
+          v.wrapping_add_signed(uv_delta),
         ];
         let Ok(()) = backup2lines::<BD>(&f.lf.cdef_line_buf, offsets, pictures, layout);
       }

@@ -90,7 +90,9 @@ impl<'de, T: Deserialize<'de>> Visitor<'de> for PaletteItemsVisitor<T> {
 
     match checked_value {
       None => Ok(PaletteItems(items)),
-      Some(_) => Err(A::Error::custom("palette array exceeds the file size limit")),
+      Some(_) => Err(A::Error::custom(
+        "palette array exceeds the file size limit",
+      )),
     }
   }
 }

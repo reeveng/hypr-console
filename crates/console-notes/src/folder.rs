@@ -114,7 +114,10 @@ pub fn listed(folder: &Path) -> Result<Vec<Note>, Unkept> {
   let entries = match std::fs::read_dir(folder) {
     Ok(entries) => entries,
     Err(fault) => {
-      return match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+      return match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::NotFound,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ok(Vec::new()),
         ::core::option::Option::None => Err(Unkept::Unlisted(folder.to_path_buf(), fault)),
       };
@@ -214,10 +217,12 @@ pub fn text(file: &str, at: &Path) -> Result<String, Never> {
 
   let body = under.trim_end();
 
-  Ok(match ::core::primitive::bool::then_some(body.is_empty(), ()) {
-    ::core::option::Option::Some(()) => title.trim().to_string(),
-    ::core::option::Option::None => format!("{}\n{body}", title.trim()),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(body.is_empty(), ()) {
+      ::core::option::Option::Some(()) => title.trim().to_string(),
+      ::core::option::Option::None => format!("{}\n{body}", title.trim()),
+    },
+  )
 }
 
 pub fn file(text: &str) -> Result<String, Never> {
@@ -276,9 +281,14 @@ fn keep_new(folder: &Path, title: &str, bytes: &[u8]) -> Result<PathBuf, Unkept>
     match console_core_atomic_writes::whole_in_new_file_with_folders(&at, bytes) {
       Ok(()) => return Ok(at),
       Err(Unwritten::Moving(target, fault)) => {
-        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::AlreadyExists, ()) {
+        match ::core::primitive::bool::then_some(
+          fault.kind() == std::io::ErrorKind::AlreadyExists,
+          (),
+        ) {
           ::core::option::Option::Some(()) => continue,
-          ::core::option::Option::None => return Err(Unkept::Unwritten(Unwritten::Moving(target, fault))),
+          ::core::option::Option::None => {
+            return Err(Unkept::Unwritten(Unwritten::Moving(target, fault)));
+          }
         }
       }
       Err(fault) => return Err(Unkept::Unwritten(fault)),
@@ -342,7 +352,10 @@ pub fn leave(folder: &Path, written: OnDisk<'_>, text: &str) -> Result<Leave, Un
     ::core::option::Option::Some(()) => {
       return match std::fs::remove_file(at) {
         Ok(()) => Ok(Leave::Remove),
-        Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        Err(fault) => match ::core::primitive::bool::then_some(
+          fault.kind() == std::io::ErrorKind::NotFound,
+          (),
+        ) {
           ::core::option::Option::Some(()) => Ok(Leave::Remove),
           ::core::option::Option::None => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
         },
@@ -356,13 +369,18 @@ pub fn leave(folder: &Path, written: OnDisk<'_>, text: &str) -> Result<Leave, Un
 
   match ::core::primitive::bool::then_some(named == at, ()) {
     ::core::option::Option::Some(()) => Ok(Leave::Retain),
-    ::core::option::Option::None => match console_core_atomic_writes::rename_without_overwriting(at, &named) {
-      Ok(()) => Ok(Leave::Rename(named)),
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::AlreadyExists, ()) {
-        ::core::option::Option::Some(()) => Ok(Leave::Retain),
-        ::core::option::Option::None => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
-      },
-    },
+    ::core::option::Option::None => {
+      match console_core_atomic_writes::rename_without_overwriting(at, &named) {
+        Ok(()) => Ok(Leave::Rename(named)),
+        Err(fault) => match ::core::primitive::bool::then_some(
+          fault.kind() == std::io::ErrorKind::AlreadyExists,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => Ok(Leave::Retain),
+          ::core::option::Option::None => Err(Unkept::Unnamed(at.to_path_buf(), fault)),
+        },
+      }
+    }
   }
 }
 

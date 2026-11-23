@@ -84,7 +84,10 @@ impl CachedLocation {
 
   pub fn here(&mut self, now: Instant) -> Result<Where, Never> {
     match self.0 {
-      Some((asked, at)) => match ::core::primitive::bool::then_some(now.saturating_duration_since(asked) < KEEP_FOR, ()) {
+      Some((asked, at)) => match ::core::primitive::bool::then_some(
+        now.saturating_duration_since(asked) < KEEP_FOR,
+        (),
+      ) {
         ::core::option::Option::Some(()) => return Ok(at),
         ::core::option::Option::None => {}
       },

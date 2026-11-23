@@ -166,7 +166,10 @@ impl TableRanges {
       .map(|(index, platform, encoding, _)| {
         let Ok(legacy_encoding) = LegacyEncoding::classify(platform, encoding);
 
-        SelectedCmapSubtable { index, legacy_encoding }
+        SelectedCmapSubtable {
+          index,
+          legacy_encoding,
+        }
       });
     let cmap_vs_subtable = cmap_table.and_then(|cmap| {
       let data = ({

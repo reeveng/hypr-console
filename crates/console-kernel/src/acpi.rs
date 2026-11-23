@@ -175,7 +175,10 @@ fn bytes(address: u64, length: u32) -> Result<&'static [u8], Error> {
   )
 )]
 fn bytes_at(address: u64, length: u32) -> Result<&'static [u8], Error> {
-  match ::core::primitive::bool::then_some(address != 0 && address.checked_add(u64::from(length)).is_some() && length <= MAX_SIZE, ()) {
+  match ::core::primitive::bool::then_some(
+    address != 0 && address.checked_add(u64::from(length)).is_some() && length <= MAX_SIZE,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(Error::Address),
   }

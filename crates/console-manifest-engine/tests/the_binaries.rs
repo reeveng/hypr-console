@@ -95,10 +95,12 @@ fn subject(crate_: &str) -> Result<BTreeSet<String>, Never> {
   let words: Vec<&str> = said.split('-').collect();
 
   let kept = match words.split_first() {
-    Some((first, rest)) => match ::core::primitive::bool::then_some(FAMILIES.contains(first) && !rest.is_empty(), ()) {
-      ::core::option::Option::Some(()) => rest.to_vec(),
-      ::core::option::Option::None => words,
-    },
+    Some((first, rest)) => {
+      match ::core::primitive::bool::then_some(FAMILIES.contains(first) && !rest.is_empty(), ()) {
+        ::core::option::Option::Some(()) => rest.to_vec(),
+        ::core::option::Option::None => words,
+      }
+    }
     None => words,
   };
 

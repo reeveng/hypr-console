@@ -793,7 +793,7 @@ impl StandardKind {
 
         match self.widths.get(code_2) {
           Some(Width::Value(width)) => *width,
-          Some(Width::Missing) | None => return Ok(path),
+          Some(Width::Absent) | None => return Ok(path),
         }
       }
       StandardFontMatch::Exact => {
@@ -833,7 +833,7 @@ impl StandardKind {
         .copied()
       {
         Some(Width::Value(w)) => Some(w),
-        Some(Width::Missing) => Some(self.missing_width.0),
+        Some(Width::Absent) => Some(self.missing_width.0),
         None => {
           let Ok(code_to_ps_name) = self.code_to_ps_name(code);
 

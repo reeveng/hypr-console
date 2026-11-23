@@ -144,14 +144,14 @@ pub use rights::{Contains, Right, Rights};
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
-use core::fmt;
-use core::marker::PhantomData;
 use console_core_never::Never;
 use console_core_number_conversion::fixed_index;
+use core::fmt;
+use core::marker::PhantomData;
 
 use accounting::{
-  DeliveryCharges, DeliveryCost, DeliveryJobs, MessageSize, charge_within, delivery_charges, message_cost,
-  waiting_room,
+  DeliveryCharges, DeliveryCost, DeliveryJobs, MessageSize, charge_within, delivery_charges,
+  message_cost, waiting_room,
 };
 use backing::{Backing, BackingLimits, Span};
 
@@ -597,9 +597,18 @@ impl Process {
 impl Kernel {
   pub fn boot(memory: Bytes) -> Result<Boot, HandleError> {
     let least = OBJECT_COST.0.saturating_add(HANDLE_COST.0);
-    let objects = memory.0.checked_div(least).ok_or(HandleError::NoResources)?;
+    let objects = memory
+      .0
+      .checked_div(least)
+      .ok_or(HandleError::NoResources)?;
 
-    Self::boot_reserved(memory, BackingLimits { bytes: memory, objects })
+    Self::boot_reserved(
+      memory,
+      BackingLimits {
+        bytes: memory,
+        objects,
+      },
+    )
   }
 
   #[doc = "Boots with an explicit reserve for the contents of nonempty memory objects."]
@@ -822,7 +831,10 @@ impl Kernel {
     require(handle, Right::Write)?;
     let Ok(length) = fixed_index(bytes.len());
     let Ok(count) = fixed_index(moving.len());
-    let cost = message_cost(MessageSize { bytes: length, handles: count })?;
+    let cost = message_cost(MessageSize {
+      bytes: length,
+      handles: count,
+    })?;
     check_transfer(writer, through, moving)?;
 
     let peer = self.peer_with_room(handle.object)?;
@@ -894,7 +906,14 @@ impl Kernel {
       }
     };
     let charge = carried?;
-    let charges = delivery_charges(sender, jobs, DeliveryCost { message: cost, handles: charge })?;
+    let charges = delivery_charges(
+      sender,
+      jobs,
+      DeliveryCost {
+        message: cost,
+        handles: charge,
+      },
+    )?;
     let count = handle_count.map_err(|_too_many| HandleError::NoResources)?;
     let receiver = self.process(by)?;
     let _next_handle = receiver
@@ -1018,7 +1037,10 @@ impl Kernel {
   ) -> Result<HandleValue, HandleError> {
     self.allowed(by, Condition::NewMemoryObject)?;
 
-    match ::core::primitive::bool::then_some(address != 0 && address & 0x000f_ffff_ffff_f000 == address, ()) {
+    match ::core::primitive::bool::then_some(
+      address != 0 && address & 0x000f_ffff_ffff_f000 == address,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Err(HandleError::BadState),
     }
@@ -1441,8 +1463,11 @@ impl Kernel {
 
     match gone.object {
       Object::Memory(memory) => self.backing.release(memory.span)?,
-      Object::Endpoint(_) | Object::PhysicalFrame(_) | Object::ExecutableResource
-      | Object::TaskObj(_) | Object::Process(_) => {}
+      Object::Endpoint(_)
+      | Object::PhysicalFrame(_)
+      | Object::ExecutableResource
+      | Object::TaskObj(_)
+      | Object::Process(_) => {}
     }
 
     match ::core::primitive::bool::then_some(gone.paid_by == object, ()) {

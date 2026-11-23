@@ -293,10 +293,12 @@ pub fn forget() -> Result<(), Error> {
 
   match std::fs::remove_file(&note) {
     Ok(()) => Ok(()),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Ok(()),
-      ::core::option::Option::None => Err(Error::Removing(note, fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => Err(Error::Removing(note, fault)),
+      }
+    }
   }
 }
 

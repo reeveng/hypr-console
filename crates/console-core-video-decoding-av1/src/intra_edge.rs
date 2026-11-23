@@ -25,15 +25,14 @@ impl EdgeFlags {
   pub const ALL_LEFT_HAS_BOTTOM: Self = Self(
     Self::I444_LEFT_HAS_BOTTOM.0 | Self::I422_LEFT_HAS_BOTTOM.0 | Self::I420_LEFT_HAS_BOTTOM.0,
   );
-  pub const ALL_TOP_HAS_RIGHT: Self = Self(
-    Self::I444_TOP_HAS_RIGHT.0 | Self::I422_TOP_HAS_RIGHT.0 | Self::I420_TOP_HAS_RIGHT.0,
-  );
+  pub const ALL_TOP_HAS_RIGHT: Self =
+    Self(Self::I444_TOP_HAS_RIGHT.0 | Self::I422_TOP_HAS_RIGHT.0 | Self::I420_TOP_HAS_RIGHT.0);
   pub const ALL_TR_AND_BL: Self = Self(Self::ALL_LEFT_HAS_BOTTOM.0 | Self::ALL_TOP_HAS_RIGHT.0);
 
   pub(crate) fn availability(self, required: Self) -> Result<EdgeAvailability, Never> {
     Ok(match (self.0 & required.0 == required.0).then_some(()) {
       Some(()) => EdgeAvailability::Present,
-      None => EdgeAvailability::Missing,
+      None => EdgeAvailability::Absent,
     })
   }
 
@@ -48,27 +47,24 @@ impl EdgeFlags {
     Ok(Self(output))
   }
 
-  pub(crate) const fn select(
-    &self,
-    availability: EdgeAvailability,
-  ) -> Result<Self, Never> {
+  pub(crate) const fn select(&self, availability: EdgeAvailability) -> Result<Self, Never> {
     Ok(match availability {
       EdgeAvailability::Present => *self,
-      EdgeAvailability::Missing => Self::EMPTY,
+      EdgeAvailability::Absent => Self::EMPTY,
     })
   }
 }
 
 pub(crate) enum EdgeAvailability {
   Present,
-  Missing,
+  Absent,
 }
 
 impl From<bool> for EdgeAvailability {
   fn from(available: bool) -> Self {
     match available.then_some(()) {
       Some(()) => Self::Present,
-      None => Self::Missing,
+      None => Self::Absent,
     }
   }
 }
@@ -116,7 +112,6 @@ impl EdgeIndex {
       }
     })
   }
-
 }
 
 #[repr(C)]
@@ -164,8 +159,12 @@ impl EdgeTip {
     let split = [
       EdgeFlags((bits & EdgeFlags::ALL_TOP_HAS_RIGHT.0) | EdgeFlags::I422_LEFT_HAS_BOTTOM.0),
       EdgeFlags(bits | EdgeFlags::I444_TOP_HAS_RIGHT.0),
-      EdgeFlags(bits & (EdgeFlags::I420_TOP_HAS_RIGHT.0 | EdgeFlags::I420_LEFT_HAS_BOTTOM.0
-        | EdgeFlags::I422_LEFT_HAS_BOTTOM.0)),
+      EdgeFlags(
+        bits
+          & (EdgeFlags::I420_TOP_HAS_RIGHT.0
+            | EdgeFlags::I420_LEFT_HAS_BOTTOM.0
+            | EdgeFlags::I422_LEFT_HAS_BOTTOM.0),
+      ),
     ];
     Ok(Self { node, split })
   }
@@ -177,14 +176,24 @@ impl EdgeBranch {
     let (top_right, bottom_left) = match level {
       BlockLevel::Bl16x16 => {
         let lower_chroma = EdgeFlags::I420_LEFT_HAS_BOTTOM.0 | EdgeFlags::I422_LEFT_HAS_BOTTOM.0;
-        (edge_flags.0 & EdgeFlags::I420_TOP_HAS_RIGHT.0, edge_flags.0 & lower_chroma)
+        (
+          edge_flags.0 & EdgeFlags::I420_TOP_HAS_RIGHT.0,
+          edge_flags.0 & lower_chroma,
+        )
       }
-      BlockLevel::Bl8x8 | BlockLevel::Bl32x32 | BlockLevel::Bl64x64 | BlockLevel::Bl128x128 => (0, 0),
+      BlockLevel::Bl8x8 | BlockLevel::Bl32x32 | BlockLevel::Bl64x64 | BlockLevel::Bl128x128 => {
+        (0, 0)
+      }
     };
     let h4 = EdgeFlags(top_right | EdgeFlags::ALL_LEFT_HAS_BOTTOM.0);
     let v4 = EdgeFlags(bottom_left | EdgeFlags::ALL_TOP_HAS_RIGHT.0);
     let Ok(root) = EdgeIndex::root();
-    Ok(Self { node, h4, v4, split: [root; 4] })
+    Ok(Self {
+      node,
+      h4,
+      v4,
+      split: [root; 4],
+    })
   }
 }
 
@@ -222,15 +231,27 @@ const fn child_edge_flags(parent: EdgeFlags) -> Result<[EdgeFlags; 4], Never> {
 const fn split_children(first: u8, kind: EdgeKind) -> Result<[EdgeIndex; 4], Never> {
   Ok([
     EdgeIndex { index: first, kind },
-    EdgeIndex { index: first.wrapping_add(1), kind },
-    EdgeIndex { index: first.wrapping_add(2), kind },
-    EdgeIndex { index: first.wrapping_add(3), kind },
+    EdgeIndex {
+      index: first.wrapping_add(1),
+      kind,
+    },
+    EdgeIndex {
+      index: first.wrapping_add(2),
+      kind,
+    },
+    EdgeIndex {
+      index: first.wrapping_add(3),
+      kind,
+    },
   ])
 }
 
 impl<const N_BRANCH: usize, const N_TIP: usize> IntraEdge<N_BRANCH, N_TIP> {
   const fn new(superblock: SuperblockSize) -> Result<Self, Never> {
-    let mut nodes = Self { branch: [EdgeBranch::DEFAULT; N_BRANCH], tip: [EdgeTip::DEFAULT; N_TIP] };
+    let mut nodes = Self {
+      branch: [EdgeBranch::DEFAULT; N_BRANCH],
+      tip: [EdgeTip::DEFAULT; N_TIP],
+    };
     let (mut level, expected_tips) = match superblock {
       SuperblockSize::Pixels64 => (BlockLevel::Bl64x64, 64u16),
       SuperblockSize::Pixels128 => (BlockLevel::Bl128x128, 256u16),
@@ -300,7 +321,9 @@ impl<const N_BRANCH: usize, const N_TIP: usize> IntraEdge<N_BRANCH, N_TIP> {
   fn edge<E, const N: usize>(edges: &[E; N], edge: EdgeIndex, kind: EdgeKind) -> Rav1dResult<&E> {
     match (edge.kind, kind) {
       (EdgeKind::Branch, EdgeKind::Branch) | (EdgeKind::Tip, EdgeKind::Tip) => {}
-      (EdgeKind::Branch, EdgeKind::Tip) | (EdgeKind::Tip, EdgeKind::Branch) => return Err(EINVAL),
+      (EdgeKind::Branch, EdgeKind::Tip) | (EdgeKind::Tip, EdgeKind::Branch) => {
+        return Err(EINVAL);
+      }
     }
 
     let Ok(index) = console_core_number_conversion::index(edge.index);
@@ -348,7 +371,11 @@ impl IntraEdges {
     Ok(Self { sb128, sb64 })
   }
 
-  pub fn branch(&self, superblock_size: SuperblockSize, branch: EdgeIndex) -> Rav1dResult<&EdgeBranch> {
+  pub fn branch(
+    &self,
+    superblock_size: SuperblockSize,
+    branch: EdgeIndex,
+  ) -> Rav1dResult<&EdgeBranch> {
     match superblock_size {
       SuperblockSize::Pixels128 => self.sb128.branch(branch),
       SuperblockSize::Pixels64 => self.sb64.branch(branch),

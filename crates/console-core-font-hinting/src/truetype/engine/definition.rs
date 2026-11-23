@@ -82,7 +82,10 @@ impl Engine<'_> {
         .ok_or(HintErrorKind::UnexpectedEndOfBytecode)?;
       let ins = decoded?;
 
-      match ::core::primitive::bool::then_some(ins.opcode == Opcode::FDEF || ins.opcode == Opcode::IDEF, ()) {
+      match ::core::primitive::bool::then_some(
+        ins.opcode == Opcode::FDEF || ins.opcode == Opcode::IDEF,
+        (),
+      ) {
         ::core::option::Option::Some(()) => return Err(HintErrorKind::NestedDefinition),
         ::core::option::Option::None => {}
       }
@@ -95,9 +98,11 @@ impl Engine<'_> {
             .ok_or(HintErrorKind::DefinitionTooLarge)?;
           let range = start..end;
 
-          match ::core::primitive::bool::then_some(matches!(self.graphics.is_pedantic, crate::Pedantry::Strict)
-            && range.end.saturating_sub(range.start) > MAX_DEFINITION_SIZE, ())
-          {
+          match ::core::primitive::bool::then_some(
+            matches!(self.graphics.is_pedantic, crate::Pedantry::Strict)
+              && range.end.saturating_sub(range.start) > MAX_DEFINITION_SIZE,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               *def = Default::default();
               return Err(HintErrorKind::DefinitionTooLarge);

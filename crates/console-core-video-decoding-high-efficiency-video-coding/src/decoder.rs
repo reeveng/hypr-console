@@ -878,7 +878,9 @@ impl PictureJob {
       Err(_worker_panicked) => {
         let Ok(()) = recover_rows(&frame);
         Some(Error::Invalid(
-          <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("internal error while decoding a picture"),
+          <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(
+            "internal error while decoding a picture",
+          ),
         ))
       }
     };

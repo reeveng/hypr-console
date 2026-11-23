@@ -34,7 +34,10 @@ impl PaletteBlock {
     let samples = |size: Size<i32>| -> Rav1dResult<Size<u64>> {
       let width = u64::try_from(size.width).map_err(|_negative_width| EINVAL)?;
       let height = u64::try_from(size.height).map_err(|_negative_height| EINVAL)?;
-      Ok(Size { width: width.wrapping_mul(4), height: height.wrapping_mul(4) })
+      Ok(Size {
+        width: width.wrapping_mul(4),
+        height: height.wrapping_mul(4),
+      })
     };
     let block = samples(cells.block)?;
     let visible = samples(cells.visible)?;
@@ -47,7 +50,9 @@ impl PaletteBlock {
       (1.., 1..) => {}
     }
 
-    match (self.visible.width <= self.block.width && self.visible.height <= self.block.height).then_some(()) {
+    match (self.visible.width <= self.block.width && self.visible.height <= self.block.height)
+      .then_some(())
+    {
       Some(()) => {}
       None => return Err(EINVAL),
     }
@@ -56,8 +61,17 @@ impl PaletteBlock {
     let packed_width = self.block.width.wrapping_div(2);
     let visible_pairs = self.visible.width.wrapping_div(2);
     let source = contiguous_layout(self.block)?;
-    let packed = contiguous_layout(Size { width: packed_width, height: self.block.height })?;
-    Ok(PaletteLayouts { shape, visible_pairs, packed_width, source, packed })
+    let packed = contiguous_layout(Size {
+      width: packed_width,
+      height: self.block.height,
+    })?;
+    Ok(PaletteLayouts {
+      shape,
+      visible_pairs,
+      packed_width,
+      source,
+      packed,
+    })
   }
 }
 
@@ -77,7 +91,10 @@ pub(crate) enum PaletteOutput<'a> {
 impl PaletteLayouts {
   pub(crate) fn validate_output(&self, output: &PaletteOutput<'_>) -> Rav1dResult {
     match output {
-      PaletteOutput::Separate(packed) => self.packed.validate_len(packed.len()).map_err(|_short_output| EINVAL),
+      PaletteOutput::Separate(packed) => self
+        .packed
+        .validate_len(packed.len())
+        .map_err(|_short_output| EINVAL),
       PaletteOutput::InPlace => Ok(()),
     }
   }
@@ -95,7 +112,10 @@ impl pal_idx_finish::Fn {
     staging: &mut [u8],
     layouts: &PaletteLayouts,
   ) -> Rav1dResult {
-    layouts.source.validate_len(staging.len()).map_err(|_source_is_short| EINVAL)?;
+    layouts
+      .source
+      .validate_len(staging.len())
+      .map_err(|_source_is_short| EINVAL)?;
 
     match output {
       PaletteOutput::Separate(packed) => finish_separate(packed, staging, layouts),
@@ -105,7 +125,10 @@ impl pal_idx_finish::Fn {
 }
 
 fn finish_separate(output: &mut [u8], source: &[u8], layouts: &PaletteLayouts) -> Rav1dResult {
-  layouts.packed.validate_len(output.len()).map_err(|_packed_is_short| EINVAL)?;
+  layouts
+    .packed
+    .validate_len(output.len())
+    .map_err(|_packed_is_short| EINVAL)?;
 
   #[cfg(target_arch = "x86_64")]
   {
@@ -118,8 +141,14 @@ fn finish_separate(output: &mut [u8], source: &[u8], layouts: &PaletteLayouts) -
     }
   }
 
-  let source_rows = layouts.source.rows(source).map_err(|_short_source| EINVAL)?;
-  let packed_rows = layouts.packed.rows_mut(output).map_err(|_short_output| EINVAL)?;
+  let source_rows = layouts
+    .source
+    .rows(source)
+    .map_err(|_short_source| EINVAL)?;
+  let packed_rows = layouts
+    .packed
+    .rows_mut(output)
+    .map_err(|_short_output| EINVAL)?;
   let Ok(visible_height) = index(layouts.shape.visible.height);
 
   for (packed, source_row) in packed_rows.zip(source_rows).take(visible_height) {
@@ -155,7 +184,10 @@ fn pack_first_row_in_place(staging: &mut [u8], layouts: &PaletteLayouts) -> Rav1
   for pair in 0..layouts.visible_pairs {
     let Ok(input) = index(pair.wrapping_mul(2));
     let Ok(output) = index(pair);
-    let &[low, high] = staging.get(input..).and_then(<[_]>::first_chunk::<2>).ok_or(EINVAL)?;
+    let &[low, high] = staging
+      .get(input..)
+      .and_then(<[_]>::first_chunk::<2>)
+      .ok_or(EINVAL)?;
     let destination = staging.get_mut(output).ok_or(EINVAL)?;
     *destination = low | high.wrapping_shl(4);
   }
@@ -185,10 +217,14 @@ fn finish_in_place(staging: &mut [u8], layouts: &PaletteLayouts) -> Rav1dResult 
     let Ok(output_row_start) = index(output);
     let Ok(source_width) = index(layouts.shape.block.width);
     let Ok(output_width) = index(layouts.packed_width);
-    let (previous, incoming) = staging.split_at_mut_checked(source_row_start).ok_or(EINVAL)?;
+    let (previous, incoming) = staging
+      .split_at_mut_checked(source_row_start)
+      .ok_or(EINVAL)?;
     let source_row = incoming.get(..source_width).ok_or(EINVAL)?;
-    let packed_row = previous.get_mut(output_row_start..)
-      .and_then(|available| available.get_mut(..output_width)).ok_or(EINVAL)?;
+    let packed_row = previous
+      .get_mut(output_row_start..)
+      .and_then(|available| available.get_mut(..output_width))
+      .ok_or(EINVAL)?;
     pack_row(packed_row, source_row, layouts)?;
   }
 
@@ -196,7 +232,10 @@ fn finish_in_place(staging: &mut [u8], layouts: &PaletteLayouts) -> Rav1dResult 
 }
 
 fn pad_bottom(output: &mut [u8], layouts: &PaletteLayouts) -> Rav1dResult {
-  let mut rows = layouts.packed.rows_mut(output).map_err(|_short_output| EINVAL)?;
+  let mut rows = layouts
+    .packed
+    .rows_mut(output)
+    .map_err(|_short_output| EINVAL)?;
   let Ok(last_visible) = index(layouts.shape.visible.height.saturating_sub(1));
   let last = rows.nth(last_visible).ok_or(EINVAL)?;
 
@@ -215,7 +254,9 @@ pub struct Rav1dPalDSPContext {
 
 impl Rav1dPalDSPContext {
   pub const fn default() -> Result<Self, Never> {
-    Ok(Self { pal_idx_finish: pal_idx_finish::Fn::DEFAULT })
+    Ok(Self {
+      pal_idx_finish: pal_idx_finish::Fn::DEFAULT,
+    })
   }
 
   pub const fn new(_flags: CpuFlags) -> Result<Self, Never> {

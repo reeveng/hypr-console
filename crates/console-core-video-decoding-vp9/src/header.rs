@@ -43,7 +43,7 @@ pub enum Precision {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ContextRefresh {
   #[default]
-  Keep,
+  Retain,
   Refresh,
 }
 
@@ -64,7 +64,7 @@ pub enum SizeSource {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MapUpdate {
   #[default]
-  Kept,
+  Retained,
   Explicit,
   Temporal,
 }
@@ -668,7 +668,7 @@ fn adaptation(
       let parallel = reader.read_bits(1)?;
 
       header.refresh = match refresh {
-        0 => ContextRefresh::Keep,
+        0 => ContextRefresh::Retain,
         _refresh => ContextRefresh::Refresh,
       };
 
@@ -678,7 +678,7 @@ fn adaptation(
       };
     }
     Resilience::Resilient => {
-      header.refresh = ContextRefresh::Keep;
+      header.refresh = ContextRefresh::Retain;
       header.adaptation = Adaptation::Parallel;
     }
   }
@@ -791,7 +791,7 @@ fn segmentation_params(
     FlagBit::Zero => SegmentationStatus::Disabled,
     FlagBit::One => SegmentationStatus::Enabled,
   };
-  segmentation.map = MapUpdate::Kept;
+  segmentation.map = MapUpdate::Retained;
 
   match segmentation.status {
     SegmentationStatus::Disabled => Ok(()),

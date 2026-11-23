@@ -1,5 +1,5 @@
-use console_core_never::Never;
 use console_core_extensible_markup::{Children as XmlChildren, Error};
+use console_core_never::Never;
 
 use super::{AId, Document, EId, NodeId, NodeKind, SvgNode};
 
@@ -72,14 +72,24 @@ fn parse_svg_text_element_impl<'input>(
   doc: &mut Document<'input>,
 ) -> Result<(), Error> {
   let Ok(children) = parent.children();
-  let mut pending = vec![TextFrame { children, parent_id: root_id, space: root_space, depth: 0 }];
+  let mut pending = vec![TextFrame {
+    children,
+    parent_id: root_id,
+    space: root_space,
+    depth: 0,
+  }];
 
   while let Some(mut frame) = pending.pop() {
     let node = match frame.children.next() {
       Some(node) => node,
       None => continue,
     };
-    let TextFrame {parent_id, space, depth, ..} = frame;
+    let TextFrame {
+      parent_id,
+      space,
+      depth,
+      ..
+    } = frame;
     pending.push(frame);
 
     match ::core::primitive::bool::then_some(depth > super::parse::MAX_XML_DEPTH, ()) {
@@ -96,14 +106,24 @@ fn parse_svg_text_element_impl<'input>(
       }
       TextChild::Reference => {
         let node_id = super::parse::parse_svg_element(
-          node, parent_id, EId::Tspan, style_sheet, super::parse::IdPolicy::Preserve, doc
+          node,
+          parent_id,
+          EId::Tspan,
+          style_sheet,
+          super::parse::IdPolicy::Preserve,
+          doc,
         )?;
         let Ok(reference_space) = get_xmlspace(doc, node_id, space);
         append_text_reference(node, node_id, reference_space, doc)?;
       }
       TextChild::Span(tag_name) => {
         let node_id = super::parse::parse_svg_element(
-          node, parent_id, tag_name, style_sheet, super::parse::IdPolicy::Preserve, doc
+          node,
+          parent_id,
+          tag_name,
+          style_sheet,
+          super::parse::IdPolicy::Preserve,
+          doc,
         )?;
         let Ok(span_space) = get_xmlspace(doc, node_id, space);
         let Ok(children_2) = node.children();
@@ -225,10 +245,12 @@ fn resolve_tref_text(
     })
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(text.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(text),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(text.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(text),
+    },
+  )
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -263,7 +285,13 @@ enum TrimEdge {
 
 fn trim_leaf_edge(doc: &mut Document, id: NodeId, edge: TrimEdge) -> Result<(), Never> {
   let Ok(index) = id.get();
-  let text = match doc.nodes.get_mut(match ::console_core_number_conversion::index(index) { ::core::result::Result::Ok(native_position) => native_position }).map(|node| &mut node.kind) {
+  let text = match doc
+    .nodes
+    .get_mut(match ::console_core_number_conversion::index(index) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    })
+    .map(|node| &mut node.kind)
+  {
     Some(NodeKind::Text(text)) => text,
     Some(NodeKind::Root | NodeKind::Element { .. }) | None => return Ok(()),
   };
@@ -312,7 +340,8 @@ fn trim_text_nodes(
   }
 
   let mut previous_nonempty = None;
-  let ::core::result::Result::Ok(last_pair) = ::console_core_number_conversion::fixed_index(nodes.len().saturating_sub(2));
+  let ::core::result::Result::Ok(last_pair) =
+    ::console_core_number_conversion::fixed_index(nodes.len().saturating_sub(2));
 
   for (index, pair) in nodes.windows(2).enumerate() {
     let ((original_left, left_depth), (right, right_depth)) = match pair {
@@ -328,23 +357,33 @@ fn trim_text_nodes(
     let Ok((right_start, right_end)) = leaf_space_edges(doc, right);
     let Ok(left_space) = leaf_xmlspace(doc, left, xmlspace);
     let Ok(right_space) = leaf_xmlspace(doc, right, xmlspace);
-    let Ok(()) = trim_between_leaves(doc, TextLeafPair {
-      left,
-      right,
-      adjacency: match (left_end, right_start) {
-        (_, false) => SpaceAdjacency::RightText,
-        (false, true) => SpaceAdjacency::LeadingOnly,
-        (true, true) => SpaceAdjacency::DoubleSpace,
+    let Ok(()) = trim_between_leaves(
+      doc,
+      TextLeafPair {
+        left,
+        right,
+        adjacency: match (left_end, right_start) {
+          (_, false) => SpaceAdjacency::RightText,
+          (false, true) => SpaceAdjacency::LeadingOnly,
+          (true, true) => SpaceAdjacency::DoubleSpace,
+        },
+        left_space,
+        right_space,
+        ordering: left_depth.cmp(&right_depth),
       },
-      left_space,
-      right_space,
-      ordering: left_depth.cmp(&right_depth),
-    });
+    );
 
     let Ok(trimmed_left) = leaf_text(doc, left);
 
-    match (index == 0 && left_start && left_space == XmlSpace::Default && !trimmed_left.is_empty(),
-           index == match ::console_core_number_conversion::index(last_pair) { ::core::result::Result::Ok(native_position) => native_position } && right_end && right_space == XmlSpace::Default) {
+    match (
+      index == 0 && left_start && left_space == XmlSpace::Default && !trimmed_left.is_empty(),
+      index
+        == match ::console_core_number_conversion::index(last_pair) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }
+        && right_end
+        && right_space == XmlSpace::Default,
+    ) {
       (true, _) => {
         let Ok(()) = trim_leaf_edge(doc, left, TrimEdge::Leading);
       }
@@ -356,7 +395,15 @@ fn trim_text_nodes(
 
     let Ok(right_text) = leaf_text(doc, right);
 
-    match ::core::primitive::bool::then_some(index == match ::console_core_number_conversion::index(last_pair) { ::core::result::Result::Ok(native_position) => native_position } && left_end && right_text.is_empty(), ()) {
+    match ::core::primitive::bool::then_some(
+      index
+        == match ::console_core_number_conversion::index(last_pair) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }
+        && left_end
+        && right_text.is_empty(),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(()) = trim_leaf_edge(doc, left, TrimEdge::Trailing);
       }
@@ -392,18 +439,34 @@ enum SpaceAdjacency {
 fn trim_between_leaves(doc: &mut Document, pair: TextLeafPair) -> Result<(), Never> {
   use core::cmp::Ordering;
 
-  let TextLeafPair { left, right, adjacency, left_space, right_space, ordering } = pair;
+  let TextLeafPair {
+    left,
+    right,
+    adjacency,
+    left_space,
+    right_space,
+    ordering,
+  } = pair;
 
   match (ordering, adjacency, left_space, right_space) {
-    (Ordering::Less, SpaceAdjacency::LeadingOnly | SpaceAdjacency::DoubleSpace, _, XmlSpace::Default) => {
-      trim_leaf_edge(doc, right, TrimEdge::Leading)
-    }
-    (Ordering::Equal | Ordering::Greater, SpaceAdjacency::DoubleSpace, XmlSpace::Default, XmlSpace::Default) => {
-      trim_leaf_edge(doc, left, TrimEdge::Trailing)
-    }
-    (Ordering::Equal | Ordering::Greater, SpaceAdjacency::DoubleSpace, XmlSpace::Preserve, XmlSpace::Default) => {
-      trim_leaf_edge(doc, right, TrimEdge::Leading)
-    }
+    (
+      Ordering::Less,
+      SpaceAdjacency::LeadingOnly | SpaceAdjacency::DoubleSpace,
+      _,
+      XmlSpace::Default,
+    ) => trim_leaf_edge(doc, right, TrimEdge::Leading),
+    (
+      Ordering::Equal | Ordering::Greater,
+      SpaceAdjacency::DoubleSpace,
+      XmlSpace::Default,
+      XmlSpace::Default,
+    ) => trim_leaf_edge(doc, left, TrimEdge::Trailing),
+    (
+      Ordering::Equal | Ordering::Greater,
+      SpaceAdjacency::DoubleSpace,
+      XmlSpace::Preserve,
+      XmlSpace::Default,
+    ) => trim_leaf_edge(doc, right, TrimEdge::Leading),
     _ => Ok(()),
   }
 }
@@ -480,7 +543,10 @@ fn trim_text(
       _ => c,
     };
 
-    match ::core::primitive::bool::then_some(space == XmlSpace::Default && c_2 == ' ' && c_2 == prev, ()) {
+    match ::core::primitive::bool::then_some(
+      space == XmlSpace::Default && c_2 == ' ' && c_2 == prev,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         continue;
       }

@@ -712,7 +712,14 @@ fn concat(a: Transform, b: Transform) -> Result<Transform, Never> {
   let second = rounded_column(Point { x: b.kx, y: b.sy });
   let offset = rounded_column(Point { x: b.tx, y: b.ty });
 
-  Transform::from_row(first.x, first.y, second.x, second.y, offset.x + a.tx, offset.y + a.ty)
+  Transform::from_row(
+    first.x,
+    first.y,
+    second.x,
+    second.y,
+    offset.x + a.tx,
+    offset.y + a.ty,
+  )
 }
 
 #[cfg(test)]

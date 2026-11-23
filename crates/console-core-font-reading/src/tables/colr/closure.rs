@@ -135,13 +135,15 @@ fn lookup_glyph_record<R>(
   wanted: GlyphId16,
   glyph_id: impl Fn(&R) -> Result<GlyphId16, Never>,
 ) -> Result<Option<&R>, Never> {
-  Ok(match records.binary_search_by(|record| {
-    let Ok(glyph) = glyph_id(record);
-    glyph.cmp(&wanted)
-  }) {
-    Ok(index) => records.get(index),
-    Err(_insertion_position) => None,
-  })
+  Ok(
+    match records.binary_search_by(|record| {
+      let Ok(glyph) = glyph_id(record);
+      glyph.cmp(&wanted)
+    }) {
+      Ok(index) => records.get(index),
+      Err(_insertion_position) => None,
+    },
+  )
 }
 
 fn visit_selected_records<R, C>(
@@ -181,8 +183,8 @@ fn visit_selected_records<R, C>(
 
       return Ok(());
     }
-    (Membership::Inclusive, Ordering::Equal | Ordering::Greater)
-    | (Membership::Exclusive, _) => {}
+    (Membership::Inclusive, Ordering::Equal | Ordering::Greater) | (Membership::Exclusive, _) => {
+    }
   }
 
   for record in records {
@@ -875,7 +877,10 @@ mod tests {
     let Ok(()) = verify_glyphs(&glyphs, &[6, 7, 220, 3, 2, 120]);
     let Ok(()) = verify_members(&palette, &[0, 4, 10, 11, 12]);
     let Ok(()) = verify_members(&layers, &[0, 1]);
-    assert_eq!(variations.is_empty(), Ok(console_core_integer_sets::Emptiness::Empty));
+    assert_eq!(
+      variations.is_empty(),
+      Ok(console_core_integer_sets::Emptiness::Empty)
+    );
     Ok(())
   }
 

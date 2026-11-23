@@ -33,9 +33,9 @@ pub(crate) fn fixture_value<T: FixtureValue>(
   description: &str,
 ) -> Result<T::Value, Failure> {
   let at = Location::caller();
-  outcome
-    .checked()
-    .map_err(|error| crate::test_support::Failure::from(format!("{description} at {at}: {error}")))
+  outcome.checked().map_err(|error| {
+    crate::test_support::Failure::from(format!("{description} at {at}: {error}"))
+  })
 }
 
 #[track_caller]
@@ -46,7 +46,9 @@ pub(crate) fn fixture_error<T: Debug, E>(
   let at = Location::caller();
 
   match outcome {
-    Ok(value) => Err(crate::test_support::Failure::from(format!("{description} at {at}: read succeeded with {value:?}"))),
+    Ok(value) => Err(crate::test_support::Failure::from(format!(
+      "{description} at {at}: read succeeded with {value:?}"
+    ))),
     Err(error) => Ok(error),
   }
 }

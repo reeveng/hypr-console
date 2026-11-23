@@ -698,14 +698,16 @@ impl<'a> Reading<'a> {
         std::cmp::Ordering::Equal => Ok(ReadStep::Closed),
         std::cmp::Ordering::Greater => Err(Error::Short),
       },
-      ReadFrame::Variant { .. } => match ::core::primitive::bool::then_some(top.held.is_empty(), ()) {
-        ::core::option::Option::Some(()) => {
-          let head = top.walking.head()?;
+      ReadFrame::Variant { .. } => {
+        match ::core::primitive::bool::then_some(top.held.is_empty(), ()) {
+          ::core::option::Option::Some(()) => {
+            let head = top.walking.head()?;
 
-          self.one(head, &mut top.walking)
+            self.one(head, &mut top.walking)
+          }
+          ::core::option::Option::None => Ok(ReadStep::Closed),
         }
-        ::core::option::Option::None => Ok(ReadStep::Closed),
-      },
+      }
     }
   }
 
@@ -1432,7 +1434,10 @@ impl Message {
 
     let Ok(limit) = index(MAX_MESSAGE_BYTES);
 
-    match ::core::primitive::bool::then_some(whole.bytes.len().saturating_add(body.bytes.len()) > limit, ()) {
+    match ::core::primitive::bool::then_some(
+      whole.bytes.len().saturating_add(body.bytes.len()) > limit,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Err(Error::MessageTooLarge),
       ::core::option::Option::None => {}
     }

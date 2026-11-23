@@ -708,7 +708,7 @@ impl<'a> MinByteRange<'a> for IndexSubtableList<'a> {
 }
 
 impl ReadArgs for IndexSubtableList<'_> {
-    type Args = u32;
+    type Arguments = u32;
 }
 
 impl<'a> FontReadWithArgs<'a> for IndexSubtableList<'a> {
@@ -886,7 +886,7 @@ impl<'a> MinByteRange<'a> for IndexSubtable1<'a> {
 }
 
 impl ReadArgs for IndexSubtable1<'_> {
-    type Args = (GlyphId16, GlyphId16);
+    type Arguments = (GlyphId16, GlyphId16);
 }
 
 impl<'a> FontReadWithArgs<'a> for IndexSubtable1<'a> {
@@ -1200,7 +1200,7 @@ impl<'a> MinByteRange<'a> for IndexSubtable3<'a> {
 }
 
 impl ReadArgs for IndexSubtable3<'_> {
-    type Args = (GlyphId16, GlyphId16);
+    type Arguments = (GlyphId16, GlyphId16);
 }
 
 impl<'a> FontReadWithArgs<'a> for IndexSubtable3<'a> {

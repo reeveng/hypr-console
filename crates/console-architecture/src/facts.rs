@@ -212,10 +212,14 @@ pub fn portable_violations(
     let description = match fact.kind {
       Kind::HostAccess => format!("reaches {}", fact.what),
       Kind::Links => match libraries.get(&fact.what) {
-        Some(library) => match ::core::primitive::bool::then_some(library.starts_with("console-operating-system-")
-          || host_libraries.contains(library.as_str()), ())
-        {
-          ::core::option::Option::Some(()) => format!("links to {library}, which supplies or uses host services"),
+        Some(library) => match ::core::primitive::bool::then_some(
+          library.starts_with("console-operating-system-")
+            || host_libraries.contains(library.as_str()),
+          (),
+        ) {
+          ::core::option::Option::Some(()) => {
+            format!("links to {library}, which supplies or uses host services")
+          }
           ::core::option::Option::None => continue,
         },
         None => continue,

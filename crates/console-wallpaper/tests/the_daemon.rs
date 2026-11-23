@@ -5,7 +5,7 @@ use std::time::Duration;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_program_contract::{
-  Answer, Command, Effect, Event, EventGroup, Exit, ExitStatus, Fork, Job, JobId, JobOwner,
+  Answer, Command, Effect, Event, EventGroup, Exit, ExitStatus, Fork, Task, JobId, JobOwner,
   Subscription, Timer,
 };
 use console_program_runtime::simulation::{After, Expected, Simulation};
@@ -76,7 +76,7 @@ fn attempt(id: u64, delay: Duration, status: ExitStatus) -> Result<(Script, Answ
   let Ok(url) = conditions::request_url(&AT);
   let Ok(arguments) = conditions::request_arguments(&url);
   let Ok(command) = Command::external(Program::Curl, &arguments);
-  let job = Job {
+  let job = Task {
     owner: JobOwner("wallpaper weather"),
     id: JobId(id),
   };

@@ -283,7 +283,7 @@ impl InloopFilters {
   pub const fn coverage(&self, other: Self) -> FilterCoverage {
     match other.bits & !self.bits {
       0 => FilterCoverage::Included,
-      _ => FilterCoverage::Missing,
+      _ => FilterCoverage::Absent,
     }
   }
 
@@ -299,7 +299,7 @@ impl InloopFilters {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterCoverage {
   Included,
-  Missing,
+  Absent,
 }
 
 impl From<InloopFilters> for Rav1dInloopFilterType {

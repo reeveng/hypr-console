@@ -65,10 +65,12 @@ impl State {
   }
 
   fn read(said: &str) -> Result<State, Never> {
-    Ok(match ::core::primitive::bool::then_some(said.trim() == FINISHED, ()) {
-      ::core::option::Option::Some(()) => State::Finished,
-      ::core::option::Option::None => State::Started,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(said.trim() == FINISHED, ()) {
+        ::core::option::Option::Some(()) => State::Finished,
+        ::core::option::Option::None => State::Started,
+      },
+    )
   }
 }
 
@@ -87,10 +89,12 @@ impl Boot {
   }
 
   fn read(said: &str) -> Result<Boot, Never> {
-    Ok(match ::core::primitive::bool::then_some(said.trim() == GOOD, ()) {
-      ::core::option::Option::Some(()) => Boot::Good,
-      ::core::option::Option::None => Boot::Pending,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(said.trim() == GOOD, ()) {
+        ::core::option::Option::Some(()) => Boot::Good,
+        ::core::option::Option::None => Boot::Pending,
+      },
+    )
   }
 }
 
@@ -223,10 +227,12 @@ fn one(number: u32, held: &str) -> Result<Generation, Never> {
 pub fn read(at: &Path) -> Result<Vec<Generation>, Unapplied> {
   let entries = match std::fs::read_dir(at) {
     Ok(entries) => entries,
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => return Ok(Vec::new()),
-      ::core::option::Option::None => return Err(Unapplied::Read(at.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => return Ok(Vec::new()),
+        ::core::option::Option::None => return Err(Unapplied::Read(at.to_path_buf(), fault)),
+      }
+    }
   };
 
   let mut kept: Vec<Generation> = Vec::new();

@@ -109,8 +109,12 @@ impl fmt::Display for Unapplied {
       Unapplied::Read(at, fault) => {
         write!(to, "{} could not be read: {fault}", at.display())
       }
-      Unapplied::NotAnExecutable(at) => write!(to, "{} must be a regular executable", at.display()),
-      Unapplied::CheckoutSwitch(fault) => write!(to, "could not switch the release checkout: {fault}"),
+      Unapplied::NotAnExecutable(at) => {
+        write!(to, "{} must be a regular executable", at.display())
+      }
+      Unapplied::CheckoutSwitch(fault) => {
+        write!(to, "could not switch the release checkout: {fault}")
+      }
       Unapplied::Unsaid(at, fault) => {
         write!(to, "{} could not be read: {fault}", at.display())
       }

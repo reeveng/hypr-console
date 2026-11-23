@@ -22,15 +22,18 @@ impl Gpos<'_> {
     let Ok(value_1) = script_list_offset.nullness();
     let value_1_2 = matches!(value_1, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some({
-      value_1_2 || {
-        let Ok(feature_list_offset) = self.feature_list_offset();
-        let Ok(value_26) = feature_list_offset.nullness();
-        let value_26_2 = matches!(value_26, font_types::Nullness::Null);
+    match ::core::primitive::bool::then_some(
+      {
+        value_1_2 || {
+          let Ok(feature_list_offset) = self.feature_list_offset();
+          let Ok(value_26) = feature_list_offset.nullness();
+          let value_26_2 = matches!(value_26, font_types::Nullness::Null);
 
-        value_26_2
-      }
-    }, ()) {
+          value_26_2
+        }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_3) = IntSet::empty();
 
@@ -108,7 +111,10 @@ impl PositionLookupList<'_> {
     let Ok(()) = lookup_indices.remove_range(lookup_count..=u16::MAX);
     let Ok(value_8) = lookup_indices.is_empty();
 
-    match ::core::primitive::bool::then_some(value_8 == console_core_integer_sets::Emptiness::Empty, ()) {
+    match ::core::primitive::bool::then_some(
+      value_8 == console_core_integer_sets::Emptiness::Empty,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -150,7 +156,13 @@ impl LookupClosure for PositionLookup<'_> {
     c: &mut LookupClosureCtx,
     lookup_index: u16,
   ) -> Result<(), ReadError> {
-    match ::core::primitive::bool::then_some(matches!(c.visit_lookup(lookup_index), Ok(crate::tables::layout::VisitDecision::Skip)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(
+        c.visit_lookup(lookup_index),
+        Ok(crate::tables::layout::VisitDecision::Skip)
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -355,13 +367,16 @@ impl Intersect for PairPosFormat1<'_> {
     let num_bits = ::core::primitive::u32::wrapping_sub(16, num_pair_sets.leading_zeros());
     let Ok(value_13) = glyph_set.len();
 
-    match ::core::primitive::bool::then_some(({
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_pair_sets);
-      migrated_value
-    }) > ::core::primitive::u64::wrapping_mul(value_13, {
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_bits);
-      migrated_value
-    }), ()) {
+    match ::core::primitive::bool::then_some(
+      ({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_pair_sets);
+        migrated_value
+      }) > ::core::primitive::u64::wrapping_mul(value_13, {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_bits);
+        migrated_value
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_34) = glyph_set.iter();
 
@@ -397,7 +412,10 @@ impl Intersect for PairPosFormat1<'_> {
         for (g, pair_set) in coverage.iter().zip(value_35) {
           let Ok(value_14) = glyph_set.contains(GlyphId::from(g));
 
-          match ::core::primitive::bool::then_some(value_14 == console_core_integer_sets::Presence::Absent, ()) {
+          match ::core::primitive::bool::then_some(
+            value_14 == console_core_integer_sets::Presence::Absent,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               continue;
             }
@@ -438,7 +456,10 @@ impl Intersect for PairSet<'_> {
       let Ok(second_glyph) = pair_record.second_glyph();
       let Ok(value_15) = glyph_set.contains(GlyphId::from(second_glyph));
 
-      match ::core::primitive::bool::then_some(value_15 == console_core_integer_sets::Presence::Present, ()) {
+      match ::core::primitive::bool::then_some(
+        value_15 == console_core_integer_sets::Presence::Present,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(true);
         }
@@ -456,23 +477,26 @@ impl Intersect for PairPosFormat2<'_> {
     let Ok(value_16) = coverage_offset.nullness();
     let value_16_2 = matches!(value_16, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some({
-      value_16_2
-        || {
-          let Ok(class_def1_offset) = self.class_def1_offset();
-          let Ok(value_28) = class_def1_offset.nullness();
-          let value_28_2 = matches!(value_28, font_types::Nullness::Null);
+    match ::core::primitive::bool::then_some(
+      {
+        value_16_2
+          || {
+            let Ok(class_def1_offset) = self.class_def1_offset();
+            let Ok(value_28) = class_def1_offset.nullness();
+            let value_28_2 = matches!(value_28, font_types::Nullness::Null);
 
-          value_28_2
-        }
-        || {
-          let Ok(class_def2_offset) = self.class_def2_offset();
-          let Ok(value_29) = class_def2_offset.nullness();
-          let value_29_2 = matches!(value_29, font_types::Nullness::Null);
+            value_28_2
+          }
+          || {
+            let Ok(class_def2_offset) = self.class_def2_offset();
+            let Ok(value_29) = class_def2_offset.nullness();
+            let value_29_2 = matches!(value_29, font_types::Nullness::Null);
 
-          value_29_2
-        }
-    }, ()) {
+            value_29_2
+          }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(false);
       }
@@ -516,15 +540,18 @@ impl Intersect for MarkBasePosFormat1<'_> {
     let Ok(value_20) = mark_coverage_offset.nullness();
     let value_20_2 = matches!(value_20, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some({
-      value_20_2 || {
-        let Ok(base_coverage_offset) = self.base_coverage_offset();
-        let Ok(value_30) = base_coverage_offset.nullness();
-        let value_30_2 = matches!(value_30, font_types::Nullness::Null);
+    match ::core::primitive::bool::then_some(
+      {
+        value_20_2 || {
+          let Ok(base_coverage_offset) = self.base_coverage_offset();
+          let Ok(value_30) = base_coverage_offset.nullness();
+          let value_30_2 = matches!(value_30, font_types::Nullness::Null);
 
-        value_30_2
-      }
-    }, ()) {
+          value_30_2
+        }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(false);
       }
@@ -533,10 +560,13 @@ impl Intersect for MarkBasePosFormat1<'_> {
 
     let mark_coverage = self.mark_coverage()?;
 
-    Ok(mark_coverage.intersects(glyph_set) && {
-      let base_coverage = self.base_coverage()?;
-      base_coverage
-    }.intersects(glyph_set))
+    Ok(
+      mark_coverage.intersects(glyph_set) && {
+        let base_coverage = self.base_coverage()?;
+        base_coverage
+      }
+      .intersects(glyph_set),
+    )
   }
 }
 
@@ -546,15 +576,18 @@ impl Intersect for MarkLigPosFormat1<'_> {
     let Ok(value_22) = mark_coverage_offset.nullness();
     let value_22_2 = matches!(value_22, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some({
-      value_22_2 || {
-        let Ok(ligature_coverage_offset) = self.ligature_coverage_offset();
-        let Ok(value_31) = ligature_coverage_offset.nullness();
-        let value_31_2 = matches!(value_31, font_types::Nullness::Null);
+    match ::core::primitive::bool::then_some(
+      {
+        value_22_2 || {
+          let Ok(ligature_coverage_offset) = self.ligature_coverage_offset();
+          let Ok(value_31) = ligature_coverage_offset.nullness();
+          let value_31_2 = matches!(value_31, font_types::Nullness::Null);
 
-        value_31_2
-      }
-    }, ()) {
+          value_31_2
+        }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(false);
       }
@@ -563,10 +596,13 @@ impl Intersect for MarkLigPosFormat1<'_> {
 
     let mark_coverage = self.mark_coverage()?;
 
-    Ok(mark_coverage.intersects(glyph_set) && {
-      let ligature_coverage = self.ligature_coverage()?;
-      ligature_coverage
-    }.intersects(glyph_set))
+    Ok(
+      mark_coverage.intersects(glyph_set) && {
+        let ligature_coverage = self.ligature_coverage()?;
+        ligature_coverage
+      }
+      .intersects(glyph_set),
+    )
   }
 }
 
@@ -576,15 +612,18 @@ impl Intersect for MarkMarkPosFormat1<'_> {
     let Ok(value_24) = mark1_coverage_offset.nullness();
     let value_24_2 = matches!(value_24, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some({
-      value_24_2 || {
-        let Ok(mark2_coverage_offset) = self.mark2_coverage_offset();
-        let Ok(value_32) = mark2_coverage_offset.nullness();
-        let value_32_2 = matches!(value_32, font_types::Nullness::Null);
+    match ::core::primitive::bool::then_some(
+      {
+        value_24_2 || {
+          let Ok(mark2_coverage_offset) = self.mark2_coverage_offset();
+          let Ok(value_32) = mark2_coverage_offset.nullness();
+          let value_32_2 = matches!(value_32, font_types::Nullness::Null);
 
-        value_32_2
-      }
-    }, ()) {
+          value_32_2
+        }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(false);
       }
@@ -593,9 +632,12 @@ impl Intersect for MarkMarkPosFormat1<'_> {
 
     let mark1_coverage = self.mark1_coverage()?;
 
-    Ok(mark1_coverage.intersects(glyph_set) && {
-      let secondary_mark_coverage = self.mark2_coverage()?;
-      secondary_mark_coverage
-    }.intersects(glyph_set))
+    Ok(
+      mark1_coverage.intersects(glyph_set) && {
+        let secondary_mark_coverage = self.mark2_coverage()?;
+        secondary_mark_coverage
+      }
+      .intersects(glyph_set),
+    )
   }
 }

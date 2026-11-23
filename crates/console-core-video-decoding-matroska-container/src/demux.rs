@@ -352,7 +352,9 @@ impl MkvFile {
 
     match ::core::primitive::bool::then_some(end <= source_length, ()) {
       ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return Err(Error::Io(io::Error::from(io::ErrorKind::UnexpectedEof))),
+      ::core::option::Option::None => {
+        return Err(Error::Io(io::Error::from(io::ErrorKind::UnexpectedEof)));
+      }
     }
 
     let Ok(mut data) = held.frame_prefix(size);

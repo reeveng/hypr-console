@@ -195,7 +195,8 @@ extern "C" fn on_signal(_number: core::ffi::c_int) {
 
   match rustix::process::Pid::from_raw(pid.max(0)) {
     Some(pid_2) => {
-      let _the_chosen_process_may_already_have_exited = rustix::process::kill_process(pid_2, rustix::process::Signal::TERM);
+      let _the_chosen_process_may_already_have_exited =
+        rustix::process::kill_process(pid_2, rustix::process::Signal::TERM);
     }
     None => {}
   }
@@ -301,10 +302,12 @@ fn meanwhile(handle: &mut File) -> Result<Meanwhile, Never> {
     let Ok(said) = read(handle_2);
     let Ok((_pid, drawn)) = holder(&said);
 
-    Ok(match ::core::primitive::bool::then_some(!drawn.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Some(Meanwhile::Rendered),
-      ::core::option::Option::None => None,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(!drawn.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Some(Meanwhile::Rendered),
+        ::core::option::Option::None => None,
+      },
+    )
   });
 
   Ok(match answer {
@@ -602,7 +605,9 @@ fn freed_from(handle: &File, pid: i32, name: &str) -> Result<Outcome, Never> {
 
   match taken {
     Outcome::Happened => {}
-    Outcome::RanOut => console_core_logging::warn!("{name}: {pid} was taken off the screen and it is not free"),
+    Outcome::RanOut => {
+      console_core_logging::warn!("{name}: {pid} was taken off the screen and it is not free")
+    }
   }
 
   Ok(taken)
@@ -637,10 +642,12 @@ fn given_up(handle: &File, patience: Duration) -> Result<Outcome, Never> {
   until(patience_2, || {
     let Ok(got) = take(handle);
 
-    Ok(match ::core::primitive::bool::then_some(got == Took::It, ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(got == Took::It, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   })
 }
 

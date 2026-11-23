@@ -54,14 +54,17 @@ impl Fingers {
         let Ok(now) = apart(&self.pressed);
 
         match (was, now) {
-          (Some(was_2), Some(now_2)) => match ::core::primitive::bool::then_some(was_2 > 0.0, ()) {
+          (Some(was_2), Some(now_2)) => match ::core::primitive::bool::then_some(was_2 > 0.0, ())
+          {
             ::core::option::Option::Some(()) => Some(PointerEvent::Pinched { by: now_2 / was_2 }),
             ::core::option::Option::None => None,
           },
-          (None, _) | (Some(_), None) => match ::core::primitive::bool::then_some(first == Some(id), ()) {
-            ::core::option::Option::Some(()) => Some(PointerEvent::Moved { at }),
-            ::core::option::Option::None => None,
-          },
+          (None, _) | (Some(_), None) => {
+            match ::core::primitive::bool::then_some(first == Some(id), ()) {
+              ::core::option::Option::Some(()) => Some(PointerEvent::Moved { at }),
+              ::core::option::Option::None => None,
+            }
+          }
         }
       }
       Touch::Up { id } => {

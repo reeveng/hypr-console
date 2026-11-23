@@ -492,10 +492,11 @@ pub fn read_scale_factors_mpeg2<B: ReadBitsLtr>(
   match intensity {
     Switch::On => {}
     Switch::Off => {
-      channel.preflag = match ::core::primitive::bool::then_some(channel.scalefac_compress >= 500, ()) {
-        ::core::option::Option::Some(()) => Switch::On,
-        ::core::option::Option::None => Switch::Off,
-      }
+      channel.preflag =
+        match ::core::primitive::bool::then_some(channel.scalefac_compress >= 500, ()) {
+          ::core::option::Option::Some(()) => Switch::On,
+          ::core::option::Option::None => Switch::Off,
+        }
     }
   }
 

@@ -483,10 +483,12 @@ fn graphics_on(
   };
 
   match u64::try_from(size_of::<ModeInformation>()) {
-    Ok(required) => match ::core::primitive::bool::then_some(mode.information_size >= required, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return Ok(None),
-    },
+    Ok(required) => {
+      match ::core::primitive::bool::then_some(mode.information_size >= required, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => return Ok(None),
+      }
+    }
     Err(_wide) => return Ok(None),
   }
 
@@ -503,14 +505,16 @@ fn graphics_on(
   let supported = matches!(information.pixel_format, RED_GREEN_BLUE | BLUE_GREEN_RED);
   let aligned = mode.frame_buffer_base.is_multiple_of(BYTES_IN_A_PIXEL);
 
-  match ::core::primitive::bool::then_some(supported
-    && aligned
-    && mode.frame_buffer_base != 0
-    && width != 0
-    && height != 0
-    && stride >= width
-    && stride.saturating_mul(height) <= pixels, ())
-  {
+  match ::core::primitive::bool::then_some(
+    supported
+      && aligned
+      && mode.frame_buffer_base != 0
+      && width != 0
+      && height != 0
+      && stride >= width
+      && stride.saturating_mul(height) <= pixels,
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ok(Some(Graphics {
       base: mode.frame_buffer_base,
       pixels,
@@ -692,19 +696,22 @@ pub fn pool_allocate(layout: Layout) -> Result<*mut u8, Never> {
   let size = u64::try_from(layout.size());
 
   Ok(match (services.is_null(), alignment, size) {
-    (false, Ok(alignment_2), Ok(size_2)) => match ::core::primitive::bool::then_some(alignment_2 <= POOL_ALIGNMENT, ()) {
-      ::core::option::Option::Some(()) => {
-        let mut at = ptr::null_mut();
-        // SAFETY: `services` is the boot services table the firmware handed over, stored before the first allocation and emptied when they are exited.
-        let status: Status = unsafe { ((*services).allocate_pool)(LOADER_DATA, size_2, &mut at) };
+    (false, Ok(alignment_2), Ok(size_2)) => {
+      match ::core::primitive::bool::then_some(alignment_2 <= POOL_ALIGNMENT, ()) {
+        ::core::option::Option::Some(()) => {
+          let mut at = ptr::null_mut();
+          // SAFETY: `services` is the boot services table the firmware handed over, stored before the first allocation and emptied when they are exited.
+          let status: Status =
+            unsafe { ((*services).allocate_pool)(LOADER_DATA, size_2, &mut at) };
 
-        match status {
-          SUCCESS => at,
-          _ => ptr::null_mut(),
+          match status {
+            SUCCESS => at,
+            _ => ptr::null_mut(),
+          }
         }
+        ::core::option::Option::None => ptr::null_mut(),
       }
-      ::core::option::Option::None => ptr::null_mut(),
-    },
+    }
     (true, _, _) => ptr::null_mut(),
     (false, Err(_too_large), _) | (false, _, Err(_too_large)) => ptr::null_mut(),
   })

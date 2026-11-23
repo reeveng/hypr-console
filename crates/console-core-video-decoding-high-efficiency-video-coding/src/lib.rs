@@ -78,7 +78,10 @@ pub use console_core_video_planes::Plane;
 
 #[cfg_attr(
   dylint_lib = "explicit048_no_unreal_state",
-  expect(explicit048_no_unreal_state, reason = "the established public picture record exposes its keyframe and draft flags separately; decoder output computes both fields from typed frame metadata")
+  expect(
+    explicit048_no_unreal_state,
+    reason = "the established public picture record exposes its keyframe and draft flags separately; decoder output computes both fields from typed frame metadata"
+  )
 )]
 #[derive(Clone, Debug)]
 pub struct Picture {

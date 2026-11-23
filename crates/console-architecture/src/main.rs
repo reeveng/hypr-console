@@ -183,10 +183,15 @@ fn gather(into: &Path, built: &BTreeSet<Built>) -> Result<String, MapError> {
 
     match std::fs::read_to_string(&at) {
       Ok(facts) => said.push_str(&facts),
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => missing.push(format!("{} ({})", one.package, one.target)),
-        ::core::option::Option::None => return Err(MapError::ReadFile(at, fault)),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => {
+            missing.push(format!("{} ({})", one.package, one.target))
+          }
+          ::core::option::Option::None => return Err(MapError::ReadFile(at, fault)),
+        }
+      }
     }
   }
 

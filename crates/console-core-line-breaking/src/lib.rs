@@ -141,15 +141,17 @@ impl<I: Iterator<Item = (Index, char)>, Index: Copy> Iterator for LineBreaks<I, 
       Progress::Scanning(row) => row,
       Progress::Finished => return None,
     };
-    let walked = self.chars.try_fold(initial_row, |row, (position, character)| {
-      let Ok(class) = class_of(character);
-      let Ok((after, found)) = step(row, position, class);
+    let walked = self
+      .chars
+      .try_fold(initial_row, |row, (position, character)| {
+        let Ok(class) = class_of(character);
+        let Ok((after, found)) = step(row, position, class);
 
-      match found {
-        Some(item) => ControlFlow::Break((after, item)),
-        None => ControlFlow::Continue(after),
-      }
-    });
+        match found {
+          Some(item) => ControlFlow::Break((after, item)),
+          None => ControlFlow::Continue(after),
+        }
+      });
 
     match walked {
       ControlFlow::Break((after, item)) => {

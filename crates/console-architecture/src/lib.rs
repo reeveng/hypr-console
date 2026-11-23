@@ -14,8 +14,8 @@
 //! `tools/explicit-rust/architecture_facts` and kept, one line per fact, in
 //! `docs/architecture/facts.jsonl`. The facts are committed rather than
 //! collected on every test, because collecting them wants the lint suite's
-//! nightly and a check of every crate, which is minutes; `just map` collects
-//! them, and `just ready` fails when collecting them again would change a line.
+//! nightly and a check of every crate, which takes minutes. `just map` collects
+//! the facts, and `just map-check` validates the saved snapshot on demand.
 //!
 //! A crate's link to a library is kept only when that library does something
 //! the map draws. Every crate links most of the core, and the one question a
@@ -96,10 +96,13 @@ fn unit_files(at: &Path) -> Result<Vec<Unit>, Unread> {
     let path = entry.path();
     let metadata = match path.metadata() {
       Ok(metadata) => metadata,
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => continue,
-        ::core::option::Option::None => return Err(Unread::Read(path, fault)),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => continue,
+          ::core::option::Option::None => return Err(Unread::Read(path, fault)),
+        }
+      }
     };
 
     match ::core::primitive::bool::then_some(metadata.is_file(), ()) {

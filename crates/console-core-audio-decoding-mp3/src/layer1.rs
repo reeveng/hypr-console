@@ -166,7 +166,9 @@ fn read_samples(
       let place = [slot, plan.channels];
 
       let read = match ::core::primitive::bool::then_some(at < plan.bound, ()) {
-        ::core::option::Option::Some(()) => read_slot_per_channel(bs, band, [left_2, right_2], place),
+        ::core::option::Option::Some(()) => {
+          read_slot_per_channel(bs, band, [left_2, right_2], place)
+        }
         ::core::option::Option::None => read_slot(bs, band, [left_2, right_2], place),
       };
 

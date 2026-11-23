@@ -58,10 +58,16 @@ pub(crate) fn convert(
     None => return Ok(None),
   };
 
-  let Ok(convert_group) =
-    converter::convert_group(node, state, converter::GroupRequirement::AsNeeded, cache, parent, &|cache_2, g| {
+  let Ok(convert_group) = converter::convert_group(
+    node,
+    state,
+    converter::GroupRequirement::AsNeeded,
+    cache,
+    parent,
+    &|cache_2, g| {
       let Ok(()) = converter::convert_element(child, state, cache_2, g);
-    });
+    },
+  );
 
   match convert_group {
     Some(g) => {
@@ -90,7 +96,8 @@ pub(crate) fn is_condition_passed(
   }
 
   let Ok(features) = node.attribute::<&str>(AId::RequiredFeatures);
-  let unsupported = features.and_then(|list| list.split(' ').find(|feature| !FEATURES.contains(feature)));
+  let unsupported =
+    features.and_then(|list| list.split(' ').find(|feature| !FEATURES.contains(feature)));
 
   match unsupported {
     Some(_) => return Ok(IsConditionPassedAnswer::No),
@@ -114,7 +121,8 @@ fn is_valid_sys_lang(
     Some(languages) => languages,
     None => return Ok(IsValidSysLangAnswer::Yes),
   };
-  let configured: std::collections::HashSet<_> = opt.languages.iter().map(String::as_str).collect();
+  let configured: std::collections::HashSet<_> =
+    opt.languages.iter().map(String::as_str).collect();
 
   for language in list.split(',').map(str::trim) {
     match configured.get(language) {
@@ -122,7 +130,9 @@ fn is_valid_sys_lang(
       None => {}
     }
 
-    let prefix = language.split_once('-').and_then(|(prefix, _)| configured.get(prefix));
+    let prefix = language
+      .split_once('-')
+      .and_then(|(prefix, _)| configured.get(prefix));
 
     match prefix {
       Some(_) => return Ok(IsValidSysLangAnswer::Yes),

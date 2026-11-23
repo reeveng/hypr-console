@@ -50,26 +50,31 @@ pub fn interleavings<R: Clone>(
 
   let mut buffers = (vec![0_usize; streams.len()], Vec::new());
 
-  explore(&mut order, maximum, &mut buffers, |(positions, schedules), order_2| {
-    positions.fill(0);
-    let mut requests = Vec::with_capacity(order_2.len());
+  explore(
+    &mut order,
+    maximum,
+    &mut buffers,
+    |(positions, schedules), order_2| {
+      positions.fill(0);
+      let mut requests = Vec::with_capacity(order_2.len());
 
-    for &producer in order_2 {
-      let position = positions
-        .get_mut(producer)
-        .ok_or(ExplorationError::Overflow)?;
-      let request = streams
-        .get(producer)
-        .and_then(|stream| stream.get(*position))
-        .ok_or(ExplorationError::Overflow)?;
-      requests.push(request.clone());
-      *position = position.saturating_add(1);
-    }
+      for &producer in order_2 {
+        let position = positions
+          .get_mut(producer)
+          .ok_or(ExplorationError::Overflow)?;
+        let request = streams
+          .get(producer)
+          .and_then(|stream| stream.get(*position))
+          .ok_or(ExplorationError::Overflow)?;
+        requests.push(request.clone());
+        *position = position.saturating_add(1);
+      }
 
-    schedules.push(requests);
+      schedules.push(requests);
 
-    Ok(())
-  })?;
+      Ok(())
+    },
+  )?;
 
   let (_positions, schedules) = buffers;
 
@@ -110,7 +115,10 @@ fn explore<C>(
   )
 )]
 fn next_order(order: &mut [usize]) -> Result<Permutation, Never> {
-  let pivot = match order.array_windows::<2>().rposition(|[left, right]| left < right) {
+  let pivot = match order
+    .array_windows::<2>()
+    .rposition(|[left, right]| left < right)
+  {
     Some(position) => position,
     None => return Ok(Permutation::Exhausted),
   };

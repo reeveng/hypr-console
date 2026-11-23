@@ -76,7 +76,7 @@ use crate::xkb::resolved::KeyTypeRef;
 use crate::xkb::resolved::ModMapEntryWithKey;
 use crate::xkb::resolved::ModMapField;
 use crate::xkb::resolved::Predicate;
-use crate::xkb::resolved::Reach;
+use crate::xkb::resolved::Reachability;
 use crate::xkb::resolved::Resolved;
 use crate::xkb::resolved::ResolvedAction;
 use crate::xkb::resolved::ResolvedCompat;
@@ -588,12 +588,14 @@ fn offer(
     Entry::Vacant(vacant) => {
       vacant.insert(placed);
     }
-    Entry::Occupied(mut occupied) => match ::core::primitive::bool::then_some(placed < *occupied.get(), ()) {
-      ::core::option::Option::Some(()) => {
-        occupied.insert(placed);
+    Entry::Occupied(mut occupied) => {
+      match ::core::primitive::bool::then_some(placed < *occupied.get(), ()) {
+        ::core::option::Option::Some(()) => {
+          occupied.insert(placed);
+        }
+        ::core::option::Option::None => {}
       }
-      ::core::option::Option::None => {}
-    },
+    }
   }
 
   Ok(())
@@ -820,11 +822,11 @@ fn filter_fits(
   };
   let Ok(reach) = interp.interp.reach();
   let held = match reach {
-    Reach::LevelOne => match ::core::primitive::bool::then_some(level_at != 0, ()) {
+    Reachability::LevelOne => match ::core::primitive::bool::then_some(level_at != 0, ()) {
       ::core::option::Option::Some(()) => 0,
       ::core::option::Option::None => modmap.0,
     },
-    Reach::EveryLevel => modmap.0,
+    Reachability::EveryLevel => modmap.0,
   };
   let wanted = filter.val.mask.val.0;
 
@@ -856,10 +858,12 @@ enum Slot {
 
 impl At {
   fn slot(self) -> Result<Slot, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.group == 0 && self.level == 0, ()) {
-      ::core::option::Option::Some(()) => Slot::First,
-      ::core::option::Option::None => Slot::Later,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.group == 0 && self.level == 0, ()) {
+        ::core::option::Option::Some(()) => Slot::First,
+        ::core::option::Option::None => Slot::Later,
+      },
+    )
   }
 }
 
@@ -954,7 +958,7 @@ impl Interpreted<'_> {
     let Ok(reach) = interp.reach();
 
     match (slot, reach) {
-      (Slot::First, Reach::LevelOne | Reach::EveryLevel) | (Slot::Later, Reach::EveryLevel) => {
+      (Slot::First, Reachability::LevelOne | Reachability::EveryLevel) | (Slot::Later, Reachability::EveryLevel) => {
         match interp.virtual_modifier {
           Some(modifier) => {
             let Ok(to_mask) = modifier.val.to_mask();
@@ -963,7 +967,7 @@ impl Interpreted<'_> {
           None => {}
         }
       }
-      (Slot::Later, Reach::LevelOne) => {}
+      (Slot::Later, Reachability::LevelOne) => {}
     }
 
     match interp.repeat {
@@ -2350,29 +2354,31 @@ impl CompatResolver<'_, '_, '_, '_> {
           None => Ok(()),
         }
       }
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(meaning == Meaning::Indicator, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(parsed) = self.parse_indicator_field(decl, span, FieldPath::Qualified);
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(meaning == Meaning::Indicator, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(parsed) = self.parse_indicator_field(decl, span, FieldPath::Qualified);
 
-          match parsed {
-            Some(field) => self.data.indicator_map_default.apply_field(field),
-            None => Ok(()),
+            match parsed {
+              Some(field) => self.data.indicator_map_default.apply_field(field),
+              None => Ok(()),
+            }
+          }
+          ::core::option::Option::None => {
+            let res = eval_action_default(
+              self.r.interner,
+              self.r.meaning_cache,
+              self.keycodes,
+              self.mods,
+              &decl.var,
+              span,
+              &mut self.data.action_defaults,
+            );
+
+            self.r.report(res)
           }
         }
-        ::core::option::Option::None => {
-          let res = eval_action_default(
-            self.r.interner,
-            self.r.meaning_cache,
-            self.keycodes,
-            self.mods,
-            &decl.var,
-            span,
-            &mut self.data.action_defaults,
-          );
-
-          self.r.report(res)
-        }
-      },
+      }
     }
   }
 }
@@ -2488,10 +2494,15 @@ enum Emptiness {
 
 impl SymbolsKeyLevel {
   fn emptiness(&self) -> Result<Emptiness, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.symbols.is_empty() && self.actions.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Emptiness::Empty,
-      ::core::option::Option::None => Emptiness::NonEmpty,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        self.symbols.is_empty() && self.actions.is_empty(),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Emptiness::Empty,
+        ::core::option::Option::None => Emptiness::NonEmpty,
+      },
+    )
   }
 
   fn span(&self) -> Result<Option<Span>, Never> {
@@ -2602,7 +2613,9 @@ fn group_at(
   match ::core::primitive::bool::then_some(position >= groups.len(), ()) {
     ::core::option::Option::Some(()) => {
       groups.resize(
-        position.saturating_add(1).min(groups.len().saturating_add(32)),
+        position
+          .saturating_add(1)
+          .min(groups.len().saturating_add(32)),
         SymbolsKeyGroup::default(),
       );
     }
@@ -2679,7 +2692,8 @@ impl SymbolsKey {
       SymbolsField::Overlay(e) => {
         self.behavior = Some(SymbolsKeyBehavior::Overlay(e).spanned2(f.span))
       }
-      SymbolsField::AllowNone(allow, mask) => match ::core::primitive::bool::then_some(allow, ()) {
+      SymbolsField::AllowNone(allow, mask) => match ::core::primitive::bool::then_some(allow, ())
+      {
         ::core::option::Option::Some(()) => self.allow_none |= mask,
         ::core::option::Option::None => self.allow_none &= !mask,
       },
@@ -2862,16 +2876,23 @@ enum SymbolsVariable {
 
 impl SymbolsVariable {
   fn of(meaning: Meaning) -> Result<Self, Never> {
-    Ok(match ::core::primitive::bool::then_some(meaning == Meaning::Key, ()) {
-      ::core::option::Option::Some(()) => SymbolsVariable::Key,
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(meaning == Meaning::Allownone, ()) {
-        ::core::option::Option::Some(()) => SymbolsVariable::AllowNone,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(meaning == Meaning::Name || meaning == Meaning::Groupname, ()) {
-          ::core::option::Option::Some(()) => SymbolsVariable::GroupName,
-          ::core::option::Option::None => SymbolsVariable::Action,
-        },
+    Ok(
+      match ::core::primitive::bool::then_some(meaning == Meaning::Key, ()) {
+        ::core::option::Option::Some(()) => SymbolsVariable::Key,
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(meaning == Meaning::Allownone, ()) {
+            ::core::option::Option::Some(()) => SymbolsVariable::AllowNone,
+            ::core::option::Option::None => match ::core::primitive::bool::then_some(
+              meaning == Meaning::Name || meaning == Meaning::Groupname,
+              (),
+            ) {
+              ::core::option::Option::Some(()) => SymbolsVariable::GroupName,
+              ::core::option::Option::None => SymbolsVariable::Action,
+            },
+          }
+        }
       },
-    })
+    )
   }
 }
 
@@ -3118,13 +3139,15 @@ impl SymbolsResolver<'_, '_, '_, '_> {
             None => self.set_key_default(decl, span, FieldPath::Qualified),
           },
           SymbolsVariable::AllowNone => self.set_key_default(decl, span, FieldPath::Bare),
-          SymbolsVariable::GroupName => match ::core::primitive::bool::then_some(cs.len() > 1, ()) {
-            ::core::option::Option::Some(()) => self.unknown_field(decl),
-            ::core::option::Option::None => match c.index {
-              None => self.unknown_field(decl),
-              Some(subscript) => self.handle_group_name_default(mm, decl, span, subscript),
-            },
-          },
+          SymbolsVariable::GroupName => {
+            match ::core::primitive::bool::then_some(cs.len() > 1, ()) {
+              ::core::option::Option::Some(()) => self.unknown_field(decl),
+              ::core::option::Option::None => match c.index {
+                None => self.unknown_field(decl),
+                Some(subscript) => self.handle_group_name_default(mm, decl, span, subscript),
+              },
+            }
+          }
           SymbolsVariable::Action => {
             let res = eval_action_default(
               self.r.interner,

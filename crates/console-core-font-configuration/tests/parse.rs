@@ -6,14 +6,14 @@ use console_core_font_configuration::{
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
-enum Fault {
+enum TestError {
   Unread(std::io::Error),
   Unparsed(console_core_font_configuration::Error),
   Unwritten(serde_json::Error),
   Unnamed(PathBuf),
 }
 
-impl std::fmt::Display for Fault {
+impl std::fmt::Display for TestError {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::Unread(fault) => write!(to, "a configuration could not be read: {fault}"),
@@ -24,28 +24,28 @@ impl std::fmt::Display for Fault {
   }
 }
 
-impl From<std::io::Error> for Fault {
+impl From<std::io::Error> for TestError {
   fn from(fault: std::io::Error) -> Self {
     Self::Unread(fault)
   }
 }
 
-impl From<console_core_font_configuration::Error> for Fault {
+impl From<console_core_font_configuration::Error> for TestError {
   fn from(fault: console_core_font_configuration::Error) -> Self {
     Self::Unparsed(fault)
   }
 }
 
-impl From<serde_json::Error> for Fault {
+impl From<serde_json::Error> for TestError {
   fn from(fault: serde_json::Error) -> Self {
     Self::Unwritten(fault)
   }
 }
 
-fn read_as_written(path: &Path) -> Result<(), Fault> {
+fn read_as_written(path: &Path) -> Result<(), TestError> {
   let name = match path.file_name() {
     Some(name) => name,
-    None => return Err(Fault::Unnamed(path.to_path_buf())),
+    None => return Err(TestError::Unnamed(path.to_path_buf())),
   };
   let mut written = name.to_os_string();
   written.push(".json");
@@ -61,12 +61,12 @@ fn read_as_written(path: &Path) -> Result<(), Fault> {
 }
 
 #[test]
-fn the_whole_configuration_reads_as_it_was_written() -> Result<(), Fault> {
+fn the_whole_configuration_reads_as_it_was_written() -> Result<(), TestError> {
   read_as_written(Path::new("./test-conf/fonts.conf"))
 }
 
 #[test]
-fn every_included_file_reads_as_it_was_written() -> Result<(), Fault> {
+fn every_included_file_reads_as_it_was_written() -> Result<(), TestError> {
   let mut confs = Vec::new();
 
   let entries = std::fs::read_dir("./test-conf/conf.d")?;
@@ -94,7 +94,7 @@ fn every_included_file_reads_as_it_was_written() -> Result<(), Fault> {
 }
 
 #[test]
-fn boolean_values_and_include_policy_serialize_as_booleans() -> Result<(), Fault> {
+fn boolean_values_and_include_policy_serialize_as_booleans() -> Result<(), TestError> {
   for (value, encoded) in [
     (Bool::True, serde_json::json!(true)),
     (Bool::False, serde_json::json!(false)),

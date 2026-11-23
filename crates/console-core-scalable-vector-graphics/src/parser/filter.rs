@@ -100,7 +100,10 @@ pub(crate) enum FilterReferenceFault {
   MissingId,
 }
 
-#[expect(clippy::large_enum_variant, reason = "A single temporary primitive moves directly into its filter without a separate allocation")]
+#[expect(
+  clippy::large_enum_variant,
+  reason = "A single temporary primitive moves directly into its filter without a separate allocation"
+)]
 enum FilterOperation<'a> {
   Reference(&'a str),
   Primitive(Kind),
@@ -125,9 +128,12 @@ fn filter_operation<'a>(
   let Ok(kind) = match value {
     FilterValue::Url(id) => return Ok(FilterOperation::Reference(id)),
     FilterValue::Blur(std_dev) => convert_blur_function(node, std_dev, state),
-    FilterValue::DropShadow { color, dx, dy, std_dev } => {
-      convert_drop_shadow_function(node, color, dx, dy, std_dev, state)
-    }
+    FilterValue::DropShadow {
+      color,
+      dx,
+      dy,
+      std_dev,
+    } => convert_drop_shadow_function(node, color, dx, dy, std_dev, state),
     FilterValue::Brightness(amount) => convert_brightness_function(FilterAmount(amount)),
     FilterValue::Contrast(amount) => convert_contrast_function(FilterAmount(amount)),
     FilterValue::Grayscale(amount) => convert_grayscale_function(FilterAmount(amount)),
@@ -323,11 +329,14 @@ fn convert_url(
   let Ok(non_empty_string) = NonEmptyString::new(element_id.to_string());
   let mut id = non_empty_string.ok_or(FilterReferenceFault::MissingId)?;
 
-  match ::core::primitive::bool::then_some(!cacheable
-    && cache.filters.contains_key({
-      let Ok(explicit_value) = id.get();
-      explicit_value
-    }), ()) {
+  match ::core::primitive::bool::then_some(
+    !cacheable
+      && cache.filters.contains_key({
+        let Ok(explicit_value) = id.get();
+        explicit_value
+      }),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(gen_filter_id) = cache.gen_filter_id();
       id = gen_filter_id;
@@ -392,7 +401,10 @@ struct FilterResults {
 )]
 #[cfg_attr(
   dylint_lib = "explicit016_no_wildcard_arm",
-  expect(explicit016_no_wildcard_arm, reason = "All tags outside the supported SVG filter primitive subset follow the same diagnostic path")
+  expect(
+    explicit016_no_wildcard_arm,
+    reason = "All tags outside the supported SVG filter primitive subset follow the same diagnostic path"
+  )
 )]
 fn collect_children(
   filter: &SvgNode,
@@ -580,18 +592,42 @@ fn resolve_primitive_region(
       let Ok(region_height) = region.height();
 
       NonZeroRect::from_xywh(
-        match x { Some(authored) => authored, None => left },
-        match y { Some(authored) => authored, None => top },
-        match width { Some(authored) => authored, None => region_width },
-        match height { Some(authored) => authored, None => region_height },
+        match x {
+          Some(authored) => authored,
+          None => left,
+        },
+        match y {
+          Some(authored) => authored,
+          None => top,
+        },
+        match width {
+          Some(authored) => authored,
+          None => region_width,
+        },
+        match height {
+          Some(authored) => authored,
+          None => region_height,
+        },
       )
     }
     Units::ObjectBoundingBox => {
       let Ok(subregion) = NonZeroRect::from_xywh(
-        match x { Some(authored) => authored, None => 0.0 },
-        match y { Some(authored) => authored, None => 0.0 },
-        match width { Some(authored) => authored, None => 1.0 },
-        match height { Some(authored) => authored, None => 1.0 },
+        match x {
+          Some(authored) => authored,
+          None => 0.0,
+        },
+        match y {
+          Some(authored) => authored,
+          None => 0.0,
+        },
+        match width {
+          Some(authored) => authored,
+          None => 1.0,
+        },
+        match height {
+          Some(authored) => authored,
+          None => 1.0,
+        },
       );
       let rect = match subregion {
         Some(rect) => rect,
@@ -636,7 +672,10 @@ fn resolve_input(
 
   match &input {
     Input::SourceGraphic | Input::SourceAlpha => Ok(input),
-    Input::Reference(name) => match primitives.iter().find(|primitive| primitive.result == *name) {
+    Input::Reference(name) => match primitives
+      .iter()
+      .find(|primitive| primitive.result == *name)
+    {
       Some(_) => Ok(input),
       None => previous_input(primitives),
     },
@@ -731,9 +770,7 @@ fn convert_color_matrix(
   Ok(Kind::ColorMatrix(ColorMatrix { input, kind }))
 }
 
-fn convert_color_matrix_kind(
-  fe: SvgNode,
-) -> Result<Option<ColorMatrixKind>, Never> {
+fn convert_color_matrix_kind(fe: SvgNode) -> Result<Option<ColorMatrixKind>, Never> {
   let Ok(kind) = fe.attribute::<&str>(AId::Type);
   let Ok(values) = fe.attribute::<Vec<f32>>(AId::Values);
 
@@ -743,7 +780,11 @@ fn convert_color_matrix_kind(
         Some(value) => *value,
         None => 1.0,
       };
-      let Ok(factor) = crate::f32_bound(crate::UnitClamp { lower: 0.0, value, upper: 1.0 });
+      let Ok(factor) = crate::f32_bound(crate::UnitClamp {
+        lower: 0.0,
+        value,
+        upper: 1.0,
+      });
 
       Ok(PositiveF32::new(factor).map(ColorMatrixKind::Saturate))
     }
@@ -952,7 +993,10 @@ fn kernel_order(
 }
 
 fn kernel_dimensions(fe: SvgNode) -> Result<crate::filter::KernelDimensions, Never> {
-  let default = crate::filter::KernelDimensions { columns: 3, rows: 3 };
+  let default = crate::filter::KernelDimensions {
+    columns: 3,
+    rows: 3,
+  };
   let Ok(attribute) = fe.attribute::<&str>(AId::Order);
   let value = match attribute {
     Some(value) => value,
@@ -964,7 +1008,10 @@ fn kernel_dimensions(fe: SvgNode) -> Result<crate::filter::KernelDimensions, Nev
 
   match (columns.cmp(&0), rows.cmp(&0)) {
     (core::cmp::Ordering::Greater, core::cmp::Ordering::Greater) => {
-      Ok(crate::filter::KernelDimensions { columns: columns.cast_unsigned(), rows: rows.cast_unsigned() })
+      Ok(crate::filter::KernelDimensions {
+        columns: columns.cast_unsigned(),
+        rows: rows.cast_unsigned(),
+      })
     }
     (_, _) => Ok(default),
   }
@@ -1439,7 +1486,11 @@ fn convert_specular_lighting(
     ::core::option::Option::None => {}
   }
 
-  let Ok(specular_exponent_2) = crate::f32_bound(crate::UnitClamp { lower: 1.0, value: specular_exponent, upper: 128.0 });
+  let Ok(specular_exponent_2) = crate::f32_bound(crate::UnitClamp {
+    lower: 1.0,
+    value: specular_exponent,
+    upper: 128.0,
+  });
 
   let Ok(input) = resolve_input(fe, AId::In, primitives);
   let Ok(fe_attribute) = fe.attribute(AId::SurfaceScale);
@@ -1571,11 +1622,9 @@ fn convert_light_source(
       };
       let specular_exponent_2 = match PositiveF32::new(specular_exponent) {
         ::core::option::Option::Some(explicit_present) => explicit_present,
-        ::core::option::Option::None => {
-          match PositiveF32::new(1.0) {
-            Some(default_exponent) => default_exponent,
-            None => PositiveF32::ZERO,
-          }
+        ::core::option::Option::None => match PositiveF32::new(1.0) {
+          Some(default_exponent) => default_exponent,
+          None => PositiveF32::ZERO,
         },
       };
 
@@ -1650,11 +1699,7 @@ fn convert_merge(
   Ok(Kind::Merge(Merge { inputs }))
 }
 
-fn convert_morphology(
-  fe: SvgNode,
-  scale: Size,
-  primitives: &[Primitive],
-) -> Result<Kind, Never> {
+fn convert_morphology(fe: SvgNode, scale: Size, primitives: &[Primitive]) -> Result<Kind, Never> {
   let Ok(attribute) = fe.attribute::<&str>(AId::Operator);
   let operator = match attribute {
     Some("dilate") => MorphologyOperator::Dilate,
@@ -1674,7 +1719,10 @@ fn convert_morphology(
         crate::ZeroProximity::Nonzero => y,
       };
 
-      match (PositiveF32::new(x_2 * width), PositiveF32::new(y_2 * height)) {
+      match (
+        PositiveF32::new(x_2 * width),
+        PositiveF32::new(y_2 * height),
+      ) {
         (Some(x_3), Some(y_3)) => (Some(x_3), Some(y_3)),
         (_, _) => (PositiveF32::new(width), PositiveF32::new(height)),
       }
@@ -1686,8 +1734,14 @@ fn convert_morphology(
   Ok(Kind::Morphology(Morphology {
     input,
     operator,
-    radius_x: match radius_x { Some(radius) => radius, None => PositiveF32::ZERO },
-    radius_y: match radius_y { Some(radius) => radius, None => PositiveF32::ZERO },
+    radius_x: match radius_x {
+      Some(radius) => radius,
+      None => PositiveF32::ZERO,
+    },
+    radius_y: match radius_y {
+      Some(radius) => radius,
+      None => PositiveF32::ZERO,
+    },
   }))
 }
 
@@ -1696,7 +1750,10 @@ fn filter_xy_pair(fe: SvgNode, name: AId) -> Result<Option<console_core_paths::P
 
   Ok(attribute.as_deref().map(|values| match values {
     [x, y] => console_core_paths::Point { x: *x, y: *y },
-    [value] => console_core_paths::Point { x: *value, y: *value },
+    [value] => console_core_paths::Point {
+      x: *value,
+      y: *value,
+    },
     _ => console_core_paths::Point { x: 0.0, y: 0.0 },
   }))
 }
@@ -1730,7 +1787,10 @@ fn resolve_filter_offset(
     None => default.y,
   };
 
-  Ok(console_core_paths::Point { x: x * width, y: y * height })
+  Ok(console_core_paths::Point {
+    x: x * width,
+    y: y * height,
+  })
 }
 
 fn convert_tile(
@@ -1745,13 +1805,15 @@ fn convert_tile(
 fn convert_turbulence(fe: SvgNode) -> core::result::Result<Kind, console_core_never::Never> {
   let Ok(frequencies) = filter_xy_pair(fe, AId::BaseFrequency);
   let (base_frequency_x, base_frequency_y) = match frequencies {
-    Some(console_core_paths::Point { x, y }) => match (x.is_sign_positive(), y.is_sign_positive()) {
-      (true, true) => match (PositiveF32::new(x), PositiveF32::new(y)) {
-        (Some(frequency_x), Some(frequency_y)) => (frequency_x, frequency_y),
+    Some(console_core_paths::Point { x, y }) => {
+      match (x.is_sign_positive(), y.is_sign_positive()) {
+        (true, true) => match (PositiveF32::new(x), PositiveF32::new(y)) {
+          (Some(frequency_x), Some(frequency_y)) => (frequency_x, frequency_y),
+          (_, _) => (PositiveF32::ZERO, PositiveF32::ZERO),
+        },
         (_, _) => (PositiveF32::ZERO, PositiveF32::ZERO),
-      },
-      (_, _) => (PositiveF32::ZERO, PositiveF32::ZERO),
-    },
+      }
+    }
     None => (PositiveF32::ZERO, PositiveF32::ZERO),
   };
 
@@ -1846,7 +1908,9 @@ fn convert_grayscale_function(
 }
 
 #[inline(never)]
-fn convert_sepia_function(FilterAmount(amount): FilterAmount) -> core::result::Result<Kind, console_core_never::Never> {
+fn convert_sepia_function(
+  FilterAmount(amount): FilterAmount,
+) -> core::result::Result<Kind, console_core_never::Never> {
   let ::core::result::Result::Ok(amount_2) =
     ::console_core_number_conversion::nearest_f32_from_f64(amount.min(1.0));
 
@@ -1913,7 +1977,9 @@ fn convert_hue_rotate_function(
 }
 
 #[inline(never)]
-fn convert_invert_function(FilterAmount(amount): FilterAmount) -> core::result::Result<Kind, console_core_never::Never> {
+fn convert_invert_function(
+  FilterAmount(amount): FilterAmount,
+) -> core::result::Result<Kind, console_core_never::Never> {
   let ::core::result::Result::Ok(amount_2) =
     ::console_core_number_conversion::nearest_f32_from_f64(amount.min(1.0));
 

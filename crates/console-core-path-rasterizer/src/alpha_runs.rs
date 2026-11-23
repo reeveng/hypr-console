@@ -38,18 +38,20 @@ impl AlphaRuns {
   }
 
   pub fn is_empty(&self) -> Result<crate::Emptiness, Never> {
-    Ok(match (self.runs.first().copied().flatten(), self.alpha.first()) {
-      (Some(run), Some(0)) => {
-        let Ok(end) = index(run.get());
+    Ok(
+      match (self.runs.first().copied().flatten(), self.alpha.first()) {
+        (Some(run), Some(0)) => {
+          let Ok(end) = index(run.get());
 
-        match self.runs.get(end) {
-          Some(None) => crate::Emptiness::Empty,
-          Some(Some(_)) | None => crate::Emptiness::NonEmpty,
+          match self.runs.get(end) {
+            Some(None) => crate::Emptiness::Empty,
+            Some(Some(_)) | None => crate::Emptiness::NonEmpty,
+          }
         }
-      }
-      (Some(_), Some(_)) => crate::Emptiness::NonEmpty,
-      (None, _) | (_, None) => crate::Emptiness::Empty,
-    })
+        (Some(_), Some(_)) => crate::Emptiness::NonEmpty,
+        (None, _) | (_, None) => crate::Emptiness::Empty,
+      },
+    )
   }
 
   pub fn reset(&mut self) -> Result<(), Never> {
@@ -69,7 +71,12 @@ impl AlphaRuns {
     Ok(())
   }
 
-  pub fn add(&mut self, x: u32, offset: RunOffset, coverage: Coverage) -> Result<RunOffset, Never> {
+  pub fn add(
+    &mut self,
+    x: u32,
+    offset: RunOffset,
+    coverage: Coverage,
+  ) -> Result<RunOffset, Never> {
     let width = u32::from(self.width.get());
     let from = match offset.0.cmp(&x) {
       Ordering::Less | Ordering::Equal => offset.0,
@@ -161,15 +168,17 @@ impl RunLine<'_> {
   fn at(&self, position: u32) -> Result<Option<LocatedRun>, Never> {
     let Ok(position_index) = index(position);
 
-    Ok(self
-      .runs
-      .get(position_index)
-      .copied()
-      .flatten()
-      .map(|length| LocatedRun {
-        start: position,
-        length,
-      }))
+    Ok(
+      self
+        .runs
+        .get(position_index)
+        .copied()
+        .flatten()
+        .map(|length| LocatedRun {
+          start: position,
+          length,
+        }),
+    )
   }
 
   fn covering(&self, cut: Range<u32>) -> Result<Option<LocatedRun>, Never> {
@@ -220,7 +229,10 @@ impl RunLine<'_> {
     });
 
     match self.alpha.get(source).copied() {
-      Some(value) => match (self.alpha.get_mut(write_at), self.runs.get_disjoint_mut([split_start, split_end])) {
+      Some(value) => match (
+        self.alpha.get_mut(write_at),
+        self.runs.get_disjoint_mut([split_start, split_end]),
+      ) {
         (Some(alpha), Ok([first, second])) => {
           *alpha = value;
           *first = NonZeroU16::new(before_2);

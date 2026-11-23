@@ -329,24 +329,26 @@ pub mod util {
         (None, _) | (_, None) => return Ok(SeekSearchResult::Stream),
       };
 
-      Ok(match (frame_ts.cmp(&first.frame_ts), frame_ts.cmp(&last.frame_ts)) {
-        (Ordering::Less, _) => SeekSearchResult::Upper(*first),
-        (Ordering::Equal | Ordering::Greater, Ordering::Equal | Ordering::Greater) => {
-          SeekSearchResult::Lower(*last)
-        }
-        (Ordering::Equal | Ordering::Greater, Ordering::Less) => {
-          match self
-            .points
-            .split_at_checked(self.points.partition_point(|p| p.frame_ts <= frame_ts))
-          {
-            Some((before, after)) => match (before.last(), after.first()) {
-              (Some(lower), Some(upper)) => SeekSearchResult::Range(*lower, *upper),
-              (None, _) | (_, None) => SeekSearchResult::Stream,
-            },
-            None => SeekSearchResult::Stream,
+      Ok(
+        match (frame_ts.cmp(&first.frame_ts), frame_ts.cmp(&last.frame_ts)) {
+          (Ordering::Less, _) => SeekSearchResult::Upper(*first),
+          (Ordering::Equal | Ordering::Greater, Ordering::Equal | Ordering::Greater) => {
+            SeekSearchResult::Lower(*last)
           }
-        }
-      })
+          (Ordering::Equal | Ordering::Greater, Ordering::Less) => {
+            match self
+              .points
+              .split_at_checked(self.points.partition_point(|p| p.frame_ts <= frame_ts))
+            {
+              Some((before, after)) => match (before.last(), after.first()) {
+                (Some(lower), Some(upper)) => SeekSearchResult::Range(*lower, *upper),
+                (None, _) | (_, None) => SeekSearchResult::Stream,
+              },
+              None => SeekSearchResult::Stream,
+            }
+          }
+        },
+      )
     }
   }
 

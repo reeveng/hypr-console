@@ -869,8 +869,13 @@ impl State {
       migrated_value
     });
 
-    match (!matches!(self.min_flags.curve_membership(), read_fonts::tables::glyf::CurveMembership::OnCurve) || !matches!(self.max_flags.curve_membership(), read_fonts::tables::glyf::CurveMembership::OnCurve))
-      && (self.max_on_coord - self.min_on_coord) < flat_threshold
+    match (!matches!(
+      self.min_flags.curve_membership(),
+      read_fonts::tables::glyf::CurveMembership::OnCurve
+    ) || !matches!(
+      self.max_flags.curve_membership(),
+      read_fonts::tables::glyf::CurveMembership::OnCurve
+    )) && (self.max_on_coord - self.min_on_coord) < flat_threshold
     {
       true => {
         segment.flags |= TopoFlags::ROUND;

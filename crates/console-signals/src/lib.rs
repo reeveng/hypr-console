@@ -128,13 +128,13 @@ const REFUSED: *const u8 = std::ptr::null::<u8>().wrapping_sub(1);
 
 enum Registration {
   Installed,
-  Refused,
+  Failed,
 }
 
 impl From<bool> for Registration {
   fn from(refused: bool) -> Self {
     match bool::then_some(refused, ()) {
-      Some(()) => Self::Refused,
+      Some(()) => Self::Failed,
       None => Self::Installed,
     }
   }
@@ -208,7 +208,7 @@ unsafe fn set(which: Signal, disposition: Option<Handler>) -> Result<(), SignalE
   let was = unsafe { signal(which.as_raw(), disposition) };
 
   match Registration::from(was == REFUSED) {
-    Registration::Refused => Err(SignalError::Failed(which, io::Error::last_os_error())),
+    Registration::Failed => Err(SignalError::Failed(which, io::Error::last_os_error())),
     Registration::Installed => Ok(()),
   }
 }

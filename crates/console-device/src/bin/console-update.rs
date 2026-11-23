@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use console_core_external_programs::Program;
+
 #[path = "console-update/pattern.rs"]
 mod pattern;
 
@@ -27,9 +29,10 @@ const PREVIOUS: &str = "previous";
 const HELD: &str = "held-tag";
 const NOTICED: &str = "noticed-tag";
 const UPDATER: &str = "/usr/local/bin/console-update";
+const CURL_COULD_NOT_RESOLVE_HOST: i32 = 6;
 const USAGE: &str = "Usage: console-update [legion-go-vX.Y.Z | --check | --prompt | --rollback | --enroll-pattern | --forget-pattern]";
 
-type Fault = Box<dyn Error>;
+type UpdateError = Box<dyn Error>;
 
 enum Request {
   Latest,
@@ -42,6 +45,11 @@ enum Request {
   PatternStatus,
   PatternEntry,
   VerifyPattern,
+}
+
+enum NoticeDelivery {
+  Posted,
+  Deferred,
 }
 
 struct Release {
@@ -67,7 +75,7 @@ fn main() -> ExitCode {
   }
 }
 
-fn run() -> Result<(), Fault> {
+fn run() -> Result<(), UpdateError> {
   let arguments: Vec<String> = std::env::args().skip(1).collect();
   let request = match arguments.as_slice() {
     [] => Request::Latest,
@@ -103,14 +111,16 @@ fn run() -> Result<(), Fault> {
       return Err("only the desktop account can submit an update pattern".into());
     }
     // Use only the system environment when acting on a desktop request.
-    return Err(Command::new(UPDATER)
-      .arg("--verify-pattern-request")
-      .env_clear()
-      .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/bin")
-      .env("HOME", "/root")
-      .current_dir("/")
-      .exec()
-      .into());
+    return Err(
+      Command::new(UPDATER)
+        .arg("--verify-pattern-request")
+        .env_clear()
+        .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/bin")
+        .env("HOME", "/root")
+        .current_dir("/")
+        .exec()
+        .into(),
+    );
   }
 
   let order = if matches!(request, Request::VerifyPattern) {
@@ -235,52 +245,111 @@ fn version(tag: &str) -> Option<(u32, u32, u32)> {
     .then_some((major, minor, patch))
 }
 
-fn check(live: &Path, releases: &Path, pending: bool) -> Result<(), Fault> {
+fn check(live: &Path, releases: &Path, pending: bool) -> Result<(), UpdateError> {
   if pending {
     println!("A release is pending. Run console-update as root to resume it.");
     return Ok(());
   }
-  let latest = release(None)?;
-  if !newer(live, &latest.tag)? {
+  let Some(latest) = latest_update(live)? else {
     println!("Console is up to date.");
     return Ok(());
-  }
+  };
+  offer_update(releases, &latest.tag, notify_update)
+}
+
+fn offer_update(
+  releases: &Path,
+  tag: &str,
+  notify: impl FnOnce(&str) -> Result<NoticeDelivery, UpdateError>,
+) -> Result<(), UpdateError> {
   let held = optional(&releases.join(HELD))?;
-  let noticed = optional(&releases.join(NOTICED))?;
+  let noticed = releases.join(NOTICED);
   if held
     .as_deref()
-    .is_some_and(|tag| version(tag.trim()) >= version(&latest.tag))
-    || noticed
+    .is_some_and(|held| version(held.trim()) >= version(tag))
+    || optional(&noticed)?
       .as_deref()
-      .is_some_and(|tag| tag.trim() == latest.tag)
+      .is_some_and(|noticed| noticed.trim() == tag)
   {
     return Ok(());
   }
-  let body = format!(
-    "{} is available. Open Console Updates to choose when to install it.",
-    latest.tag
-  );
-  checked(desktop_command()?.args(["notify-send", "Console update available", &body]))?;
-  write(&releases.join(NOTICED), &latest.tag)
+
+  match notify(tag)? {
+    NoticeDelivery::Posted => write(&noticed, tag),
+    NoticeDelivery::Deferred => Ok(()),
+  }
 }
 
-fn newer(live: &Path, tag: &str) -> Result<bool, Fault> {
+fn notify_update(tag: &str) -> Result<NoticeDelivery, UpdateError> {
+  let Ok(systemctl) = Program::Systemctl.name();
+  let daemon = desktop_command()?
+    .args([
+      systemctl,
+      "--user",
+      "is-active",
+      "--quiet",
+      "console-notify.service",
+    ])
+    .output()?;
+  match daemon.status.success() {
+    true => {}
+    false => return Ok(NoticeDelivery::Deferred),
+  }
+
+  let Ok(notify_send) = Program::NotifySend.name();
+  let body = format!("{tag} is available. Open Console Updates to choose when to install it.");
+  checked(desktop_command()?.args([
+    notify_send,
+    "--app-name=Console Updates",
+    "--expire-time=0",
+    "Console update available",
+    &body,
+  ]))?;
+  Ok(NoticeDelivery::Posted)
+}
+
+fn newer(live: &Path, tag: &str) -> Result<bool, UpdateError> {
   Ok(marker(live)?.is_none_or(|(installed, _)| version(tag) > version(&installed)))
 }
 
-fn prompt(live: &Path) -> Result<(), Fault> {
+fn latest_update(live: &Path) -> Result<Option<Release>, UpdateError> {
   let latest = release(None)?;
-  let tag = latest.tag;
-  if !newer(live, &tag)? {
-    return checked(Command::new("notify-send").arg("Console is up to date"));
+  Ok(newer(live, &latest.tag)?.then_some(latest))
+}
+
+fn prompt_release(
+  update: Result<Option<Release>, UpdateError>,
+  notify: impl FnOnce(&str, &str) -> Result<(), UpdateError>,
+) -> Result<Option<Release>, UpdateError> {
+  match update {
+    Ok(Some(release)) => Ok(Some(release)),
+    Ok(None) => {
+      notify("Console is up to date", "")?;
+      Ok(None)
+    }
+    Err(fault) => {
+      if let Err(notice) = notify("Could not check for Console updates", &fault.to_string()) {
+        eprintln!("console-update: could not show the check failure: {notice}");
+      }
+      Err(fault)
+    }
   }
+}
+
+fn prompt(live: &Path) -> Result<(), UpdateError> {
+  let update = prompt_release(latest_update(live), |title, body| {
+    let Ok(mut notify) = Program::NotifySend.command();
+    checked(notify.args(["--app-name=Console Updates", title, body]))
+  })?;
+  let Some(latest) = update else {
+    return Ok(());
+  };
+  let tag = latest.tag;
   match output(Command::new("/usr/bin/sudo").args(["-n", "--", UPDATER, "--pattern-status"]))?
     .as_str()
   {
     "enrolled" => {
-      return checked(
-        Command::new("/usr/local/bin/console-update-pattern").arg(&tag),
-      );
+      return checked(Command::new("/usr/local/bin/console-update-pattern").arg(&tag));
     }
     "absent" => {}
     _ => return Err("the updater returned an invalid pattern status".into()),
@@ -296,17 +365,20 @@ fn prompt(live: &Path) -> Result<(), Fault> {
   Ok(())
 }
 
-fn release(tag: Option<&str>) -> Result<Release, Fault> {
+fn release(tag: Option<&str>) -> Result<Release, UpdateError> {
   let url = match tag {
     Some(tag) => format!("{RELEASE_API}/tags/{tag}"),
     None => format!("{RELEASE_API}/latest"),
   };
   let response = curl(&url).args(["--max-filesize", "1048576"]).output()?;
+  if response.status.code() == Some(CURL_COULD_NOT_RESOLVE_HOST) {
+    return Err("Could not resolve api.github.com. Check your connection and try again.".into());
+  }
   if !response.status.success() {
     return Err(
       format!(
         "GitHub release metadata: {}",
-        String::from_utf8_lossy(&response.stderr)
+        String::from_utf8_lossy(&response.stderr).trim()
       )
       .into(),
     );
@@ -386,7 +458,7 @@ fn curl(url: &str) -> Command {
   curl
 }
 
-fn prepare(stage: &Path, release: &Release) -> Result<(), Fault> {
+fn prepare(stage: &Path, release: &Release) -> Result<(), UpdateError> {
   let archive = stage.join(ASSET);
   let url = format!("{REPOSITORY}/releases/download/{}/{ASSET}", release.tag);
   checked(
@@ -490,7 +562,7 @@ fn hex(text: &str, length: usize) -> bool {
       .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn slot_path(releases: &Path, slot: &str) -> Result<PathBuf, Fault> {
+fn slot_path(releases: &Path, slot: &str) -> Result<PathBuf, UpdateError> {
   let parts = slot
     .strip_prefix("release-")
     .ok_or("bad release storage name")?;
@@ -501,7 +573,7 @@ fn slot_path(releases: &Path, slot: &str) -> Result<PathBuf, Fault> {
 }
 
 impl Switch {
-  fn read(text: &str) -> Result<Self, Fault> {
+  fn read(text: &str) -> Result<Self, UpdateError> {
     let [slot, before, after, action]: [&str; 4] = text
       .lines()
       .collect::<Vec<_>>()
@@ -522,7 +594,7 @@ impl Switch {
     })
   }
 
-  fn record(&self, releases: &Path) -> Result<(), Fault> {
+  fn record(&self, releases: &Path) -> Result<(), UpdateError> {
     let action = if self.restoring { "restore" } else { "apply" };
     write(
       &releases.join(PENDING),
@@ -531,7 +603,7 @@ impl Switch {
   }
 }
 
-fn begin(live: &Path, releases: &Path, slot: String) -> Result<(), Fault> {
+fn begin(live: &Path, releases: &Path, slot: String) -> Result<(), UpdateError> {
   let other = slot_path(releases, &slot)?;
   let before = git(live, &["rev-parse", "HEAD"])?;
   let after = git(&other, &["rev-parse", "HEAD"])?;
@@ -549,7 +621,7 @@ fn begin(live: &Path, releases: &Path, slot: String) -> Result<(), Fault> {
   settle(live, releases, change)
 }
 
-fn settle(live: &Path, releases: &Path, mut change: Switch) -> Result<(), Fault> {
+fn settle(live: &Path, releases: &Path, mut change: Switch) -> Result<(), UpdateError> {
   let other = slot_path(releases, &change.slot)?;
   if change.restoring {
     apply(live, &other, &change.before, &change.after)?;
@@ -593,14 +665,14 @@ fn settle(live: &Path, releases: &Path, mut change: Switch) -> Result<(), Fault>
   }
 }
 
-fn remember_held(live: &Path, releases: &Path) -> Result<(), Fault> {
+fn remember_held(live: &Path, releases: &Path) -> Result<(), UpdateError> {
   if let Some((tag, _)) = marker(live)? {
     write(&releases.join(HELD), &tag)?;
   }
   Ok(())
 }
 
-fn apply(live: &Path, other: &Path, wanted: &str, previous: &str) -> Result<(), Fault> {
+fn apply(live: &Path, other: &Path, wanted: &str, previous: &str) -> Result<(), UpdateError> {
   let current = git(live, &["rev-parse", "HEAD"])?;
   let saved = git(other, &["rev-parse", "HEAD"])?;
   let switching = current == previous && saved == wanted;
@@ -629,7 +701,7 @@ fn apply(live: &Path, other: &Path, wanted: &str, previous: &str) -> Result<(), 
   checked(desktop_command()?.args(["/usr/local/bin/console", "health"]))
 }
 
-fn desktop_command() -> Result<Command, Fault> {
+fn desktop_command() -> Result<Command, UpdateError> {
   let account = desktop_account()?;
   let user = account
     .split(':')
@@ -648,11 +720,11 @@ fn desktop_command() -> Result<Command, Fault> {
   Ok(command)
 }
 
-fn desktop_account() -> Result<String, Fault> {
+fn desktop_account() -> Result<String, UpdateError> {
   output(Command::new("getent").args(["passwd", "1000"]))
 }
 
-fn marker(root: &Path) -> Result<Option<(String, String)>, Fault> {
+fn marker(root: &Path) -> Result<Option<(String, String)>, UpdateError> {
   optional(&root.join(MARK))?
     .map(|text| {
       let [tag, commit]: [&str; 2] = text
@@ -668,7 +740,7 @@ fn marker(root: &Path) -> Result<Option<(String, String)>, Fault> {
     .transpose()
 }
 
-fn optional(path: &Path) -> Result<Option<String>, Fault> {
+fn optional(path: &Path) -> Result<Option<String>, UpdateError> {
   match fs::read_to_string(path) {
     Ok(text) => Ok(Some(text)),
     Err(fault) if fault.kind() == ErrorKind::NotFound => Ok(None),
@@ -676,11 +748,11 @@ fn optional(path: &Path) -> Result<Option<String>, Fault> {
   }
 }
 
-fn write(path: &Path, text: &str) -> Result<(), Fault> {
+fn write(path: &Path, text: &str) -> Result<(), UpdateError> {
   console_core_atomic_writes::whole(path, text.as_bytes()).map_err(Into::into)
 }
 
-fn git(root: &Path, arguments: &[&str]) -> Result<String, Fault> {
+fn git(root: &Path, arguments: &[&str]) -> Result<String, UpdateError> {
   output(
     Command::new("git")
       .env("GIT_TERMINAL_PROMPT", "0")
@@ -690,7 +762,7 @@ fn git(root: &Path, arguments: &[&str]) -> Result<String, Fault> {
   )
 }
 
-fn output(command: &mut Command) -> Result<String, Fault> {
+fn output(command: &mut Command) -> Result<String, UpdateError> {
   let result = command.output()?;
   if !result.status.success() {
     return Err(
@@ -705,7 +777,7 @@ fn output(command: &mut Command) -> Result<String, Fault> {
   Ok(String::from_utf8(result.stdout)?.trim().to_owned())
 }
 
-fn checked(command: &mut Command) -> Result<(), Fault> {
+fn checked(command: &mut Command) -> Result<(), UpdateError> {
   let status = command.status()?;
   if status.success() {
     Ok(())
@@ -745,5 +817,60 @@ mod tests {
       )
       .is_ok()
     );
+  }
+
+  #[test]
+  fn a_failed_check_shows_its_reason_and_a_successful_check_can_say_up_to_date() {
+    let reason = "Could not resolve api.github.com. Check your connection and try again.";
+    let failed = prompt_release(Err(reason.into()), |title, body| {
+      assert_eq!(title, "Could not check for Console updates");
+      assert_eq!(body, reason);
+      Ok(())
+    });
+    assert_eq!(
+      failed.err().map(|fault| fault.to_string()).as_deref(),
+      Some(reason)
+    );
+
+    let checked = prompt_release(Ok(None), |title, body| {
+      assert_eq!(title, "Console is up to date");
+      assert!(body.is_empty());
+      Ok(())
+    });
+    assert!(matches!(checked, Ok(None)));
+  }
+
+  #[test]
+  fn an_update_notice_is_remembered_only_after_delivery() -> Result<(), UpdateError> {
+    let releases = std::env::temp_dir().join(format!(
+      "console-update-notice-{}-{}",
+      std::process::id(),
+      SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    ));
+    DirBuilder::new().mode(0o700).create(&releases)?;
+    let tag = "legion-go-v1.2.3";
+    let noticed = releases.join(NOTICED);
+
+    offer_update(&releases, tag, |_| Ok(NoticeDelivery::Deferred))?;
+    assert_eq!(optional(&noticed)?, None);
+
+    let failed = offer_update(&releases, tag, |_| Err("notification failed".into()));
+    assert!(failed.is_err());
+    assert_eq!(optional(&noticed)?, None);
+
+    offer_update(&releases, tag, |available| {
+      assert_eq!(available, tag);
+      Ok(NoticeDelivery::Posted)
+    })?;
+    assert_eq!(optional(&noticed)?.as_deref(), Some(tag));
+    offer_update(&releases, tag, |_| Err("duplicate notification".into()))?;
+
+    let next = "legion-go-v1.2.4";
+    write(&releases.join(HELD), next)?;
+    offer_update(&releases, next, |_| Err("held release notification".into()))?;
+    assert_eq!(optional(&noticed)?.as_deref(), Some(tag));
+
+    fs::remove_dir_all(releases)?;
+    Ok(())
   }
 }

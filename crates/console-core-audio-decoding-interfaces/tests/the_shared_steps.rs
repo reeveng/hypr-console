@@ -15,7 +15,10 @@ fn extracted_sample_types_work_in_decoder_buffers() -> Result<(), Error> {
 
   assert_eq!(value_2.len(), 2);
 
-  for (slot, sample) in value_2.iter_mut().zip([i24::from(-8_388_608), i24::from(0)]) {
+  for (slot, sample) in value_2
+    .iter_mut()
+    .zip([i24::from(-8_388_608), i24::from(0)])
+  {
     *slot = sample;
   }
 
@@ -23,7 +26,10 @@ fn extracted_sample_types_work_in_decoder_buffers() -> Result<(), Error> {
 
   assert_eq!(value_3.len(), 2);
 
-  for (slot, sample) in value_3.iter_mut().zip([i24::from(4_194_304), i24::from(8_388_607)]) {
+  for (slot, sample) in value_3
+    .iter_mut()
+    .zip([i24::from(4_194_304), i24::from(8_388_607)])
+  {
     *slot = sample;
   }
 

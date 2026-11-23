@@ -167,10 +167,12 @@ impl Application {
   }
 
   pub fn opens(&self, mime: &str) -> Result<Support, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.opens.iter().any(|claim| claim == mime), ()) {
-      ::core::option::Option::Some(()) => Support::Yes,
-      ::core::option::Option::None => Support::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.opens.iter().any(|claim| claim == mime), ()) {
+        ::core::option::Option::Some(()) => Support::Yes,
+        ::core::option::Option::None => Support::No,
+      },
+    )
   }
 
   pub fn edits(&self, kind: Kind, mime: &str) -> Result<Support, Never> {

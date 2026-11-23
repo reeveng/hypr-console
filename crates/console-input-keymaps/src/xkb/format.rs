@@ -274,7 +274,10 @@ impl Format for CompatIndicator<'_> {
           write!(nested.f, "modifiers = {};", modifiers)?;
           nested.write_newline()?;
 
-          match ::core::primitive::bool::then_some(i.mod_components != ModComponentMask::EFFECTIVE, ()) {
+          match ::core::primitive::bool::then_some(
+            i.mod_components != ModComponentMask::EFFECTIVE,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               nested.write_nesting()?;
               write!(nested.f, "whichModState = {};", i.mod_components)?;
@@ -295,7 +298,8 @@ impl Format for CompatIndicator<'_> {
         ::core::option::Option::None => {}
       }
 
-      match ::core::primitive::bool::then_some(i.group_component != GroupComponent::Effective, ()) {
+      match ::core::primitive::bool::then_some(i.group_component != GroupComponent::Effective, ())
+      {
         ::core::option::Option::Some(()) => {
           nested.write_nesting()?;
           write!(nested.f, "whichGroupState = {};", i.group_component)?;
@@ -969,28 +973,32 @@ const REAL_MODIFIERS: [&str; 8] = [
 ];
 
 fn modifier_mask(mm: ModifierMask) -> Result<impl Display, Never> {
-  Ok(std::fmt::from_fn(move |f| match ::core::primitive::bool::then_some(mm.0 == 0, ()) {
-    ::core::option::Option::Some(()) => f.write_str("None"),
-    ::core::option::Option::None => match ::core::primitive::bool::then_some(mm.0 & !0xff != 0, ()) {
-      ::core::option::Option::Some(()) => {
-        write!(f, "0x{:08x}", mm.0)
-      }
+  Ok(std::fmt::from_fn(
+    move |f| match ::core::primitive::bool::then_some(mm.0 == 0, ()) {
+      ::core::option::Option::Some(()) => f.write_str("None"),
       ::core::option::Option::None => {
-        let mut separator = "";
+        match ::core::primitive::bool::then_some(mm.0 & !0xff != 0, ()) {
+          ::core::option::Option::Some(()) => {
+            write!(f, "0x{:08x}", mm.0)
+          }
+          ::core::option::Option::None => {
+            let mut separator = "";
 
-        for (name, bit) in REAL_MODIFIERS.iter().zip(0u32..) {
-          match ::core::primitive::bool::then_some(mm.0 & 1u32.wrapping_shl(bit) != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              f.write_str(separator)?;
-              f.write_str(name)?;
-              separator = "+";
+            for (name, bit) in REAL_MODIFIERS.iter().zip(0u32..) {
+              match ::core::primitive::bool::then_some(mm.0 & 1u32.wrapping_shl(bit) != 0, ()) {
+                ::core::option::Option::Some(()) => {
+                  f.write_str(separator)?;
+                  f.write_str(name)?;
+                  separator = "+";
+                }
+                ::core::option::Option::None => {}
+              }
             }
-            ::core::option::Option::None => {}
+
+            Ok(())
           }
         }
-
-        Ok(())
       }
     },
-  }))
+  ))
 }

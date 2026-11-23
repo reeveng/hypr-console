@@ -76,7 +76,7 @@ alone +command:
 # would be wrong about, answered by the one thing that already keeps it. The
 # run has a target directory of its own, so no other check's cache answers for
 # it and the facts have one writer. It used to clean the workspace's crates out
-# of that directory every time, which made every `ready` check the whole
+# of that directory every time, which made every run check the whole
 # workspace again under the nightly to learn what had not changed; now that is
 # done only when the facts are missing altogether. Then
 # `console-architecture` asks `cargo metadata` for every library and program
@@ -88,13 +88,16 @@ alone +command:
 # docs rather than the crate, because the pictures are the one thing in the
 # tree meant to be looked at rather than read, and because the facts are what
 # the rules in `console-architecture/tests` are asked over -- the crate is the
-# reading of them, not where they live. `the_map` holds the source and the page
-# against what the tree would draw now; `ready` runs this and fails if a line
-# changed, which is the half no test on stable can collect.
+# reading of them, not where they live. `just map-check` checks the saved map
+# and its facts on demand.
 
 # draw how the running desktop is connected
 map:
     @cargo x map
+
+# validate the saved architecture map and its facts
+map-check:
+    cargo test --locked -p console-architecture --test the_map --test the_rules -- --include-ignored
 
 # write the palette into every file that spends it
 theme:
@@ -208,7 +211,7 @@ literals:
 # The mark lives beside the deploy lock in the git directory, so writing it
 # does not dirty what it describes.
 #
-# The map, the rename check and the word count go first: they are the ones a
+# The rename check and the word count go first: they are the ones a
 # change most often breaks, and each answers in seconds where the tests take
 # minutes, so a red one is heard before the long wait rather than after it.
 #
@@ -411,6 +414,39 @@ kernel-input: kernel-image
 # check native USB input with AMD-Vi translation and revocation
 kernel-input-iommu: kernel-image
     TMPDIR="${TMPDIR:-/var/tmp}" cargo run --quiet -p console-tasks --example kernel-usb -- target/kernel/esp amd-vi
+
+# Build the working tree's configuration into the Nix store and keep a link to it.
+[positional-arguments]
+native-build generation="target/kernel/current":
+    mkdir -p "$(dirname -- "$1")"
+    nix build --impure --file nix/native-generation.nix --out-link "$1"
+
+# Boot a native generation, with an optional previous generation in the firmware menu.
+[positional-arguments]
+native-boot generation previous="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    drives=()
+    add_drive() {
+        local esp id="$2"
+        esp=$(realpath -e "$1/esp")
+        test -f "$esp/EFI/BOOT/BOOTX64.EFI"
+        drives+=(-drive "if=none,id=$id,format=raw,file=fat:${esp//,/,,},readonly=on"
+            -device "usb-storage,bus=xhci.0,drive=$id,serial=console-$id,removable=on,bootindex=$3")
+    }
+    add_drive "$1" current 1
+    if [ -n "$2" ]; then add_drive "$2" previous 2; fi
+    status=0
+    qemu-system-x86_64 -machine q35 -cpu qemu64 -m 256M -bios /usr/share/edk2/x64/OVMF.4m.fd \
+        -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 "${drives[@]}" \
+        -boot menu=on -nic none -serial stdio -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+        -no-reboot || status=$?
+    if [ "$status" -ne 65 ]; then exit "$status"; fi
+
+# Verify the Calculator or launcher in a built native generation over USB input.
+[positional-arguments]
+native-check generation expected:
+    TMPDIR="${TMPDIR:-/var/tmp}" cargo run --locked --quiet -p console-tasks --example kernel-usb -- "$1/esp" "$2"
 
 # compare batched checksums and their tree reduction on CPU and Vulkan
 kernel-gpu-checksums:

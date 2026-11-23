@@ -103,10 +103,12 @@ impl HintInstance {
   }
 
   pub fn execution(&self) -> Result<crate::Execution, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.graphics.instruct_control & 1 == 0, ()) {
-      ::core::option::Option::Some(()) => crate::Execution::Enabled,
-      ::core::option::Option::None => crate::Execution::Disabled,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.graphics.instruct_control & 1 == 0, ()) {
+        ::core::option::Option::Some(()) => crate::Execution::Enabled,
+        ::core::option::Option::None => crate::Execution::Disabled,
+      },
+    )
   }
 
   pub fn backward_compatibility(&self) -> Result<crate::BackwardCompatibility, Never> {
@@ -122,11 +124,13 @@ impl HintInstance {
       kind: HintErrorKind::InvalidOutlineBufferLength,
     };
 
-    match ::core::primitive::bool::then_some(outline.twilight_original_scaled.len() != self.twilight_original_scaled.len()
-      || outline.twilight_scaled.len() != self.twilight_scaled.len()
-      || outline.twilight_flags.len() != self.twilight_flags.len()
-      || outline.phantom.len() < 4, ())
-    {
+    match ::core::primitive::bool::then_some(
+      outline.twilight_original_scaled.len() != self.twilight_original_scaled.len()
+        || outline.twilight_scaled.len() != self.twilight_scaled.len()
+        || outline.twilight_flags.len() != self.twilight_flags.len()
+        || outline.phantom.len() < 4,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Err(buffer_error),
       ::core::option::Option::None => {}
     }

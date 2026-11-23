@@ -282,7 +282,10 @@ fn damaged_end<S: ByteSource + ?Sized>(
 
   match (child.size, bounds, child.id) {
     (Size::Known(size), ElementBounds::Overrun, SIMPLE_BLOCK | BLOCK_GROUP) => {
-      match ::core::primitive::bool::then_some(scanning.window.len <= start.saturating_add(size), ()) {
+      match ::core::primitive::bool::then_some(
+        scanning.window.len <= start.saturating_add(size),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ok(cluster.end),
         ::core::option::Option::None => resynced(scanning.window, after),
       }

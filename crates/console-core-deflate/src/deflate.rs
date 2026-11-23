@@ -177,13 +177,15 @@ pub fn deflate(bytes: &[u8]) -> Result<Vec<u8>, DeflateError> {
   };
 
   let walked = iterate(started, |state| {
-    Ok(match ::core::primitive::bool::then_some(state.at < end, ()) {
-      ::core::option::Option::None => Step::Halt(Ok(state)),
-      ::core::option::Option::Some(()) => match advanced(bytes, state, &alphabet) {
-        Ok(state_2) => Step::Again(state_2),
-        Err(fault) => Step::Halt(Err(fault)),
+    Ok(
+      match ::core::primitive::bool::then_some(state.at < end, ()) {
+        ::core::option::Option::None => Step::Halt(Ok(state)),
+        ::core::option::Option::Some(()) => match advanced(bytes, state, &alphabet) {
+          Ok(state_2) => Step::Again(state_2),
+          Err(fault) => Step::Halt(Err(fault)),
+        },
       },
-    })
+    )
   });
 
   let mut ended = match walked {
@@ -292,7 +294,8 @@ fn chosen(
     }
   };
 
-  let (ahead, unfiled) = match ::core::primitive::bool::then_some(found_3.length < LAZY_BELOW, ()) {
+  let (ahead, unfiled) = match ::core::primitive::bool::then_some(found_3.length < LAZY_BELOW, ())
+  {
     ::core::option::Option::Some(()) => {
       let Ok(ahead) = window.longest(bytes, next);
       let Ok(()) = window.inserted(bytes, next);
@@ -472,7 +475,10 @@ impl Window {
         None => break,
       };
 
-      match ::core::primitive::bool::then_some(place < at && at.saturating_sub(place) <= WINDOW, ()) {
+      match ::core::primitive::bool::then_some(
+        place < at && at.saturating_sub(place) <= WINDOW,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => break,
       }
@@ -480,7 +486,10 @@ impl Window {
       let Ok(improved) = better(bytes, (ahead, at), (place, best));
       best = improved;
 
-      match ::core::primitive::bool::then_some(best.is_some_and(|found| found.length >= GOOD_ENOUGH), ()) {
+      match ::core::primitive::bool::then_some(
+        best.is_some_and(|found| found.length >= GOOD_ENOUGH),
+        (),
+      ) {
         ::core::option::Option::Some(()) => break,
         ::core::option::Option::None => {}
       }

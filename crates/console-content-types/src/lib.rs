@@ -135,7 +135,10 @@ impl Table {
       match ::core::primitive::bool::then_some(matched, ()) {
         ::core::option::Option::Some(()) => {
           best = match best {
-            Some(had) => match ::core::primitive::bool::then_some((ending.len(), found.weight) > (had.0.len(), had.1.weight), ()) {
+            Some(had) => match ::core::primitive::bool::then_some(
+              (ending.len(), found.weight) > (had.0.len(), had.1.weight),
+              (),
+            ) {
               ::core::option::Option::Some(()) => Some((ending, found)),
               ::core::option::Option::None => Some(had),
             },
@@ -376,7 +379,10 @@ impl<'a> Place<'a> {
       Some(split) => split,
       None => {
         return Ok(Step::Halt(
-          match ::core::primitive::bool::then_some(at.0.iter().all(|token| *token == Token::Any), ()) {
+          match ::core::primitive::bool::then_some(
+            at.0.iter().all(|token| *token == Token::Any),
+            (),
+          ) {
             ::core::option::Option::Some(()) => Matched::Yes,
             ::core::option::Option::None => Matched::No,
           },

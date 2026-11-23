@@ -91,7 +91,10 @@ fn moved(cgroup: &str) -> Result<Moved, Never> {
   };
 
   Ok(
-    match ::core::primitive::bool::then_some(segment.starts_with("run-") && segment.ends_with(".scope"), ()) {
+    match ::core::primitive::bool::then_some(
+      segment.starts_with("run-") && segment.ends_with(".scope"),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Moved::Yes,
       ::core::option::Option::None => Moved::No,
     },

@@ -96,14 +96,16 @@ impl KeysymData {
   }
 
   fn definitive(&'static self) -> Result<Option<&'static KeysymData>, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.flags & IS_SECONDARY_IDX != 0, ()) {
-      ::core::option::Option::None => Some(self),
-      ::core::option::Option::Some(()) => {
-        let Ok(at) = index(self.keysym_or_definitive_idx);
+    Ok(
+      match ::core::primitive::bool::then_some(self.flags & IS_SECONDARY_IDX != 0, ()) {
+        ::core::option::Option::None => Some(self),
+        ::core::option::Option::Some(()) => {
+          let Ok(at) = index(self.keysym_or_definitive_idx);
 
-        DATAS.get(at)
-      }
-    })
+          DATAS.get(at)
+        }
+      },
+    )
   }
 }
 
@@ -148,7 +150,10 @@ impl Keysym {
 
     Ok(match data {
       None => None,
-      Some(found) => match ::core::primitive::bool::then_some(found.flags & (HAS_CHAR | IS_DEPRECATED) == HAS_CHAR, ()) {
+      Some(found) => match ::core::primitive::bool::then_some(
+        found.flags & (HAS_CHAR | IS_DEPRECATED) == HAS_CHAR,
+        (),
+      ) {
         ::core::option::Option::None => None,
         ::core::option::Option::Some(()) => {
           let Ok(spelled) = Self::spelled_by(found, char);
@@ -179,20 +184,24 @@ impl Keysym {
   fn charted(self) -> Result<Option<char>, Never> {
     let held = self.0;
 
-    Ok(match ::core::primitive::bool::then_some(held > 0xffff, ()) {
-      ::core::option::Option::Some(()) => match KEYSYM32_TO_CHAR.binary_search_by(|k| k.keysym.cmp(&held)) {
-        Ok(at) => KEYSYM32_TO_CHAR.get(at).map(|k| k.char),
-        Err(_not_in_the_table) => None,
-      },
-      ::core::option::Option::None => {
-        let Ok(narrow) = fitted::<u32, u16>(held);
-
-        match KEYSYM_TO_CHAR.binary_search_by(|k| k.keysym.cmp(&narrow)) {
-          Ok(at) => KEYSYM_TO_CHAR.get(at).map(|k| k.char),
-          Err(_not_in_the_table) => None,
+    Ok(
+      match ::core::primitive::bool::then_some(held > 0xffff, ()) {
+        ::core::option::Option::Some(()) => {
+          match KEYSYM32_TO_CHAR.binary_search_by(|k| k.keysym.cmp(&held)) {
+            Ok(at) => KEYSYM32_TO_CHAR.get(at).map(|k| k.char),
+            Err(_not_in_the_table) => None,
+          }
         }
-      }
-    })
+        ::core::option::Option::None => {
+          let Ok(narrow) = fitted::<u32, u16>(held);
+
+          match KEYSYM_TO_CHAR.binary_search_by(|k| k.keysym.cmp(&narrow)) {
+            Ok(at) => KEYSYM_TO_CHAR.get(at).map(|k| k.char),
+            Err(_not_in_the_table) => None,
+          }
+        }
+      },
+    )
   }
 
   fn data(self) -> Result<Option<&'static KeysymData>, Never> {
@@ -242,16 +251,18 @@ impl Keysym {
   fn function_char(self) -> Result<Option<char>, Never> {
     let low = self.0 & 0xff;
 
-    Ok(match ::core::primitive::bool::then_some(self.0.wrapping_shr(8) == 0xff, ()) {
-      ::core::option::Option::None => None,
-      ::core::option::Option::Some(()) => match low {
-        0x80 => Some(' '),
-        0x08..=0x0b | 0x0d | 0x1b | 0x89 | 0x8d | 0xaa..=0xb9 | 0xbd | 0xff => {
-          char::from_u32(low & 0x7f)
-        }
-        _ => None,
+    Ok(
+      match ::core::primitive::bool::then_some(self.0.wrapping_shr(8) == 0xff, ()) {
+        ::core::option::Option::None => None,
+        ::core::option::Option::Some(()) => match low {
+          0x80 => Some(' '),
+          0x08..=0x0b | 0x0d | 0x1b | 0x89 | 0x8d | 0xaa..=0xb9 | 0xbd | 0xff => {
+            char::from_u32(low & 0x7f)
+          }
+          _ => None,
+        },
       },
-    })
+    )
   }
 
   #[allow(
@@ -267,24 +278,28 @@ impl Keysym {
     let held = self.0;
 
     match ::core::primitive::bool::then_some(held <= 0xffff, ()) {
-      ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(held < 0x80, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(byte) = fitted::<u32, u8>(held);
+      ::core::option::Option::Some(()) => {
+        match ::core::primitive::bool::then_some(held < 0x80, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(byte) = fitted::<u32, u8>(held);
 
-          Ok(Keysym(u32::from(byte.to_ascii_uppercase())))
-        }
-        ::core::option::Option::None => {
-          let Ok(mapping) = KEYSYM_TO_UPPER_KEYSYM.candidate(&held);
+            Ok(Keysym(u32::from(byte.to_ascii_uppercase())))
+          }
+          ::core::option::Option::None => {
+            let Ok(mapping) = KEYSYM_TO_UPPER_KEYSYM.candidate(&held);
 
-          Ok(match mapping {
-            Some(found) => match ::core::primitive::bool::then_some(u32::from(found.keysym) == held, ()) {
-              ::core::option::Option::Some(()) => Self(found.other),
-              ::core::option::Option::None => self,
-            },
-            None => self,
-          })
+            Ok(match mapping {
+              Some(found) => {
+                match ::core::primitive::bool::then_some(u32::from(found.keysym) == held, ()) {
+                  ::core::option::Option::Some(()) => Self(found.other),
+                  ::core::option::Option::None => self,
+                }
+              }
+              None => self,
+            })
+          }
         }
-      },
+      }
       ::core::option::Option::None => {
         let Ok(encoding) = self.encoding();
 
@@ -325,10 +340,12 @@ impl Keysym {
   }
 
   fn encoding(self) -> Result<Encoding, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.0.wrapping_shr(24) == 0x01, ()) {
-      ::core::option::Option::Some(()) => Encoding::Unicode,
-      ::core::option::Option::None => Encoding::Legacy,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.0.wrapping_shr(24) == 0x01, ()) {
+        ::core::option::Option::Some(()) => Encoding::Unicode,
+        ::core::option::Option::None => Encoding::Legacy,
+      },
+    )
   }
 
   pub fn lettercase(self) -> Result<Lettercase, Never> {
@@ -361,10 +378,15 @@ impl Keysym {
   }
 
   pub fn region(self) -> Result<Region, Never> {
-    Ok(match ::core::primitive::bool::then_some(self >= syms::KP_Space && self <= syms::KP_Equal, ()) {
-      ::core::option::Option::Some(()) => Region::Keypad,
-      ::core::option::Option::None => Region::Main,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        self >= syms::KP_Space && self <= syms::KP_Equal,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Region::Keypad,
+        ::core::option::Option::None => Region::Main,
+      },
+    )
   }
 }
 

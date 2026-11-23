@@ -24,7 +24,10 @@ pub struct EmptyClipRange;
 impl ClipBounds {
   pub fn new(limits: RangeInclusive<i32>) -> Result<Self, EmptyClipRange> {
     match limits.clone().next() {
-      Some(min) => Ok(Self { min, max: *limits.end() }),
+      Some(min) => Ok(Self {
+        min,
+        max: *limits.end(),
+      }),
       None => Err(EmptyClipRange),
     }
   }

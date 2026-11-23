@@ -1,8 +1,8 @@
 //! Held with both triggers, a shoulder carries the window rather than leaving it.
 
 use console_input_controller::effect::{CompositorAction, Payload, WorkspaceTarget};
-use console_test_stages::device::TriggerTravel;
 use console_test_stages::checking::{Body, Check, CheckResult, happened, not_same, same};
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::device::{Device, OPENING, PATIENCE};
 use console_test_stages::here::{Here, TURNS};
 

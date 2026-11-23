@@ -165,7 +165,12 @@ where
     });
     let first_point_ix = point_ix;
 
-    while point_ix <= end_point_ix && matches!(flags.get(point_ix)?.marker_presence(PointMarker::HAS_DELTA), read_fonts::Presence::Absent) {
+    while point_ix <= end_point_ix
+      && matches!(
+        flags.get(point_ix)?.marker_presence(PointMarker::HAS_DELTA),
+        read_fonts::Presence::Absent
+      )
+    {
       point_ix += 1;
     }
 

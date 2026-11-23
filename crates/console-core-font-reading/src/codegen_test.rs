@@ -103,7 +103,11 @@ pub mod offsets_arrays {
     let kids = value_1.collect::<Result<Vec<_>, _>>()?;
     let (first, second, third) = match kids.as_slice() {
       [first, second, third, ..] => (first, second, third),
-      _short_array => return Err(crate::test_support::Failure::from("expected three variable-length records")),
+      _short_array => {
+        return Err(crate::test_support::Failure::from(
+          "expected three variable-length records",
+        ));
+      }
     };
     assert!(first.bytes.is_empty());
     assert_eq!(second.bytes, &[1, 1]);
@@ -140,16 +144,13 @@ pub mod offsets_arrays {
     let fixture_value = crate::test_support::fixture_value(
       match table.versioned_nonnullable() {
         ::core::result::Result::Ok(read_value) => read_value,
-        ::core::result::Result::Err(read_error) =>
-          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
       },
-      "fixture value"
+      "fixture value",
     )?;
-    assert_eq!(
-      fixture_value
-      .value(),
-      Ok(0xb01d)
-    );
+    assert_eq!(fixture_value.value(), Ok(0xb01d));
     ::core::result::Result::Ok(())
   }
 
@@ -445,7 +446,11 @@ pub mod generic_group {
 
     match sub {
       MySubtable::Format1(f1) => assert_eq!(f1.value(), Ok(42)),
-      MySubtable::Format2(_) => return Err(crate::test_support::Failure::from(alloc::format!("expected subtable format 1"))),
+      MySubtable::Format2(_) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected subtable format 1"
+        )));
+      }
     }
 
     let buf_2 = font_test_data::be_buffer! { (2u16), (2u16), (..([10u16, 20])) };
@@ -458,7 +463,11 @@ pub mod generic_group {
 
     match sub_2 {
       MySubtable::Format2(f2) => assert_eq!(f2.count(), Ok(2)),
-      MySubtable::Format1(_) => return Err(crate::test_support::Failure::from(alloc::format!("expected subtable format 2"))),
+      MySubtable::Format1(_) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "expected subtable format 2"
+        )));
+      }
     };
 
     Ok(())

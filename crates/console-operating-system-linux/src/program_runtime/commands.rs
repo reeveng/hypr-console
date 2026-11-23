@@ -21,7 +21,9 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
-use crate::program_lifetime::{BoundToParent, Forked, PipeReady, TimedReadPipe, alongside, forked, hooks};
+use crate::program_lifetime::{
+  BoundToParent, Forked, PipeReady, TimedReadPipe, alongside, forked, hooks,
+};
 use crate::systemd::{Wrapped, command_in_a_scope_of_its_own};
 use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
@@ -139,7 +141,10 @@ impl Platform for Linux {
     streams: Streams,
     launch: Launch,
   ) -> io::Result<()> {
-    match ::core::primitive::bool::then_some(streams.stdout == Stream::Capture || streams.stderr == Stream::Capture, ()) {
+    match ::core::primitive::bool::then_some(
+      streams.stdout == Stream::Capture || streams.stderr == Stream::Capture,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(io::Error::new(
           io::ErrorKind::InvalidInput,
@@ -239,8 +244,12 @@ fn collect<P>(
   report: Option<Report<'_>>,
   try_wait: CheckExit<P>,
 ) -> io::Result<Capture> {
-  let output = printing.map(|pipe| TimedReadPipe::new(OwnedFd::from(pipe))).transpose()?;
-  let errors = complaints.map(|pipe| TimedReadPipe::new(OwnedFd::from(pipe))).transpose()?;
+  let output = printing
+    .map(|pipe| TimedReadPipe::new(OwnedFd::from(pipe)))
+    .transpose()?;
+  let errors = complaints
+    .map(|pipe| TimedReadPipe::new(OwnedFd::from(pipe)))
+    .transpose()?;
   let capture = Capture {
     printing: output,
     complaints: errors,
@@ -249,11 +258,16 @@ fn collect<P>(
     report_line: Vec::new(),
     stderr_size: 0,
   };
-  let reading = Reading { child, capture, report, remaining: None };
+  let reading = Reading {
+    child,
+    capture,
+    report,
+    remaining: None,
+  };
   let drained = iterate(reading, |mut current| {
     Ok(match current.pass(try_wait) {
       Ok(Drain::More) => Step::Again(current),
-      Ok(Drain::Done) => Step::Halt(current.capture.finish_report(current.report)),
+      Ok(Drain::Finished) => Step::Halt(current.capture.finish_report(current.report)),
       Err(fault) => Step::Halt(Err(fault)),
     })
   });
@@ -266,13 +280,16 @@ fn collect<P>(
 
 enum Drain {
   More,
-  Done,
+  Finished,
 }
 
 impl<P> Reading<'_, '_, P> {
   fn pass(&mut self, try_wait: CheckExit<P>) -> io::Result<Drain> {
-    match (self.capture.printing.as_ref(), self.capture.complaints.as_ref()) {
-      (None, None) => return Ok(Drain::Done),
+    match (
+      self.capture.printing.as_ref(),
+      self.capture.complaints.as_ref(),
+    ) {
+      (None, None) => return Ok(Drain::Finished),
       (Some(_), _) | (None, Some(_)) => {}
     }
 
@@ -285,7 +302,7 @@ impl<P> Reading<'_, '_, P> {
       }
     };
     let wait = match remaining {
-      Some(0) => return Ok(Drain::Done),
+      Some(0) => return Ok(Drain::Finished),
       Some(passes) => {
         self.remaining = passes.checked_sub(1);
 
@@ -296,14 +313,14 @@ impl<P> Reading<'_, '_, P> {
     let progress = self.capture.drain(&mut self.report, wait)?;
 
     Ok(match (self.remaining, progress) {
-      (Some(_), Progress::Quiet) => Drain::Done,
+      (Some(_), Progress::Pending) => Drain::Finished,
       (Some(_), Progress::Read) | (None, _) => Drain::More,
     })
   }
 }
 
 enum Progress {
-  Quiet,
+  Pending,
   Read,
 }
 
@@ -316,20 +333,40 @@ impl Capture {
   fn available(&self, wait: Duration) -> io::Result<ReadWait> {
     let ready = match (&self.printing, &self.complaints) {
       (Some(output), Some(errors)) => output.ready_with(errors, wait),
-      (Some(_), None) => return Ok(ReadWait { stdout: Some(wait), stderr: None }),
-      (None, Some(_)) => return Ok(ReadWait { stdout: None, stderr: Some(wait) }),
-      (None, None) => return Ok(ReadWait { stdout: None, stderr: None }),
+      (Some(_), None) => {
+        return Ok(ReadWait {
+          stdout: Some(wait),
+          stderr: None,
+        });
+      }
+      (None, Some(_)) => {
+        return Ok(ReadWait {
+          stdout: None,
+          stderr: Some(wait),
+        });
+      }
+      (None, None) => {
+        return Ok(ReadWait {
+          stdout: None,
+          stderr: None,
+        });
+      }
     };
     let [stdout, stderr] = match ready {
       Ok(readable) => readable,
       Err(fault) => match pipe_fault(&fault) {
-        Ok(PipeFault::NotReady) => return Ok(ReadWait { stdout: None, stderr: None }),
+        Ok(PipeFault::NotReady) => {
+          return Ok(ReadWait {
+            stdout: None,
+            stderr: None,
+          });
+        }
         Ok(PipeFault::Failed) => return Err(fault),
       },
     };
     let ready_now = |readable| match readable {
       PipeReady::Readable => Some(Duration::ZERO),
-      PipeReady::Quiet => None,
+      PipeReady::Pending => None,
     };
 
     Ok(ReadWait {
@@ -341,7 +378,7 @@ impl Capture {
   fn drain(&mut self, report: &mut Option<Report<'_>>, wait: Duration) -> io::Result<Progress> {
     let available = self.available(wait)?;
     let mut buffer = [0u8; 8192];
-    let mut progress = Progress::Quiet;
+    let mut progress = Progress::Pending;
 
     match available.stdout {
       Some(ready) => {
@@ -422,7 +459,10 @@ impl Capture {
     }
 
     match (self.stderr_size > MAX_STDERR_BYTES).then_some(()) {
-      Some(()) => Err(io::Error::new(io::ErrorKind::InvalidData, "the program wrote more than 16 MiB to stderr")),
+      Some(()) => Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "the program wrote more than 16 MiB to stderr",
+      )),
       None => Ok(self),
     }
   }
@@ -434,10 +474,17 @@ enum PipeFault {
 }
 
 fn pipe_fault(fault: &io::Error) -> Result<PipeFault, Never> {
-  Ok(match matches!(fault.kind(), io::ErrorKind::TimedOut | io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock).then_some(()) {
-    Some(()) => PipeFault::NotReady,
-    None => PipeFault::Failed,
-  })
+  Ok(
+    match matches!(
+      fault.kind(),
+      io::ErrorKind::TimedOut | io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+    )
+    .then_some(())
+    {
+      Some(()) => PipeFault::NotReady,
+      None => PipeFault::Failed,
+    },
+  )
 }
 
 fn read_pipe<'a>(
@@ -470,17 +517,18 @@ fn read_pipe<'a>(
     _ => {
       let Ok(length) = console_core_number_conversion::index(read);
 
-      buffer.get(..length).map(Some).ok_or_else(|| io::Error::other("invalid pipe read length"))
+      buffer
+        .get(..length)
+        .map(Some)
+        .ok_or_else(|| io::Error::other("invalid pipe read length"))
     }
   }
 }
 
 pub fn reap_in_background(mut started: Detached) -> Result<(), Never> {
-  let waiting = std::thread::spawn(move || {
-    match started.wait() {
-      Ok(_) => {}
-      Err(fault) => console_core_logging::warn!("could not reap a detached child: {fault}"),
-    }
+  let waiting = std::thread::spawn(move || match started.wait() {
+    Ok(_) => {}
+    Err(fault) => console_core_logging::warn!("could not reap a detached child: {fault}"),
   });
 
   threads::let_go(waiting)

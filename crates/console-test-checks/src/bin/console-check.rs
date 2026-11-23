@@ -7,6 +7,7 @@
 //! console-check --stage device --dry-run  what it would do to the device
 //! console-check --stage device --yes      do it
 //! console-check --stage device --yes --all   every check written for it
+//! console-check --stage device --yes architecture   compare the device with the saved map
 //! ```
 //!
 //! The device is the last stage and it is someone's machine. Nothing is sent to
@@ -50,8 +51,7 @@ use std::time::Instant;
 use console_core_arguments::{Command, Flag, Operands, Presence, Takes, ValidationError};
 use console_core_never::Never;
 use console_response_times::{Note, Wait, Waiting};
-use console_test_checks::Unchecked;
-use console_test_checks::select;
+use console_test_checks::{CHECKS, Unchecked, select};
 use console_test_stages::checking::{self, Check, How, Stage};
 use console_test_stages::desktop::Desktop;
 use console_test_stages::device::{self, Device, DryRun};
@@ -501,7 +501,12 @@ fn timed(mut timing: Waiting, stage: &str, how: &How) -> Result<(), Never> {
 }
 
 fn run(asked: Arguments, ink: &Ansi) -> Result<std::process::ExitCode, Unchecked> {
-  let Ok(checks) = select(&asked.only);
+  let checks = if asked.only.is_empty() && (asked.list || asked.all) {
+    CHECKS.to_vec()
+  } else {
+    let Ok(selected) = select(&asked.only);
+    selected
+  };
 
   match ::core::primitive::bool::then_some(checks.is_empty(), ()) {
     ::core::option::Option::Some(()) => return Err(Unchecked::NoSuchCheck),

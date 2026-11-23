@@ -225,10 +225,12 @@ fn last_press(stage: &mut Device) -> CheckResult {
     move |stage_2: &mut Device| -> Result<Ready, Never> {
       let Ok(now) = stage_2.user(&asking);
 
-      Ok(match ::core::primitive::bool::then_some(now.trim() == word, ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(now.trim() == word, ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   );
@@ -242,7 +244,8 @@ fn last_press(stage: &mut Device) -> CheckResult {
   match ::core::primitive::bool::then_some(was_2.is_empty(), ()) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => {
-      let ::core::result::Result::Ok(_) = stage.user(&format!("printf %s {was} > {at}", was = was_2, at = at_2));
+      let ::core::result::Result::Ok(_) =
+        stage.user(&format!("printf %s {was} > {at}", was = was_2, at = at_2));
     }
   }
 

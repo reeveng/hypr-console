@@ -23,13 +23,19 @@ cfg_if::cfg_if! {
 
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "all selected lane storage layouts have a valid zero bit pattern in every lane")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "all selected lane storage layouts have a valid zero bit pattern in every lane"
+  )
 )]
 unsafe impl bytemuck::Zeroable for u32x8 {}
 
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "each selected layout is one register, a fixed lane array, or adjacent equal-width lane blocks without padding")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "each selected layout is one register, a fixed lane array, or adjacent equal-width lane blocks without padding"
+  )
 )]
 unsafe impl bytemuck::Pod for u32x8 {}
 

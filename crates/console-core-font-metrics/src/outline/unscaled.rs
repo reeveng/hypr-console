@@ -53,7 +53,10 @@ impl UnscaledPoint {
   }
 
   pub fn is_on_curve(self) -> bool {
-    matches!(self.flags.curve_membership(), read_fonts::tables::glyf::CurveMembership::OnCurve)
+    matches!(
+      self.flags.curve_membership(),
+      read_fonts::tables::glyf::CurveMembership::OnCurve
+    )
   }
 }
 
@@ -493,7 +496,12 @@ mod tests {
     let on_curves = outline
       .0
       .iter()
-      .map(|point| matches!(point.flags.curve_membership(), read_fonts::tables::glyf::CurveMembership::OnCurve))
+      .map(|point| {
+        matches!(
+          point.flags.curve_membership(),
+          read_fonts::tables::glyf::CurveMembership::OnCurve
+        )
+      })
       .collect::<Vec<_>>();
     #[rustfmt::skip]
         let expected_on_curves = [

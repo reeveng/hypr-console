@@ -1,9 +1,9 @@
 //! Performing the inverse discrete wavelet transform, as specified in Annex F.
 
 use alloc::vec::Vec;
-use console_core_size::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index, indices, wrapped_index};
+use console_core_size::Size;
 
 use super::build::{Decomposition, SubBand};
 use super::codestream::WaveletTransform;

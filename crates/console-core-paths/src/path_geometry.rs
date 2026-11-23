@@ -239,9 +239,14 @@ pub fn chop_cubic_at2(
   Ok(())
 }
 
-pub(crate) fn find_quad_extrema(points: [f32; 3]) -> Result<Option<NormalizedF32Exclusive>, Never> {
+pub(crate) fn find_quad_extrema(
+  points: [f32; 3],
+) -> Result<Option<NormalizedF32Exclusive>, Never> {
   let [numerator, denominator] = bezier::quadratic_extremum(points);
-  divide_within_unit_interval(Quotient { numerator, denominator })
+  divide_within_unit_interval(Quotient {
+    numerator,
+    denominator,
+  })
 }
 
 #[cfg_attr(
@@ -314,10 +319,8 @@ fn path_points<const N: usize>(vectors: [f32x2; N]) -> Result<[Point; N], Never>
 }
 
 pub(crate) fn find_quad_max_curvature(src: &[Point; 3]) -> Result<NormalizedF32, Never> {
-  let [mut numer, mut denom] = bezier::quadratic_speed_extremum(
-    src.map(|point| point.x),
-    src.map(|point| point.y),
-  );
+  let [mut numer, mut denom] =
+    bezier::quadratic_speed_extremum(src.map(|point| point.x), src.map(|point| point.y));
 
   match ::core::primitive::bool::then_some(denom < 0.0, ()) {
     ::core::option::Option::Some(()) => {
@@ -399,7 +402,8 @@ pub fn find_cubic_max_curvature<'a>(
   t_values: &'a mut [NormalizedF32; 3],
 ) -> Result<&'a [NormalizedF32], Never> {
   let [start, first, second, end] = *src;
-  let mut horizontal = bezier::cubic_speed_extrema_coefficients([start.x, first.x, second.x, end.x]);
+  let mut horizontal =
+    bezier::cubic_speed_extrema_coefficients([start.x, first.x, second.x, end.x]);
   let vertical = bezier::cubic_speed_extrema_coefficients([start.y, first.y, second.y, end.y]);
 
   for (coefficient, extra) in horizontal.iter_mut().zip(vertical) {
@@ -660,7 +664,14 @@ pub(crate) fn find_cubic_extrema(
   t_values: &mut [NormalizedF32Exclusive; 3],
 ) -> Result<u8, Never> {
   let [quadratic, linear, constant] = bezier::cubic_derivative_coefficients(points, 2.0, 3.0);
-  quadratic_roots(QuadraticPolynomial { quadratic, linear, constant }, t_values)
+  quadratic_roots(
+    QuadraticPolynomial {
+      quadratic,
+      linear,
+      constant,
+    },
+    t_values,
+  )
 }
 
 pub(crate) fn find_cubic_inflections<'a>(
@@ -673,7 +684,14 @@ pub(crate) fn find_cubic_inflections<'a>(
     2.0,
     3.0,
   );
-  let Ok(count) = quadratic_roots(QuadraticPolynomial { quadratic, linear, constant }, t_values);
+  let Ok(count) = quadratic_roots(
+    QuadraticPolynomial {
+      quadratic,
+      linear,
+      constant,
+    },
+    t_values,
+  );
   let Ok(length) = index(u64::from(count));
 
   Ok(match t_values.get(..length) {
@@ -995,10 +1013,12 @@ impl Conic {
     match finite {
       crate::IsFiniteAnswer::No => {
         let Ok(x) = nearest_f32_from_f64(bezier::rational_quadratic_midpoint(
-          self.points.map(|point| point.x), weight,
+          self.points.map(|point| point.x),
+          weight,
         ));
         let Ok(y) = nearest_f32_from_f64(bezier::rational_quadratic_midpoint(
-          self.points.map(|point| point.y), weight,
+          self.points.map(|point| point.y),
+          weight,
         ));
         midpoint = Point { x, y };
       }

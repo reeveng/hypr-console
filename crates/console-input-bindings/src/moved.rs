@@ -106,10 +106,12 @@ impl Tasks {
   }
 
   pub fn rebound(&self) -> Result<Rebound, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.moved.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Rebound::None,
-      ::core::option::Option::None => Rebound::Some,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.moved.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Rebound::None,
+        ::core::option::Option::None => Rebound::Some,
+      },
+    )
   }
 
   pub fn bound(&self, job: &str) -> Result<Option<&[Binding]>, Never> {

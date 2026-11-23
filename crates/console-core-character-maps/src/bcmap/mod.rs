@@ -386,8 +386,8 @@ pub(crate) fn read(data: &[u8]) -> Result<Layered, ParseError> {
     let Ok(remaining) = segments.remaining();
 
     match remaining {
-      Remaining::Nothing => break,
-      Remaining::Something => {}
+      Remaining::Absent => break,
+      Remaining::Present => {}
     }
 
     let kind = segments.u8()?;

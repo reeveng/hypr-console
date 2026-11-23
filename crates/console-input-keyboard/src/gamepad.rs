@@ -219,14 +219,18 @@ pub fn from_stick(
   }
 
   Ok(match axis {
-    AbsoluteAxisCode::ABS_X | AbsoluteAxisCode::ABS_RX => match ::core::primitive::bool::then_some(pushed < 0.0, ()) {
-      ::core::option::Option::Some(()) => Some(KeyboardCommand::Left),
-      ::core::option::Option::None => Some(KeyboardCommand::Right),
-    },
-    AbsoluteAxisCode::ABS_Y | AbsoluteAxisCode::ABS_RY => match ::core::primitive::bool::then_some(pushed < 0.0, ()) {
-      ::core::option::Option::Some(()) => Some(KeyboardCommand::Up),
-      ::core::option::Option::None => Some(KeyboardCommand::Down),
-    },
+    AbsoluteAxisCode::ABS_X | AbsoluteAxisCode::ABS_RX => {
+      match ::core::primitive::bool::then_some(pushed < 0.0, ()) {
+        ::core::option::Option::Some(()) => Some(KeyboardCommand::Left),
+        ::core::option::Option::None => Some(KeyboardCommand::Right),
+      }
+    }
+    AbsoluteAxisCode::ABS_Y | AbsoluteAxisCode::ABS_RY => {
+      match ::core::primitive::bool::then_some(pushed < 0.0, ()) {
+        ::core::option::Option::Some(()) => Some(KeyboardCommand::Up),
+        ::core::option::Option::None => Some(KeyboardCommand::Down),
+      }
+    }
     _ => None,
   })
 }

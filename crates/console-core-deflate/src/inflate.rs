@@ -257,7 +257,10 @@ fn stored_block(bits: &mut Bits<'_>, output: &mut Output) -> Result<(), DeflateE
   let [low, high, check_low, check_high] = *said;
   let long = u16::from_le_bytes([low, high]);
 
-  match ::core::primitive::bool::then_some(long == !u16::from_le_bytes([check_low, check_high]), ()) {
+  match ::core::primitive::bool::then_some(
+    long == !u16::from_le_bytes([check_low, check_high]),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(DeflateError::Corrupt),
   }

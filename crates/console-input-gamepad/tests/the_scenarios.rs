@@ -26,7 +26,10 @@ fn scenarios() -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let entry_2 = entry?;
     let path = entry_2.path();
 
-    match ::core::primitive::bool::then_some(path.extension().is_some_and(|kind| kind == "txt"), ()) {
+    match ::core::primitive::bool::then_some(
+      path.extension().is_some_and(|kind| kind == "txt"),
+      (),
+    ) {
       ::core::option::Option::Some(()) => found.push(path),
       ::core::option::Option::None => {}
     }

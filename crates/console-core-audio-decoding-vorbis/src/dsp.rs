@@ -9,7 +9,7 @@
 use std::cmp::Ordering;
 
 use console_core_audio_decoding_interfaces::errors::{Error, decode_error};
-use console_core_frequency_transforms::{Fault as TransformFault, mdct::Imdct};
+use console_core_frequency_transforms::{TransformError as TransformFault, mdct::Imdct};
 use console_core_never::Never;
 use console_core_number_conversion::index;
 

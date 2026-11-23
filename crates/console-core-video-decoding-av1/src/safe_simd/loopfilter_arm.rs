@@ -22,12 +22,48 @@ use crate::src::lf_mask::Av1FilterLUT;
 use crate::src::loopfilter::{HV, LF_BLOCK_LEN, LF_BW};
 use crate::src::with_offset::WithOffset;
 
-#[cfg_attr(dylint_lib = "explicit002_infallible_result", expect(explicit002_infallible_result, reason = "keeps the public whole-edge dispatch result that always hands AArch64 to the scalar driver"))]
-#[cfg_attr(dylint_lib = "explicit007_no_bool_return", expect(explicit007_no_bool_return, reason = "keeps the public whole-edge dispatch shortcut so existing callers can try the architecture hook"))]
-#[cfg_attr(dylint_lib = "explicit008_no_bool_param", expect(explicit008_no_bool_param, reason = "the public architecture hook keeps its existing luma and orientation flags"))]
-#[cfg_attr(dylint_lib = "explicit024_no_swappable_params", expect(explicit024_no_swappable_params, reason = "the published whole-edge dispatcher uses distinct plane, threshold and native stride fields in its original positional call order"))]
-#[cfg_attr(dylint_lib = "explicit051_no_machine_width", expect(explicit051_no_machine_width, reason = "the published architecture hook keeps its native picture buffer offsets"))]
-#[cfg_attr(dylint_lib = "explicit075_bounded_complexity", expect(explicit075_bounded_complexity, reason = "the whole-edge dispatch API remains compatible with existing calls while AArch64 filters the compact run"))]
+#[cfg_attr(
+  dylint_lib = "explicit002_infallible_result",
+  expect(
+    explicit002_infallible_result,
+    reason = "keeps the public whole-edge dispatch result that always hands AArch64 to the scalar driver"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit007_no_bool_return",
+  expect(
+    explicit007_no_bool_return,
+    reason = "keeps the public whole-edge dispatch shortcut so existing callers can try the architecture hook"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit008_no_bool_param",
+  expect(
+    explicit008_no_bool_param,
+    reason = "the public architecture hook keeps its existing luma and orientation flags"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit024_no_swappable_params",
+  expect(
+    explicit024_no_swappable_params,
+    reason = "the published whole-edge dispatcher uses distinct plane, threshold and native stride fields in its original positional call order"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit051_no_machine_width",
+  expect(
+    explicit051_no_machine_width,
+    reason = "the published architecture hook keeps its native picture buffer offsets"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit075_bounded_complexity",
+  expect(
+    explicit075_bounded_complexity,
+    reason = "the whole-edge dispatch API remains compatible with existing calls while AArch64 filters the compact run"
+  )
+)]
 pub fn loopfilter_sb_dispatch<BD: BitDepth>(
   _dst: PicOffset,
   _stride: NativeOffset,
@@ -76,8 +112,11 @@ struct VectorLevels {
 #[rite(neon)]
 fn vector_levels(thresholds: &Thresholds, group: u64) -> Result<VectorLevels, ArmFilterFallback> {
   let Ok(first) = index(group);
-  let [low, high] = thresholds.groups.get(first..)
-    .and_then(<[_]>::first_chunk::<2>).ok_or(ArmFilterFallback::Layout)?;
+  let [low, high] = thresholds
+    .groups
+    .get(first..)
+    .and_then(<[_]>::first_chunk::<2>)
+    .ok_or(ArmFilterFallback::Layout)?;
   let mix = |levels: [u16; 2]| {
     let [a, b] = levels;
     vcombine_u16(vdup_n_u16(a), vdup_n_u16(b))
@@ -148,10 +187,7 @@ struct RunPlan {
   pitch: u64,
 }
 
-fn run_plan(
-  request: &CompactRun<'_>,
-  width: FilterWidth,
-) -> Result<RunPlan, ArmFilterFallback> {
+fn run_plan(request: &CompactRun<'_>, width: FilterWidth) -> Result<RunPlan, ArmFilterFallback> {
   let Ok(groups) = fixed_index(request.parameters.len());
   let Ok(pitch) = fixed_index(LF_BW);
   let Ok(reach) = width.reach();
@@ -166,22 +202,47 @@ fn run_plan(
   let rounded = lanes.div_ceil(8).wrapping_mul(8);
   let taps = reach.wrapping_mul(2);
   let (before, read) = match request.direction {
-    HV::V => (reach.wrapping_mul(pitch), taps.wrapping_sub(1).wrapping_mul(pitch).wrapping_add(rounded)),
+    HV::V => (
+      reach.wrapping_mul(pitch),
+      taps
+        .wrapping_sub(1)
+        .wrapping_mul(pitch)
+        .wrapping_add(rounded),
+    ),
     HV::H => {
       let columns = taps.div_ceil(8).wrapping_mul(8);
-      (reach, rounded.wrapping_sub(1).wrapping_mul(pitch).wrapping_add(columns))
+      (
+        reach,
+        rounded
+          .wrapping_sub(1)
+          .wrapping_mul(pitch)
+          .wrapping_add(columns),
+      )
     }
   };
-  let origin = request.base.checked_sub(before).ok_or(ArmFilterFallback::Layout)?;
+  let origin = request
+    .base
+    .checked_sub(before)
+    .ok_or(ArmFilterFallback::Layout)?;
 
   match origin.wrapping_add(read) <= length {
-    true => Ok(RunPlan { direction: request.direction, lanes, origin, reach, pitch }),
+    true => Ok(RunPlan {
+      direction: request.direction,
+      lanes,
+      origin,
+      reach,
+      pitch,
+    }),
     false => Err(ArmFilterFallback::Layout),
   }
 }
 
 fn thresholds(request: &CompactRun<'_>) -> Result<Thresholds, ArmFilterFallback> {
-  let empty = LaneLevels { edge: 0, interior: 0, variance: 0 };
+  let empty = LaneLevels {
+    edge: 0,
+    interior: 0,
+    variance: 0,
+  };
   let mut groups = [empty; 4];
   let shift = u32::from(request.depth_shift);
   let maximum = i16::try_from(request.maximum).map_err(|_range| ArmFilterFallback::Layout)?;
@@ -203,34 +264,51 @@ fn thresholds(request: &CompactRun<'_>) -> Result<Thresholds, ArmFilterFallback>
 }
 
 #[rite(neon)]
-fn load_lane<BD: BitDepth>(samples: &[BD::Pixel], offset: u64) -> Result<uint16x8_t, ArmFilterFallback> {
+fn load_lane<BD: BitDepth>(
+  samples: &[BD::Pixel],
+  offset: u64,
+) -> Result<uint16x8_t, ArmFilterFallback> {
   let Ok(position) = index(offset);
-  let lane = samples.get(position..).and_then(<[_]>::first_chunk::<8>).ok_or(ArmFilterFallback::Layout)?;
+  let lane = samples
+    .get(position..)
+    .and_then(<[_]>::first_chunk::<8>)
+    .ok_or(ArmFilterFallback::Layout)?;
 
   match BD::BPC {
     BPC::BPC8 => {
-      let pixels = FromBytes::ref_from_bytes(lane.as_bytes()).map_err(|_layout| ArmFilterFallback::Layout)?;
+      let pixels = FromBytes::ref_from_bytes(lane.as_bytes())
+        .map_err(|_layout| ArmFilterFallback::Layout)?;
       Ok(vmovl_u8(safe_simd::vld1_u8(pixels)))
     }
     BPC::BPC16 => {
-      let pixels = FromBytes::ref_from_bytes(lane.as_bytes()).map_err(|_layout| ArmFilterFallback::Layout)?;
+      let pixels = FromBytes::ref_from_bytes(lane.as_bytes())
+        .map_err(|_layout| ArmFilterFallback::Layout)?;
       Ok(safe_simd::vld1q_u16(pixels))
     }
   }
 }
 
 #[rite(neon)]
-fn store_lane<BD: BitDepth>(samples: &mut [BD::Pixel], offset: u64, value: uint16x8_t) -> Result<(), ArmFilterFallback> {
+fn store_lane<BD: BitDepth>(
+  samples: &mut [BD::Pixel],
+  offset: u64,
+  value: uint16x8_t,
+) -> Result<(), ArmFilterFallback> {
   let Ok(position) = index(offset);
-  let lane = samples.get_mut(position..).and_then(<[_]>::first_chunk_mut::<8>).ok_or(ArmFilterFallback::Layout)?;
+  let lane = samples
+    .get_mut(position..)
+    .and_then(<[_]>::first_chunk_mut::<8>)
+    .ok_or(ArmFilterFallback::Layout)?;
 
   match BD::BPC {
     BPC::BPC8 => {
-      let pixels = FromBytes::mut_from_bytes(lane.as_mut_bytes()).map_err(|_layout| ArmFilterFallback::Layout)?;
+      let pixels = FromBytes::mut_from_bytes(lane.as_mut_bytes())
+        .map_err(|_layout| ArmFilterFallback::Layout)?;
       safe_simd::vst1_u8(pixels, vmovn_u16(value));
     }
     BPC::BPC16 => {
-      let pixels = FromBytes::mut_from_bytes(lane.as_mut_bytes()).map_err(|_layout| ArmFilterFallback::Layout)?;
+      let pixels = FromBytes::mut_from_bytes(lane.as_mut_bytes())
+        .map_err(|_layout| ArmFilterFallback::Layout)?;
       safe_simd::vst1q_u16(pixels, value);
     }
   }
@@ -251,7 +329,6 @@ fn transpose8(m: [uint16x8_t; 8]) -> Result<[uint16x8_t; 8], Never> {
   let a6 = vtrn1q_u16(r6, r7);
   let a7 = vtrn2q_u16(r6, r7);
 
-
   let r = |x| vreinterpretq_u32_u16(x);
   let b0 = vtrn1q_u32(r(a0), r(a2));
   let b2 = vtrn2q_u32(r(a0), r(a2));
@@ -261,7 +338,6 @@ fn transpose8(m: [uint16x8_t; 8]) -> Result<[uint16x8_t; 8], Never> {
   let b6 = vtrn2q_u32(r(a4), r(a6));
   let b5 = vtrn1q_u32(r(a5), r(a7));
   let b7 = vtrn2q_u32(r(a5), r(a7));
-
 
   let s = |x| vreinterpretq_u64_u32(x);
   let t = |x| vreinterpretq_u16_u64(x);
@@ -279,7 +355,10 @@ fn transpose8(m: [uint16x8_t; 8]) -> Result<[uint16x8_t; 8], Never> {
 
 #[rite(neon)]
 fn clip_px(v: int16x8_t, bd_max: int16x8_t) -> Result<uint16x8_t, Never> {
-  Ok(vreinterpretq_u16_s16(vminq_s16(vmaxq_s16(v, vdupq_n_s16(0)), bd_max)))
+  Ok(vreinterpretq_u16_s16(vminq_s16(
+    vmaxq_s16(v, vdupq_n_s16(0)),
+    bd_max,
+  )))
 }
 
 #[rite(neon)]
@@ -306,69 +385,57 @@ fn lf_core<const WD: i32>(
   let ecmp = vaddq_u16(vaddq_u16(ad_p0q0, ad_p0q0), vshrq_n_u16::<1>(ad_p1q1));
   fm = vandq_u16(fm, vcleq_u16(ecmp, e));
 
-  match {
-      ::core::primitive::bool::then_some(WD > 4, ())
-  } {
-      ::core::option::Option::Some(()) => {
-        fm = vandq_u16(fm, vcleq_u16(vabdq_u16(p2, p1), i));
-        fm = vandq_u16(fm, vcleq_u16(vabdq_u16(q2, q1), i));
+  match { ::core::primitive::bool::then_some(WD > 4, ()) } {
+    ::core::option::Option::Some(()) => {
+      fm = vandq_u16(fm, vcleq_u16(vabdq_u16(p2, p1), i));
+      fm = vandq_u16(fm, vcleq_u16(vabdq_u16(q2, q1), i));
 
-        match {
-            ::core::primitive::bool::then_some(WD > 6, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              fm = vandq_u16(fm, vcleq_u16(vabdq_u16(p3, p2), i));
-              fm = vandq_u16(fm, vcleq_u16(vabdq_u16(q3, q2), i));
-            },
-            ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(WD > 6, ()) } {
+        ::core::option::Option::Some(()) => {
+          fm = vandq_u16(fm, vcleq_u16(vabdq_u16(p3, p2), i));
+          fm = vandq_u16(fm, vcleq_u16(vabdq_u16(q3, q2), i));
         }
-      },
-      ::core::option::Option::None => {},
+        ::core::option::Option::None => {}
+      }
+    }
+    ::core::option::Option::None => {}
   }
-
 
   let mut flat8in = vdupq_n_u16(0);
 
-  match {
-      ::core::primitive::bool::then_some(WD >= 6, ())
-  } {
-      ::core::option::Option::Some(()) => {
-        flat8in = vandq_u16(vcleq_u16(vabdq_u16(p2, p0), f), vcleq_u16(ad_p1p0, f));
-        flat8in = vandq_u16(flat8in, vcleq_u16(ad_q1q0, f));
-        flat8in = vandq_u16(flat8in, vcleq_u16(vabdq_u16(q2, q0), f));
+  match { ::core::primitive::bool::then_some(WD >= 6, ()) } {
+    ::core::option::Option::Some(()) => {
+      flat8in = vandq_u16(vcleq_u16(vabdq_u16(p2, p0), f), vcleq_u16(ad_p1p0, f));
+      flat8in = vandq_u16(flat8in, vcleq_u16(ad_q1q0, f));
+      flat8in = vandq_u16(flat8in, vcleq_u16(vabdq_u16(q2, q0), f));
 
-        match {
-            ::core::primitive::bool::then_some(WD >= 8, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              flat8in = vandq_u16(flat8in, vcleq_u16(vabdq_u16(p3, p0), f));
-              flat8in = vandq_u16(flat8in, vcleq_u16(vabdq_u16(q3, q0), f));
-            },
-            ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(WD >= 8, ()) } {
+        ::core::option::Option::Some(()) => {
+          flat8in = vandq_u16(flat8in, vcleq_u16(vabdq_u16(p3, p0), f));
+          flat8in = vandq_u16(flat8in, vcleq_u16(vabdq_u16(q3, q0), f));
         }
-      },
-      ::core::option::Option::None => {},
+        ::core::option::Option::None => {}
+      }
+    }
+    ::core::option::Option::None => {}
   }
 
   let mut m_wide = vdupq_n_u16(0);
 
-  match {
-      ::core::primitive::bool::then_some(WD >= 16, ())
-  } {
-      ::core::option::Option::Some(()) => {
-        let mut flat8out = vandq_u16(
-          vcleq_u16(vabdq_u16(p6, p0), f),
-          vcleq_u16(vabdq_u16(p5, p0), f),
-        );
-        flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(p4, p0), f));
-        flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(q4, q0), f));
-        flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(q5, q0), f));
-        flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(q6, q0), f));
-        m_wide = vandq_u16(vandq_u16(fm, flat8out), flat8in);
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some(WD >= 16, ()) } {
+    ::core::option::Option::Some(()) => {
+      let mut flat8out = vandq_u16(
+        vcleq_u16(vabdq_u16(p6, p0), f),
+        vcleq_u16(vabdq_u16(p5, p0), f),
+      );
+      flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(p4, p0), f));
+      flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(q4, q0), f));
+      flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(q5, q0), f));
+      flat8out = vandq_u16(flat8out, vcleq_u16(vabdq_u16(q6, q0), f));
+      m_wide = vandq_u16(vandq_u16(fm, flat8out), flat8in);
+    }
+    ::core::option::Option::None => {}
   }
-
 
   let m_flat = vbicq_u16(vandq_u16(fm, flat8in), m_wide);
   let m_narrow = vbicq_u16(fm, vorrq_u16(m_wide, m_flat));
@@ -395,106 +462,333 @@ fn lf_core<const WD: i32>(
 
   let mut o = [p5, p4, p3, p2, p1, p0, q0, q1, q2, q3, q4, q5];
 
-  *{ let [_, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_narrow, n_m2, match o { [_, _, _, _, _explicit_element, ..] => _explicit_element });
-  *{ let [_, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_narrow, n_m1, match o { [_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-  *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_narrow, n_p0, match o { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-  *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_narrow, n_p1, match o { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+  *{
+    let [_, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vbslq_u16(
+    m_narrow,
+    n_m2,
+    match o {
+      [_, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  *{
+    let [_, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vbslq_u16(
+    m_narrow,
+    n_m1,
+    match o {
+      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  *{
+    let [_, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vbslq_u16(
+    m_narrow,
+    n_p0,
+    match o {
+      [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
+  *{
+    let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+    _explicit_part
+  } = vbslq_u16(
+    m_narrow,
+    n_p1,
+    match o {
+      [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    },
+  );
 
-
-  match {
-      ::core::primitive::bool::then_some(WD >= 8, ())
-  } {
+  match { ::core::primitive::bool::then_some(WD >= 8, ()) } {
+    ::core::option::Option::Some(()) => {
+      let mut s = vaddq_u16(
+        vaddq_u16(vmulq_n_u16(p3, 3), vaddq_u16(p2, p2)),
+        vaddq_u16(vaddq_u16(p1, p0), q0),
+      );
+      let four = vdupq_n_u16(4);
+      let rnd = |running: uint16x8_t| vshrq_n_u16::<3>(vaddq_u16(running, four));
+      let step =
+        |running: uint16x8_t, a: uint16x8_t, b: uint16x8_t, c: uint16x8_t, d: uint16x8_t| {
+          vsubq_u16(vaddq_u16(running, vaddq_u16(a, b)), vaddq_u16(c, d))
+        };
+      *{
+        let [_, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_flat,
+        rnd(s),
+        match o {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, p1, q1, p3, p2);
+      *{
+        let [_, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_flat,
+        rnd(s),
+        match o {
+          [_, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, p0, q2, p3, p1);
+      *{
+        let [_, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_flat,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q0, q3, p3, p0);
+      *{
+        let [_, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_flat,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q1, q3, p2, q0);
+      *{
+        let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_flat,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q2, q3, p1, q1);
+      *{
+        let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_flat,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+    }
+    ::core::option::Option::None => match { ::core::primitive::bool::then_some(WD == 6, ()) } {
       ::core::option::Option::Some(()) => {
-
         let mut s = vaddq_u16(
-          vaddq_u16(vmulq_n_u16(p3, 3), vaddq_u16(p2, p2)),
-          vaddq_u16(vaddq_u16(p1, p0), q0),
+          vaddq_u16(vmulq_n_u16(p2, 3), vaddq_u16(p1, p1)),
+          vaddq_u16(vaddq_u16(p0, p0), q0),
         );
         let four = vdupq_n_u16(4);
         let rnd = |running: uint16x8_t| vshrq_n_u16::<3>(vaddq_u16(running, four));
-        let step = |running: uint16x8_t, a: uint16x8_t, b: uint16x8_t, c: uint16x8_t, d: uint16x8_t| {
-          vsubq_u16(vaddq_u16(running, vaddq_u16(a, b)), vaddq_u16(c, d))
-        };
-        *{ let [_, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, p1, q1, p3, p2);
-        *{ let [_, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, p0, q2, p3, p1);
-        *{ let [_, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q0, q3, p3, p0);
-        *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q1, q3, p2, q0);
-        *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q2, q3, p1, q1);
-        *{ let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-      },
-      ::core::option::Option::None => match {
-          ::core::primitive::bool::then_some(WD == 6, ())
-      } {
-          ::core::option::Option::Some(()) => {
-
-            let mut s = vaddq_u16(
-              vaddq_u16(vmulq_n_u16(p2, 3), vaddq_u16(p1, p1)),
-              vaddq_u16(vaddq_u16(p0, p0), q0),
-            );
-            let four = vdupq_n_u16(4);
-            let rnd = |running: uint16x8_t| vshrq_n_u16::<3>(vaddq_u16(running, four));
-            let step = |running: uint16x8_t, a: uint16x8_t, b: uint16x8_t, c: uint16x8_t, d: uint16x8_t| {
-              vsubq_u16(vaddq_u16(running, vaddq_u16(a, b)), vaddq_u16(c, d))
-            };
-            *{ let [_, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _explicit_element, ..] => _explicit_element });
-            s = step(s, q0, q1, p2, p2);
-            *{ let [_, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-            s = step(s, q1, q2, p2, p1);
-            *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-            s = step(s, q2, q2, p1, p0);
-            *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_flat, rnd(s), match o { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let step =
+          |running: uint16x8_t, a: uint16x8_t, b: uint16x8_t, c: uint16x8_t, d: uint16x8_t| {
+            vsubq_u16(vaddq_u16(running, vaddq_u16(a, b)), vaddq_u16(c, d))
+          };
+        *{
+          let [_, _, _, _, _explicit_part, ..] = &mut o;
+          _explicit_part
+        } = vbslq_u16(
+          m_flat,
+          rnd(s),
+          match o {
+            [_, _, _, _, _explicit_element, ..] => _explicit_element,
           },
-          ::core::option::Option::None => {},
-      },
+        );
+        s = step(s, q0, q1, p2, p2);
+        *{
+          let [_, _, _, _, _, _explicit_part, ..] = &mut o;
+          _explicit_part
+        } = vbslq_u16(
+          m_flat,
+          rnd(s),
+          match o {
+            [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+          },
+        );
+        s = step(s, q1, q2, p2, p1);
+        *{
+          let [_, _, _, _, _, _, _explicit_part, ..] = &mut o;
+          _explicit_part
+        } = vbslq_u16(
+          m_flat,
+          rnd(s),
+          match o {
+            [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+          },
+        );
+        s = step(s, q2, q2, p1, p0);
+        *{
+          let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+          _explicit_part
+        } = vbslq_u16(
+          m_flat,
+          rnd(s),
+          match o {
+            [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+          },
+        );
+      }
+      ::core::option::Option::None => {}
+    },
   }
 
-  match {
-      ::core::primitive::bool::then_some(WD >= 16, ())
-  } {
-      ::core::option::Option::Some(()) => {
-
-        let mut s = vaddq_u16(
-          vaddq_u16(
-            vmulq_n_u16(p6, 7),
-            vaddq_u16(vaddq_u16(p5, p5), vaddq_u16(p4, p4)),
-          ),
-          vaddq_u16(vaddq_u16(vaddq_u16(p3, p2), vaddq_u16(p1, p0)), q0),
-        );
-        let eight = vdupq_n_u16(8);
-        let rnd = |running: uint16x8_t| vshrq_n_u16::<4>(vaddq_u16(running, eight));
-        let step = |running: uint16x8_t, a: uint16x8_t, b: uint16x8_t, c: uint16x8_t, d: uint16x8_t| {
+  match { ::core::primitive::bool::then_some(WD >= 16, ()) } {
+    ::core::option::Option::Some(()) => {
+      let mut s = vaddq_u16(
+        vaddq_u16(
+          vmulq_n_u16(p6, 7),
+          vaddq_u16(vaddq_u16(p5, p5), vaddq_u16(p4, p4)),
+        ),
+        vaddq_u16(vaddq_u16(vaddq_u16(p3, p2), vaddq_u16(p1, p0)), q0),
+      );
+      let eight = vdupq_n_u16(8);
+      let rnd = |running: uint16x8_t| vshrq_n_u16::<4>(vaddq_u16(running, eight));
+      let step =
+        |running: uint16x8_t, a: uint16x8_t, b: uint16x8_t, c: uint16x8_t, d: uint16x8_t| {
           vsubq_u16(vaddq_u16(running, vaddq_u16(a, b)), vaddq_u16(c, d))
         };
-        *{ let [_explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_explicit_element, ..] => _explicit_element });
-        s = step(s, p3, q1, p6, p6);
-        *{ let [_, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _explicit_element, ..] => _explicit_element });
-        s = step(s, p2, q2, p6, p5);
-        *{ let [_, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, p1, q3, p6, p4);
-        *{ let [_, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, p0, q4, p6, p3);
-        *{ let [_, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q0, q5, p6, p2);
-        *{ let [_, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q1, q6, p6, p1);
-        *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q2, q6, p5, p0);
-        *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q3, q6, p4, q0);
-        *{ let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q4, q6, p3, q1);
-        *{ let [_, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q5, q6, p2, q2);
-        *{ let [_, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        s = step(s, q6, q6, p1, q3);
-        *{ let [_, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o; _explicit_part } = vbslq_u16(m_wide, rnd(s), match o { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-      },
-      ::core::option::Option::None => {},
+      *{
+        let [_explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, p3, q1, p6, p6);
+      *{
+        let [_, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, p2, q2, p6, p5);
+      *{
+        let [_, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, p1, q3, p6, p4);
+      *{
+        let [_, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, p0, q4, p6, p3);
+      *{
+        let [_, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q0, q5, p6, p2);
+      *{
+        let [_, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q1, q6, p6, p1);
+      *{
+        let [_, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q2, q6, p5, p0);
+      *{
+        let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q3, q6, p4, q0);
+      *{
+        let [_, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q4, q6, p3, q1);
+      *{
+        let [_, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q5, q6, p2, q2);
+      *{
+        let [_, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+      s = step(s, q6, q6, p1, q3);
+      *{
+        let [_, _, _, _, _, _, _, _, _, _, _, _explicit_part, ..] = &mut o;
+        _explicit_part
+      } = vbslq_u16(
+        m_wide,
+        rnd(s),
+        match o {
+          [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+        },
+      );
+    }
+    ::core::option::Option::None => {}
   }
 
   let Ok(written) = written_taps::<WD>();
@@ -530,7 +824,10 @@ fn vertical_run<BD: BitDepth, const WIDTH: i32>(
     let windows = taps.get_mut(first..end).ok_or(ArmFilterFallback::Layout)?;
 
     for (tap, target) in (0_u64..).zip(windows) {
-      let loaded = load_lane::<BD>(scratch, lane_offset.wrapping_add(tap.wrapping_mul(plan.pitch)))?;
+      let loaded = load_lane::<BD>(
+        scratch,
+        lane_offset.wrapping_add(tap.wrapping_mul(plan.pitch)),
+      )?;
       *target = loaded;
     }
 
@@ -561,7 +858,10 @@ fn read_tile<BD: BitDepth>(
   let mut rows = [vdupq_n_u16(0); 8];
 
   for (row, target) in (0_u64..).zip(&mut rows) {
-    let sample = load_lane::<BD>(scratch, tile.origin.wrapping_add(row.wrapping_mul(tile.pitch)))?;
+    let sample = load_lane::<BD>(
+      scratch,
+      tile.origin.wrapping_add(row.wrapping_mul(tile.pitch)),
+    )?;
     *target = sample;
   }
 
@@ -578,7 +878,11 @@ fn write_tile<BD: BitDepth>(
   let Ok(rows) = transpose8(columns);
 
   for (row, sample) in (0_u64..).zip(rows) {
-    store_lane::<BD>(scratch, tile.origin.wrapping_add(row.wrapping_mul(tile.pitch)), sample)?;
+    store_lane::<BD>(
+      scratch,
+      tile.origin.wrapping_add(row.wrapping_mul(tile.pitch)),
+      sample,
+    )?;
   }
 
   Ok(())
@@ -607,7 +911,10 @@ fn transpose_output<const WIDTH: i32>(
     let Ok(source) = index(tap);
     let Ok(target) = index(tap.wrapping_sub(first_tap));
     let &sample = taps.get(source).ok_or(ArmFilterFallback::Layout)?;
-    let destination = tiles.as_flattened_mut().get_mut(target).ok_or(ArmFilterFallback::Layout)?;
+    let destination = tiles
+      .as_flattened_mut()
+      .get_mut(target)
+      .ok_or(ArmFilterFallback::Layout)?;
     *destination = sample;
   }
 
@@ -621,10 +928,18 @@ fn horizontal_run<BD: BitDepth, const WIDTH: i32>(
   thresholds: &Thresholds,
 ) -> Result<(), ArmFilterFallback> {
   for group in 0..plan.lanes.div_ceil(8) {
-    let origin = plan.origin.wrapping_add(group.wrapping_mul(8).wrapping_mul(plan.pitch));
+    let origin = plan
+      .origin
+      .wrapping_add(group.wrapping_mul(8).wrapping_mul(plan.pitch));
     let levels = vector_levels(thresholds, group.wrapping_mul(2))?;
-    let low = TileAddress { origin, pitch: plan.pitch };
-    let high = TileAddress { origin: origin.wrapping_add(8), pitch: plan.pitch };
+    let low = TileAddress {
+      origin,
+      pitch: plan.pitch,
+    };
+    let high = TileAddress {
+      origin: origin.wrapping_add(8),
+      pitch: plan.pitch,
+    };
     let primary = read_tile::<BD>(scratch, low)?;
     let secondary = match WIDTH {
       16 => read_tile::<BD>(scratch, high)?,
@@ -679,11 +994,13 @@ pub(crate) fn lf_compact_run_neon(request: CompactRun<'_>) -> Result<(), ArmFilt
 
   match request.bpc {
     BPC::BPC8 => {
-      let scratch = <[u8; LF_BLOCK_LEN]>::mut_from_bytes(request.scratch).map_err(|_extent| ArmFilterFallback::Layout)?;
+      let scratch = <[u8; LF_BLOCK_LEN]>::mut_from_bytes(request.scratch)
+        .map_err(|_extent| ArmFilterFallback::Layout)?;
       dispatch_run::<BitDepth8>(token, scratch, &plan, &levels, width)
     }
     BPC::BPC16 => {
-      let scratch = <[u16; LF_BLOCK_LEN]>::mut_from_bytes(request.scratch).map_err(|_extent| ArmFilterFallback::Layout)?;
+      let scratch = <[u16; LF_BLOCK_LEN]>::mut_from_bytes(request.scratch)
+        .map_err(|_extent| ArmFilterFallback::Layout)?;
       dispatch_run::<BitDepth16>(token, scratch, &plan, &levels, width)
     }
   }
@@ -731,8 +1048,14 @@ fn diff_span_u16(
   let [work, pristine] = rows;
   let [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p] = *work;
   let [q, r, s, t, u, v, w, x, y, z, aa, ab, ac, ad, ae, af] = *pristine;
-  let low = vmovn_u16(vceqq_u16(safe_simd::vld1q_u16(&[a,b,c,d,e,f,g,h]), safe_simd::vld1q_u16(&[q,r,s,t,u,v,w,x])));
-  let high = vmovn_u16(vceqq_u16(safe_simd::vld1q_u16(&[i,j,k,l,m,n,o,p]), safe_simd::vld1q_u16(&[y,z,aa,ab,ac,ad,ae,af])));
+  let low = vmovn_u16(vceqq_u16(
+    safe_simd::vld1q_u16(&[a, b, c, d, e, f, g, h]),
+    safe_simd::vld1q_u16(&[q, r, s, t, u, v, w, x]),
+  ));
+  let high = vmovn_u16(vceqq_u16(
+    safe_simd::vld1q_u16(&[i, j, k, l, m, n, o, p]),
+    safe_simd::vld1q_u16(&[y, z, aa, ab, ac, ad, ae, af]),
+  ));
   let Ok(mask) = valid_mask(width);
   changed_columns(vandq_u8(vmvnq_u8(vcombine_u8(low, high)), mask))
 }
@@ -747,13 +1070,16 @@ fn scratch_row<T: FromBytes + KnownLayout + Immutable>(
   image: &[u8],
   row: u64,
 ) -> Result<&[T; 16], ArmFilterFallback> {
-  let source = <[T; LF_BLOCK_LEN]>::ref_from_bytes(image).map_err(|_layout| ArmFilterFallback::Layout)?;
+  let source =
+    <[T; LF_BLOCK_LEN]>::ref_from_bytes(image).map_err(|_layout| ArmFilterFallback::Layout)?;
   let Ok(position) = index(row);
   let (rows, _tail) = source.as_chunks();
   rows.get(position).ok_or(ArmFilterFallback::Layout)
 }
 
-pub(crate) fn lf_diff_span(request: ScratchComparison<'_>) -> Result<Option<Range<u64>>, ArmFilterFallback> {
+pub(crate) fn lf_diff_span(
+  request: ScratchComparison<'_>,
+) -> Result<Option<Range<u64>>, ArmFilterFallback> {
   let token = neon_token()?;
   let width = match request.width {
     w @ 0..=16 => u8::try_from(w).map_err(|_width| ArmFilterFallback::Layout)?,

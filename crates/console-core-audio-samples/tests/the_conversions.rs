@@ -232,9 +232,9 @@ fn inputs() -> Result<Inputs, Never> {
       core::num::FpCategory::Infinite => {
         f32::from_bits(0x7f80_0000 | u32::from(*value < 0.0).wrapping_shl(31))
       }
-      core::num::FpCategory::Zero | core::num::FpCategory::Subnormal | core::num::FpCategory::Normal => {
-        f32::from_sample(*value)
-      }
+      core::num::FpCategory::Zero
+      | core::num::FpCategory::Subnormal
+      | core::num::FpCategory::Normal => f32::from_sample(*value),
     })
     .collect();
 

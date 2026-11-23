@@ -42,9 +42,11 @@ pub(super) fn decode(address: &str) -> Result<Vec<u8>, HandleError> {
 
   match charset {
     None => Ok(body),
-    Some(name) => match ::core::primitive::bool::then_some(name.eq_ignore_ascii_case("utf-8")
-      || (name.eq_ignore_ascii_case("us-ascii") && body.is_ascii()), ())
-    {
+    Some(name) => match ::core::primitive::bool::then_some(
+      name.eq_ignore_ascii_case("utf-8")
+        || (name.eq_ignore_ascii_case("us-ascii") && body.is_ascii()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(body),
       ::core::option::Option::None => Err(HandleError::BadState),
     },

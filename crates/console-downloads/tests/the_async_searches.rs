@@ -94,12 +94,12 @@ fn a_stale_attempt_cannot_complete_or_replace_a_repeated_search() -> Result<(), 
   assert_eq!(done.asking, None);
   let completed_effects = completed.effects()?;
   assert!(
-    completed_effects.iter()
-      .any(|effect| matches!(effect, Effect::Custom(DownloadsEffect::Keep(_))))
+    completed_effects
+      .iter()
+      .any(|effect| matches!(effect, Effect::Custom(DownloadsEffect::Retain(_))))
   );
 
-  let duplicate =
-    run_from::<Downloads>(completed.state.clone(), &[stale])?;
+  let duplicate = run_from::<Downloads>(completed.state.clone(), &[stale])?;
   assert_eq!(duplicate.state, completed.state);
   let duplicate_effects = duplicate.effects()?;
   assert!(duplicate_effects.is_empty());
@@ -127,7 +127,10 @@ fn a_failed_search_clears_progress_and_can_be_retried() -> Result<(), Box<dyn Er
   assert_eq!(tab.asking, None);
   assert!(tab.result.is_some_and(|looked| !looked.fault.is_empty()));
   let effects = trace.on(2)?;
-  assert_eq!(effects, Some([Effect::Custom(DownloadsEffect::Refresh)].as_slice()));
+  assert_eq!(
+    effects,
+    Some([Effect::Custom(DownloadsEffect::Refresh)].as_slice())
+  );
 
   let retry = run_from::<Downloads>(trace.state, &[search])?;
   let retried = retry.state.at(0)?;

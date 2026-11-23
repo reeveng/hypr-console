@@ -55,8 +55,8 @@ pub(crate) fn read_header<'a>(
     component_quantization,
     mut packets,
   } = read_main_markers(reader, &size_data.component_sizes)?;
-  let cod = coding.ok_or(MarkerError::Missing("COD"))?;
-  let qcd = quantization.ok_or(MarkerError::Missing("QCD"))?;
+  let cod = coding.ok_or(MarkerError::Absent("COD"))?;
+  let qcd = quantization.ok_or(MarkerError::Absent("QCD"))?;
 
   let infos = size_data
     .component_sizes

@@ -75,7 +75,10 @@ impl ChromaRounding {
   ) -> Result<(), MismatchedChromaRows> {
     use core::cmp::Ordering;
 
-    match (near.len().cmp(&far.len()), output.len().div_ceil(2).cmp(&near.len())) {
+    match (
+      near.len().cmp(&far.len()),
+      output.len().div_ceil(2).cmp(&near.len()),
+    ) {
       (Ordering::Equal, Ordering::Less | Ordering::Equal) => {}
       _mismatch => return Err(MismatchedChromaRows),
     }

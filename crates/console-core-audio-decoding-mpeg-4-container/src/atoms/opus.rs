@@ -22,12 +22,16 @@ pub struct OpusAtom {
 impl Atom for OpusAtom {
   fn read<B: ReadBytes>(reader: &mut B, header: AtomHeader) -> Result<Self> {
     match ::core::primitive::bool::then_some(header.data_len < MIN_DOPS_SIZE, ()) {
-      ::core::option::Option::Some(()) => return decode_error("isomp4 (opus): opus identification header too short"),
+      ::core::option::Option::Some(()) => {
+        return decode_error("isomp4 (opus): opus identification header too short");
+      }
       ::core::option::Option::None => {}
     }
 
     match ::core::primitive::bool::then_some(header.data_len > MAX_DOPS_SIZE, ()) {
-      ::core::option::Option::Some(()) => return decode_error("isomp4 (opus): opus identification header too large"),
+      ::core::option::Option::Some(()) => {
+        return decode_error("isomp4 (opus): opus identification header too large");
+      }
       ::core::option::Option::None => {}
     }
 

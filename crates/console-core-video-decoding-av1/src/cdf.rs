@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use crate::include::dav1d::headers::{DAV1D_N_SWITCHABLE_FILTERS, Rav1dFilterMode};
 use crate::include::dav1d::headers::Rav1dFrameHeader;
+use crate::include::dav1d::headers::{DAV1D_N_SWITCHABLE_FILTERS, Rav1dFilterMode};
 use crate::src::align::Align4;
 use crate::src::align::Align8;
 use crate::src::align::Align16;
@@ -34,11 +34,13 @@ pub struct CdfContext {
   pub mi: CdfModeInterContext,
   pub mv: CdfMvContext,
 
-  pub kfym: Align32<[[[u16; {
-    match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES.wrapping_add(3)) {
-      Ok(extent) => extent,
-    }
-  }]; 5]; 5]>,
+  pub kfym: Align32<
+    [[[u16; {
+      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES.wrapping_add(3)) {
+        Ok(extent) => extent,
+      }
+    }]; 5]; 5],
+  >,
 }
 
 #[derive(Clone, Default)]
@@ -106,42 +108,51 @@ impl Default for CdfCoefContext {
 #[derive(Clone, Default)]
 #[repr(C)]
 pub struct CdfModeContext {
-  pub uv_mode: Align32<[[[u16; {
-    match console_core_number_conversion::const_u8_index(N_UV_INTRA_PRED_MODES.wrapping_add(2)) {
-      Ok(extent) => extent,
-    }
-  }]; {
-    match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
-      Ok(extent) => extent,
-    }
-  }]; 2]>,
+  pub uv_mode: Align32<
+    [[[u16; {
+      match console_core_number_conversion::const_u8_index(N_UV_INTRA_PRED_MODES.wrapping_add(2))
+      {
+        Ok(extent) => extent,
+      }
+    }]; {
+      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
+        Ok(extent) => extent,
+      }
+    }]; 2],
+  >,
 
   pub partition: Align32<[[[u16; BlockPartition::COUNT + 6]; 4]; BlockLevel::COUNT]>,
   pub cfl_alpha: Align32<[[u16; 16]; 6]>,
   pub txtp_inter1: Align32<[[u16; 16]; 2]>,
   pub txtp_inter2: Align32<[u16; 16]>,
 
-  pub txtp_intra1: Align16<[[[u16; 8]; {
-    match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
-      Ok(extent) => extent,
-    }
-  }]; 2]>,
+  pub txtp_intra1: Align16<
+    [[[u16; 8]; {
+      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
+        Ok(extent) => extent,
+      }
+    }]; 2],
+  >,
 
-  pub txtp_intra2: Align16<[[[u16; 8]; {
-    match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
-      Ok(extent) => extent,
-    }
-  }]; 3]>,
+  pub txtp_intra2: Align16<
+    [[[u16; 8]; {
+      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
+        Ok(extent) => extent,
+      }
+    }]; 3],
+  >,
 
   pub cfl_sign: Align16<[u16; 8]>,
   pub angle_delta: Align16<[[u16; 8]; 8]>,
   pub filter_intra: Align16<[u16; 8]>,
 
-  pub seg_id: Align16<[[u16; {
-    match console_core_number_conversion::const_u8_index(SegmentId::COUNT) {
-      Ok(extent) => extent,
-    }
-  }]; 3]>,
+  pub seg_id: Align16<
+    [[u16; {
+      match console_core_number_conversion::const_u8_index(SegmentId::COUNT) {
+        Ok(extent) => extent,
+      }
+    }]; 3],
+  >,
 
   pub pal_sz: Align16<[[[u16; 8]; 7]; 2]>,
   pub color_map: Align16<[[[[u16; 8]; 5]; 7]; 2]>,
@@ -164,19 +175,23 @@ pub struct CdfModeContext {
 #[derive(Clone, Default)]
 #[repr(C)]
 pub struct CdfModeInterContext {
-  pub y_mode: Align32<[[u16; {
-    match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES.wrapping_add(3)) {
-      Ok(extent) => extent,
-    }
-  }]; 4]>,
+  pub y_mode: Align32<
+    [[u16; {
+      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES.wrapping_add(3)) {
+        Ok(extent) => extent,
+      }
+    }]; 4],
+  >,
 
   pub wedge_idx: Align32<[[u16; 16]; 9]>,
 
-  pub comp_inter_mode: Align16<[[u16; {
-    match console_core_number_conversion::const_u8_index(N_COMP_INTER_PRED_MODES) {
-      Ok(extent) => extent,
-    }
-  }]; 8]>,
+  pub comp_inter_mode: Align16<
+    [[u16; {
+      match console_core_number_conversion::const_u8_index(N_COMP_INTER_PRED_MODES) {
+        Ok(extent) => extent,
+      }
+    }]; 8],
+  >,
 
   pub filter: Align8<[[[u16; Rav1dFilterMode::N_FILTERS]; 8]; 2]>,
   pub interintra_mode: Align8<[[u16; 4]; 4]>,
@@ -205,7 +220,10 @@ pub struct CdfModeInterContext {
 #[derive(Clone)]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "referencing frames retain the completed CDF while the decoder schedules more frames concurrently")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "referencing frames retain the completed CDF while the decoder schedules more frames concurrently"
+  )
 )]
 pub enum CdfThreadContext {
   QCat(c_uint),
@@ -222,9 +240,7 @@ impl CdfThreadContext {
     })
   }
 
-  pub fn cdf_write(
-    &self,
-  ) -> Rav1dResult<RwLockWriteGuard<'_, CdfContext>> {
+  pub fn cdf_write(&self) -> Rav1dResult<RwLockWriteGuard<'_, CdfContext>> {
     match self {
       Self::QCat(_) => Err(EINVAL),
       Self::Cdf(cdf) => cdf.cdf.try_write().ok_or(EINVAL),
@@ -317,11 +333,13 @@ struct CdfDefaultContext {
   pub mi: CdfModeInterContext,
   pub mv: CdfDefaultMvContext,
 
-  pub kfym: Align32<[[[u16; {
-    match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES.wrapping_add(3)) {
-      Ok(extent) => extent,
-    }
-  }]; 5]; 5]>,
+  pub kfym: Align32<
+    [[[u16; {
+      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES.wrapping_add(3)) {
+        Ok(extent) => extent,
+      }
+    }]; 5]; 5],
+  >,
 }
 
 static default_cdf: CdfDefaultContext = CdfDefaultContext {
@@ -5388,9 +5406,15 @@ static default_cdf: CdfDefaultContext = CdfDefaultContext {
 
 #[cfg_attr(
   dylint_lib = "explicit014_no_index_slice",
-  expect(explicit014_no_index_slice, reason = "the codec table shape and symbol count reserve this counter slot in every selected CDF row")
+  expect(
+    explicit014_no_index_slice,
+    reason = "the codec table shape and symbol count reserve this counter slot in every selected CDF row"
+  )
 )]
-fn reset_cdf_count(cdf: &mut [u16], symbols: u32) -> core::result::Result<(), console_core_never::Never> {
+fn reset_cdf_count(
+  cdf: &mut [u16],
+  symbols: u32,
+) -> core::result::Result<(), console_core_never::Never> {
   let Ok(position) = console_core_number_conversion::index(symbols);
   cdf[position] = 0;
   Ok(())
@@ -5398,7 +5422,10 @@ fn reset_cdf_count(cdf: &mut [u16], symbols: u32) -> core::result::Result<(), co
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "the CDF families share one counter reset and differ only in the dimensions of their fixed-shape tables")
+  expect(
+    explicit080_macro_budget,
+    reason = "the CDF families share one counter reset and differ only in the dimensions of their fixed-shape tables"
+  )
 )]
 macro_rules! reset_cdf_counts {
   ($table:expr; $symbols:expr) => {{
@@ -5414,7 +5441,9 @@ macro_rules! reset_cdf_counts {
   }};
 }
 
-fn reset_coefficient_counts(coefficients: &mut CdfCoefContext) -> core::result::Result<(), console_core_never::Never> {
+fn reset_coefficient_counts(
+  coefficients: &mut CdfCoefContext,
+) -> core::result::Result<(), console_core_never::Never> {
   reset_cdf_counts!(&mut coefficients.eob_bin_16; 2, 2, 4);
   reset_cdf_counts!(&mut coefficients.eob_bin_32; 2, 2, 5);
   reset_cdf_counts!(&mut coefficients.eob_bin_64; 2, 2, 6);
@@ -5431,7 +5460,9 @@ fn reset_coefficient_counts(coefficients: &mut CdfCoefContext) -> core::result::
   Ok(())
 }
 
-fn reset_mode_counts(mode: &mut CdfModeContext) -> core::result::Result<(), console_core_never::Never> {
+fn reset_mode_counts(
+  mode: &mut CdfModeContext,
+) -> core::result::Result<(), console_core_never::Never> {
   let [without_cfl, with_cfl] = &mut *mode.uv_mode;
   reset_cdf_counts!(without_cfl; N_INTRA_PRED_MODES, N_UV_INTRA_PRED_MODES.wrapping_sub(2));
   reset_cdf_counts!(with_cfl; N_INTRA_PRED_MODES, N_UV_INTRA_PRED_MODES.wrapping_sub(1));
@@ -5477,7 +5508,9 @@ fn reset_mode_counts(mode: &mut CdfModeContext) -> core::result::Result<(), cons
   Ok(())
 }
 
-fn reset_inter_counts(mode: &mut CdfModeInterContext) -> core::result::Result<(), console_core_never::Never> {
+fn reset_inter_counts(
+  mode: &mut CdfModeInterContext,
+) -> core::result::Result<(), console_core_never::Never> {
   reset_cdf_counts!(&mut mode.y_mode; 4, N_INTRA_PRED_MODES.wrapping_sub(1));
   reset_cdf_counts!(&mut mode.wedge_idx; 9, 15);
   reset_cdf_counts!(&mut mode.comp_inter_mode; 8, N_COMP_INTER_PRED_MODES.wrapping_sub(1));
@@ -5506,7 +5539,9 @@ fn reset_inter_counts(mode: &mut CdfModeInterContext) -> core::result::Result<()
   Ok(())
 }
 
-fn reset_motion_counts(motion: &mut CdfMvContext) -> core::result::Result<(), console_core_never::Never> {
+fn reset_motion_counts(
+  motion: &mut CdfMvContext,
+) -> core::result::Result<(), console_core_never::Never> {
   for component in &mut motion.comp {
     reset_cdf_counts!(&mut component.classes; 10);
     reset_cdf_counts!(&mut component.sign; 1);
@@ -5555,9 +5590,7 @@ pub fn rav1d_cdf_thread_init_static(
   })
 }
 
-pub fn rav1d_cdf_thread_copy(
-  src: &CdfThreadContext,
-) -> Rav1dResult<CdfContext> {
+pub fn rav1d_cdf_thread_copy(src: &CdfThreadContext) -> Rav1dResult<CdfContext> {
   match src {
     CdfThreadContext::Cdf(shared) => {
       let ready = shared.cdf.try_read().ok_or(EINVAL)?;

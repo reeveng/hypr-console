@@ -87,7 +87,11 @@ impl MsacContext {
   }
 
   #[inline(always)]
-  fn adapt_cdf(&mut self, cdf: &mut [u16], symbol: DecodedSymbol) -> Result<(), console_core_never::Never> {
+  fn adapt_cdf(
+    &mut self,
+    cdf: &mut [u16],
+    symbol: DecodedSymbol,
+  ) -> Result<(), console_core_never::Never> {
     match (self.updates, self.failure) {
       (CdfUpdates::Allowed, None) => match update_observations(cdf, symbol) {
         Ok(()) => {}
@@ -102,7 +106,11 @@ impl MsacContext {
 
   pub(crate) fn trailing_bytes(&self, displacement: i32) -> Rav1dResult<&[u8]> {
     let storage = self.data.as_deref().ok_or(Rav1dError::EINVAL)?;
-    let start = self.buf.pos.checked_add_signed(i64::from(displacement)).ok_or(Rav1dError::EINVAL)?;
+    let start = self
+      .buf
+      .pos
+      .checked_add_signed(i64::from(displacement))
+      .ok_or(Rav1dError::EINVAL)?;
     let Ok(position) = index(start);
     storage.get(position..).ok_or(Rav1dError::EINVAL)
   }
@@ -117,7 +125,11 @@ pub fn rav1d_msac_decode_bools(
     let mut v = 0;
 
     for _ in 0..n {
-      v = u32::wrapping_shl(v, 1_u32) | u32::from(matches!(rav1d_msac_decode_bool_equi(s), Ok(EntropyBit::One)));
+      v = u32::wrapping_shl(v, 1_u32)
+        | u32::from(matches!(
+          rav1d_msac_decode_bool_equi(s),
+          Ok(EntropyBit::One)
+        ));
     }
 
     v
@@ -149,13 +161,18 @@ pub fn rav1d_msac_decode_uniform(
     let Ok(v) = rav1d_msac_decode_bools(s, u8::wrapping_sub(l, 1));
 
     {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(match ::core::primitive::bool::then_some(v < m, ()) {
-        ::core::option::Option::Some(()) => v,
-        ::core::option::Option::None => u32::wrapping_add(
-          u32::wrapping_sub(u32::wrapping_shl(v, 1_u32), m),
-          u32::from(matches!(rav1d_msac_decode_bool_equi(s), Ok(EntropyBit::One))),
-        ),
-      });
+      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(
+        match ::core::primitive::bool::then_some(v < m, ()) {
+          ::core::option::Option::Some(()) => v,
+          ::core::option::Option::None => u32::wrapping_add(
+            u32::wrapping_sub(u32::wrapping_shl(v, 1_u32), m),
+            u32::from(matches!(
+              rav1d_msac_decode_bool_equi(s),
+              Ok(EntropyBit::One)
+            )),
+          ),
+        },
+      );
       numeric_value
     }
   })
@@ -183,14 +200,28 @@ struct CdfUpdate {
 #[inline(always)]
 fn update_observations(cdf: &mut [u16], symbol: DecodedSymbol) -> Rav1dResult {
   let Ok(counter_position) = index(symbol.threshold_count);
-  let observations = ::core::result::Result::<&_, _>::copied(cdf.get(counter_position).ok_or(Rav1dError::EINVAL))?;
-  let rate = 4u16.wrapping_add(observations.wrapping_shr(4)).wrapping_add(u16::from(symbol.threshold_count > 2));
-  update_cdf(cdf, CdfUpdate { symbol, rate, observations })
+  let observations =
+    ::core::result::Result::<&_, _>::copied(cdf.get(counter_position).ok_or(Rav1dError::EINVAL))?;
+  let rate = 4u16
+    .wrapping_add(observations.wrapping_shr(4))
+    .wrapping_add(u16::from(symbol.threshold_count > 2));
+  update_cdf(
+    cdf,
+    CdfUpdate {
+      symbol,
+      rate,
+      observations,
+    },
+  )
 }
 
 #[inline(always)]
 fn update_cdf(cdf: &mut [u16], update: CdfUpdate) -> Rav1dResult {
-  let CdfUpdate { symbol, rate, observations } = update;
+  let CdfUpdate {
+    symbol,
+    rate,
+    observations,
+  } = update;
   let Ok(counter_position) = index(symbol.threshold_count);
   let table = cdf.get_mut(..=counter_position).ok_or(Rav1dError::EINVAL)?;
 
@@ -203,7 +234,10 @@ fn update_cdf(cdf: &mut [u16], update: CdfUpdate) -> Rav1dResult {
         Some(token) => {
           let packed = table.first_chunk_mut::<4>().ok_or(Rav1dError::EINVAL)?;
           let packed_update = CdfUpdate {
-            symbol: DecodedSymbol { threshold_count: 3, value: symbol.value.min(3) },
+            symbol: DecodedSymbol {
+              threshold_count: 3,
+              value: symbol.value.min(3),
+            },
             rate,
             observations,
           };
@@ -223,7 +257,9 @@ fn update_cdf(cdf: &mut [u16], update: CdfUpdate) -> Rav1dResult {
     let mask = u16::from(index < symbol.value).wrapping_neg();
     let increase = 32768u16.wrapping_sub(*probability).wrapping_shr(shift);
     let decrease = probability.wrapping_shr(shift);
-    *probability = probability.wrapping_add(increase & mask).wrapping_sub(decrease & !mask);
+    *probability = probability
+      .wrapping_add(increase & mask)
+      .wrapping_sub(decrease & !mask);
   }
 
   *counter = observations.wrapping_add(u16::from(observations < 32));
@@ -235,16 +271,26 @@ fn update_cdf(cdf: &mut [u16], update: CdfUpdate) -> Rav1dResult {
 fn update_cdf3_simd(
   _token: archmage::X64V1Token,
   cdf: &mut [u16; 4],
-  CdfUpdate { symbol, rate, observations }: CdfUpdate,
+  CdfUpdate {
+    symbol,
+    rate,
+    observations,
+  }: CdfUpdate,
 ) -> Result<(), console_core_never::Never> {
   use core::arch::x86_64::*;
 
   let decoded = symbol.value;
   let bytes: [u8; 8] = zerocopy::transmute!(*cdf);
   let probabilities = _mm_cvtsi64_si128(i64::from_le_bytes(bytes));
-  let below = _mm_cmpgt_epi16(_mm_set1_epi16(i16::from(decoded)), _mm_setr_epi16(0, 1, 2, 3, 4, 5, 6, 7));
+  let below = _mm_cmpgt_epi16(
+    _mm_set1_epi16(i16::from(decoded)),
+    _mm_setr_epi16(0, 1, 2, 3, 4, 5, 6, 7),
+  );
   let shift = _mm_cvtsi32_si128(i32::from(rate));
-  let up = _mm_srl_epi16(_mm_sub_epi16(_mm_set1_epi16(i16::MIN), probabilities), shift);
+  let up = _mm_srl_epi16(
+    _mm_sub_epi16(_mm_set1_epi16(i16::MIN), probabilities),
+    shift,
+  );
   let down = _mm_srl_epi16(probabilities, shift);
   let updated = _mm_sub_epi16(
     _mm_add_epi16(probabilities, _mm_and_si128(below, up)),
@@ -270,13 +316,17 @@ fn ctx_refill(s: &mut MsacContext) -> Result<(), console_core_never::Never> {
   };
   let Ok(position) = index(s.buf.pos);
   let mut bytes = match source.get(position..) {
-      ::core::option::Option::Some(present) => present,
-      ::core::option::Option::None => &[],
+    ::core::option::Option::Some(present) => present,
+    ::core::option::Option::None => &[],
   };
 
   #[cfg(target_pointer_width = "64")]
   match refill_word(bytes, shift) {
-    Ok(WordRefill::Chunk { word, remaining, next_shift }) => {
+    Ok(WordRefill::Chunk {
+      word,
+      remaining,
+      next_shift,
+    }) => {
       difference |= word;
       bytes = remaining;
       shift = next_shift;
@@ -315,7 +365,11 @@ fn ctx_refill(s: &mut MsacContext) -> Result<(), console_core_never::Never> {
 
 #[cfg(target_pointer_width = "64")]
 enum WordRefill<'a> {
-  Chunk { word: EcWin, remaining: &'a [u8], next_shift: i32 },
+  Chunk {
+    word: EcWin,
+    remaining: &'a [u8],
+    next_shift: i32,
+  },
   Bytewise,
 }
 
@@ -347,7 +401,11 @@ fn refill_word(bytes: &[u8], shift: i32) -> Result<WordRefill<'_>, console_core_
     None => return Ok(WordRefill::Bytewise),
   };
   let Ok(consumed_bits) = console_core_number_conversion::wrapped::<_, i32>(keep_bits);
-  Ok(WordRefill::Chunk { word: placed, remaining, next_shift: shift.wrapping_sub(consumed_bits) })
+  Ok(WordRefill::Chunk {
+    word: placed,
+    remaining,
+    next_shift: shift.wrapping_sub(consumed_bits),
+  })
 }
 
 #[inline(always)]
@@ -388,14 +446,25 @@ pub(crate) enum EntropyBit {
 }
 
 #[inline(always)]
-fn rav1d_msac_decode_bool_equi_rust(s: &mut MsacContext) -> Result<EntropyBit, console_core_never::Never> {
-  let lower = s.rng.wrapping_shr(8).wrapping_shl(7).wrapping_add(EC_MIN_PROB);
+fn rav1d_msac_decode_bool_equi_rust(
+  s: &mut MsacContext,
+) -> Result<EntropyBit, console_core_never::Never> {
+  let lower = s
+    .rng
+    .wrapping_shr(8)
+    .wrapping_shl(7)
+    .wrapping_add(EC_MIN_PROB);
   decode_binary(s, lower)
 }
 
 #[inline(always)]
-fn rav1d_msac_decode_bool_rust(s: &mut MsacContext, probability: c_uint) -> Result<EntropyBit, console_core_never::Never> {
-  let lower = s.rng.wrapping_shr(8)
+fn rav1d_msac_decode_bool_rust(
+  s: &mut MsacContext,
+  probability: c_uint,
+) -> Result<EntropyBit, console_core_never::Never> {
+  let lower = s
+    .rng
+    .wrapping_shr(8)
     .wrapping_mul(probability.wrapping_shr(EC_PROB_SHIFT))
     .wrapping_shr(7u32.wrapping_sub(EC_PROB_SHIFT))
     .wrapping_add(EC_MIN_PROB);
@@ -403,13 +472,18 @@ fn rav1d_msac_decode_bool_rust(s: &mut MsacContext, probability: c_uint) -> Resu
 }
 
 #[inline(always)]
-fn decode_binary(s: &mut MsacContext, lower: u32) -> Result<EntropyBit, console_core_never::Never> {
+fn decode_binary(
+  s: &mut MsacContext,
+  lower: u32,
+) -> Result<EntropyBit, console_core_never::Never> {
   let Ok(boundary) = in_window(lower);
   let (difference, range, bit) = match s.dif.cmp(&boundary) {
     core::cmp::Ordering::Less => (s.dif, lower, EntropyBit::One),
-    core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
-      (s.dif.wrapping_sub(boundary), s.rng.wrapping_sub(lower), EntropyBit::Zero)
-    }
+    core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => (
+      s.dif.wrapping_sub(boundary),
+      s.rng.wrapping_sub(lower),
+      EntropyBit::Zero,
+    ),
   };
   let Ok(()) = ctx_norm(s, difference, range);
   Ok(bit)
@@ -464,9 +538,12 @@ fn adaptive_threshold(
   remaining: u8,
 ) -> Result<u32, console_core_never::Never> {
   let reduced_probability = u32::from(probability.wrapping_shr(EC_PROB_SHIFT));
-  Ok(range.wrapping_mul(reduced_probability)
-    .wrapping_shr(7u32.wrapping_sub(EC_PROB_SHIFT))
-    .wrapping_add(EC_MIN_PROB.wrapping_mul(u32::from(remaining))))
+  Ok(
+    range
+      .wrapping_mul(reduced_probability)
+      .wrapping_shr(7u32.wrapping_sub(EC_PROB_SHIFT))
+      .wrapping_add(EC_MIN_PROB.wrapping_mul(u32::from(remaining))),
+  )
 }
 
 fn select_interval(
@@ -493,11 +570,19 @@ fn select_interval(
   let mut top = s.rng;
 
   for (&probability, symbol) in table.iter().zip(0u8..) {
-    let Ok(bottom) = adaptive_threshold(probability_range, probability, threshold_count.wrapping_sub(symbol));
+    let Ok(bottom) = adaptive_threshold(
+      probability_range,
+      probability,
+      threshold_count.wrapping_sub(symbol),
+    );
 
     match coded.cmp(&bottom) {
       core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
-        return Ok(SymbolInterval { symbol, bottom, top });
+        return Ok(SymbolInterval {
+          symbol,
+          bottom,
+          top,
+        });
       }
       core::cmp::Ordering::Less => top = bottom,
     }
@@ -513,7 +598,11 @@ fn normalize_adapted_symbol(
   n_symbols: u8,
   selection: Rav1dResult<SymbolInterval>,
 ) -> Result<u8, console_core_never::Never> {
-  let SymbolInterval { symbol, bottom, top } = match selection {
+  let SymbolInterval {
+    symbol,
+    bottom,
+    top,
+  } = match selection {
     Ok(interval) => interval,
     Err(error) => {
       s.failure = Some(error);
@@ -522,12 +611,21 @@ fn normalize_adapted_symbol(
   };
   let Ok(base) = in_window(bottom);
   let Ok(()) = ctx_norm(s, s.dif.wrapping_sub(base), top.wrapping_sub(bottom));
-  let Ok(()) = s.adapt_cdf(cdf, DecodedSymbol { threshold_count: n_symbols, value: symbol });
+  let Ok(()) = s.adapt_cdf(
+    cdf,
+    DecodedSymbol {
+      threshold_count: n_symbols,
+      value: symbol,
+    },
+  );
   Ok(symbol)
 }
 
 #[inline(always)]
-fn rav1d_msac_decode_bool_adapt_rust(s: &mut MsacContext, cdf: &mut [u16; 2]) -> Result<EntropyBit, console_core_never::Never> {
+fn rav1d_msac_decode_bool_adapt_rust(
+  s: &mut MsacContext,
+  cdf: &mut [u16; 2],
+) -> Result<EntropyBit, console_core_never::Never> {
   let [probability, _] = *cdf;
   let Ok(bit) = rav1d_msac_decode_bool(s, u32::from(probability));
   let symbol = DecodedSymbol {
@@ -587,7 +685,9 @@ fn rav1d_msac_decode_symbol_adapt4_branchless(
     }
   };
 
-  let symbol = u8::from(c < v0).wrapping_add(u8::from(c < v1)).wrapping_add(u8::from(c < v2));
+  let symbol = u8::from(c < v0)
+    .wrapping_add(u8::from(c < v1))
+    .wrapping_add(u8::from(c < v2));
   let (top, bottom) = match symbol {
     0 => (s.rng, v0),
     1 => (v0, v1),
@@ -599,7 +699,16 @@ fn rav1d_msac_decode_symbol_adapt4_branchless(
     }
   };
 
-  normalize_adapted_symbol(s, cdf, n_symbols, Ok(SymbolInterval { symbol, bottom, top }))
+  normalize_adapted_symbol(
+    s,
+    cdf,
+    n_symbols,
+    Ok(SymbolInterval {
+      symbol,
+      bottom,
+      top,
+    }),
+  )
 }
 
 fn select_eight_interval(
@@ -625,19 +734,33 @@ fn select_eight_interval(
   let probability_range = s.rng.wrapping_shr(8);
   let mut thresholds = [0u32; 8];
 
-  for ((threshold, &probability), position) in thresholds.iter_mut().zip(probabilities).zip(0u8..) {
-    let Ok(value) = adaptive_threshold(probability_range, probability, threshold_count.wrapping_sub(position));
+  for ((threshold, &probability), position) in thresholds.iter_mut().zip(probabilities).zip(0u8..)
+  {
+    let Ok(value) = adaptive_threshold(
+      probability_range,
+      probability,
+      threshold_count.wrapping_sub(position),
+    );
     *threshold = value;
   }
 
-  let symbol = thresholds.iter().fold(0u8, |sum, &threshold| sum.wrapping_add(u8::from(coded < threshold)));
+  let symbol = thresholds.iter().fold(0u8, |sum, &threshold| {
+    sum.wrapping_add(u8::from(coded < threshold))
+  });
   let Ok(position) = index(symbol);
-  let bottom = ::core::result::Result::<&_, _>::copied(thresholds.get(position).ok_or(Rav1dError::EINVAL))?;
+  let bottom =
+    ::core::result::Result::<&_, _>::copied(thresholds.get(position).ok_or(Rav1dError::EINVAL))?;
   let top = match position.checked_sub(1) {
-    Some(previous) => ::core::result::Result::<&_, _>::copied(thresholds.get(previous).ok_or(Rav1dError::EINVAL))?,
+    Some(previous) => {
+      ::core::result::Result::<&_, _>::copied(thresholds.get(previous).ok_or(Rav1dError::EINVAL))?
+    }
     None => s.rng,
   };
-  Ok(SymbolInterval { symbol, bottom, top })
+  Ok(SymbolInterval {
+    symbol,
+    bottom,
+    top,
+  })
 }
 
 impl MsacContext {
@@ -697,17 +820,25 @@ pub fn rav1d_msac_decode_symbol_adapt16(
 }
 
 #[inline(always)]
-pub fn rav1d_msac_decode_bool_adapt(s: &mut MsacContext, cdf: &mut [u16; 2]) -> Result<EntropyBit, console_core_never::Never> {
+pub fn rav1d_msac_decode_bool_adapt(
+  s: &mut MsacContext,
+  cdf: &mut [u16; 2],
+) -> Result<EntropyBit, console_core_never::Never> {
   rav1d_msac_decode_bool_adapt_rust(s, cdf)
 }
 
 #[inline(always)]
-pub fn rav1d_msac_decode_bool_equi(s: &mut MsacContext) -> Result<EntropyBit, console_core_never::Never> {
+pub fn rav1d_msac_decode_bool_equi(
+  s: &mut MsacContext,
+) -> Result<EntropyBit, console_core_never::Never> {
   rav1d_msac_decode_bool_equi_rust(s)
 }
 
 #[inline(always)]
-pub fn rav1d_msac_decode_bool(s: &mut MsacContext, f: c_uint) -> Result<EntropyBit, console_core_never::Never> {
+pub fn rav1d_msac_decode_bool(
+  s: &mut MsacContext,
+  f: c_uint,
+) -> Result<EntropyBit, console_core_never::Never> {
   rav1d_msac_decode_bool_rust(s, f)
 }
 
@@ -771,11 +902,16 @@ mod tests {
         let Ok(mut general) = MsacContext::new(data.clone(), updates, &dsp);
         let mut table = [0xcede; 8];
         let Ok(observation_position) = index(threshold_count);
-        let used = table.get_mut(..=observation_position).ok_or(Rav1dError::EINVAL)?;
+        let used = table
+          .get_mut(..=observation_position)
+          .ok_or(Rav1dError::EINVAL)?;
         let (observations, probabilities) = used.split_last_mut().ok_or(Rav1dError::EINVAL)?;
         *observations = 0;
 
-        for (entry, probability) in probabilities.iter_mut().zip([22_528, 18_432, 14_336, 10_240, 6144, 4096, 2048]) {
+        for (entry, probability) in probabilities
+          .iter_mut()
+          .zip([22_528, 18_432, 14_336, 10_240, 6144, 4096, 2048])
+        {
           *entry = probability;
         }
 
@@ -783,7 +919,8 @@ mod tests {
 
         for _sample in 0..2048 {
           let decoded = rav1d_msac_decode_symbol_adapt8(&mut actual, &mut table, threshold_count);
-          let expected = rav1d_msac_decode_symbol_adapt16(&mut general, &mut reference, threshold_count);
+          let expected =
+            rav1d_msac_decode_symbol_adapt16(&mut general, &mut reference, threshold_count);
           assert_eq!(decoded, expected);
           assert_eq!(table, reference);
           assert_eq!(state(&actual), state(&general));
@@ -806,7 +943,10 @@ mod tests {
   fn an_invalid_adaptive_table_latches_a_decode_error_without_mutating_storage() {
     let mut decoder = MsacContext::default();
     let mut table = [8192, 4096];
-    let symbol = DecodedSymbol { threshold_count: 3, value: 1 };
+    let symbol = DecodedSymbol {
+      threshold_count: 3,
+      value: 1,
+    };
 
     let Ok(()) = decoder.adapt_cdf(&mut table, symbol);
     assert_eq!(decoder.check(), Ok(()));
@@ -863,10 +1003,13 @@ mod tests {
     let seed_difference = EcWin::MAX.wrapping_shl(EcWin::BITS.wrapping_sub(1));
 
     for length in 0..=16u64 {
-      let bytes: Vec<u8> = (0..length).map(|index| {
-        let Ok(value) = console_core_number_conversion::wrapped::<_, u8>(index.wrapping_mul(53));
-        value
-      }).collect();
+      let bytes: Vec<u8> = (0..length)
+        .map(|index| {
+          let Ok(value) =
+            console_core_number_conversion::wrapped::<_, u8>(index.wrapping_mul(53));
+          value
+        })
+        .collect();
       let data = CArc::wrap(CBox::Rust(bytes.into_boxed_slice()))?;
 
       for start in 0..=length.min(3) {
@@ -885,7 +1028,11 @@ mod tests {
 
           let Ok(offset) = index(start);
           let source = data.get(offset..).ok_or(Rav1dError::EINVAL)?;
-          let initial = BytewiseWindow { consumed: start, shift, difference: seed_difference };
+          let initial = BytewiseWindow {
+            consumed: start,
+            shift,
+            difference: seed_difference,
+          };
           let Ok(expected) = refill_bytewise_reference(source, initial);
           assert_eq!(decoder.dif, expected.difference);
           assert_eq!(decoder.cnt, refill_base.wrapping_sub(expected.shift));
@@ -900,7 +1047,11 @@ mod tests {
   fn assert_cdf_update(initial: [u16; 5], update: CdfUpdate) -> Rav1dResult {
     let mut actual = initial;
     let mut expected = initial;
-    let CdfUpdate { symbol, rate, observations } = update;
+    let CdfUpdate {
+      symbol,
+      rate,
+      observations,
+    } = update;
     let Ok(end) = index(symbol.threshold_count);
     let used = expected.get_mut(..=end).ok_or(Rav1dError::EINVAL)?;
     let (counter, probabilities) = used.split_last_mut().ok_or(Rav1dError::EINVAL)?;
@@ -924,7 +1075,10 @@ mod tests {
     *counter = observations.wrapping_add(u16::from(observations < 32));
     let result = update_cdf(&mut actual, update);
     assert_eq!(result, Ok(()));
-    assert_eq!(actual, expected, "initial={initial:?} count={observations} rate={rate}");
+    assert_eq!(
+      actual, expected,
+      "initial={initial:?} count={observations} rate={rate}"
+    );
     Ok(())
   }
 
@@ -941,9 +1095,17 @@ mod tests {
               let (count, probabilities) = used.split_last_mut().ok_or(Rav1dError::EINVAL)?;
               probabilities.fill(probability);
               *count = observations;
-              assert_cdf_update(initial, CdfUpdate {
-                symbol: DecodedSymbol { threshold_count, value }, rate, observations,
-              })?;
+              assert_cdf_update(
+                initial,
+                CdfUpdate {
+                  symbol: DecodedSymbol {
+                    threshold_count,
+                    value,
+                  },
+                  rate,
+                  observations,
+                },
+              )?;
             }
           }
         }
@@ -974,7 +1136,12 @@ mod tests {
           for observations in [0, 15, 16, 31, 32, u16::MAX] {
             let initial = [0, 32768, 65535, observations, 0xfade];
             let update = CdfUpdate {
-              symbol: DecodedSymbol { threshold_count: 3, value }, rate, observations,
+              symbol: DecodedSymbol {
+                threshold_count: 3,
+                value,
+              },
+              rate,
+              observations,
             };
             assert_eq!(assert_cdf_update(initial, update), Ok(()));
           }
@@ -994,7 +1161,12 @@ mod tests {
   }
 
   fn check_refill_fixture(
-    RefillFixture { length, thresholds, updates, observations }: RefillFixture,
+    RefillFixture {
+      length,
+      thresholds,
+      updates,
+      observations,
+    }: RefillFixture,
     seed: &mut u64,
     symbols: &mut [u32; 4],
   ) -> Rav1dResult {
@@ -1027,12 +1199,19 @@ mod tests {
 
     for _ in 0..256 {
       let Ok(value) = rav1d_msac_decode_symbol_adapt4(&mut actual, &mut actual_cdf, thresholds);
-      let Ok(expected) = rav1d_msac_decode_symbol_adapt16(&mut reference, &mut reference_cdf, thresholds);
+      let Ok(expected) =
+        rav1d_msac_decode_symbol_adapt16(&mut reference, &mut reference_cdf, thresholds);
       let Ok(lane) = index(value);
       let count = symbols.get_mut(lane).ok_or(Rav1dError::EINVAL)?;
       *count = count.wrapping_add(1);
-      assert_eq!(value, expected, "len={length} n={thresholds} updates={updates:?}");
-      assert_eq!(actual_cdf, reference_cdf, "all CDF entries, including untouched suffix");
+      assert_eq!(
+        value, expected,
+        "len={length} n={thresholds} updates={updates:?}"
+      );
+      assert_eq!(
+        actual_cdf, reference_cdf,
+        "all CDF entries, including untouched suffix"
+      );
       assert_eq!(state(&actual), state(&reference));
     }
 
@@ -1048,14 +1227,22 @@ mod tests {
       for thresholds in 1..=3 {
         for updates in [CdfUpdates::Frozen, CdfUpdates::Allowed] {
           for observations in [0, 15, 16, 31, 32] {
-            let fixture = RefillFixture { length, thresholds, updates, observations };
+            let fixture = RefillFixture {
+              length,
+              thresholds,
+              updates,
+              observations,
+            };
             check_refill_fixture(fixture, &mut seed, &mut symbols)?;
           }
         }
       }
     }
 
-    assert!(symbols.into_iter().all(|count| count > 100), "exercise every symbol");
+    assert!(
+      symbols.into_iter().all(|count| count > 100),
+      "exercise every symbol"
+    );
     Ok(())
   }
 
@@ -1068,7 +1255,12 @@ mod tests {
 
   fn check_boundary_slice(
     initial: [u16; 8],
-    BoundaryFixture { thresholds, range, probability, code }: BoundaryFixture,
+    BoundaryFixture {
+      thresholds,
+      range,
+      probability,
+      code,
+    }: BoundaryFixture,
   ) -> Rav1dResult<u32> {
     let mut checks = 0u32;
 
@@ -1076,7 +1268,13 @@ mod tests {
       for updates in [CdfUpdates::Frozen, CdfUpdates::Allowed] {
         let Ok(window_code) = in_window(code);
         let context = || MsacContext {
-          asm: MsacAsmContext { dif: window_code, rng: range, cnt: 64, updates, ..Default::default() },
+          asm: MsacAsmContext {
+            dif: window_code,
+            rng: range,
+            cnt: 64,
+            updates,
+            ..Default::default()
+          },
           ..Default::default()
         };
         let (mut actual_cdf, mut reference_cdf) = (initial, initial);
@@ -1085,8 +1283,12 @@ mod tests {
         let actual_slice = actual_cdf.get_mut(..length).ok_or(Rav1dError::EINVAL)?;
         let reference_slice = reference_cdf.get_mut(..length).ok_or(Rav1dError::EINVAL)?;
         let actual_value = rav1d_msac_decode_symbol_adapt4(&mut actual, actual_slice, thresholds);
-        let expected = rav1d_msac_decode_symbol_adapt16(&mut reference, reference_slice, thresholds);
-        assert_eq!(actual_value, expected, "n={thresholds} rng={range} p={probability} c={code}");
+        let expected =
+          rav1d_msac_decode_symbol_adapt16(&mut reference, reference_slice, thresholds);
+        assert_eq!(
+          actual_value, expected,
+          "n={thresholds} rng={range} p={probability} c={code}"
+        );
         assert_eq!(actual_cdf, reference_cdf);
         assert_eq!(state(&actual), state(&reference));
         checks = checks.wrapping_add(1);
@@ -1096,17 +1298,22 @@ mod tests {
     Ok(checks)
   }
 
-  fn compare_threshold_boundaries(thresholds: u8, range: u32, probability: u16) -> Rav1dResult<u32> {
-    let rate = range.wrapping_shr(8).wrapping_mul(u32::from(probability.wrapping_shr(6))).wrapping_shr(1);
+  fn compare_threshold_boundaries(
+    thresholds: u8,
+    range: u32,
+    probability: u16,
+  ) -> Rav1dResult<u32> {
+    let rate = range
+      .wrapping_shr(8)
+      .wrapping_mul(u32::from(probability.wrapping_shr(6)))
+      .wrapping_shr(1);
     let highest = rate.wrapping_add(4u32.wrapping_mul(u32::from(thresholds)));
 
-    match {
-        ::core::primitive::bool::then_some(highest > range, ())
-    } {
-        ::core::option::Option::Some(()) => {
-          return Ok(0);
-        },
-        ::core::option::Option::None => {},
+    match { ::core::primitive::bool::then_some(highest > range, ()) } {
+      ::core::option::Option::Some(()) => {
+        return Ok(0);
+      }
+      ::core::option::Option::None => {}
     }
 
     let mut checks = 0u32;
@@ -1126,13 +1333,23 @@ mod tests {
           _ => rate.wrapping_add(4u32.wrapping_mul(remaining)),
         };
 
-        'sample: for code in [boundary.saturating_sub(1), boundary, boundary.wrapping_add(1), range.wrapping_sub(1)] {
+        'sample: for code in [
+          boundary.saturating_sub(1),
+          boundary,
+          boundary.wrapping_add(1),
+          range.wrapping_sub(1),
+        ] {
           match code.cmp(&range) {
             core::cmp::Ordering::Less => {}
             core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => continue 'sample,
           }
 
-          let fixture = BoundaryFixture { thresholds, range, probability, code };
+          let fixture = BoundaryFixture {
+            thresholds,
+            range,
+            probability,
+            code,
+          };
           let count = check_boundary_slice(initial, fixture)?;
           checks = checks.wrapping_add(count);
         }

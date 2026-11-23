@@ -38,9 +38,9 @@ use crate::src::mem::try_arc;
 use crate::src::obu::rav1d_parse_obus;
 use crate::src::picture::TemporalUnitChange;
 use crate::src::picture::rav1d_picture_alloc_copy;
-use crate::src::thread_task::{FRAME_ERROR, advance_completed_frame};
 use crate::src::thread_task::rav1d_task_delayed_fg;
 use crate::src::thread_task::rav1d_worker_task;
+use crate::src::thread_task::{FRAME_ERROR, advance_completed_frame};
 use console_core_parallel_execution::{Worker, Workers};
 use console_core_synchronization::nonpoison::{Mutex, wait_while};
 use std::cmp;
@@ -141,7 +141,10 @@ pub(crate) fn rav1d_get_frame_delay(
 #[cold]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "the decoder handle and scheduler are retained while work runs, and C picture releases may outlive the decoder through their own pool references")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the decoder handle and scheduler are retained while work runs, and C picture releases may outlive the decoder through their own pool references"
+  )
 )]
 pub(crate) fn rav1d_open(
   s: &Rav1dSettings,
@@ -154,7 +157,8 @@ pub(crate) fn rav1d_open(
   validate_input!((s.operating_point <= 31, EINVAL))?;
   #[cfg(feature = "c-ffi")]
   validate_input!((
-    s.allocator.allocation_kind() == crate::src::picture::AllocationKind::Custom || s.allocator.cookie.is_none(),
+    s.allocator.allocation_kind() == crate::src::picture::AllocationKind::Custom
+      || s.allocator.cookie.is_none(),
     EINVAL
   ))?;
 
@@ -226,7 +230,10 @@ pub(crate) fn rav1d_open(
 #[cfg(feature = "c-ffi")]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "C picture allocation and release retain their configured pool even if a caller closes the decoder first")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "C picture allocation and release retain their configured pool even if a caller closes the decoder first"
+  )
 )]
 fn allocator_with_pool(
   settings: &Rav1dSettings,
@@ -235,19 +242,28 @@ fn allocator_with_pool(
   let mut allocator = settings.allocator.clone();
 
   match allocator.allocation_kind() {
-    crate::src::picture::AllocationKind::Default => allocator.default_pool = Some(Arc::clone(picture_pool)),
+    crate::src::picture::AllocationKind::Default => {
+      allocator.default_pool = Some(Arc::clone(picture_pool))
+    }
     crate::src::picture::AllocationKind::Custom => {}
   }
 
   Ok(allocator)
 }
 
-fn frame_size_limit_for_platform(settings: &Rav1dSettings) -> Result<u32, console_core_never::Never> {
+fn frame_size_limit_for_platform(
+  settings: &Rav1dSettings,
+) -> Result<u32, console_core_never::Never> {
   const MAXIMUM_SMALL_ADDRESS_SPACE: u32 = 67_108_864;
   let requested = settings.frame_size_limit;
-  let small_address_space = cfg!(any(target_pointer_width = "16", target_pointer_width = "32"));
+  let small_address_space = cfg!(any(
+    target_pointer_width = "16",
+    target_pointer_width = "32"
+  ));
 
-  match (small_address_space && requested.wrapping_sub(1) >= MAXIMUM_SMALL_ADDRESS_SPACE).then_some(()) {
+  match (small_address_space && requested.wrapping_sub(1) >= MAXIMUM_SMALL_ADDRESS_SPACE)
+    .then_some(())
+  {
     Some(()) => {
       match requested {
         0 => {}
@@ -267,13 +283,17 @@ fn frame_size_limit_for_platform(settings: &Rav1dSettings) -> Result<u32, consol
 }
 
 fn frame_contexts(count: u32) -> Result<Box<[Rav1dFrameContext]>, console_core_never::Never> {
-  Ok((0..count).map(|number| {
-    let Ok(mut frame) = Rav1dFrameContext::default(number);
-    frame.task_thread.finished = AtomicBool::new(true);
-    frame.data.get_mut().lf.last_sharpness = u8::MAX;
+  Ok(
+    (0..count)
+      .map(|number| {
+        let Ok(mut frame) = Rav1dFrameContext::default(number);
+        frame.task_thread.finished = AtomicBool::new(true);
+        frame.data.get_mut().lf.last_sharpness = u8::MAX;
 
-    frame
-  }).collect())
+        frame
+      })
+      .collect(),
+  )
 }
 
 fn task_contexts(count: u32) -> Rav1dResult<Box<[Rav1dContextTaskThread]>> {
@@ -298,9 +318,15 @@ fn task_contexts(count: u32) -> Rav1dResult<Box<[Rav1dContextTaskThread]>> {
 
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "a running decoder worker retains the decoder owning its scheduler and worker slot until it exits")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "a running decoder worker retains the decoder owning its scheduler and worker slot until it exits"
+  )
 )]
-fn start_decoder_workers(context: &Arc<Rav1dContext>, workers: &impl Workers) -> Rav1dResult<Vec<Worker>> {
+fn start_decoder_workers(
+  context: &Arc<Rav1dContext>,
+  workers: &impl Workers,
+) -> Rav1dResult<Vec<Worker>> {
   let mut handles = Vec::new();
 
   for (index, task) in (0_u32..).zip(&context.tc) {
@@ -345,7 +371,9 @@ impl Rav1dFilmGrainData {
   #[must_use]
   fn grain(&self) -> Result<GrainPresence, console_core_never::Never> {
     Ok(match (self.num_y_points, self.num_uv_points) {
-      (0, [0, 0]) => GrainPresence::from(self.clip_to_restricted_range && self.chroma_scaling_from_luma),
+      (0, [0, 0]) => {
+        GrainPresence::from(self.clip_to_restricted_range && self.chroma_scaling_from_luma)
+      }
       _ => GrainPresence::Present,
     })
   }
@@ -377,8 +405,13 @@ impl From<bool> for OutputLayer {
 }
 
 #[must_use]
-fn output_layer(c: &Rav1dContext, state: &Rav1dState) -> Result<OutputLayer, console_core_never::Never> {
-  Ok(OutputLayer::from(!c.all_layers && state.max_spatial_id != 0))
+fn output_layer(
+  c: &Rav1dContext,
+  state: &Rav1dState,
+) -> Result<OutputLayer, console_core_never::Never> {
+  Ok(OutputLayer::from(
+    !c.all_layers && state.max_spatial_id != 0,
+  ))
 }
 
 fn output_image(c: &Rav1dContext, state: &mut Rav1dState, out: &mut Rav1dPicture) -> Rav1dResult {
@@ -421,7 +454,11 @@ enum PictureOutput {
   Pending,
 }
 
-fn picture_output(c: &Rav1dContext, state: &mut Rav1dState, phase: OutputPhase) -> Rav1dResult<PictureOutput> {
+fn picture_output(
+  c: &Rav1dContext,
+  state: &mut Rav1dState,
+  phase: OutputPhase,
+) -> Rav1dResult<PictureOutput> {
   match state.cached_error {
     Some(_pending_decode_error) => return Ok(PictureOutput::Ready),
     None => {}
@@ -442,7 +479,10 @@ fn picture_output(c: &Rav1dContext, state: &mut Rav1dState, phase: OutputPhase) 
 
         match (state.max_spatial_id.cmp(&cached_id), temporal_unit) {
           (std::cmp::Ordering::Equal, _) | (_, TemporalUnitChange::New) => PictureOutput::Ready,
-          (std::cmp::Ordering::Less | std::cmp::Ordering::Greater, TemporalUnitChange::Unchanged) => {
+          (
+            std::cmp::Ordering::Less | std::cmp::Ordering::Greater,
+            TemporalUnitChange::Unchanged,
+          ) => {
             state.cache = mem::take(&mut state.out);
             PictureOutput::Pending
           }
@@ -478,17 +518,28 @@ fn drain_picture(
     let control = &decoder.task_thread;
     let waiting = control.lock.lock();
     let scheduler = wait_while(&frame.task_thread.cond, waiting, |_schedule| {
-      !frame.task_thread.finished.load(Ordering::SeqCst) && !control.panicked.load(Ordering::SeqCst)
+      !frame.task_thread.finished.load(Ordering::SeqCst)
+        && !control.panicked.load(Ordering::SeqCst)
     });
 
-    match frame.task_thread.finished.load(Ordering::SeqCst).then_some(()) {
+    match frame
+      .task_thread
+      .finished
+      .load(Ordering::SeqCst)
+      .then_some(())
+    {
       Some(()) => {}
       None => return Err(EGeneric),
     }
 
-    let delayed = state.frame_thread.out_delayed.get_mut(index).ok_or(EINVAL)?;
+    let delayed = state
+      .frame_thread
+      .out_delayed
+      .get_mut(index)
+      .ok_or(EINVAL)?;
     let mut result = frame.task_thread.retval.try_lock().ok_or(EAGAIN)?;
-    let has_pending_output = delayed.p.data.is_some() || frame.task_thread.error.load(Ordering::SeqCst) != 0;
+    let has_pending_output =
+      delayed.p.data.is_some() || frame.task_thread.error.load(Ordering::SeqCst) != 0;
 
     match has_pending_output.then_some(()) {
       Some(()) => {
@@ -501,7 +552,10 @@ fn drain_picture(
       },
     }
 
-    let following = next.wrapping_add(1).checked_rem(frame_count).ok_or(EINVAL)?;
+    let following = next
+      .wrapping_add(1)
+      .checked_rem(frame_count)
+      .ok_or(EINVAL)?;
     state.frame_thread.next = following;
     drop(scheduler);
     let fault = mem::take(&mut *result);
@@ -523,7 +577,9 @@ fn drain_picture(
         let progress = final_progress.load(Ordering::Relaxed);
         let completed = mem::take(delayed);
 
-        match ((completed.visible || decoder.output_invisible_frames) && progress != FRAME_ERROR).then_some(()) {
+        match ((completed.visible || decoder.output_invisible_frames) && progress != FRAME_ERROR)
+          .then_some(())
+        {
           Some(()) => {
             let flags = crate::include::dav1d::dav1d::Rav1dEventFlags::from(completed.flags);
             state.out = completed;
@@ -623,7 +679,8 @@ pub(crate) fn rav1d_send_data(c: &Rav1dContext, in_0: &mut Rav1dData) -> Rav1dRe
   match &in_0.data {
     Some(data) => {
       validate_input!((!data.is_empty(), EINVAL))?;
-      let layout = core::alloc::Layout::array::<u8>(data.len()).map_err(|_outside_address_space| EINVAL);
+      let layout =
+        core::alloc::Layout::array::<u8>(data.len()).map_err(|_outside_address_space| EINVAL);
       let _checked_layout = validate_input!(layout)?;
       state.drain = crate::src::internal::DrainRequest::Idle;
     }
@@ -752,7 +809,10 @@ pub(crate) fn rav1d_flush(
   {
     #[cfg_attr(
       dylint_lib = "explicit004_no_panic",
-      expect(explicit004_no_panic, reason = "flush requires exclusive decoder API access, and decoder workers never take the API state lock")
+      expect(
+        explicit004_no_panic,
+        reason = "flush requires exclusive decoder API access, and decoder workers never take the API state lock"
+      )
     )]
     let state = &mut *c.state.try_lock().unwrap();
 
@@ -779,10 +839,12 @@ pub(crate) fn rav1d_flush(
         let mut task_thread_lock = c.task_thread.lock.lock();
 
         for task in c.tc.iter() {
-          task_thread_lock =
-            wait_while(&task.thread_data.cond, task_thread_lock, |_scheduler| {
-              matches!(task.flush_state(), crate::src::internal::FlushState::Waiting)
-            });
+          task_thread_lock = wait_while(&task.thread_data.cond, task_thread_lock, |_scheduler| {
+            matches!(
+              task.flush_state(),
+              crate::src::internal::FlushState::Waiting
+            )
+          });
         }
 
         for fc in c.fc.iter() {
@@ -794,9 +856,7 @@ pub(crate) fn rav1d_flush(
           let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(c.fc.len());
           numeric_value
         });
-        c.task_thread
-          .reset_task_cur
-          .store(None, Ordering::SeqCst);
+        c.task_thread.reset_task_cur.store(None, Ordering::SeqCst);
         c.task_thread.cond_signaled.store(0, Ordering::SeqCst);
       }
       ::core::option::Option::None => {}
@@ -815,14 +875,20 @@ pub(crate) fn rav1d_flush(
   Ok(())
 }
 
-fn discard_flushed_frames(c: &Rav1dContext, state: &mut Rav1dState) -> Result<(), console_core_never::Never> {
+fn discard_flushed_frames(
+  c: &Rav1dContext,
+  state: &mut Rav1dState,
+) -> Result<(), console_core_never::Never> {
   let Ok(frames) = wrapping_iter(c.fc.iter(), u64::from(state.frame_thread.next));
 
   for fc in frames {
     let _flushed_frame_result = rav1d_decode_frame_exit(c, fc, Err(EGeneric));
     #[cfg_attr(
       dylint_lib = "explicit004_no_panic",
-      expect(explicit004_no_panic, reason = "all worker tasks have acknowledged flush before their frame result slots are reset")
+      expect(
+        explicit004_no_panic,
+        reason = "all worker tasks have acknowledged flush before their frame result slots are reset"
+      )
     )]
     let mut frame_result = fc.task_thread.retval.try_lock().unwrap();
     *frame_result = None;
@@ -834,7 +900,10 @@ fn discard_flushed_frames(c: &Rav1dContext, state: &mut Rav1dState) -> Result<()
         Some(_) => drop(mem::take(delayed)),
         None => {}
       },
-      None => console_core_logging::error!("AV1 flush found an invalid delayed frame index: {}", fc.index),
+      None => console_core_logging::error!(
+        "AV1 flush found an invalid delayed frame index: {}",
+        fc.index
+      ),
     }
   }
 
@@ -847,7 +916,10 @@ fn discard_flushed_frames(c: &Rav1dContext, state: &mut Rav1dState) -> Result<()
 #[cold]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "closing consumes the C handle's final external reference after joining workers that owned temporary context references")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "closing consumes the C handle's final external reference after joining workers that owned temporary context references"
+  )
 )]
 pub(crate) fn rav1d_close(
   c: Arc<Rav1dContext>,
@@ -875,7 +947,9 @@ impl Rav1dContext {
     for worker in workers {
       match worker.join() {
         Ok(()) => {}
-        Err(join_failure) => console_core_logging::error!("AV1 worker failed to join: {join_failure:?}"),
+        Err(join_failure) => {
+          console_core_logging::error!("AV1 worker failed to join: {join_failure:?}")
+        }
       }
     }
 

@@ -12,7 +12,7 @@ use console_core_extensible_binary_meta_language::{Children, float, string, uint
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
 
-use crate::fault::{Fault, Missing, Unsupported};
+use crate::fault::{DecodeError, MissingElement, Unsupported};
 use crate::ids;
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ pub(crate) struct BlockGroupElement {
   pub(crate) duration: Option<u64>,
 }
 
-pub(crate) fn read_doc_type(data: &[u8]) -> Result<String, Fault> {
+pub(crate) fn read_doc_type(data: &[u8]) -> Result<String, DecodeError> {
   let mut doc_type = None;
 
   for child in Children::from(data) {
@@ -70,17 +70,17 @@ pub(crate) fn read_doc_type(data: &[u8]) -> Result<String, Fault> {
     }
   }
 
-  doc_type.ok_or(Fault::Unsupported(Unsupported::InvalidEbml))
+  doc_type.ok_or(DecodeError::Unsupported(Unsupported::InvalidEbml))
 }
 
-pub(crate) fn read_tracks(data: &[u8]) -> Result<Vec<TrackElement>, Fault> {
+pub(crate) fn read_tracks(data: &[u8]) -> Result<Vec<TrackElement>, DecodeError> {
   Children::from(data)
     .filter(|child| child.id == ids::TRACK_ENTRY)
     .map(|child| read_track(child.data))
     .collect()
 }
 
-fn read_track(data: &[u8]) -> Result<TrackElement, Fault> {
+fn read_track(data: &[u8]) -> Result<TrackElement, DecodeError> {
   let mut number = None;
   let mut uid = None;
   let mut language = None;
@@ -126,9 +126,9 @@ fn read_track(data: &[u8]) -> Result<TrackElement, Fault> {
     }
   }
 
-  let number_2 = number.ok_or(Fault::Missing(Missing::TrackNumber))?;
-  let _uid = uid.ok_or(Fault::Missing(Missing::TrackUid))?;
-  let codec_id_2 = codec_id.ok_or(Fault::Missing(Missing::CodecId))?;
+  let number_2 = number.ok_or(DecodeError::Absent(MissingElement::TrackNumber))?;
+  let _uid = uid.ok_or(DecodeError::Absent(MissingElement::TrackUid))?;
+  let codec_id_2 = codec_id.ok_or(DecodeError::Absent(MissingElement::CodecId))?;
 
   Ok(TrackElement {
     number: number_2,
@@ -207,14 +207,14 @@ pub(crate) fn read_info(data: &[u8]) -> Result<InfoElement, Never> {
   })
 }
 
-pub(crate) fn read_seek_head(data: &[u8]) -> Result<Vec<SeekElement>, Fault> {
+pub(crate) fn read_seek_head(data: &[u8]) -> Result<Vec<SeekElement>, DecodeError> {
   Children::from(data)
     .filter(|child| child.id == ids::SEEK)
     .map(|child| read_seek(child.data))
     .collect()
 }
 
-fn read_seek(data: &[u8]) -> Result<SeekElement, Fault> {
+fn read_seek(data: &[u8]) -> Result<SeekElement, DecodeError> {
   let mut id = None;
   let mut position = None;
 
@@ -234,8 +234,8 @@ fn read_seek(data: &[u8]) -> Result<SeekElement, Fault> {
     }
   }
 
-  let id_2 = id.ok_or(Fault::Missing(Missing::SeekId))?;
-  let position_2 = position.ok_or(Fault::Missing(Missing::SeekPosition))?;
+  let id_2 = id.ok_or(DecodeError::Absent(MissingElement::SeekId))?;
+  let position_2 = position.ok_or(DecodeError::Absent(MissingElement::SeekPosition))?;
 
   Ok(SeekElement {
     id: id_2,
@@ -243,14 +243,14 @@ fn read_seek(data: &[u8]) -> Result<SeekElement, Fault> {
   })
 }
 
-pub(crate) fn read_cues(data: &[u8]) -> Result<Vec<CuePointElement>, Fault> {
+pub(crate) fn read_cues(data: &[u8]) -> Result<Vec<CuePointElement>, DecodeError> {
   Children::from(data)
     .filter(|child| child.id == ids::CUE_POINT)
     .map(|child| read_cue_point(child.data))
     .collect()
 }
 
-fn read_cue_point(data: &[u8]) -> Result<CuePointElement, Fault> {
+fn read_cue_point(data: &[u8]) -> Result<CuePointElement, DecodeError> {
   let mut time = None;
   let mut cluster_position = None;
 
@@ -270,8 +270,8 @@ fn read_cue_point(data: &[u8]) -> Result<CuePointElement, Fault> {
     }
   }
 
-  let time_2 = time.ok_or(Fault::Missing(Missing::CueTime))?;
-  let cluster_position_2 = cluster_position.ok_or(Fault::Missing(Missing::CuePositions))?;
+  let time_2 = time.ok_or(DecodeError::Absent(MissingElement::CueTime))?;
+  let cluster_position_2 = cluster_position.ok_or(DecodeError::Absent(MissingElement::CuePositions))?;
 
   Ok(CuePointElement {
     time: time_2,
@@ -279,7 +279,7 @@ fn read_cue_point(data: &[u8]) -> Result<CuePointElement, Fault> {
   })
 }
 
-fn read_cue_track_positions(data: &[u8]) -> Result<u64, Fault> {
+fn read_cue_track_positions(data: &[u8]) -> Result<u64, DecodeError> {
   let mut track = None;
   let mut cluster_position = None;
 
@@ -299,12 +299,12 @@ fn read_cue_track_positions(data: &[u8]) -> Result<u64, Fault> {
     }
   }
 
-  let _track = track.ok_or(Fault::Missing(Missing::CueTrack))?;
+  let _track = track.ok_or(DecodeError::Absent(MissingElement::CueTrack))?;
 
-  cluster_position.ok_or(Fault::Missing(Missing::CueClusterPosition))
+  cluster_position.ok_or(DecodeError::Absent(MissingElement::CueClusterPosition))
 }
 
-pub(crate) fn read_block_group(data: &[u8]) -> Result<BlockGroupElement, Fault> {
+pub(crate) fn read_block_group(data: &[u8]) -> Result<BlockGroupElement, DecodeError> {
   let mut block = None;
   let mut duration = None;
 
@@ -320,7 +320,7 @@ pub(crate) fn read_block_group(data: &[u8]) -> Result<BlockGroupElement, Fault> 
     }
   }
 
-  let data_2 = block.ok_or(Fault::Missing(Missing::Block))?;
+  let data_2 = block.ok_or(DecodeError::Absent(MissingElement::Block))?;
 
   Ok(BlockGroupElement {
     data: data_2,
@@ -328,7 +328,7 @@ pub(crate) fn read_block_group(data: &[u8]) -> Result<BlockGroupElement, Fault> 
   })
 }
 
-pub(crate) fn read_tags(data: &[u8]) -> Result<MetadataRevision, Fault> {
+pub(crate) fn read_tags(data: &[u8]) -> Result<MetadataRevision, DecodeError> {
   let Ok(mut metadata) = MetadataBuilder::new();
 
   for tag in Children::from(data).filter(|child| child.id == ids::TAG) {
@@ -346,7 +346,7 @@ pub(crate) fn read_tags(data: &[u8]) -> Result<MetadataRevision, Fault> {
   Ok(value_2)
 }
 
-fn read_simple_tag(data: &[u8]) -> Result<(String, Value), Fault> {
+fn read_simple_tag(data: &[u8]) -> Result<(String, Value), DecodeError> {
   let mut name = None;
   let mut value = None;
 
@@ -367,8 +367,8 @@ fn read_simple_tag(data: &[u8]) -> Result<(String, Value), Fault> {
     }
   }
 
-  let name_2 = name.ok_or(Fault::Missing(Missing::TagName))?;
-  let value_2 = value.ok_or(Fault::Missing(Missing::TagValue))?;
+  let name_2 = name.ok_or(DecodeError::Absent(MissingElement::TagName))?;
+  let value_2 = value.ok_or(DecodeError::Absent(MissingElement::TagValue))?;
 
   Ok((name_2, value_2))
 }

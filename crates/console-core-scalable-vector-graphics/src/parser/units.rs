@@ -30,7 +30,7 @@ pub(crate) fn convert_length(
         explicit_value
       }) / 2.0
     }
-    Unit::In => n * dpi,
+    Unit::Inches => n * dpi,
     Unit::Cm => n * dpi / 2.54,
     Unit::Mm => n * dpi / 25.4,
     Unit::Pt => n * dpi / 72.0,
@@ -89,12 +89,30 @@ fn viewport_extent(
   state: &converter::State,
 ) -> Result<crate::UserLength, console_core_never::Never> {
   let horizontal = matches!(
-    attribute, AId::Cx | AId::Dx | AId::Fx | AId::MarkerWidth | AId::RefX
-    | AId::Rx | AId::Width | AId::X | AId::X1 | AId::X2
+    attribute,
+    AId::Cx
+      | AId::Dx
+      | AId::Fx
+      | AId::MarkerWidth
+      | AId::RefX
+      | AId::Rx
+      | AId::Width
+      | AId::X
+      | AId::X1
+      | AId::X2
   );
   let vertical = matches!(
-    attribute, AId::Cy | AId::Dy | AId::Fy | AId::Height | AId::MarkerHeight
-    | AId::RefY | AId::Ry | AId::Y | AId::Y1 | AId::Y2
+    attribute,
+    AId::Cy
+      | AId::Dy
+      | AId::Fy
+      | AId::Height
+      | AId::MarkerHeight
+      | AId::RefY
+      | AId::Ry
+      | AId::Y
+      | AId::Y1
+      | AId::Y2
   );
   let Ok(width) = state.view_box.width();
   let Ok(height) = state.view_box.height();
@@ -138,7 +156,7 @@ fn font_size_for_node(
         Unit::None | Unit::Px => number,
         Unit::Em => number * inherited.0,
         Unit::Ex => number * inherited.0 / 2.0,
-        Unit::In => number * dpi,
+        Unit::Inches => number * dpi,
         Unit::Cm => number * dpi / 2.54,
         Unit::Mm => number * dpi / 25.4,
         Unit::Pt => number * dpi / 72.0,

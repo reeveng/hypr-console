@@ -24,7 +24,9 @@ const FORM: &[u8] = b"WEBP";
 const FOURTEEN_BITS: u32 = 0x3FFF;
 
 pub(crate) fn begins(head: &[u8]) -> Result<Signature, Never> {
-  Ok(Signature::from(head.starts_with(RIFF) && head.get(8..12) == Some(FORM)))
+  Ok(Signature::from(
+    head.starts_with(RIFF) && head.get(8..12) == Some(FORM),
+  ))
 }
 
 pub(crate) fn size(head: &[u8]) -> Result<Size<u32>, SizeError> {

@@ -42,6 +42,8 @@ mod exceptions;
 #[cfg(target_os = "uefi")]
 mod firmware;
 #[cfg(target_os = "uefi")]
+mod generation;
+#[cfg(target_os = "uefi")]
 mod input;
 
 #[cfg(target_os = "uefi")]

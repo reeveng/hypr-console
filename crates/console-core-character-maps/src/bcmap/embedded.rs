@@ -118,8 +118,8 @@ fn load() -> Result<Bundle, ParseError> {
     let Ok(remaining) = head.remaining();
 
     match remaining {
-      Remaining::Nothing => break,
-      Remaining::Something => {}
+      Remaining::Absent => break,
+      Remaining::Present => {}
     }
 
     head.take(6)?;

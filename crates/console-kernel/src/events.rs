@@ -38,10 +38,12 @@ impl<T: Copy, const N: usize> Queue<T, N> {
   fn slot(&self, offset: usize) -> Result<usize, Never> {
     let before_wrap = N.saturating_sub(self.head);
 
-    Ok(match ::core::primitive::bool::then_some(offset < before_wrap, ()) {
-      ::core::option::Option::Some(()) => self.head.saturating_add(offset),
-      ::core::option::Option::None => offset.saturating_sub(before_wrap),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(offset < before_wrap, ()) {
+        ::core::option::Option::Some(()) => self.head.saturating_add(offset),
+        ::core::option::Option::None => offset.saturating_sub(before_wrap),
+      },
+    )
   }
 
   #[cfg_attr(
@@ -287,7 +289,7 @@ pub struct Completion<T> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Settlement<T> {
   Ignored,
-  Settled { value: T, refund: Bytes },
+  Complete { value: T, refund: Bytes },
 }
 
 pub struct OperationSlot {
@@ -330,10 +332,12 @@ impl OperationSlot {
 
   pub fn complete<T>(&mut self, event: Envelope<Completion<T>>) -> Result<Settlement<T>, Never> {
     match self.pending.as_ref() {
-      Some(pending) => match ::core::primitive::bool::then_some(pending.replies_from == event.source, ()) {
-        ::core::option::Option::Some(()) => self.settle(event.payload),
-        ::core::option::Option::None => Ok(Settlement::Ignored),
-      },
+      Some(pending) => {
+        match ::core::primitive::bool::then_some(pending.replies_from == event.source, ()) {
+          ::core::option::Option::Some(()) => self.settle(event.payload),
+          ::core::option::Option::None => Ok(Settlement::Ignored),
+        }
+      }
       None => Ok(Settlement::Ignored),
     }
   }
@@ -347,12 +351,15 @@ impl OperationSlot {
 
   fn settle<T>(&mut self, completion: Completion<T>) -> Result<Settlement<T>, Never> {
     match self.pending.as_ref() {
-      Some(pending) => match ::core::primitive::bool::then_some(pending.correlation == completion.correlation, ()) {
+      Some(pending) => match ::core::primitive::bool::then_some(
+        pending.correlation == completion.correlation,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let refund = pending.reserved;
           self.pending = None;
 
-          Ok(Settlement::Settled {
+          Ok(Settlement::Complete {
             value: completion.value,
             refund,
           })

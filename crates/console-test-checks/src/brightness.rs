@@ -1,7 +1,7 @@
 //! L2 and the d-pad move the screen's brightness.
 
-use console_test_stages::device::TriggerTravel;
 use console_test_stages::checking::{Body, Check, CheckResult};
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::device::{Device, Way};
 use console_test_stages::here::Here;
 

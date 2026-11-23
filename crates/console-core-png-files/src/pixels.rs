@@ -294,10 +294,12 @@ fn colored(read: &Read, channels: [u16; 4], reduction: Reduction) -> Result<[u8;
     }
     Color::Rgb => {
       let alpha = match read.key {
-        Some(Key::Rgb(clear)) => match ::core::primitive::bool::then_some(clear == [first, second, third], ()) {
-          ::core::option::Option::Some(()) => CLEAR,
-          ::core::option::Option::None => OPAQUE,
-        },
+        Some(Key::Rgb(clear)) => {
+          match ::core::primitive::bool::then_some(clear == [first, second, third], ()) {
+            ::core::option::Option::Some(()) => CLEAR,
+            ::core::option::Option::None => OPAQUE,
+          }
+        }
         Some(Key::Grey(_)) | None => OPAQUE,
       };
 

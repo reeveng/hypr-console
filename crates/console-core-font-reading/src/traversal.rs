@@ -101,13 +101,11 @@ impl<'a> FieldType<'a> {
   where
     T: Clone + SomeRecord<'a> + 'a,
   {
-    Ok(
-      FieldType::from(ArrayOfRecords {
-        type_name,
-        data,
-        records,
-      }),
-    )
+    Ok(FieldType::from(ArrayOfRecords {
+      type_name,
+      data,
+      records,
+    }))
   }
 
   pub fn computed_array<T>(
@@ -117,15 +115,13 @@ impl<'a> FieldType<'a> {
   ) -> Result<FieldType<'a>, Never>
   where
     T: FontReadWithArgs<'a> + ComputeSize + SomeRecord<'a> + 'a,
-    T::Args: Copy + 'static,
+    T::Arguments: Copy + 'static,
   {
-    Ok(
-      FieldType::from(ComputedArrayOfRecords {
-        type_name,
-        data,
-        array,
-      }),
-    )
+    Ok(FieldType::from(ComputedArrayOfRecords {
+      type_name,
+      data,
+      array,
+    }))
   }
 
   pub fn var_array<T>(
@@ -136,13 +132,11 @@ impl<'a> FieldType<'a> {
   where
     T: FontRead<'a> + VarSize + SomeRecord<'a> + 'a,
   {
-    Ok(
-      FieldType::from(VarLenArrayOfRecords {
-        type_name,
-        data,
-        array,
-      }),
-    )
+    Ok(FieldType::from(VarLenArrayOfRecords {
+      type_name,
+      data,
+      array,
+    }))
   }
 
   pub fn offset_to_array_of_scalars<T: SomeArray<'a> + 'a>(
@@ -151,17 +145,19 @@ impl<'a> FieldType<'a> {
   ) -> Result<Self, Never> {
     let offset_2 = <_ as ::core::convert::Into<crate::traversal::OffsetType>>::into(offset);
 
-    Ok(match ::core::convert::Into::<Result<Option<T>, ReadError>>::into(result) {
-      Ok(Some(target)) => FieldType::ArrayOffset(ArrayOffset {
-        offset: offset_2,
-        target: Ok(Box::new(target)),
-      }),
-      Ok(None) => FieldType::BareOffset(offset_2),
-      Err(error) => FieldType::ArrayOffset(ArrayOffset {
-        offset: offset_2,
-        target: Err(error),
-      }),
-    })
+    Ok(
+      match ::core::convert::Into::<Result<Option<T>, ReadError>>::into(result) {
+        Ok(Some(target)) => FieldType::ArrayOffset(ArrayOffset {
+          offset: offset_2,
+          target: Ok(Box::new(target)),
+        }),
+        Ok(None) => FieldType::BareOffset(offset_2),
+        Err(error) => FieldType::ArrayOffset(ArrayOffset {
+          offset: offset_2,
+          target: Err(error),
+        }),
+      },
+    )
   }
 
   pub fn offset_to_array_of_records<T: Clone + SomeRecord<'a> + 'a>(
@@ -172,25 +168,27 @@ impl<'a> FieldType<'a> {
   ) -> Result<Self, Never> {
     let offset_2 = <_ as ::core::convert::Into<crate::traversal::OffsetType>>::into(offset);
 
-    Ok(match ::core::convert::Into::<Result<Option<&'a [T]>, ReadError>>::into(result) {
-      Ok(Some(records)) => {
-        let array = ArrayOfRecords {
-          type_name,
-          data,
-          records,
-        };
+    Ok(
+      match ::core::convert::Into::<Result<Option<&'a [T]>, ReadError>>::into(result) {
+        Ok(Some(records)) => {
+          let array = ArrayOfRecords {
+            type_name,
+            data,
+            records,
+          };
 
-        FieldType::ArrayOffset(ArrayOffset {
+          FieldType::ArrayOffset(ArrayOffset {
+            offset: offset_2,
+            target: Ok(Box::new(array)),
+          })
+        }
+        Ok(None) => FieldType::BareOffset(offset_2),
+        Err(error) => FieldType::ArrayOffset(ArrayOffset {
           offset: offset_2,
-          target: Ok(Box::new(array)),
-        })
-      }
-      Ok(None) => FieldType::BareOffset(offset_2),
-      Err(error) => FieldType::ArrayOffset(ArrayOffset {
-        offset: offset_2,
-        target: Err(error),
-      }),
-    })
+          target: Err(error),
+        }),
+      },
+    )
   }
 
   pub fn offset<T: SomeTable<'a> + 'a>(
@@ -199,17 +197,19 @@ impl<'a> FieldType<'a> {
   ) -> Result<Self, Never> {
     let offset_2 = <_ as ::core::convert::Into<crate::traversal::OffsetType>>::into(offset);
 
-    Ok(match ::core::convert::Into::<Result<Option<T>, ReadError>>::into(result) {
-      Ok(Some(target)) => FieldType::ResolvedOffset(ResolvedOffset {
-        offset: offset_2,
-        target: Ok(Box::new(target)),
-      }),
-      Ok(None) => FieldType::BareOffset(offset_2),
-      Err(error) => FieldType::ResolvedOffset(ResolvedOffset {
-        offset: offset_2,
-        target: Err(error),
-      }),
-    })
+    Ok(
+      match ::core::convert::Into::<Result<Option<T>, ReadError>>::into(result) {
+        Ok(Some(target)) => FieldType::ResolvedOffset(ResolvedOffset {
+          offset: offset_2,
+          target: Ok(Box::new(target)),
+        }),
+        Ok(None) => FieldType::BareOffset(offset_2),
+        Err(error) => FieldType::ResolvedOffset(ResolvedOffset {
+          offset: offset_2,
+          target: Err(error),
+        }),
+      },
+    )
   }
 
   pub fn unknown_offset(offset: impl Into<OffsetType>) -> Result<Self, Never> {
@@ -412,7 +412,7 @@ struct VarLenArrayOfRecords<'a, T> {
 impl<'a, T> SomeArray<'a> for ComputedArrayOfRecords<'a, T>
 where
   T: FontReadWithArgs<'a> + ComputeSize + SomeRecord<'a> + 'a,
-  T::Args: Copy + 'static,
+  T::Arguments: Copy + 'static,
   Self: 'a,
 {
   fn len(&self) -> Result<u64, Never> {

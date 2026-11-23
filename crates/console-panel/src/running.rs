@@ -229,10 +229,7 @@ mod tests {
 
     assert_eq!(
       words_of(&runs),
-      Ok(vec![
-        program.to_owned(),
-        "/music".to_string()
-      ]),
+      Ok(vec![program.to_owned(), "/music".to_string()]),
       "a panel asked to run files ran the name, which is the installed copy rather than the one \
              staged or built beside it"
     );

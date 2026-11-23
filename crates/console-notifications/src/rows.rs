@@ -132,10 +132,12 @@ pub fn one_rows(
 }
 
 fn said_by(notification: &Notification) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(notification.application.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => "Notification".to_string(),
-    ::core::option::Option::None => notification.application.trim().to_string(),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(notification.application.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => "Notification".to_string(),
+      ::core::option::Option::None => notification.application.trim().to_string(),
+    },
+  )
 }
 
 pub fn cleared_rows(back: &Chosen) -> Result<Vec<Row>, Never> {
@@ -170,14 +172,16 @@ pub fn earlier_rows(held: &[Notification]) -> Result<Vec<Row>, Never> {
 }
 
 fn earlier_aside(notification: &Notification) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(notification.body.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(said) = aside(notification);
+  Ok(
+    match ::core::primitive::bool::then_some(notification.body.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(said) = aside(notification);
 
-      said
-    }
-    ::core::option::Option::None => notification.body.trim().to_string(),
-  })
+        said
+      }
+      ::core::option::Option::None => notification.body.trim().to_string(),
+    },
+  )
 }
 
 #[cfg(test)]

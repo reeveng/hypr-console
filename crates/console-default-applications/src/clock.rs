@@ -40,10 +40,12 @@ impl Clock {
 }
 
 pub fn read(said: &str) -> Result<Clock, Never> {
-  Ok(match ::core::primitive::bool::then_some(said.trim() == TWELVE, ()) {
-    ::core::option::Option::Some(()) => Clock::Twelve,
-    ::core::option::Option::None => Clock::TwentyFour,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.trim() == TWELVE, ()) {
+      ::core::option::Option::Some(()) => Clock::Twelve,
+      ::core::option::Option::None => Clock::TwentyFour,
+    },
+  )
 }
 
 pub fn clock() -> Result<Clock, Never> {

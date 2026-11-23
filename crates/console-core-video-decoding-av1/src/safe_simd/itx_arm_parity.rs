@@ -35,11 +35,6 @@
 //! exactly the 16x16 `H_DCT` defect (dav1d's `def_fn_16x16 dct, identity`
 //! uses `eob_half = 8`; the port hardcoded 36 for every type).
 
-
-
-
-
-
 #![cfg(all(test, target_arch = "aarch64", not(feature = "c-ffi")))]
 
 use crate::include::common::bitdepth::{BitDepth, BitDepth8, BitDepth16};
@@ -62,7 +57,16 @@ impl Rng {
   }
 
   fn in_range(&mut self, lo: i32, hi: i32) -> i32 {
-    lo + match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>((self.next() % match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>((hi - lo + 1)) { ::core::result::Result::Ok(converted_position) => converted_position })) { ::core::result::Result::Ok(converted_position) => converted_position }
+    lo + match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+      (self.next()
+        % match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(
+          (hi - lo + 1),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    }
   }
 }
 
@@ -81,13 +85,17 @@ fn reachable_positions(tx: TxfmSize, tx_type: TxfmType, eob: usize) -> Vec<usize
   let Ok(h) = console_core_number_conversion::index(extent.height);
   let (sw, sh) = (w.min(32), h.min(32));
 
-  match dav1d_tx_type_class[<usize as ::core::convert::From<::core::primitive::u8>>::from(tx_type)] {
+  match dav1d_tx_type_class
+    [<usize as ::core::convert::From<::core::primitive::u8>>::from(tx_type)]
+  {
     TxClass::TwoD => {
       let scan = dav1d_scans[tx as usize];
       (0..=eob)
         .map(|i| {
           let Ok(position) = scan[i].get();
-          match ::console_core_number_conversion::index::<::core::primitive::u16>(position) { ::core::result::Result::Ok(converted_position) => converted_position }
+          match ::console_core_number_conversion::index::<::core::primitive::u16>(position) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
         })
         .collect()
     }
@@ -125,31 +133,31 @@ fn run_cell(
       let comp = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut px, stride);
       let mut dst = crate::src::owned_recon::ReconDst::Pic(comp.with_offset::<BitDepth8>());
       let handled = match ::core::primitive::bool::then_some(simd, ()) {
-          ::core::option::Option::Some(()) => {
-            crate::src::safe_simd::itx_arm::itxfm_add_dispatch::<BitDepth8>(
-              tx as usize,
-              tx_type as usize,
+        ::core::option::Option::Some(()) => {
+          crate::src::safe_simd::itx_arm::itxfm_add_dispatch::<BitDepth8>(
+            tx as usize,
+            tx_type as usize,
+            &mut dst,
+            &mut cf,
+            eob,
+            bd,
+          )
+        }
+        ::core::option::Option::None => {
+          let Ok(size_ordinal) = tx.ordinal();
+          assert_eq!(
+            crate::src::itx::itxfm_add_scalar_fallback::<BitDepth8>(
+              size_ordinal,
+              tx_type,
               &mut dst,
               &mut cf,
               eob,
               bd,
-            )
-          },
-          ::core::option::Option::None => {
-            let Ok(size_ordinal) = tx.ordinal();
-            assert_eq!(
-              crate::src::itx::itxfm_add_scalar_fallback::<BitDepth8>(
-                size_ordinal,
-                tx_type,
-                &mut dst,
-                &mut cf,
-                eob,
-                bd,
-              ),
-              Ok(())
-            );
-            true
-          },
+            ),
+            Ok(())
+          );
+          true
+        }
       };
       comp.copy_pixels_to::<BitDepth8>(&mut out);
       handled
@@ -176,24 +184,22 @@ impl Report {
     self.cells += 1;
 
     match ::core::primitive::bool::then_some(live, ()) {
-        ::core::option::Option::Some(()) => {
-          self.live += 1;
-        },
-        ::core::option::Option::None => {},
+      ::core::option::Option::Some(()) => {
+        self.live += 1;
+      }
+      ::core::option::Option::None => {}
     }
 
-    match {
-        ::core::primitive::bool::then_some(!ok, ())
-    } {
-        ::core::option::Option::Some(()) => {
-          if self.first.is_none() {
-            self.first = Some(format!("{label}: {}", detail()));
-          }
-          if !self.bad.iter().any(|b| b == label) {
-            self.bad.push(label.to_string());
-          }
-        },
-        ::core::option::Option::None => {},
+    match { ::core::primitive::bool::then_some(!ok, ()) } {
+      ::core::option::Option::Some(()) => {
+        if self.first.is_none() {
+          self.first = Some(format!("{label}: {}", detail()));
+        }
+        if !self.bad.iter().any(|b| b == label) {
+          self.bad.push(label.to_string());
+        }
+      }
+      ::core::option::Option::None => {}
     }
   }
 
@@ -268,10 +274,6 @@ fn wired_cells() -> Vec<(TxfmSize, TxfmType)> {
     out.push((sz, levels::IDTX));
   }
 
-
-
-
-
   for &sz in &[S64x64, R64x32, R32x64, R16x64, R64x16] {
     out.push((sz, levels::DCT_DCT));
   }
@@ -293,12 +295,29 @@ fn eob_sweep(n: usize) -> Vec<i32> {
   for &t in &[
     29usize, 32, 35, 36, 37, 43, 64, 107, 136, 151, 171, 256, 279, 300, 512, 1024,
   ] {
-    v.push((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(t) { ::core::result::Result::Ok(converted_position) => converted_position }) - 1);
-    v.push(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(t) { ::core::result::Result::Ok(converted_position) => converted_position });
+    v.push(
+      (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(t) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }) - 1,
+    );
+    v.push(
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(t) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      },
+    );
   }
 
-  v.push((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(n) { ::core::result::Result::Ok(converted_position) => converted_position }) - 1);
-  v.retain(|&e| e >= 0 && (match ::console_core_number_conversion::wrapped_index(e) { ::core::result::Result::Ok(converted_position) => converted_position }) < n);
+  v.push(
+    (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(n) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    }) - 1,
+  );
+  v.retain(|&e| {
+    e >= 0
+      && (match ::console_core_number_conversion::wrapped_index(e) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }) < n
+  });
   v.sort_unstable();
   v.dedup();
   v
@@ -319,39 +338,50 @@ fn sweep_with(scale: i32, seed: u64, what: &str, every_eob: bool) {
     let (sw, sh) = (w.min(32), h.min(32));
     let n = sw * sh;
     let stride = (w + 16).next_multiple_of(16);
-    let mut rng = Rng(seed ^ ::core::primitive::u64::wrapping_shl((tx as u64), 40_u32) ^ ::core::primitive::u64::wrapping_shl((tx_type as u64), 32_u32));
-
-
+    let mut rng = Rng(
+      seed
+        ^ ::core::primitive::u64::wrapping_shl((tx as u64), 40_u32)
+        ^ ::core::primitive::u64::wrapping_shl((tx_type as u64), 32_u32),
+    );
 
     let pixels: Vec<u8> = (0..stride * h)
-      .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(rng.in_range(0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position })
+      .map(|_| {
+        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+          rng.in_range(0, 255),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }
+      })
       .collect();
 
     let eobs: Vec<i32> = match ::core::primitive::bool::then_some(every_eob, ()) {
-        ::core::option::Option::Some(()) => {
-          (0..n as i32).collect()
-        },
-        ::core::option::Option::None => {
-          eob_sweep(n)
-        },
+      ::core::option::Option::Some(()) => (0..n as i32).collect(),
+      ::core::option::Option::None => eob_sweep(n),
     };
 
     for eob in eobs {
       let mut coeff = vec![0i16; ::core::primitive::usize::wrapping_mul(32, 32)];
 
-      for pos in reachable_positions(tx, tx_type, match ::console_core_number_conversion::wrapped_index(eob) { ::core::result::Result::Ok(converted_position) => converted_position }) {
-
-
+      for pos in reachable_positions(
+        tx,
+        tx_type,
+        match ::console_core_number_conversion::wrapped_index(eob) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        },
+      ) {
         let mut c = rng.in_range(-scale, scale);
 
         match c {
-            0 => {
-              c = 1;
-            },
-            _ => {},
+          0 => {
+            c = 1;
+          }
+          _ => {}
         }
 
-        coeff[pos] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(c) { ::core::result::Result::Ok(converted_position) => converted_position };
+        coeff[pos] =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(c) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
       }
 
       let (neon, scalar, live) = run_cell(tx, tx_type, eob, &coeff, &pixels, stride);
@@ -413,10 +443,6 @@ fn itx_8bpc_every_eob_small_coeffs() {
   );
 }
 
-
-
-
-
 /// One 16bpc cell through both paths. Same shape as [`run_cell`], but the
 /// coefficients are `i32`, the pixels `u16`, and `bd` carries `bitdepth_max`.
 #[must_use]
@@ -439,31 +465,31 @@ fn run_cell_16(
       let comp = Rav1dPictureDataComponent::wrap_buf::<BitDepth16>(&mut px, stride);
       let mut dst = crate::src::owned_recon::ReconDst::Pic(comp.with_offset::<BitDepth16>());
       let handled = match ::core::primitive::bool::then_some(simd, ()) {
-          ::core::option::Option::Some(()) => {
-            crate::src::safe_simd::itx_arm::itxfm_add_dispatch::<BitDepth16>(
-              tx as usize,
-              tx_type as usize,
+        ::core::option::Option::Some(()) => {
+          crate::src::safe_simd::itx_arm::itxfm_add_dispatch::<BitDepth16>(
+            tx as usize,
+            tx_type as usize,
+            &mut dst,
+            &mut cf,
+            eob,
+            bd,
+          )
+        }
+        ::core::option::Option::None => {
+          let Ok(size_ordinal) = tx.ordinal();
+          assert_eq!(
+            crate::src::itx::itxfm_add_scalar_fallback::<BitDepth16>(
+              size_ordinal,
+              tx_type,
               &mut dst,
               &mut cf,
               eob,
               bd,
-            )
-          },
-          ::core::option::Option::None => {
-            let Ok(size_ordinal) = tx.ordinal();
-            assert_eq!(
-              crate::src::itx::itxfm_add_scalar_fallback::<BitDepth16>(
-                size_ordinal,
-                tx_type,
-                &mut dst,
-                &mut cf,
-                eob,
-                bd,
-              ),
-              Ok(())
-            );
-            true
-          },
+            ),
+            Ok(())
+          );
+          true
+        }
       };
       comp.copy_pixels_to::<BitDepth16>(&mut out);
       handled
@@ -523,32 +549,47 @@ fn sweep16(scale: i32, seed: u64, bitdepth_max: u16, what: &str, every_eob: bool
     let Ok(h) = console_core_number_conversion::index(extent.height);
     let n = w * h;
     let stride = (w + 16).next_multiple_of(16);
-    let mut rng = Rng(seed ^ ::core::primitive::u64::wrapping_shl((tx as u64), 40_u32) ^ ::core::primitive::u64::wrapping_shl((tx_type as u64), 32_u32));
+    let mut rng = Rng(
+      seed
+        ^ ::core::primitive::u64::wrapping_shl((tx as u64), 40_u32)
+        ^ ::core::primitive::u64::wrapping_shl((tx_type as u64), 32_u32),
+    );
 
     let pixels: Vec<u16> = (0..stride * h)
-      .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(rng.in_range(0, <i32 as ::core::convert::From<::core::primitive::u16>>::from(bitdepth_max))) { ::core::result::Result::Ok(converted_position) => converted_position })
+      .map(|_| {
+        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          rng.in_range(
+            0,
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(bitdepth_max),
+          ),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }
+      })
       .collect();
 
     let eobs: Vec<i32> = match ::core::primitive::bool::then_some(every_eob, ()) {
-        ::core::option::Option::Some(()) => {
-          (0..n as i32).collect()
-        },
-        ::core::option::Option::None => {
-          eob_sweep(n)
-        },
+      ::core::option::Option::Some(()) => (0..n as i32).collect(),
+      ::core::option::Option::None => eob_sweep(n),
     };
 
     for eob in eobs {
       let mut coeff = vec![0i32; ::core::primitive::usize::wrapping_mul(32, 32)];
 
-      for pos in reachable_positions(tx, tx_type, match ::console_core_number_conversion::wrapped_index(eob) { ::core::result::Result::Ok(converted_position) => converted_position }) {
+      for pos in reachable_positions(
+        tx,
+        tx_type,
+        match ::console_core_number_conversion::wrapped_index(eob) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        },
+      ) {
         let mut c = rng.in_range(-scale, scale);
 
         match c {
-            0 => {
-              c = 1;
-            },
-            _ => {},
+          0 => {
+            c = 1;
+          }
+          _ => {}
         }
 
         coeff[pos] = c;
@@ -637,33 +678,40 @@ fn itx_10bpc_every_eob_small_coeffs() {
 /// result in this module is suspect.
 #[test]
 fn reachable_positions_track_the_transform_class() {
-
-
-
-
-  assert_eq!(dav1d_tx_type_class[<usize as ::core::convert::From<::core::primitive::u8>>::from(levels::H_DCT)], TxClass::H);
+  assert_eq!(
+    dav1d_tx_type_class
+      [<usize as ::core::convert::From<::core::primitive::u8>>::from(levels::H_DCT)],
+    TxClass::H
+  );
   let p = reachable_positions(TxfmSize::S16x16, levels::H_DCT, 8);
   assert_eq!(p, (0..=8).collect::<Vec<_>>());
   assert!(
-    p.iter().any(|&rc| ::core::primitive::usize::wrapping_rem(rc, 16) >= 8),
+    p.iter()
+      .any(|&rc| ::core::primitive::usize::wrapping_rem(rc, 16) >= 8),
     "eob=8 must reach row >= 8"
   );
 
-
-
-
-  assert_eq!(dav1d_tx_type_class[<usize as ::core::convert::From<::core::primitive::u8>>::from(levels::V_DCT)], TxClass::V);
+  assert_eq!(
+    dav1d_tx_type_class
+      [<usize as ::core::convert::From<::core::primitive::u8>>::from(levels::V_DCT)],
+    TxClass::V
+  );
   let p = reachable_positions(TxfmSize::S16x16, levels::V_DCT, 8);
   assert!(
-    p.iter().all(|&rc| ::core::primitive::usize::wrapping_rem(rc, 16) == 0),
+    p.iter()
+      .all(|&rc| ::core::primitive::usize::wrapping_rem(rc, 16) == 0),
     "class V at eob=8 stays in coefficient row 0"
   );
 
-
-  assert_eq!(dav1d_tx_type_class[<usize as ::core::convert::From<::core::primitive::u8>>::from(levels::DCT_DCT)], TxClass::TwoD);
+  assert_eq!(
+    dav1d_tx_type_class
+      [<usize as ::core::convert::From<::core::primitive::u8>>::from(levels::DCT_DCT)],
+    TxClass::TwoD
+  );
   let p = reachable_positions(TxfmSize::S16x16, levels::DCT_DCT, 35);
   assert!(
-    p.iter().all(|&rc| ::core::primitive::usize::wrapping_rem(rc, 16) < 8),
+    p.iter()
+      .all(|&rc| ::core::primitive::usize::wrapping_rem(rc, 16) < 8),
     "the 2D scan's first 36 positions are what makes eob_half = 36 sound"
   );
 }

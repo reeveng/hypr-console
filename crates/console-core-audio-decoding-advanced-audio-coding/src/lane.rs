@@ -14,7 +14,7 @@ use std::ops::Range;
 
 use console_core_audio_decoding_interfaces::errors::{Result, decode_error};
 use console_core_byte_streams::ReadBitsLtr;
-use console_core_frequency_transforms::Fault;
+use console_core_frequency_transforms::TransformError;
 use console_core_never::Never;
 use console_core_number_conversion::index;
 
@@ -24,12 +24,12 @@ pub(crate) fn invalid<T>() -> Result<T> {
   decode_error("aac: invalid data")
 }
 
-pub(crate) fn transformed<T>(outcome: std::result::Result<T, Fault>) -> Result<T> {
+pub(crate) fn transformed<T>(outcome: std::result::Result<T, TransformError>) -> Result<T> {
   match outcome {
     Ok(done) => Ok(done),
-    Err(Fault::Size) => decode_error("aac: no transform of that size"),
-    Err(Fault::Spectrum) => decode_error("aac: spectrum does not fit the transform"),
-    Err(Fault::Output) => decode_error("aac: output does not fit the transform"),
+    Err(TransformError::Size) => decode_error("aac: no transform of that size"),
+    Err(TransformError::Spectrum) => decode_error("aac: spectrum does not fit the transform"),
+    Err(TransformError::Output) => decode_error("aac: output does not fit the transform"),
   }
 }
 

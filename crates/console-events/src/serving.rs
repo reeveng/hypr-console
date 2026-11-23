@@ -201,7 +201,10 @@ pub fn serve(
           let Ok(()) = latch::drain(&waiting);
           let Ok(()) = publish_pending(&mut serving_2, &published);
 
-          match ::core::primitive::bool::then_some(flags.intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL), ()) {
+          match ::core::primitive::bool::then_some(
+            flags.intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL),
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               let fault = std::io::Error::from(ErrorKind::BrokenPipe);
 
@@ -252,14 +255,16 @@ fn relay_sources(
 
     match saying.write_all(&[1]) {
       Ok(()) => {}
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::WouldBlock, ()) {
-        ::core::option::Option::Some(()) => continue,
-        ::core::option::Option::None => {
-          console_core_logging::warn!("console-events: could not wake the pool: {fault}");
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::WouldBlock, ()) {
+          ::core::option::Option::Some(()) => continue,
+          ::core::option::Option::None => {
+            console_core_logging::warn!("console-events: could not wake the pool: {fault}");
 
-          return Ok(());
+            return Ok(());
+          }
         }
-      },
+      }
     }
   }
 
@@ -279,10 +284,14 @@ fn bound(socket: &Path) -> Result<UnixListener, Unserved> {
 
   match deleted {
     Ok(()) => {}
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return Err(Unserved::Unbound(socket.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => {
+          return Err(Unserved::Unbound(socket.to_path_buf(), fault));
+        }
+      }
+    }
   }
 
   let listening =
@@ -411,7 +420,10 @@ fn arrived(serving: &mut Serving<'_>, stream: UnixStream) -> Result<(), Never> {
 }
 
 fn read_client(serving: &mut Serving<'_>, who: Who, flags: PollFlags) -> Result<(), Never> {
-  match ::core::primitive::bool::then_some(flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR), ()) {
+  match ::core::primitive::bool::then_some(
+    flags.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(()),
   }

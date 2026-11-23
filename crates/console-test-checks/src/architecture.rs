@@ -175,26 +175,30 @@ pub fn pool(said: &str) -> Result<BTreeSet<u32>, Never> {
 
   for row in &rows {
     match row.as_slice() {
-      [_, _, _, _, local, _, _, peer, ..] => match ::core::primitive::bool::then_some(local.ends_with(socket) && *peer != "0", ()) {
-        ::core::option::Option::Some(()) => {
-          let _ = peers.insert(*peer);
+      [_, _, _, _, local, _, _, peer, ..] => {
+        match ::core::primitive::bool::then_some(local.ends_with(socket) && *peer != "0", ()) {
+          ::core::option::Option::Some(()) => {
+            let _ = peers.insert(*peer);
+          }
+          ::core::option::Option::None => {}
         }
-        ::core::option::Option::None => {}
-      },
+      }
       _ => {}
     }
   }
 
   for row in &rows {
     match row.as_slice() {
-      [_, _, _, _, _, inode, _, _, users, ..] => match ::core::primitive::bool::then_some(peers.contains(inode), ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(found) = pids(users);
+      [_, _, _, _, _, inode, _, _, users, ..] => {
+        match ::core::primitive::bool::then_some(peers.contains(inode), ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(found) = pids(users);
 
-          connected.extend(found);
+            connected.extend(found);
+          }
+          ::core::option::Option::None => {}
         }
-        ::core::option::Option::None => {}
-      },
+      }
       _ => {}
     }
   }
@@ -212,11 +216,13 @@ fn subscribes(facts: &[Fact], target: &Target) -> Result<Subscribes, Never> {
   let linked = |fact: &&Fact| fact.target == LIBRARY && reach.contains(&fact.package);
 
   Ok(
-    match ::core::primitive::bool::then_some(facts
-      .iter()
-      .filter(|fact| fact.kind == Kind::Subscribes)
-      .any(|fact| own(&fact) || linked(&fact)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      facts
+        .iter()
+        .filter(|fact| fact.kind == Kind::Subscribes)
+        .any(|fact| own(&fact) || linked(&fact)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Subscribes::Yes,
       ::core::option::Option::None => Subscribes::No,
     },

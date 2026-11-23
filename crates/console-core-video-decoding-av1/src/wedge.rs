@@ -37,58 +37,202 @@ const WEDGE_CODEBOOK: WedgeCodeBook = {
   use WedgeDirectionType::*;
   WedgeCodeBook {
     tall: [
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Horizontal, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Horizontal, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Horizontal, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Vertical, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 6, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 6, y: 4 } },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Horizontal,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Horizontal,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Horizontal,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Vertical,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 6, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 6, y: 4 },
+      },
     ],
     wide: [
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Vertical, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Vertical, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Vertical, position: Point { x: 6, y: 4 } },
-      WedgeCodeType { direction: Horizontal, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 6, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 6, y: 4 } },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Vertical,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Vertical,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Vertical,
+        position: Point { x: 6, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Horizontal,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 6, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 6, y: 4 },
+      },
     ],
     square: [
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 4 } },
-      WedgeCodeType { direction: Horizontal, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Horizontal, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Vertical, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Vertical, position: Point { x: 6, y: 4 } },
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Oblique27, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 2 } },
-      WedgeCodeType { direction: Oblique153, position: Point { x: 4, y: 6 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Oblique63, position: Point { x: 6, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 2, y: 4 } },
-      WedgeCodeType { direction: Oblique117, position: Point { x: 6, y: 4 } },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Horizontal,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Horizontal,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Vertical,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Vertical,
+        position: Point { x: 6, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Oblique27,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 2 },
+      },
+      WedgeCodeType {
+        direction: Oblique153,
+        position: Point { x: 4, y: 6 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique63,
+        position: Point { x: 6, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 2, y: 4 },
+      },
+      WedgeCodeType {
+        direction: Oblique117,
+        position: Point { x: 6, y: 4 },
+      },
     ],
   }
 };
@@ -430,7 +574,14 @@ impl WedgeMaster {
     let Ok(oblique_117) = hflip(&oblique_63);
     let Ok(oblique_153) = hflip(&oblique_27);
 
-    Ok(Self { horizontal, vertical, oblique_27, oblique_63, oblique_117, oblique_153 })
+    Ok(Self {
+      horizontal,
+      vertical,
+      oblique_27,
+      oblique_63,
+      oblique_117,
+      oblique_153,
+    })
   }
 }
 
@@ -442,7 +593,8 @@ pub static dav1d_wedge_masks: [[[[&[u8]; 16]; 2]; 3]; BlockSize::COUNT] = {
     master
   };
 
-  let mut masks: [[[[&[u8]; 16]; 2]; 3]; BlockSize::COUNT] = [[[[&[]; 16]; 2]; 3]; BlockSize::COUNT];
+  let mut masks: [[[[&[u8]; 16]; 2]; 3]; BlockSize::COUNT] =
+    [[[[&[]; 16]; 2]; 3]; BlockSize::COUNT];
 
   #[cfg_attr(
     dylint_lib = "explicit080_macro_budget",
@@ -454,7 +606,10 @@ pub static dav1d_wedge_masks: [[[[&[u8]; 16]; 2]; 3]; BlockSize::COUNT] = {
   macro_rules! fill {
     ($block:ident, $w:literal x $h:literal, $signs:expr) => {{
       static MASKS: WedgeMasks<{ $w * $h }, { ($w / 2) * $h }, { ($w / 2) * ($h / 2) }> = {
-        let size = Size { width: $w, height: $h };
+        let size = Size {
+          width: $w,
+          height: $h,
+        };
         let Ok(codebook) = WEDGE_CODEBOOK.get(size);
         let Ok(block_masks) = WedgeMasks::fill2d_16x2(size, &MASTER, codebook, $signs);
         block_masks
@@ -505,39 +660,93 @@ const fn build_nondc_ii_masks<const N: usize>(
 }
 
 static ii_nondc_mask_32x32: Align64<[[u8; 32 * 32]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 32, height: 32 }, 1);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 32,
+      height: 32,
+    },
+    1,
+  );
   explicit_value
 });
 static ii_nondc_mask_16x32: Align64<[[u8; 16 * 32]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 16, height: 32 }, 1);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 16,
+      height: 32,
+    },
+    1,
+  );
   explicit_value
 });
 static ii_nondc_mask_16x16: Align64<[[u8; 16 * 16]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 16, height: 16 }, 2);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 16,
+      height: 16,
+    },
+    2,
+  );
   explicit_value
 });
 static ii_nondc_mask_8x32: Align64<[[u8; 8 * 32]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 8, height: 32 }, 1);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 8,
+      height: 32,
+    },
+    1,
+  );
   explicit_value
 });
 static ii_nondc_mask_8x16: Align64<[[u8; 8 * 16]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 8, height: 16 }, 2);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 8,
+      height: 16,
+    },
+    2,
+  );
   explicit_value
 });
 static ii_nondc_mask_8x8: Align64<[[u8; 8 * 8]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 8, height: 8 }, 4);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 8,
+      height: 8,
+    },
+    4,
+  );
   explicit_value
 });
 static ii_nondc_mask_4x16: Align64<[[u8; 4 * 16]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 4, height: 16 }, 2);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 4,
+      height: 16,
+    },
+    2,
+  );
   explicit_value
 });
 static ii_nondc_mask_4x8: Align32<[[u8; 4 * 8]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 4, height: 8 }, 4);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 4,
+      height: 8,
+    },
+    4,
+  );
   explicit_value
 });
 static ii_nondc_mask_4x4: Align16<[[u8; 4 * 4]; 3]> = Aligned({
-  let Ok(explicit_value) = build_nondc_ii_masks(Size { width: 4, height: 4 }, 8);
+  let Ok(explicit_value) = build_nondc_ii_masks(
+    Size {
+      width: 4,
+      height: 4,
+    },
+    8,
+  );
   explicit_value
 });
 
@@ -564,17 +773,31 @@ pub static dav1d_ii_masks: [[[&[u8]; InterIntraPredMode::COUNT]; 3]; BlockSize::
     };
   }
 
-  masks[slot!(match block_slot(Bs8x8) { Ok(slot) => slot })] = set!(ii_nondc_mask_8x8, ii_nondc_mask_4x8, ii_nondc_mask_4x4);
-  masks[slot!(match block_slot(Bs8x16) { Ok(slot) => slot })] = set!(ii_nondc_mask_8x16, ii_nondc_mask_4x16, ii_nondc_mask_4x8);
-  masks[slot!(match block_slot(Bs16x8) { Ok(slot) => slot })] = set!(ii_nondc_mask_16x16, ii_nondc_mask_8x8, ii_nondc_mask_8x8);
-  masks[slot!(match block_slot(Bs16x16) { Ok(slot) => slot })] = set!(ii_nondc_mask_16x16, ii_nondc_mask_8x16, ii_nondc_mask_8x8);
-  masks[slot!(match block_slot(Bs16x32) { Ok(slot) => slot })] = set!(ii_nondc_mask_16x32, ii_nondc_mask_8x32, ii_nondc_mask_8x16);
-  masks[slot!(match block_slot(Bs32x16) { Ok(slot) => slot })] = set!(
+  masks[slot!(match block_slot(Bs8x8) {
+    Ok(slot) => slot,
+  })] = set!(ii_nondc_mask_8x8, ii_nondc_mask_4x8, ii_nondc_mask_4x4);
+  masks[slot!(match block_slot(Bs8x16) {
+    Ok(slot) => slot,
+  })] = set!(ii_nondc_mask_8x16, ii_nondc_mask_4x16, ii_nondc_mask_4x8);
+  masks[slot!(match block_slot(Bs16x8) {
+    Ok(slot) => slot,
+  })] = set!(ii_nondc_mask_16x16, ii_nondc_mask_8x8, ii_nondc_mask_8x8);
+  masks[slot!(match block_slot(Bs16x16) {
+    Ok(slot) => slot,
+  })] = set!(ii_nondc_mask_16x16, ii_nondc_mask_8x16, ii_nondc_mask_8x8);
+  masks[slot!(match block_slot(Bs16x32) {
+    Ok(slot) => slot,
+  })] = set!(ii_nondc_mask_16x32, ii_nondc_mask_8x32, ii_nondc_mask_8x16);
+  masks[slot!(match block_slot(Bs32x16) {
+    Ok(slot) => slot,
+  })] = set!(
     ii_nondc_mask_32x32,
     ii_nondc_mask_16x16,
     ii_nondc_mask_16x16
   );
-  masks[slot!(match block_slot(Bs32x32) { Ok(slot) => slot })] = set!(
+  masks[slot!(match block_slot(Bs32x32) {
+    Ok(slot) => slot,
+  })] = set!(
     ii_nondc_mask_32x32,
     ii_nondc_mask_16x32,
     ii_nondc_mask_16x16

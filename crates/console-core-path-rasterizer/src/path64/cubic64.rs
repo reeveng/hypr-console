@@ -39,14 +39,23 @@ impl Cubic64 {
       _ => {}
     }
 
-    let curve = CubicBez::new((start.x, start.y), (first.x, first.y), (second.x, second.y), (end.x, end.y));
+    let curve = CubicBez::new(
+      (start.x, start.y),
+      (first.x, first.y),
+      (second.x, second.y),
+      (end.x, end.y),
+    );
     let point = bezier::evaluate_cubic_bernstein(curve, t);
-    Ok(Point64 { x: point.x, y: point.y })
+    Ok(Point64 {
+      x: point.x,
+      y: point.y,
+    })
   }
 
   pub fn search_roots(&self, intercept: AxisIntercept) -> Result<Parameters, Never> {
     let Ok(axis) = self.axis_coordinates(intercept.axis);
-    let Ok(extrema) = quad64::roots_valid_t(bezier::cubic_derivative_coefficients(axis, 2.0, 3.0));
+    let Ok(extrema) =
+      quad64::roots_valid_t(bezier::cubic_derivative_coefficients(axis, 2.0, 3.0));
     let Ok(inflections) = self.inflections();
     let mut samples = FixedVec::<Parameter, 6>::new();
     samples.extend(extrema);

@@ -1604,11 +1604,17 @@ static qm_tbl_32x32_t: [[[u8; (32 * (32 + 1)) / 2]; 2]; 15] = [
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "a const array address must use the standard library's native index type")
+  expect(
+    explicit051_no_machine_width,
+    reason = "a const array address must use the standard library's native index type"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit011_no_as_cast",
-  expect(explicit011_no_as_cast, reason = "all fixed-width coefficient positions fit a native array address and this widening is evaluated while generating the tables")
+  expect(
+    explicit011_no_as_cast,
+    reason = "all fixed-width coefficient positions fit a native array address and this widening is evaluated while generating the tables"
+  )
 )]
 const fn table_index(position: u16) -> core::result::Result<usize, console_core_never::Never> {
   Ok(position as usize)
@@ -1624,15 +1630,30 @@ const fn subsampled<const N: usize, const M: usize>(
   src: &[u8; N],
   sampling: Subsampling,
 ) -> core::result::Result<[u8; M], console_core_never::Never> {
-  let Subsampling { height, horizontal_step, vertical_step } = sampling;
+  let Subsampling {
+    height,
+    horizontal_step,
+    vertical_step,
+  } = sampling;
   let source_area = height.wrapping_mul(32);
-  assert!(N == match table_index(source_area) { Ok(address) => address });
+  assert!(
+    N == match table_index(source_area) {
+      Ok(address) => address,
+    }
+  );
   assert!(horizontal_step != 0 && vertical_step != 0);
   let sampling_area = horizontal_step.wrapping_mul(vertical_step);
-  assert!(M.wrapping_mul(match table_index(sampling_area) { Ok(address) => address }) == N);
+  assert!(
+    M.wrapping_mul(match table_index(sampling_area) {
+      Ok(address) => address,
+    }) == N
+  );
   let mut dst = [0; M];
   let mut target_position = 0u16;
-  let row_offset = vertical_step.wrapping_sub(1).wrapping_div(2).wrapping_mul(32);
+  let row_offset = vertical_step
+    .wrapping_sub(1)
+    .wrapping_div(2)
+    .wrapping_mul(32);
   let column_offset = horizontal_step.wrapping_sub(1).wrapping_div(2);
   let source_offset = row_offset.wrapping_add(column_offset);
 
@@ -1654,7 +1675,11 @@ const fn transposed<const N: usize, const M: usize>(
 ) -> core::result::Result<[u8; M], console_core_never::Never> {
   let Size { width, height } = shape;
   let area = width.wrapping_mul(height);
-  assert!(N == match table_index(area) { Ok(address) => address });
+  assert!(
+    N == match table_index(area) {
+      Ok(address) => address,
+    }
+  );
   assert!(N == M);
   let mut dst = [0; M];
 
@@ -1676,8 +1701,16 @@ const fn untriangled<const N: usize, const M: usize>(
 ) -> core::result::Result<[u8; M], console_core_never::Never> {
   let triangle_area = size.wrapping_mul(size.wrapping_add(1)).wrapping_div(2);
   let square_area = size.wrapping_mul(size);
-  assert!(N == match table_index(triangle_area) { Ok(address) => address });
-  assert!(M == match table_index(square_area) { Ok(address) => address });
+  assert!(
+    N == match table_index(triangle_area) {
+      Ok(address) => address,
+    }
+  );
+  assert!(
+    M == match table_index(square_area) {
+      Ok(address) => address,
+    }
+  );
   let mut dst = [0; M];
   let mut target_offset = 0u16;
   let mut source_offset = 0u16;
@@ -1734,19 +1767,109 @@ macro_rules! generate_table {
   }};
 }
 
-static qm_tbl_4x4: [[[u8; 4 * 4]; 2]; 15] = generate_table!(subsampled, qm_tbl_32x32, Subsampling { height: 32, horizontal_step: 8, vertical_step: 8 });
-static qm_tbl_4x8: [[[u8; 4 * 8]; 2]; 15] = generate_table!(transposed, qm_tbl_8x4, Size { width: 8, height: 4 });
-static qm_tbl_4x16: [[[u8; 4 * 16]; 2]; 15] = generate_table!(transposed, qm_tbl_16x4, Size { width: 16, height: 4 });
-static qm_tbl_8x4: [[[u8; 8 * 4]; 2]; 15] = generate_table!(subsampled, qm_tbl_32x16, Subsampling { height: 16, horizontal_step: 4, vertical_step: 4 });
-static qm_tbl_8x8: [[[u8; 8 * 8]; 2]; 15] = generate_table!(subsampled, qm_tbl_32x32, Subsampling { height: 32, horizontal_step: 4, vertical_step: 4 });
-static qm_tbl_8x16: [[[u8; 8 * 16]; 2]; 15] = generate_table!(transposed, qm_tbl_16x8, Size { width: 16, height: 8 });
-static qm_tbl_8x32: [[[u8; 8 * 32]; 2]; 15] = generate_table!(transposed, qm_tbl_32x8, Size { width: 32, height: 8 });
-static qm_tbl_16x4: [[[u8; 16 * 4]; 2]; 15] = generate_table!(subsampled, qm_tbl_32x16, Subsampling { height: 16, horizontal_step: 2, vertical_step: 4 });
-static qm_tbl_16x8: [[[u8; 16 * 8]; 2]; 15] = generate_table!(subsampled, qm_tbl_32x16, Subsampling { height: 16, horizontal_step: 2, vertical_step: 2 });
-static qm_tbl_16x16: [[[u8; 16 * 16]; 2]; 15] =
-  generate_table!(subsampled, qm_tbl_32x32, Subsampling { height: 32, horizontal_step: 2, vertical_step: 2 });
-static qm_tbl_16x32: [[[u8; 16 * 32]; 2]; 15] = generate_table!(transposed, qm_tbl_32x16, Size { width: 32, height: 16 });
-static qm_tbl_32x8: [[[u8; 32 * 8]; 2]; 15] = generate_table!(subsampled, qm_tbl_32x16, Subsampling { height: 16, horizontal_step: 1, vertical_step: 2 });
+static qm_tbl_4x4: [[[u8; 4 * 4]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x32,
+  Subsampling {
+    height: 32,
+    horizontal_step: 8,
+    vertical_step: 8
+  }
+);
+static qm_tbl_4x8: [[[u8; 4 * 8]; 2]; 15] = generate_table!(
+  transposed,
+  qm_tbl_8x4,
+  Size {
+    width: 8,
+    height: 4
+  }
+);
+static qm_tbl_4x16: [[[u8; 4 * 16]; 2]; 15] = generate_table!(
+  transposed,
+  qm_tbl_16x4,
+  Size {
+    width: 16,
+    height: 4
+  }
+);
+static qm_tbl_8x4: [[[u8; 8 * 4]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x16,
+  Subsampling {
+    height: 16,
+    horizontal_step: 4,
+    vertical_step: 4
+  }
+);
+static qm_tbl_8x8: [[[u8; 8 * 8]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x32,
+  Subsampling {
+    height: 32,
+    horizontal_step: 4,
+    vertical_step: 4
+  }
+);
+static qm_tbl_8x16: [[[u8; 8 * 16]; 2]; 15] = generate_table!(
+  transposed,
+  qm_tbl_16x8,
+  Size {
+    width: 16,
+    height: 8
+  }
+);
+static qm_tbl_8x32: [[[u8; 8 * 32]; 2]; 15] = generate_table!(
+  transposed,
+  qm_tbl_32x8,
+  Size {
+    width: 32,
+    height: 8
+  }
+);
+static qm_tbl_16x4: [[[u8; 16 * 4]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x16,
+  Subsampling {
+    height: 16,
+    horizontal_step: 2,
+    vertical_step: 4
+  }
+);
+static qm_tbl_16x8: [[[u8; 16 * 8]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x16,
+  Subsampling {
+    height: 16,
+    horizontal_step: 2,
+    vertical_step: 2
+  }
+);
+static qm_tbl_16x16: [[[u8; 16 * 16]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x32,
+  Subsampling {
+    height: 32,
+    horizontal_step: 2,
+    vertical_step: 2
+  }
+);
+static qm_tbl_16x32: [[[u8; 16 * 32]; 2]; 15] = generate_table!(
+  transposed,
+  qm_tbl_32x16,
+  Size {
+    width: 32,
+    height: 16
+  }
+);
+static qm_tbl_32x8: [[[u8; 32 * 8]; 2]; 15] = generate_table!(
+  subsampled,
+  qm_tbl_32x16,
+  Subsampling {
+    height: 16,
+    horizontal_step: 1,
+    vertical_step: 2
+  }
+);
 static qm_tbl_32x32: [[[u8; 32 * 32]; 2]; 15] = generate_table!(untriangled, qm_tbl_32x32_t, 32);
 
 pub static dav1d_qm_tbl: [[[Option<&'static [u8]>; TxfmSize::COUNT]; 2]; 16] = {

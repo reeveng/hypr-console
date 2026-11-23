@@ -433,7 +433,7 @@ impl From<bool> for GlyphBounds {
 }
 
 enum Diagnostics {
-  Quiet,
+  Disabled,
   RecordGlyphs,
 }
 
@@ -448,7 +448,7 @@ impl Diagnostics {
   fn from_environment() -> Result<Self, Never> {
     Ok(match std::env::var_os("PDFCRAFT_TEXT_DEBUG") {
       Some(_enabled) => Self::RecordGlyphs,
-      None => Self::Quiet,
+      None => Self::Disabled,
     })
   }
 
@@ -459,7 +459,7 @@ impl Diagnostics {
     transforms: &GlyphTransforms,
   ) -> Result<(), Never> {
     match self {
-      Self::Quiet => {}
+      Self::Disabled => {}
       Self::RecordGlyphs => {
         let kind = match glyph {
           Glyph::Type3(_) => "t3",
@@ -1324,7 +1324,11 @@ mod tests {
   }
 
   fn vertical_text_pdf(
-    VerticalTextFixture { encoding, cmap, operators }: VerticalTextFixture<'_>,
+    VerticalTextFixture {
+      encoding,
+      cmap,
+      operators,
+    }: VerticalTextFixture<'_>,
   ) -> Result<Vec<u8>, std::fmt::Error> {
     let objects: [&str; 8] = [
       "<< /Type /Catalog /Pages 2 0 R >>",

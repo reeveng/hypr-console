@@ -12,7 +12,10 @@ impl<'a> Cff2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff2::offset_data` method returns `FontData` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff2::offset_data` method returns `FontData` directly in the existing parser interface"
+    )
   )]
   pub fn offset_data(&self) -> FontData<'a> {
     let Ok(value_1) = self.header.offset_data();
@@ -23,7 +26,10 @@ impl<'a> Cff2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff2::header` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff2::header` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn header(&self) -> &Cff2Header<'a> {
     &self.header
@@ -32,7 +38,10 @@ impl<'a> Cff2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff2::top_dict_data` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff2::top_dict_data` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn top_dict_data(&self) -> &'a [u8] {
     let Ok(top_dict_data) = self.header.top_dict_data();
@@ -43,7 +52,10 @@ impl<'a> Cff2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff2::global_subrs` method returns `Index` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff2::global_subrs` method returns `Index` directly in the existing parser interface"
+    )
   )]
   pub fn global_subrs(&self) -> Index<'a> {
     self.global_subrs.clone()

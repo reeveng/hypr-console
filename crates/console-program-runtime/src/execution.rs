@@ -24,10 +24,10 @@ use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Transition};
 use console_program_contract::{
-  Answer, Effect, Elapsed, Event, EventGroup, Exit, Job, Subscription, Timer,
+  Answer, Effect, Elapsed, Event, EventGroup, Exit, Task, Subscription, Timer,
 };
 
-use crate::jobs::{Jobs, StartError};
+use crate::jobs::{Tasks, StartError};
 use crate::{Invocation, ReplyStatus, Subscribed};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,10 +45,12 @@ impl<E> Wake<E> {
     invocation: Option<Invocation>,
   ) -> Result<Self, Never> {
     Ok(match (event, invocation) {
-      (Event::Replied(answer), Some(fork)) => match ReplyStatus::from(answer.job == Some(fork.job)) {
-        ReplyStatus::Accepted => Wake::ForkReply(fork, answer),
-        ReplyStatus::Stale => Wake::Event(Event::Replied(answer)),
-      },
+      (Event::Replied(answer), Some(fork)) => {
+        match ReplyStatus::from(answer.job == Some(fork.job)) {
+          ReplyStatus::Accepted => Wake::ForkReply(fork, answer),
+          ReplyStatus::Stale => Wake::Event(Event::Replied(answer)),
+        }
+      }
       (event_2, _) => Wake::Event(event_2),
     })
   }
@@ -93,7 +95,7 @@ pub trait Platform {
     Ok(())
   }
 
-  fn finish(&mut self, _jobs: &BTreeMap<Job, Invocation>) -> Result<(), Self::Error> {
+  fn finish(&mut self, _jobs: &BTreeMap<Task, Invocation>) -> Result<(), Self::Error> {
     Ok(())
   }
 }
@@ -145,7 +147,7 @@ pub enum ExecutionError<E, T = Never> {
   TurnLimit(u64),
   ClockBackwards { previous: Elapsed, current: Elapsed },
   InvalidTimer(Timer),
-  DuplicateJob(Job),
+  DuplicateJob(Task),
   JobInvocationsExhausted,
 }
 
@@ -200,7 +202,7 @@ struct Execution<'a, S, P: Platform> {
   queue: VecDeque<Wake<P::Event>>,
   timers: BTreeMap<(&'static str, Elapsed), ScheduledTimer>,
   subscriptions: BTreeSet<EventGroup>,
-  jobs: &'a mut Jobs,
+  jobs: &'a mut Tasks,
   previous: Elapsed,
   turns: u64,
   limit: Limit,
@@ -232,7 +234,7 @@ where
   M: Machine<Request = Event<P::Event>, Effect = Effect<P::Effect>>,
   X: TransitionExecutor<M>,
 {
-  let mut jobs = Jobs::default();
+  let mut jobs = Tasks::default();
   let result = run_loop::<M, P, X>(input, platform, &mut jobs, limit, transitions);
   let finished = platform
     .finish(&jobs.live)
@@ -247,7 +249,7 @@ where
 fn run_loop<M, P, X>(
   input: &M::Input,
   platform: &mut P,
-  jobs: &mut Jobs,
+  jobs: &mut Tasks,
   limit: Limit,
   transitions: &mut X,
 ) -> Result<Completed<M::State>, ExecutionError<P::Error, X::Error>>
@@ -256,7 +258,9 @@ where
   M: Machine<Request = Event<P::Event>, Effect = Effect<P::Effect>>,
   X: TransitionExecutor<M>,
 {
-  let initialized = transitions.initialize(input).map_err(ExecutionError::Transition)?;
+  let initialized = transitions
+    .initialize(input)
+    .map_err(ExecutionError::Transition)?;
   let Ok(previous) = platform.elapsed();
   let mut execution = Execution {
     state: initialized.state,
@@ -430,10 +434,7 @@ where
 
   let turn_state = TurnState::from(matches!(event, Event::Stopping));
   let Ok(()) = execution.platform.event(&event);
-  let Transition {
-    state,
-    effects,
-  } = transitions
+  let Transition { state, effects } = transitions
     .transition(execution.state, event)
     .map_err(ExecutionError::Transition)?;
   let mut advanced = Execution { state, ..execution };
@@ -511,10 +512,13 @@ impl<S, P: Platform> Execution<'_, S, P> {
 
           None
         }
-        Effect::Fork(fork) => Some({ let checked_value = self.jobs.start(fork.job).map_err(|fault| match fault {
-          StartError::Active(job) => ExecutionError::DuplicateJob(job),
-          StartError::Exhausted => ExecutionError::JobInvocationsExhausted,
-        })?; checked_value }),
+        Effect::Fork(fork) => Some({
+          let checked_value = self.jobs.start(fork.job).map_err(|fault| match fault {
+            StartError::Active(job) => ExecutionError::DuplicateJob(job),
+            StartError::Exhausted => ExecutionError::JobInvocationsExhausted,
+          })?;
+          checked_value
+        }),
         Effect::Run(_)
         | Effect::Stream(_)
         | Effect::Interrupt(_)
@@ -570,7 +574,10 @@ impl<S, P: Platform> Execution<'_, S, P> {
 
     match next {
       Some(due) => {
-        let _ = self.timers.insert((timer.name, timer.interval), ScheduledTimer { due, cadence });
+        let _ = self.timers.insert(
+          (timer.name, timer.interval),
+          ScheduledTimer { due, cadence },
+        );
       }
       None => {
         let _ = self.timers.remove(&(timer.name, timer.interval));
@@ -612,4 +619,5 @@ impl<E: fmt::Display, T: fmt::Display> fmt::Display for ExecutionError<E, T> {
 
 impl<E: std::error::Error + 'static, T: std::error::Error + 'static> std::error::Error
   for ExecutionError<E, T>
-{}
+{
+}

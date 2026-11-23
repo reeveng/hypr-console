@@ -34,17 +34,19 @@ fn previous_mode(
             ::core::option::Option::None => VERT_PRED,
           };
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(*angle < 180, ()) {
-          ::core::option::Option::Some(()) => {
-            mode = Z2_PRED;
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(*angle < 180, ()) {
+            ::core::option::Option::Some(()) => {
+              mode = Z2_PRED;
+            }
+            ::core::option::Option::None => {
+              mode = match ::core::primitive::bool::then_some(*angle > 180 && have_left, ()) {
+                ::core::option::Option::Some(()) => Z3_PRED,
+                ::core::option::Option::None => HOR_PRED,
+              };
+            }
           }
-          ::core::option::Option::None => {
-            mode = match ::core::primitive::bool::then_some(*angle > 180 && have_left, ()) {
-              ::core::option::Option::Some(()) => Z3_PRED,
-              ::core::option::Option::None => HOR_PRED,
-            };
-          }
-        },
+        }
       }
     }
     DC_PRED | PAETH_PRED => {
@@ -74,8 +76,14 @@ fn intra_mode_equivalence() {
     above,
     has_left,
     position: Point { x: 0, y: 0 },
-    frame: Size { width: 0, height: 0 },
-    transform: Size { width: 0, height: 0 },
+    frame: Size {
+      width: 0,
+      height: 0,
+    },
+    transform: Size {
+      width: 0,
+      height: 0,
+    },
     available: EdgeFlags::EMPTY,
     filter_corner: 0,
   };
@@ -87,11 +95,9 @@ fn intra_mode_equivalence() {
   kani::cover!(mode_before == Z3_PRED && mode == VERT_PRED && has_left);
 }
 
-
 fn reference_upsampled_sample([first, second, third, fourth]: [u8; 4]) -> u8 {
-  let average = (
-    9 * (i32::from(second) + i32::from(third)) - i32::from(first) - i32::from(fourth) + 8
-  ) >> 4;
+  let average =
+    (9 * (i32::from(second) + i32::from(third)) - i32::from(first) - i32::from(fourth) + 8) >> 4;
   let Ok(sample) = console_core_number_conversion::wrapped::<_, u8>(average.clamp(0, 255));
   sample
 }
@@ -106,17 +112,35 @@ fn upsampling_a_four_pixel_edge_matches_the_reference() {
   let mut output: [u8; 16] = kani::any();
   let [_, _, _, _, _, _, _, _, _, s9, s10, s11, s12, s13, s14, s15] = output;
   let expected = [
-    a, reference_upsampled_sample([a, a, b, c]),
-    b, reference_upsampled_sample([a, b, c, d]),
-    c, reference_upsampled_sample([b, c, d, e]),
-    d, reference_upsampled_sample([c, d, e, e]),
-    e, s9, s10, s11, s12, s13, s14, s15,
+    a,
+    reference_upsampled_sample([a, a, b, c]),
+    b,
+    reference_upsampled_sample([a, b, c, d]),
+    c,
+    reference_upsampled_sample([b, c, d, e]),
+    d,
+    reference_upsampled_sample([c, d, e, e]),
+    e,
+    s9,
+    s10,
+    s11,
+    s12,
+    s13,
+    s14,
+    s15,
   ];
 
   let result = upsample_edge(
     &mut output,
-    PredictionEdge { pixels: &input, origin: 0, window: 0..5 },
-    EdgeUpsampling { count: 5, ceiling: 255 },
+    PredictionEdge {
+      pixels: &input,
+      origin: 0,
+      window: 0..5,
+    },
+    EdgeUpsampling {
+      count: 5,
+      ceiling: 255,
+    },
   );
 
   assert_eq!(result, Ok(()));

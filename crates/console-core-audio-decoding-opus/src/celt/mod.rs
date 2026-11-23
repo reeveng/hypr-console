@@ -520,7 +520,9 @@ impl CeltDecoder {
       dual_stereo: alloc.dual_stereo,
       intensity: alloc.intensity,
       tf_res: &tf_res,
-      total_bits: packet_bits.wrapping_shl(BITRES).wrapping_sub(anti_collapse_rsv),
+      total_bits: packet_bits
+        .wrapping_shl(BITRES)
+        .wrapping_sub(anti_collapse_rsv),
       balance: alloc.balance,
       lm: coded.lm,
       coded_bands: alloc.coded_bands,
@@ -732,7 +734,11 @@ impl CeltDecoder {
           *copy = *value;
         }
 
-        for (memory, spectrum) in self.decode_mem.chunks_exact_mut(each.max(1)).zip([&*f1, &*f0]) {
+        for (memory, spectrum) in self
+          .decode_mem
+          .chunks_exact_mut(each.max(1))
+          .zip([&*f1, &*f0])
+        {
           let Ok(()) = transform(&self.mode, memory, spectrum, asked, &mut self.imdct);
         }
       }
@@ -1009,7 +1015,12 @@ fn energy_of(values: &[f32]) -> Result<f32, Never> {
   Ok(values.iter().map(|value| value * value).sum())
 }
 
-fn extend(memory: &[f32], ext: &mut [f32], period: u32, LossFade(fade): LossFade) -> Result<(), Never> {
+fn extend(
+  memory: &[f32],
+  ext: &mut [f32],
+  period: u32,
+  LossFade(fade): LossFade,
+) -> Result<(), Never> {
   let Ok(end) = index(DECODE_BUFFER_SIZE);
   let Ok(one) = index(DECODE_BUFFER_SIZE.wrapping_sub(period));
   let Ok(two) = index(DECODE_BUFFER_SIZE.wrapping_sub(period.wrapping_mul(2)));

@@ -43,14 +43,14 @@ impl<'a, 'input: 'a> FromValue<'a, 'input> for FillRule {
 #[derive(Clone, Copy)]
 pub(crate) enum ObjectBounds {
   Available,
-  Missing,
+  Absent,
 }
 
 impl From<bool> for ObjectBounds {
   fn from(has_bounds: bool) -> Self {
     match has_bounds.then_some(()) {
       Some(()) => Self::Available,
-      None => Self::Missing,
+      None => Self::Absent,
     }
   }
 }
@@ -68,7 +68,10 @@ pub(crate) fn resolve_fill(
   state: &converter::State,
   cache: &mut converter::Cache,
 ) -> core::result::Result<Option<Fill>, console_core_never::Never> {
-  match ::core::primitive::bool::then_some(state.paint_scope == super::converter::PaintScope::ClipOutline, ()) {
+  match ::core::primitive::bool::then_some(
+    state.paint_scope == super::converter::PaintScope::ClipOutline,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(black) = Color::black();
       return Ok(Some(Fill {
@@ -77,9 +80,9 @@ pub(crate) fn resolve_fill(
         rule: match {
           let Ok(explicit_value) = node.find_attribute(AId::ClipRule);
           explicit_value
-        }  {
-            ::core::option::Option::Some(explicit_present) => explicit_present,
-            ::core::option::Option::None => crate::tree::FillRule::NonZero,
+        } {
+          ::core::option::Option::Some(explicit_present) => explicit_present,
+          ::core::option::Option::None => crate::tree::FillRule::NonZero,
         },
         context_element: None,
       }));
@@ -136,8 +139,8 @@ pub(crate) fn resolve_fill(
     paint,
     opacity: sub_opacity * fill_opacity,
     rule: match node_find_attribute {
-        ::core::option::Option::Some(explicit_present) => explicit_present,
-        ::core::option::Option::None => crate::tree::FillRule::NonZero,
+      ::core::option::Option::Some(explicit_present) => explicit_present,
+      ::core::option::Option::None => crate::tree::FillRule::NonZero,
     },
     context_element,
   }))
@@ -156,7 +159,10 @@ pub(crate) fn resolve_stroke(
   state: &converter::State,
   cache: &mut converter::Cache,
 ) -> core::result::Result<Option<Stroke>, console_core_never::Never> {
-  match ::core::primitive::bool::then_some(state.paint_scope == super::converter::PaintScope::ClipOutline, ()) {
+  match ::core::primitive::bool::then_some(
+    state.paint_scope == super::converter::PaintScope::ClipOutline,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(None);
     }
@@ -198,7 +204,8 @@ pub(crate) fn resolve_stroke(
     }
   };
 
-  let Ok(resolve_valid_length) = node.resolve_valid_length(AId::StrokeWidth, state, crate::UserLength(1.0));
+  let Ok(resolve_valid_length) =
+    node.resolve_valid_length(AId::StrokeWidth, state, crate::UserLength(1.0));
   let width = match resolve_valid_length {
     Some(value) => value,
     None => return Ok(None),
@@ -233,16 +240,16 @@ pub(crate) fn resolve_stroke(
     linecap: match {
       let Ok(explicit_value) = node.find_attribute(AId::StrokeLinecap);
       explicit_value
-    }  {
-        ::core::option::Option::Some(explicit_present) => explicit_present,
-        ::core::option::Option::None => crate::tree::LineCap::Butt,
+    } {
+      ::core::option::Option::Some(explicit_present) => explicit_present,
+      ::core::option::Option::None => crate::tree::LineCap::Butt,
     },
     linejoin: match {
       let Ok(explicit_value) = node.find_attribute(AId::StrokeLinejoin);
       explicit_value
-    }  {
-        ::core::option::Option::Some(explicit_present) => explicit_present,
-        ::core::option::Option::None => crate::tree::LineJoin::Miter,
+    } {
+      ::core::option::Option::Some(explicit_present) => explicit_present,
+      ::core::option::Option::None => crate::tree::LineJoin::Miter,
     },
     context_element,
   };
@@ -339,7 +346,10 @@ enum LinkedPaint {
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "Paint-server targets consume the element conversion depth limit")
+  expect(
+    explicit049_no_recursion,
+    reason = "Paint-server targets consume the element conversion depth limit"
+  )
 )]
 fn resolve_linked_paint(
   node: SvgNode,
@@ -376,11 +386,14 @@ fn resolve_linked_paint(
       let Ok(units) = paint.units();
 
       match (bounds, units) {
-        (ObjectBounds::Missing, Units::ObjectBoundingBox) => Ok(LinkedPaint::Unavailable),
+        (ObjectBounds::Absent, Units::ObjectBoundingBox) => Ok(LinkedPaint::Unavailable),
         (_, _) => Ok(LinkedPaint::Resolved(paint)),
       }
     }
-    Ok(Some(paint_server::ServerOrColor::Color { color, opacity: alpha })) => {
+    Ok(Some(paint_server::ServerOrColor::Color {
+      color,
+      opacity: alpha,
+    })) => {
       *opacity = alpha;
 
       Ok(LinkedPaint::Resolved(Paint::Color(color)))

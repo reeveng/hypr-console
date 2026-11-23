@@ -105,12 +105,12 @@ pub trait TableProvider<'a> {
     {
       Some(format_2) => format_2,
       None => {
-          let head = self.head()?;
+        let head = self.head()?;
 
-          match head.index_to_loc_format() {
-            Ok(1) => OffsetFormat::Long,
-            Ok(_) => OffsetFormat::Short,
-          }
+        match head.index_to_loc_format() {
+          Ok(1) => OffsetFormat::Long,
+          Ok(_) => OffsetFormat::Short,
+        }
       }
     };
     let data = self.expect_data_for_tag(tables::loca::Loca::TAG)?;
@@ -247,7 +247,7 @@ pub trait TableProvider<'a> {
       .and_then(FontRead::read)
   }
 
-  fn meta(&self) -> Result<tables::meta::Meta<'a>, ReadError> {
+  fn meta(&self) -> Result<tables::meta::MetadataTable<'a>, ReadError> {
     self.expect_table()
   }
 
@@ -273,8 +273,8 @@ mod tests {
       let bytes: &[u8] = match &raw_tag {
         b"maxp" => &[0, 0, 0x50, 0, 0, 3],
         b"hhea" => &[
-          0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+          0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 1,
         ],
         b"hmtx" => &[0, 4, 0, 6, 0, 30, 0, 111],
         _missing_table => return Ok(None),

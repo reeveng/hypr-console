@@ -289,7 +289,12 @@ fn main() -> ExitCode {
       return said;
     }
     Action::Apply => {
-      let Ok(said) = report(apply(&root, &manifest, asked.programs, asked.switch_from.as_deref()));
+      let Ok(said) = report(apply(
+        &root,
+        &manifest,
+        asked.programs,
+        asked.switch_from.as_deref(),
+      ));
 
       return said;
     }
@@ -495,7 +500,10 @@ fn units_drift(services: &[String]) -> Result<u32, Never> {
   confirmation::to("services", || {
     let Ok(drift) = under("services", services, |unit| {
       let Ok((enabled, active)) = machine::unit_state(unit);
-      let ok = match ::core::primitive::bool::then_some(enabled == "enabled" && active == "active", ()) {
+      let ok = match ::core::primitive::bool::then_some(
+        enabled == "enabled" && active == "active",
+        (),
+      ) {
         ::core::option::Option::Some(()) => UpToDate::Yes,
         ::core::option::Option::None => UpToDate::No,
       };
@@ -931,7 +939,10 @@ fn health_check(root: &Path, manifest: &Manifest) -> Result<health::Standing, Un
     let Ok(state) = install::state(&source, live, User(user), written);
     let Ok(settled) = state.up_to_date();
 
-    match ::core::primitive::bool::then_some(state != install::State::ParseError && settled == UpToDate::No, ()) {
+    match ::core::primitive::bool::then_some(
+      state != install::State::ParseError && settled == UpToDate::No,
+      (),
+    ) {
       ::core::option::Option::Some(()) => standing.adrift.push(live.clone()),
       ::core::option::Option::None => {}
     }
@@ -1236,7 +1247,10 @@ fn apply(
 
   let Ok(()) = told_the_rest(&mut going);
 
-  match ::core::primitive::bool::then_some(written.iter().any(|path| path.contains("/systemd/")), ()) {
+  match ::core::primitive::bool::then_some(
+    written.iter().any(|path| path.contains("/systemd/")),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
     }
@@ -1310,9 +1324,9 @@ fn switch_checkout(root: &Path, candidate: &Path) -> Result<(), Unapplied> {
 
   match exchanged.success() {
     true => Ok(()),
-    false => Err(Unapplied::CheckoutSwitch(std::io::Error::other(
-      format!("mv exited with {exchanged}"),
-    ))),
+    false => Err(Unapplied::CheckoutSwitch(std::io::Error::other(format!(
+      "mv exited with {exchanged}"
+    )))),
   }
 }
 
@@ -1722,7 +1736,10 @@ fn undone(
     }
   }
 
-  match ::core::primitive::bool::then_some(written.iter().any(|path| path.contains("/systemd/")), ()) {
+  match ::core::primitive::bool::then_some(
+    written.iter().any(|path| path.contains("/systemd/")),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
     }
@@ -1799,10 +1816,12 @@ fn commit(root: &Path) -> Result<String, Never> {
 fn marked(root: &Path) -> Result<String, Never> {
   let Ok(said) = commit(root);
 
-  Ok(match ::core::primitive::bool::then_some(said.is_empty(), ()) {
-    ::core::option::Option::Some(()) => console_boot_entries::APPLY.to_string(),
-    ::core::option::Option::None => format!("{} {said}", console_boot_entries::APPLY),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.is_empty(), ()) {
+      ::core::option::Option::Some(()) => console_boot_entries::APPLY.to_string(),
+      ::core::option::Option::None => format!("{} {said}", console_boot_entries::APPLY),
+    },
+  )
 }
 
 fn told_what_there_is_to_come_back_to(was: &[snapshot::Snapshot]) -> Result<(), Never> {
@@ -2230,13 +2249,16 @@ fn save(root: &Path, manifest: &Manifest, asked: &[String]) -> Result<(), Unappl
 
     let held = match console_core_atomic_writes::read_bytes(Path::new(&on)) {
       Ok(held) => held,
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => {
-          println!("{RED}not on the machine{OFF} {path}");
-          continue;
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => {
+            println!("{RED}not on the machine{OFF} {path}");
+            continue;
+          }
+          ::core::option::Option::None => return Err(Unapplied::At(path.clone(), fault)),
         }
-        ::core::option::Option::None => return Err(Unapplied::At(path.clone(), fault)),
-      },
+      }
     };
     let Ok(content) = install::content_as_declared(&held, User(whoever));
 
@@ -2261,10 +2283,12 @@ fn nix_is_root() -> Result<Root, Never> {
   let Ok(id) = Program::Id.name();
   let Ok(said) = machine::run(&[id, "-u"]);
 
-  Ok(match ::core::primitive::bool::then_some(said.out == "0", ()) {
-    ::core::option::Option::Some(()) => Root::Yes,
-    ::core::option::Option::None => Root::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.out == "0", ()) {
+      ::core::option::Option::Some(()) => Root::Yes,
+      ::core::option::Option::None => Root::No,
+    },
+  )
 }
 
 #[cfg(test)]
@@ -2275,15 +2299,33 @@ mod tests {
   #[test]
   fn switching_checkouts_requires_prebuilt_apply_and_the_live_root() {
     let words = |args: &[&str]| args.iter().map(|word| word.to_string()).collect::<Vec<_>>();
-    let available = asked(&words(&["apply", "--prebuilt", "--switch-from", "/candidate"]));
+    let available = asked(&words(&[
+      "apply",
+      "--prebuilt",
+      "--switch-from",
+      "/candidate",
+    ]));
     let Ok(available) = available else {
       panic!("the updater's apply invocation was refused");
     };
     assert_eq!(available.programs, build::Programs::Prebuilt);
-    assert_eq!(available.switch_from.as_deref(), Some(Path::new("/candidate")));
+    assert_eq!(
+      available.switch_from.as_deref(),
+      Some(Path::new("/candidate"))
+    );
     assert!(asked(&words(&["apply", "--switch-from", "/candidate"])).is_err());
     assert!(asked(&words(&["check", "--prebuilt"])).is_err());
-    assert!(asked(&words(&["apply", "--prebuilt", "--switch-from", "/candidate", "--root", "/other"])).is_err());
+    assert!(
+      asked(&words(&[
+        "apply",
+        "--prebuilt",
+        "--switch-from",
+        "/candidate",
+        "--root",
+        "/other"
+      ]))
+      .is_err()
+    );
   }
 
   #[test]

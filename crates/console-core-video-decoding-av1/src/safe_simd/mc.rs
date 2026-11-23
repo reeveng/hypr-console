@@ -17,18 +17,6 @@ use crate::src::error::{Rav1dError, Rav1dResult};
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-#[cfg(target_arch = "x86_64")]
-use crate::src::safe_simd::pixel_access::{
-  loadi64, loadu_64, loadu_128, loadu_256, loadu_512, storeu_128, storeu_256, storeu_512,
-};
-#[cfg(target_arch = "x86_64")]
-use archmage::{Desktop64, Server64, arcane, rite};
-#[cfg(target_arch = "x86_64")]
-use console_core_geometry::Point;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-use console_core_geometry::Size;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-use console_core_never::Never;
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::include::common::bitdepth::BitDepth;
 #[cfg(target_arch = "x86_64")]
@@ -42,7 +30,19 @@ use crate::src::internal::COMPINTER_LEN;
 #[cfg(target_arch = "x86_64")]
 use crate::src::levels::Filter2d;
 #[cfg(target_arch = "x86_64")]
+use crate::src::safe_simd::pixel_access::{
+  loadi64, loadu_64, loadu_128, loadu_256, loadu_512, storeu_128, storeu_256, storeu_512,
+};
+#[cfg(target_arch = "x86_64")]
 use crate::src::strided::Strided as _;
+#[cfg(target_arch = "x86_64")]
+use archmage::{Desktop64, Server64, arcane, rite};
+#[cfg(target_arch = "x86_64")]
+use console_core_geometry::Point;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use console_core_geometry::Size;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use console_core_never::Never;
 
 use std::cell::Cell;
 
@@ -95,7 +95,10 @@ const PW_1024: i16 = 1024;
 #[inline]
 fn avg_8bpc_sample([first, second]: [i16; 2]) -> Result<u8, console_core_never::Never> {
   let sum = i32::from(first.wrapping_add(second));
-  let rounded = ::core::primitive::i32::wrapping_shr(sum.wrapping_mul(i32::from(PW_1024)).wrapping_add(16384), 15_u32);
+  let rounded = ::core::primitive::i32::wrapping_shr(
+    sum.wrapping_mul(i32::from(PW_1024)).wrapping_add(16384),
+    15_u32,
+  );
   console_core_number_conversion::wrapped(rounded.clamp(0, 255))
 }
 
@@ -109,7 +112,10 @@ fn avg_8bpc_avx2_safe(
   tmp2: &[i16; COMPINTER_LEN],
   block_extent: Size<i32>,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -182,7 +188,10 @@ fn avg_8bpc_avx512_safe(
   tmp2: &[i16; COMPINTER_LEN],
   block_extent: Size<i32>,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -268,13 +277,19 @@ fn avg_16bpc_avx2_safe(
   block_extent: Size<i32>,
   bitdepth_max: i32,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
   })?;
 
-  let intermediate_bits = match ::core::primitive::bool::then_some(::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0, ()) {
+  let intermediate_bits = match ::core::primitive::bool::then_some(
+    ::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => 2i32,
     ::core::option::Option::None => 4i32,
   };
@@ -311,8 +326,12 @@ fn avg_16bpc_avx2_safe(
       let sum_hi = _mm256_add_epi32(_mm256_add_epi32(t1_hi, t2_hi), rnd_vec);
 
       let (result_lo, result_hi) = match ::core::primitive::bool::then_some(sh == 3, ()) {
-        ::core::option::Option::Some(()) => (_mm256_srai_epi32(sum_lo, 3), _mm256_srai_epi32(sum_hi, 3)),
-        ::core::option::Option::None => (_mm256_srai_epi32(sum_lo, 5), _mm256_srai_epi32(sum_hi, 5)),
+        ::core::option::Option::Some(()) => {
+          (_mm256_srai_epi32(sum_lo, 3), _mm256_srai_epi32(sum_hi, 3))
+        }
+        ::core::option::Option::None => {
+          (_mm256_srai_epi32(sum_lo, 5), _mm256_srai_epi32(sum_hi, 5))
+        }
       };
 
       let clamped_lo = _mm256_min_epi32(_mm256_max_epi32(result_lo, zero), max_vec);
@@ -331,11 +350,12 @@ fn avg_16bpc_avx2_safe(
         <i32 as ::core::convert::From<::core::primitive::i16>>::from(*first),
         <i32 as ::core::convert::From<::core::primitive::i16>>::from(*second),
       );
-      let output_sample = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-        i32::wrapping_shr(i32::wrapping_add(sum, rnd), i32::cast_unsigned(sh)).clamp(0, max),
-      ) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+      let output_sample =
+        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          i32::wrapping_shr(i32::wrapping_add(sum, rnd), i32::cast_unsigned(sh)).clamp(0, max),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       *target = output_sample;
     }
   }
@@ -354,13 +374,19 @@ fn avg_16bpc_avx512_safe(
   block_extent: Size<i32>,
   bitdepth_max: i32,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
   })?;
 
-  let intermediate_bits = match ::core::primitive::bool::then_some(::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0, ()) {
+  let intermediate_bits = match ::core::primitive::bool::then_some(
+    ::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => 2i32,
     ::core::option::Option::None => 4i32,
   };
@@ -426,8 +452,12 @@ fn avg_16bpc_avx512_safe(
       let sum_hi = _mm256_add_epi32(_mm256_add_epi32(t1_hi, t2_hi), rnd_256);
 
       let (result_lo, result_hi) = match ::core::primitive::bool::then_some(sh == 3, ()) {
-        ::core::option::Option::Some(()) => (_mm256_srai_epi32(sum_lo, 3), _mm256_srai_epi32(sum_hi, 3)),
-        ::core::option::Option::None => (_mm256_srai_epi32(sum_lo, 5), _mm256_srai_epi32(sum_hi, 5)),
+        ::core::option::Option::Some(()) => {
+          (_mm256_srai_epi32(sum_lo, 3), _mm256_srai_epi32(sum_hi, 3))
+        }
+        ::core::option::Option::None => {
+          (_mm256_srai_epi32(sum_lo, 5), _mm256_srai_epi32(sum_hi, 5))
+        }
       };
 
       let zero_256 = _mm256_setzero_si256();
@@ -448,11 +478,12 @@ fn avg_16bpc_avx512_safe(
         <i32 as ::core::convert::From<::core::primitive::i16>>::from(*first),
         <i32 as ::core::convert::From<::core::primitive::i16>>::from(*second),
       );
-      let output_sample = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-        i32::wrapping_shr(i32::wrapping_add(sum, rnd), i32::cast_unsigned(sh)).clamp(0, max),
-      ) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+      let output_sample =
+        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          i32::wrapping_shr(i32::wrapping_add(sum, rnd), i32::cast_unsigned(sh)).clamp(0, max),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       *target = output_sample;
     }
   }
@@ -472,7 +503,8 @@ fn weighted_8bpc_inputs(
     8.. => ([first, second], weight.wrapping_sub(16)),
     ..=7 => ([second, first], weight.wrapping_neg()),
   };
-  let Ok(scaled) = console_core_number_conversion::wrapped::<_, i16>(coefficient.wrapping_shl(12));
+  let Ok(scaled) =
+    console_core_number_conversion::wrapped::<_, i16>(coefficient.wrapping_shl(12));
   Ok((ordered, scaled))
 }
 
@@ -484,8 +516,14 @@ fn weighted_8bpc_sample(
 ) -> Result<u8, console_core_never::Never> {
   let a = i32::from(first);
   let b = i32::from(second);
-  let weighted_difference = ::core::primitive::i32::wrapping_shr(a.wrapping_sub(b).wrapping_mul(i32::from(coefficient)), 16_u32);
-  let rounded = ::core::primitive::i32::wrapping_shr(a.wrapping_add(weighted_difference).wrapping_add(8), 4_u32);
+  let weighted_difference = ::core::primitive::i32::wrapping_shr(
+    a.wrapping_sub(b).wrapping_mul(i32::from(coefficient)),
+    16_u32,
+  );
+  let rounded = ::core::primitive::i32::wrapping_shr(
+    a.wrapping_add(weighted_difference).wrapping_add(8),
+    4_u32,
+  );
   console_core_number_conversion::wrapped(rounded.clamp(0, 255))
 }
 
@@ -500,7 +538,10 @@ fn w_avg_8bpc_avx2_safe(
   block_extent: Size<i32>,
   weight: i32,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -564,7 +605,10 @@ fn w_avg_8bpc_avx512_safe(
   block_extent: Size<i32>,
   weight: i32,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -649,14 +693,23 @@ fn w_avg_16bpc_avx2_safe(
   block_extent: Size<i32>,
   scale: WeightedAverageScale,
 ) -> Result<(), BlendLayoutError> {
-  let WeightedAverageScale { weight, bitdepth_max } = scale;
-  let Size { width: w, height: h } = block_extent;
+  let WeightedAverageScale {
+    weight,
+    bitdepth_max,
+  } = scale;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
   })?;
 
-  let intermediate_bits = match ::core::primitive::bool::then_some(::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0, ()) {
+  let intermediate_bits = match ::core::primitive::bool::then_some(
+    ::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => 2i32,
     ::core::option::Option::None => 4i32,
   };
@@ -745,14 +798,23 @@ fn w_avg_16bpc_avx512_safe(
   block_extent: Size<i32>,
   scale: WeightedAverageScale,
 ) -> Result<(), BlendLayoutError> {
-  let WeightedAverageScale { weight, bitdepth_max } = scale;
-  let Size { width: w, height: h } = block_extent;
+  let WeightedAverageScale {
+    weight,
+    bitdepth_max,
+  } = scale;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
   })?;
 
-  let intermediate_bits = match ::core::primitive::bool::then_some(::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0, ()) {
+  let intermediate_bits = match ::core::primitive::bool::then_some(
+    ::core::primitive::i32::wrapping_shr(bitdepth_max, 11_u32) != 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => 2i32,
     ::core::option::Option::None => 4i32,
   };
@@ -833,7 +895,11 @@ struct MaskBlendRounding {
 
 #[cfg(target_arch = "x86_64")]
 impl MaskBlendRounding {
-  const BYTE: Self = Self { adjustment: 512, fraction_bits: 10, maximum: 255 };
+  const BYTE: Self = Self {
+    adjustment: 512,
+    fraction_bits: 10,
+    maximum: 255,
+  };
 
   #[inline]
   fn for_word(maximum: i32) -> Result<Self, console_core_never::Never> {
@@ -849,12 +915,22 @@ impl MaskBlendRounding {
   }
 
   #[inline]
-  fn sample(self, [first, second]: [i16; 2], alpha: u8) -> Result<i32, console_core_never::Never> {
+  fn sample(
+    self,
+    [first, second]: [i16; 2],
+    alpha: u8,
+  ) -> Result<i32, console_core_never::Never> {
     let factor = i32::from(alpha);
     let first_term = i32::from(first).wrapping_mul(factor);
     let second_term = i32::from(second).wrapping_mul(64i32.wrapping_sub(factor));
-    let adjusted = first_term.wrapping_add(second_term).wrapping_add(self.adjustment);
-    Ok(adjusted.wrapping_shr(self.fraction_bits).clamp(0, self.maximum))
+    let adjusted = first_term
+      .wrapping_add(second_term)
+      .wrapping_add(self.adjustment);
+    Ok(
+      adjusted
+        .wrapping_shr(self.fraction_bits)
+        .clamp(0, self.maximum),
+    )
   }
 }
 
@@ -869,7 +945,10 @@ fn mask_8bpc_avx2_safe(
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -945,7 +1024,10 @@ fn mask_8bpc_avx512_safe(
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -1094,13 +1176,20 @@ fn mask_16bpc_avx512_safe(
   bitdepth_max: i32,
 ) -> Result<(), BlendLayoutError> {
   let narrow = token.v3();
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
   })?;
   let Ok(rounding) = MaskBlendRounding::for_word(bitdepth_max);
-  let MaskBlendRounding { adjustment: rnd, fraction_bits: sh, maximum: max } = rounding;
+  let MaskBlendRounding {
+    adjustment: rnd,
+    fraction_bits: sh,
+    maximum: max,
+  } = rounding;
 
   let rnd_vec = _mm512_set1_epi32(rnd);
   let zero = _mm512_setzero_si512();
@@ -1173,7 +1262,10 @@ fn mask_16bpc_avx2_safe(
   mask: &[u8],
   bitdepth_max: i32,
 ) -> Result<(), BlendLayoutError> {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let size = BlendSize::new(Size {
     width: w,
     height: h,
@@ -1218,7 +1310,10 @@ fn blend_8bpc_avx2_safe(
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> Rav1dResult {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let shape = BlendSize::new(Size {
     width: w,
     height: h,
@@ -1299,10 +1394,11 @@ fn blend_8bpc_avx2_safe(
       *{
         let checked_value_9 = <[_]>::get_mut(&mut *dst_row, col).ok_or(Rav1dError::EINVAL)?;
         checked_value_9
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        output_sample,
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
     }
   }
 
@@ -1319,7 +1415,10 @@ fn blend_16bpc_avx2_safe(
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> Rav1dResult {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let shape = BlendSize::new(Size {
     width: w,
     height: h,
@@ -1358,8 +1457,8 @@ fn blend_16bpc_avx2_safe(
       let mut mask_pad = [0u8; 16];
 
       {
-        let checked_copy_destination = <[_]>::first_chunk_mut::<8>(&mut mask_pad)
-          .ok_or(Rav1dError::EINVAL)?;
+        let checked_copy_destination =
+          <[_]>::first_chunk_mut::<8>(&mut mask_pad).ok_or(Rav1dError::EINVAL)?;
         let checked_copy_source = <[_]>::get(&*mask_row, col..)
           .and_then(<[_]>::first_chunk::<8>)
           .ok_or(Rav1dError::EINVAL)?;
@@ -1408,10 +1507,11 @@ fn blend_16bpc_avx2_safe(
       *{
         let checked_value_11 = <[_]>::get_mut(&mut *dst_row, col).ok_or(Rav1dError::EINVAL)?;
         checked_value_11
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+        output_sample,
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
     }
   }
 
@@ -1451,7 +1551,10 @@ fn blend_v_8bpc_avx2_safe(
   tmp: &[u8],
   block_extent: Size<i32>,
 ) -> Rav1dResult {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let checked_value_5 = w.checked_mul(3).ok_or(Rav1dError::EINVAL)?;
   let active_width = checked_value_5.wrapping_shr(2);
   let shape = BlendSize::new(Size {
@@ -1538,10 +1641,11 @@ fn blend_v_8bpc_avx2_safe(
       *{
         let checked_value_9 = <[_]>::get_mut(&mut *dst_row, col).ok_or(Rav1dError::EINVAL)?;
         checked_value_9
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        output_sample,
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
     }
   }
 
@@ -1557,7 +1661,10 @@ fn blend_h_8bpc_avx2_safe(
   tmp: &[u8],
   block_extent: Size<i32>,
 ) -> Rav1dResult {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let checked_value_4 = h.checked_mul(3).ok_or(Rav1dError::EINVAL)?;
   let active_height = checked_value_4.wrapping_shr(2);
   let shape = BlendSize::new(Size {
@@ -1649,10 +1756,11 @@ fn blend_h_8bpc_avx2_safe(
       *{
         let checked_value_9 = <[_]>::get_mut(&mut *dst_row, col).ok_or(Rav1dError::EINVAL)?;
         checked_value_9
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        output_sample,
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
     }
   }
 
@@ -1668,7 +1776,10 @@ fn blend_v_16bpc_avx2_safe(
   tmp: &[u8],
   block_extent: Size<i32>,
 ) -> Rav1dResult {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let checked_value_4 = w.checked_mul(3).ok_or(Rav1dError::EINVAL)?;
   let active_width = checked_value_4.wrapping_shr(2);
   let shape = BlendSize::new(Size {
@@ -1715,8 +1826,8 @@ fn blend_v_16bpc_avx2_safe(
       let mut mask_pad = [0u8; 16];
 
       {
-        let checked_copy_destination = <[_]>::first_chunk_mut::<8>(&mut mask_pad)
-          .ok_or(Rav1dError::EINVAL)?;
+        let checked_copy_destination =
+          <[_]>::first_chunk_mut::<8>(&mut mask_pad).ok_or(Rav1dError::EINVAL)?;
         let checked_copy_source = <[_]>::get(&*obmc_mask, col..)
           .and_then(<[_]>::first_chunk::<8>)
           .ok_or(Rav1dError::EINVAL)?;
@@ -1764,10 +1875,11 @@ fn blend_v_16bpc_avx2_safe(
       *{
         let checked_value_11 = <[_]>::get_mut(&mut *dst_row, col).ok_or(Rav1dError::EINVAL)?;
         checked_value_11
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+        output_sample,
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
     }
   }
 
@@ -1783,7 +1895,10 @@ fn blend_h_16bpc_avx2_safe(
   tmp: &[u8],
   block_extent: Size<i32>,
 ) -> Rav1dResult {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   let checked_value_4 = h.checked_mul(3).ok_or(Rav1dError::EINVAL)?;
   let active_height = checked_value_4.wrapping_shr(2);
   let shape = BlendSize::new(Size {
@@ -1863,10 +1978,11 @@ fn blend_h_16bpc_avx2_safe(
       *{
         let checked_value_9 = <[_]>::get_mut(&mut *dst_row, col).ok_or(Rav1dError::EINVAL)?;
         checked_value_9
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+        output_sample,
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
     }
   }
 
@@ -1875,7 +1991,10 @@ fn blend_h_16bpc_avx2_safe(
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the shared interpolation scratch width is used exclusively as a Rust array length")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the shared interpolation scratch width is used exclusively as a Rust array length"
+  )
 )]
 const MID_STRIDE: usize = 128;
 
@@ -1895,11 +2014,17 @@ impl EightTapBlock {
     let horizontal_phase = dimension(sampling.phase.x)?;
     let vertical_phase = dimension(sampling.phase.y)?;
     let Ok(x) = fractional_filter(
-      FilterExtent { samples: width, phase: horizontal_phase },
+      FilterExtent {
+        samples: width,
+        phase: horizontal_phase,
+      },
       axes.x,
     );
     let Ok(y) = fractional_filter(
-      FilterExtent { samples: height, phase: vertical_phase },
+      FilterExtent {
+        samples: height,
+        phase: vertical_phase,
+      },
       axes.y,
     );
     Ok(Self {
@@ -1922,7 +2047,10 @@ fn fill_horizontal_tap_rows<Source, Intermediate>(
   let target_rows = scratch.get_mut(..end).ok_or(Rav1dError::EINVAL)?;
 
   for (ordinal, target) in (0..rows).zip(target_rows) {
-    let position = Point { x: -3, y: i64::from(ordinal).wrapping_sub(3) };
+    let position = Point {
+      x: -3,
+      y: i64::from(ordinal).wrapping_sub(3),
+    };
     let reference_row = source.row_tail(position)?;
     filter_row(target, reference_row)?;
   }
@@ -1932,7 +2060,9 @@ fn fill_horizontal_tap_rows<Source, Intermediate>(
 
 #[cfg(target_arch = "x86_64")]
 #[inline]
-fn pack_byte_tap_pairs([a, b, c, d, e, f, g, h]: [i8; 8]) -> Result<[i16; 4], console_core_never::Never> {
+fn pack_byte_tap_pairs(
+  [a, b, c, d, e, f, g, h]: [i8; 8],
+) -> Result<[i16; 4], console_core_never::Never> {
   Ok([[a, b], [c, d], [e, f], [g, h]].map(|pair| i16::from_le_bytes(pair.map(i8::cast_unsigned))))
 }
 
@@ -1956,7 +2086,12 @@ fn horizontal_windows<Sample>(input: &[Sample; 23]) -> Rav1dResult<[&[Sample; 16
 fn horizontal_byte_sums(
   _token: Desktop64,
   input: &[u8; 23],
-  [coefficient_01, coefficient_23, coefficient_45, coefficient_67]: [__m256i; 4],
+  [
+    coefficient_01,
+    coefficient_23,
+    coefficient_45,
+    coefficient_67,
+  ]: [__m256i; 4],
 ) -> Rav1dResult<__m256i> {
   let [first, second, third, fourth, fifth, sixth, seventh, eighth] = horizontal_windows(input)?;
   let a = loadu_128!(first);
@@ -2053,7 +2188,8 @@ fn h_filter_8tap_8bpc_avx2_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let window = src_2.get(column_index..)
+    let window = src_2
+      .get(column_index..)
       .and_then(<[u8]>::first_chunk::<23>)
       .ok_or(Rav1dError::EINVAL)?;
     let sum = horizontal_byte_sums(token, window, [coeff_01, coeff_23, coeff_45, coeff_67])?;
@@ -2063,7 +2199,8 @@ fn h_filter_8tap_8bpc_avx2_inner(
     );
     let result = _mm256_sra_epi16(_mm256_add_epi16(sum, rnd), shift_count);
 
-    let target = dst_2.get_mut(column_index..)
+    let target = dst_2
+      .get_mut(column_index..)
       .and_then(<[i16]>::first_chunk_mut::<16>)
       .ok_or(Rav1dError::EINVAL)?;
     storeu_256!(target, result);
@@ -2074,17 +2211,21 @@ fn h_filter_8tap_8bpc_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
-        sum,
-        u32::from(sh),
-      )) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
+      sum,
+      u32::from(sh),
+    )) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -2119,99 +2260,86 @@ fn h_filter_8tap_8bpc_avx512_inner(
   for col in (0..vector_columns).step_by(32) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let s0 = loadu_256!(
-      checked_value_2
-    );
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s0 = loadu_256!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s1 = loadu_256!(
-      checked_value_3
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s1 = loadu_256!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(34)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s2 = loadu_256!(
-      checked_value_4
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(34)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s2 = loadu_256!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(35)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s3 = loadu_256!(
-      checked_value_5
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(35)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s3 = loadu_256!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(36)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s4 = loadu_256!(
-      checked_value_6
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(36)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s4 = loadu_256!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(37)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s5 = loadu_256!(
-      checked_value_7
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(37)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s5 = loadu_256!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(38)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s6 = loadu_256!(
-      checked_value_8
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(38)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s6 = loadu_256!(checked_value_8);
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(39)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s7 = loadu_256!(
-      checked_value_9
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(39)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s7 = loadu_256!(checked_value_9);
 
     let lo01 = _mm256_unpacklo_epi8(s0, s1);
     let hi01 = _mm256_unpackhi_epi8(s0, s1);
@@ -2243,16 +2371,16 @@ fn h_filter_8tap_8bpc_avx512_inner(
 
     let result_2 = _mm512_shuffle_i64x2::<0b11_01_10_00>(result, result);
 
-    let checked_value_10 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_512!(
-      checked_value_10,
-      result_2
-    );
+    let checked_value_10 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_512!(checked_value_10, result_2);
   }
 
   for col in vector_columns..width {
@@ -2260,17 +2388,21 @@ fn h_filter_8tap_8bpc_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
-        sum,
-        u32::from(sh),
-      )) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
+      sum,
+      u32::from(sh),
+    )) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -2347,101 +2479,109 @@ fn v_filter_8tap_8bpc_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m0 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m0 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m1 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_3
-    ));
+      &(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m1 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m2 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_4
-    ));
+      &(*{
+        let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m2 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m3 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_5
-    ));
+      &(*{
+        let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m3 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m4 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_6
-    ));
+      &(*{
+        let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m4 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m5 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_7
-    ));
+      &(*{
+        let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m5 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m6 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_8
-    ));
+      &(*{
+        let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m6 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_8));
     let checked_value_10 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m7 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_10
-    ));
+      &(*{
+        let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m7 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_10));
 
     let mut sum = _mm256_mullo_epi32(m0, c0);
     sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(m1, c1));
@@ -2478,21 +2618,26 @@ fn v_filter_8tap_8bpc_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value_2 = <[_]>::get(&(*{
+      let checked_value_2 = <[_]>::get(
+        &(*{
           let checked_value_9 = <[_]>::get(&*mid, tap).ok_or(Rav1dError::EINVAL)?;
           checked_value_9
-        }), column_index)
-          .ok_or(Rav1dError::EINVAL)?;
-      Ok(i32::from(
-        *checked_value_2,
-      ))
+        }),
+        column_index,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      Ok(i32::from(*checked_value_2))
     })?;
 
     let output_sample = round_shift(sum, u32::from(sh)).clamp(0, max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample)
+    {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -2565,101 +2710,109 @@ fn v_filter_8tap_8bpc_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m0 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m0 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m1 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_3
-    ));
+      &(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m1 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m2 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_4
-    ));
+      &(*{
+        let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m2 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m3 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_5
-    ));
+      &(*{
+        let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m3 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m4 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_6
-    ));
+      &(*{
+        let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m4 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m5 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_7
-    ));
+      &(*{
+        let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m5 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m6 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_8
-    ));
+      &(*{
+        let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m6 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_8));
     let checked_value_10 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m7 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_10
-    ));
+      &(*{
+        let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m7 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_10));
 
     let mut sum = _mm512_mullo_epi32(m0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(m1, c1));
@@ -2678,16 +2831,16 @@ fn v_filter_8tap_8bpc_avx512_inner(
 
     let packed = _mm512_cvtusepi32_epi8(clamped);
 
-    let checked_value_11 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u8; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_11,
-      packed
-    );
+    let checked_value_11 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_11, packed);
   }
 
   for col in vector_columns..width {
@@ -2695,21 +2848,26 @@ fn v_filter_8tap_8bpc_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value_2 = <[_]>::get(&(*{
+      let checked_value_2 = <[_]>::get(
+        &(*{
           let checked_value_9 = <[_]>::get(&*mid, tap).ok_or(Rav1dError::EINVAL)?;
           checked_value_9
-        }), column_index)
-          .ok_or(Rav1dError::EINVAL)?;
-      Ok(i32::from(
-        *checked_value_2,
-      ))
+        }),
+        column_index,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      Ok(i32::from(*checked_value_2))
     })?;
 
     let output_sample = round_shift(sum, u32::from(sh)).clamp(0, max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample)
+    {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -2741,7 +2899,8 @@ fn h_filter_8tap_8bpc_put_avx2_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let window = src_2.get(column_index..)
+    let window = src_2
+      .get(column_index..)
       .and_then(<[u8]>::first_chunk::<23>)
       .ok_or(Rav1dError::EINVAL)?;
     let sum = horizontal_byte_sums(token, window, [coeff_01, coeff_23, coeff_45, coeff_67])?;
@@ -2753,7 +2912,8 @@ fn h_filter_8tap_8bpc_put_avx2_inner(
     let packed = _mm256_packus_epi16(clamped, clamped);
     let packed_2 = _mm256_permute4x64_epi64(packed, 0b11011000);
 
-    let target = dst_2.get_mut(column_index..)
+    let target = dst_2
+      .get_mut(column_index..)
       .and_then(<[u8]>::first_chunk_mut::<16>)
       .ok_or(Rav1dError::EINVAL)?;
     storeu_128!(target, _mm256_castsi256_si128(packed_2));
@@ -2764,16 +2924,21 @@ fn h_filter_8tap_8bpc_put_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
     let output_sample =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 34), 6_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample)
+    {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -2806,99 +2971,86 @@ fn h_filter_8tap_8bpc_put_avx512_inner(
   for col in (0..vector_columns).step_by(32) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let s0 = loadu_256!(
-      checked_value_2
-    );
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s0 = loadu_256!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s1 = loadu_256!(
-      checked_value_3
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s1 = loadu_256!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(34)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s2 = loadu_256!(
-      checked_value_4
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(34)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s2 = loadu_256!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(35)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s3 = loadu_256!(
-      checked_value_5
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(35)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s3 = loadu_256!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(36)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s4 = loadu_256!(
-      checked_value_6
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(36)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s4 = loadu_256!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(37)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s5 = loadu_256!(
-      checked_value_7
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(37)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s5 = loadu_256!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(38)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s6 = loadu_256!(
-      checked_value_8
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(38)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s6 = loadu_256!(checked_value_8);
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(39)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let s7 = loadu_256!(
-      checked_value_9
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(39)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s7 = loadu_256!(checked_value_9);
 
     let lo01 = _mm256_unpacklo_epi8(s0, s1);
     let hi01 = _mm256_unpackhi_epi8(s0, s1);
@@ -2930,16 +3082,16 @@ fn h_filter_8tap_8bpc_put_avx512_inner(
     let clamped_2 = _mm512_shuffle_i64x2::<0b11_01_10_00>(clamped, clamped);
     let packed = _mm512_cvtusepi16_epi8(clamped_2);
 
-    let checked_value_10 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_10,
-      packed
-    );
+    let checked_value_10 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_10, packed);
   }
 
   for col in vector_columns..width {
@@ -2947,16 +3099,21 @@ fn h_filter_8tap_8bpc_put_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
     let output_sample =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 34), 6_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample)
+    {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -3026,91 +3183,73 @@ fn v_filter_8tap_8bpc_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(8)).0).ok_or(Rav1dError::EINVAL)?;
-    let p0 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_2
-    ));
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p0 = _mm256_cvtepu8_epi32(loadi64!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(stride) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping(stride) + Wrapping(column_index)).0) + Wrapping(8)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p1 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping(stride) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping(stride) + Wrapping(column_index)).0) + Wrapping(8)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p1 = _mm256_cvtepu8_epi32(loadi64!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping(
-            (Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ) + Wrapping(8))
-          .0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p2 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p2 = _mm256_cvtepu8_epi32(loadi64!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping(
-            (Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ) + Wrapping(8))
-          .0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p3 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p3 = _mm256_cvtepu8_epi32(loadi64!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping(
-            (Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ) + Wrapping(8))
-          .0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p4 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p4 = _mm256_cvtepu8_epi32(loadi64!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping(
-            (Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ) + Wrapping(8))
-          .0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p5 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p5 = _mm256_cvtepu8_epi32(loadi64!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping(
-            (Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ) + Wrapping(8))
-          .0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p6 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p6 = _mm256_cvtepu8_epi32(loadi64!(checked_value_8));
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping(
-            (Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ) + Wrapping(8))
-          .0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let p7 = _mm256_cvtepu8_epi32(loadi64!(
-      checked_value_9
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let p7 = _mm256_cvtepu8_epi32(loadi64!(checked_value_9));
 
     let mut sum = _mm256_mullo_epi32(p0, c0);
     sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(p1, c1));
@@ -3144,9 +3283,8 @@ fn v_filter_8tap_8bpc_direct_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let ::core::result::Result::Ok(offset) = ::console_core_number_conversion::fixed_index(
-        tap.wrapping_mul(stride),
-      );
+      let ::core::result::Result::Ok(offset) =
+        ::console_core_number_conversion::fixed_index(tap.wrapping_mul(stride));
       let checked_value = <[_]>::get(
         &*src_2,
         column_index.wrapping_add(match ::console_core_number_conversion::index(offset) {
@@ -3159,10 +3297,14 @@ fn v_filter_8tap_8bpc_direct_avx2_inner(
 
     let output_sample =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 32), 6_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample)
+    {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -3234,118 +3376,105 @@ fn v_filter_8tap_8bpc_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_2
-    ));
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(stride) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping(stride) + Wrapping(column_index)).0) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping(stride) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping(stride) + Wrapping(column_index)).0) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p2 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p2 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p3 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p3 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p4 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p4 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p5 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p5 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p6 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p6 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_8));
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p7 = _mm512_cvtepu8_epi32(loadu_128!(
-      checked_value_9
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p7 = _mm512_cvtepu8_epi32(loadu_128!(checked_value_9));
 
     let mut sum = _mm512_mullo_epi32(p0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p1, c1));
@@ -3362,16 +3491,16 @@ fn v_filter_8tap_8bpc_direct_avx512_inner(
 
     let packed = _mm512_cvtusepi32_epi8(clamped);
 
-    let checked_value_10 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u8; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_10,
-      packed
-    );
+    let checked_value_10 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_10, packed);
   }
 
   for col in vector_columns..width {
@@ -3379,9 +3508,8 @@ fn v_filter_8tap_8bpc_direct_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let ::core::result::Result::Ok(offset) = ::console_core_number_conversion::fixed_index(
-        tap.wrapping_mul(stride),
-      );
+      let ::core::result::Result::Ok(offset) =
+        ::console_core_number_conversion::fixed_index(tap.wrapping_mul(stride));
       let checked_value = <[_]>::get(
         &*src_2,
         column_index.wrapping_add(match ::console_core_number_conversion::index(offset) {
@@ -3394,10 +3522,14 @@ fn v_filter_8tap_8bpc_direct_avx512_inner(
 
     let output_sample =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 32), 6_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(output_sample)
+    {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -3405,17 +3537,32 @@ fn v_filter_8tap_8bpc_direct_avx512_inner(
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn put_8tap_8bpc_avx2_impl_inner(token: Desktop64, request: EightTapOutput<'_, u8>) -> Rav1dResult {
+fn put_8tap_8bpc_avx2_impl_inner(
+  token: Desktop64,
+  request: EightTapOutput<'_, u8>,
+) -> Rav1dResult {
   let writer = MotionRowWriters {
     horizontal_buffered: |target: &mut [i16], input: &[u8], width, taps: &[i8; 8], shift| {
       let Ok(precision) = console_core_number_conversion::wrapped(shift);
       h_filter_8tap_8bpc_avx2_inner(token, target, input, width, taps, precision)
     },
-    vertical_buffered: |target: &mut [u8], scratch: &[[i16; MID_STRIDE]], row: MotionRow, taps: &[i8; 8], scale: &WordVerticalScale| {
+    vertical_buffered: |target: &mut [u8],
+                        scratch: &[[i16; MID_STRIDE]],
+                        row: MotionRow,
+                        taps: &[i8; 8],
+                        scale: &WordVerticalScale| {
       let Ok(start) = console_core_number_conversion::index(row.ordinal);
       let filtered = scratch.get(start..).ok_or(Rav1dError::EINVAL)?;
       let Ok(precision) = console_core_number_conversion::wrapped(scale.shift);
-      v_filter_8tap_8bpc_avx2_inner(token, target, filtered, row.width, taps, precision, scale.maximum)
+      v_filter_8tap_8bpc_avx2_inner(
+        token,
+        target,
+        filtered,
+        row.width,
+        taps,
+        precision,
+        scale.maximum,
+      )
     },
     horizontal_direct: |target: &mut [u8], input: &[u8], width, taps: &[i8; 8], _maximum| {
       h_filter_8tap_8bpc_put_avx2_inner(token, target, input, width, taps)
@@ -3429,17 +3576,32 @@ fn put_8tap_8bpc_avx2_impl_inner(token: Desktop64, request: EightTapOutput<'_, u
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn put_8tap_8bpc_avx512_impl_inner(token: Server64, request: EightTapOutput<'_, u8>) -> Rav1dResult {
+fn put_8tap_8bpc_avx512_impl_inner(
+  token: Server64,
+  request: EightTapOutput<'_, u8>,
+) -> Rav1dResult {
   let writer = MotionRowWriters {
     horizontal_buffered: |target: &mut [i16], input: &[u8], width, taps: &[i8; 8], shift| {
       let Ok(precision) = console_core_number_conversion::wrapped(shift);
       h_filter_8tap_8bpc_avx512_inner(token, target, input, width, taps, precision)
     },
-    vertical_buffered: |target: &mut [u8], scratch: &[[i16; MID_STRIDE]], row: MotionRow, taps: &[i8; 8], scale: &WordVerticalScale| {
+    vertical_buffered: |target: &mut [u8],
+                        scratch: &[[i16; MID_STRIDE]],
+                        row: MotionRow,
+                        taps: &[i8; 8],
+                        scale: &WordVerticalScale| {
       let Ok(start) = console_core_number_conversion::index(row.ordinal);
       let filtered = scratch.get(start..).ok_or(Rav1dError::EINVAL)?;
       let Ok(precision) = console_core_number_conversion::wrapped(scale.shift);
-      v_filter_8tap_8bpc_avx512_inner(token, target, filtered, row.width, taps, precision, scale.maximum)
+      v_filter_8tap_8bpc_avx512_inner(
+        token,
+        target,
+        filtered,
+        row.width,
+        taps,
+        precision,
+        scale.maximum,
+      )
     },
     horizontal_direct: |target: &mut [u8], input: &[u8], width, taps: &[i8; 8], _maximum| {
       h_filter_8tap_8bpc_put_avx512_inner(token, target, input, width, taps)
@@ -3472,30 +3634,57 @@ fn prepare_eight_tap<Pixel, Intermediate: Copy + Default + 'static>(
   copy: impl Fn(&mut [i16], &[Pixel]) -> Result<(), Never>,
 ) -> Rav1dResult {
   use console_core_pixel_buffers::RowLayout;
-  let EightTapPrediction { output, source, sampling, axes } = request;
+  let EightTapPrediction {
+    output,
+    source,
+    sampling,
+    axes,
+  } = request;
   let extent = sampling.checked_size()?;
-  let EightTapBlock { size: Size { width, height }, coefficients } = EightTapBlock::new(sampling, axes)?;
-  let Point { x: horizontal_taps, y: vertical_taps } = coefficients;
+  let EightTapBlock {
+    size: Size { width, height },
+    coefficients,
+  } = EightTapBlock::new(sampling, axes)?;
+  let Point {
+    x: horizontal_taps,
+    y: vertical_taps,
+  } = coefficients;
   let layout = RowLayout::new(extent, 0, i64::from(width)).map_err(|_| Rav1dError::EINVAL)?;
   let output_rows = layout.rows_mut(output).map_err(|_| Rav1dError::EINVAL)?;
   let reference_x = i64::from(horizontal_taps.is_some()).wrapping_mul(-3);
   let reference_y = i64::from(vertical_taps.is_some()).wrapping_mul(-3);
   let reference_extent = Size {
-    width: extent.width.wrapping_add(u64::from(horizontal_taps.is_some()).wrapping_mul(7)),
-    height: extent.height.wrapping_add(u64::from(vertical_taps.is_some()).wrapping_mul(7)),
+    width: extent
+      .width
+      .wrapping_add(u64::from(horizontal_taps.is_some()).wrapping_mul(7)),
+    height: extent
+      .height
+      .wrapping_add(u64::from(vertical_taps.is_some()).wrapping_mul(7)),
   };
-  let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<Pixel>());
-  let pitch = source.stride_bytes.checked_div(pixel_bytes.cast_signed()).ok_or(Rav1dError::EINVAL)?;
+  let Ok(pixel_bytes) =
+    console_core_number_conversion::fixed_index(core::mem::size_of::<Pixel>());
+  let pitch = source
+    .stride_bytes
+    .checked_div(pixel_bytes.cast_signed())
+    .ok_or(Rav1dError::EINVAL)?;
 
   match pitch {
     1.. => {}
     _ => return Err(Rav1dError::EINVAL),
   }
 
-  let origin = reference_y.checked_mul(pitch).and_then(|value| value.checked_add(reference_x)).ok_or(Rav1dError::EINVAL)?;
-  let start = source.origin.checked_add_signed(origin).ok_or(Rav1dError::EINVAL)?;
+  let origin = reference_y
+    .checked_mul(pitch)
+    .and_then(|value| value.checked_add(reference_x))
+    .ok_or(Rav1dError::EINVAL)?;
+  let start = source
+    .origin
+    .checked_add_signed(origin)
+    .ok_or(Rav1dError::EINVAL)?;
   let input = RowLayout::new(reference_extent, start, pitch).map_err(|_| Rav1dError::EINVAL)?;
-  input.validate_len(source.samples.len()).map_err(|_| Rav1dError::EINVAL)?;
+  input
+    .validate_len(source.samples.len())
+    .map_err(|_| Rav1dError::EINVAL)?;
 
   match (horizontal_taps, vertical_taps) {
     (Some(horizontal), Some(vertical)) => {
@@ -3514,7 +3703,10 @@ fn prepare_eight_tap<Pixel, Intermediate: Copy + Default + 'static>(
     }
     (Some(horizontal), None) => {
       for (ordinal, target) in (0..height).zip(output_rows) {
-        let position = Point { x: -3, y: i64::from(ordinal) };
+        let position = Point {
+          x: -3,
+          y: i64::from(ordinal),
+        };
         let reference = source.row_tail(position)?;
         (writer.horizontal_direct)(target, reference, width, horizontal)?;
       }
@@ -3541,7 +3733,10 @@ fn prepare_eight_tap<Pixel, Intermediate: Copy + Default + 'static>(
 #[doc = "Connects each byte SIMD backend to the shared eight-tap prediction loop."]
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one four-callback definition covers both byte eight-tap predictor backends while retaining their compile-time CPU tokens")
+  expect(
+    explicit080_macro_budget,
+    reason = "one four-callback definition covers both byte eight-tap predictor backends while retaining their compile-time CPU tokens"
+  )
 )]
 macro_rules! byte_eight_tap_prediction {
   ($token:ident; $horizontal:path, $vertical:path) => {
@@ -3549,7 +3744,10 @@ macro_rules! byte_eight_tap_prediction {
       horizontal_buffered: |target: &mut [i16], reference: &[u8], width, taps: &[i8; 8]| {
         $horizontal($token, target, reference, width, taps, 2)
       },
-      vertical_buffered: |target: &mut [i16], mid: &[[i16; MID_STRIDE]], row: MotionRow, taps: &[i8; 8]| {
+      vertical_buffered: |target: &mut [i16],
+                          mid: &[[i16; MID_STRIDE]],
+                          row: MotionRow,
+                          taps: &[i8; 8]| {
         let Ok(ordinal) = console_core_number_conversion::index(row.ordinal);
         let filtered = mid.get(ordinal..).ok_or(Rav1dError::EINVAL)?;
         $vertical($token, filtered, target, row.width, taps, 6)
@@ -3557,13 +3755,19 @@ macro_rules! byte_eight_tap_prediction {
       horizontal_direct: |target: &mut [i16], reference: &[u8], width, taps: &[i8; 8]| {
         $horizontal($token, target, reference, width, taps, 2)
       },
-      vertical_direct: |target: &mut [i16], source: &PixelSource<'_, u8>, row: MotionRow, taps: &[i8; 8]| {
+      vertical_direct: |target: &mut [i16],
+                        source: &PixelSource<'_, u8>,
+                        row: MotionRow,
+                        taps: &[i8; 8]| {
         let mut filtered = [[0i16; MID_STRIDE]; 8];
         let Ok(width) = console_core_number_conversion::index(row.width);
         let first = i64::from(row.ordinal).wrapping_sub(3);
 
         for (ordinal, line) in (0_i64..8).zip(&mut filtered) {
-          let position = Point { x: 0, y: first.wrapping_add(ordinal) };
+          let position = Point {
+            x: 0,
+            y: first.wrapping_add(ordinal),
+          };
           let reference = source.row_tail(position)?;
           let input = reference.get(..width).ok_or(Rav1dError::EINVAL)?;
           let Ok(()) = prepare_byte_bilinear_identity(line, input);
@@ -3579,7 +3783,10 @@ macro_rules! byte_eight_tap_prediction {
 #[doc = "Connects each word SIMD backend to the shared eight-tap prediction loop."]
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one four-callback definition covers both word eight-tap predictor backends while retaining their compile-time CPU tokens")
+  expect(
+    explicit080_macro_budget,
+    reason = "one four-callback definition covers both word eight-tap predictor backends while retaining their compile-time CPU tokens"
+  )
 )]
 macro_rules! word_eight_tap_prediction {
   ($token:ident, $shift:expr; $horizontal:path, $vertical:path, $horizontal_direct:path, $vertical_direct:path) => {
@@ -3587,26 +3794,72 @@ macro_rules! word_eight_tap_prediction {
       horizontal_buffered: |target: &mut [i32], reference: &[u16], width, taps: &[i8; 8]| {
         $horizontal($token, target, reference, width, taps, $shift)
       },
-      vertical_buffered: |target: &mut [i16], mid: &[[i32; MID_STRIDE]], row: MotionRow, taps: &[i8; 8]| {
-        $vertical($token, target, mid, row, taps, &WordPreparationScale { shift: 6, bias: 8192 })
+      vertical_buffered: |target: &mut [i16],
+                          mid: &[[i32; MID_STRIDE]],
+                          row: MotionRow,
+                          taps: &[i8; 8]| {
+        $vertical(
+          $token,
+          target,
+          mid,
+          row,
+          taps,
+          &WordPreparationScale {
+            shift: 6,
+            bias: 8192,
+          },
+        )
       },
       horizontal_direct: |target: &mut [i16], reference: &[u16], width, taps: &[i8; 8]| {
-        $horizontal_direct($token, target, reference, width, taps, WordPreparationScale { shift: $shift, bias: 8192 })
+        $horizontal_direct(
+          $token,
+          target,
+          reference,
+          width,
+          taps,
+          WordPreparationScale {
+            shift: $shift,
+            bias: 8192,
+          },
+        )
       },
-      vertical_direct: |target: &mut [i16], source: &PixelSource<'_, u16>, row: MotionRow, taps: &[i8; 8]| {
-        let position = Point { x: 0, y: i64::from(row.ordinal).wrapping_sub(3) };
+      vertical_direct: |target: &mut [i16],
+                        source: &PixelSource<'_, u16>,
+                        row: MotionRow,
+                        taps: &[i8; 8]| {
+        let position = Point {
+          x: 0,
+          y: i64::from(row.ordinal).wrapping_sub(3),
+        };
         let reference = source.row_tail(position)?;
         let pitch = source.stride_bytes.wrapping_div(2);
-        $vertical_direct($token, target, reference, pitch, row.width, taps, WordPreparationScale { shift: $shift, bias: 8192 })
+        $vertical_direct(
+          $token,
+          target,
+          reference,
+          pitch,
+          row.width,
+          taps,
+          WordPreparationScale {
+            shift: $shift,
+            bias: 8192,
+          },
+        )
       },
     }
   };
 }
 
 #[cfg(target_arch = "x86_64")]
-fn prepare_word_identity(output: &mut [i16], source: &[u16], intermediate_bits: u32) -> Result<(), Never> {
+fn prepare_word_identity(
+  output: &mut [i16],
+  source: &[u16],
+  intermediate_bits: u32,
+) -> Result<(), Never> {
   for (target, &pixel) in output.iter_mut().zip(source) {
-    let scaled = i32::from(pixel).wrapping_shl(intermediate_bits).wrapping_sub(8192);
+    let scaled = i32::from(pixel)
+      .wrapping_shl(intermediate_bits)
+      .wrapping_sub(8192);
     let Ok(sample) = console_core_number_conversion::wrapped::<_, i16>(scaled);
     *target = sample;
   }
@@ -3624,14 +3877,27 @@ fn prep_8tap_8bpc_avx2_impl_inner(
   motion_phase: Point<i32>,
   axes: Point<Rav1dFilterMode>,
 ) -> Rav1dResult {
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let request = EightTapPrediction { output, source, sampling, axes };
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let request = EightTapPrediction {
+    output,
+    source,
+    sampling,
+    axes,
+  };
   let writer = byte_eight_tap_prediction!(
     token;
     h_filter_8tap_8bpc_avx2_inner,
     v_filter_8tap_to_i16_avx2_inner
   );
-  prepare_eight_tap(request, writer, &MID_I16_135, prepare_byte_bilinear_identity)
+  prepare_eight_tap(
+    request,
+    writer,
+    &MID_I16_135,
+    prepare_byte_bilinear_identity,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -3644,14 +3910,27 @@ fn prep_8tap_8bpc_avx512_impl_inner(
   motion_phase: Point<i32>,
   axes: Point<Rav1dFilterMode>,
 ) -> Rav1dResult {
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let request = EightTapPrediction { output, source, sampling, axes };
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let request = EightTapPrediction {
+    output,
+    source,
+    sampling,
+    axes,
+  };
   let writer = byte_eight_tap_prediction!(
     token;
     h_filter_8tap_8bpc_avx512_inner,
     v_filter_8tap_to_i16_avx512_inner
   );
-  prepare_eight_tap(request, writer, &MID_I16_135, prepare_byte_bilinear_identity)
+  prepare_eight_tap(
+    request,
+    writer,
+    &MID_I16_135,
+    prepare_byte_bilinear_identity,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -3717,101 +3996,109 @@ fn v_filter_8tap_to_i16_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m0 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m0 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m1 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_3
-    ));
+      &(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m1 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m2 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_4
-    ));
+      &(*{
+        let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m2 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m3 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_5
-    ));
+      &(*{
+        let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m3 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m4 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_6
-    ));
+      &(*{
+        let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m4 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m5 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_7
-    ));
+      &(*{
+        let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m5 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m6 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_8
-    ));
+      &(*{
+        let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m6 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_8));
     let checked_value_10 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m7 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_10
-    ));
+      &(*{
+        let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m7 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_10));
 
     let mut sum = _mm256_mullo_epi32(m0, c0);
     sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(m1, c1));
@@ -3830,16 +4117,16 @@ fn v_filter_8tap_to_i16_avx2_inner(
     let packed = _mm256_packs_epi32(shifted, shifted);
     let packed_2 = _mm256_permute4x64_epi64(packed, 0b11011000);
 
-    let checked_value_11 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_11,
-      _mm256_castsi256_si128(packed_2)
-    );
+    let checked_value_11 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_11, _mm256_castsi256_si128(packed_2));
   }
 
   for col in vector_columns..width {
@@ -3847,23 +4134,27 @@ fn v_filter_8tap_to_i16_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value_2 = <[_]>::get(&(*{
+      let checked_value_2 = <[_]>::get(
+        &(*{
           let checked_value_9 = <[_]>::get(&*mid, tap).ok_or(Rav1dError::EINVAL)?;
           checked_value_9
-        }), column_index)
-          .ok_or(Rav1dError::EINVAL)?;
-      Ok(i32::from(
-        *checked_value_2,
-      ))
+        }),
+        column_index,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      Ok(i32::from(*checked_value_2))
     })?;
 
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
-        sum,
-        u32::from(sh),
-      )) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
+      sum,
+      u32::from(sh),
+    )) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -3932,101 +4223,109 @@ fn v_filter_8tap_to_i16_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m0 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m0 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m1 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_3
-    ));
+      &(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m1 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m2 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_4
-    ));
+      &(*{
+        let checked_value_38 = <[_]>::get(&*mid, 2).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m2 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m3 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_5
-    ));
+      &(*{
+        let checked_value_39 = <[_]>::get(&*mid, 3).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m3 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m4 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_6
-    ));
+      &(*{
+        let checked_value_40 = <[_]>::get(&*mid, 4).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m4 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m5 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_7
-    ));
+      &(*{
+        let checked_value_41 = <[_]>::get(&*mid, 5).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m5 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m6 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_8
-    ));
+      &(*{
+        let checked_value_42 = <[_]>::get(&*mid, 6).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m6 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_8));
     let checked_value_10 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let m7 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_10
-    ));
+      &(*{
+        let checked_value_43 = <[_]>::get(&*mid, 7).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let m7 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_10));
 
     let mut sum = _mm512_mullo_epi32(m0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(m1, c1));
@@ -4044,16 +4343,16 @@ fn v_filter_8tap_to_i16_avx512_inner(
 
     let packed = _mm512_cvtsepi32_epi16(shifted);
 
-    let checked_value_11 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_11,
-      packed
-    );
+    let checked_value_11 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_11, packed);
   }
 
   for col in vector_columns..width {
@@ -4061,23 +4360,27 @@ fn v_filter_8tap_to_i16_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value_2 = <[_]>::get(&(*{
+      let checked_value_2 = <[_]>::get(
+        &(*{
           let checked_value_9 = <[_]>::get(&*mid, tap).ok_or(Rav1dError::EINVAL)?;
           checked_value_9
-        }), column_index)
-          .ok_or(Rav1dError::EINVAL)?;
-      Ok(i32::from(
-        *checked_value_2,
-      ))
+        }),
+        column_index,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      Ok(i32::from(*checked_value_2))
     })?;
 
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
-        sum,
-        u32::from(sh),
-      )) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(round_shift(
+      sum,
+      u32::from(sh),
+    )) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -4172,147 +4475,126 @@ fn h_filter_8tap_16bpc_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(4)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let a0 = loadu_64!(
-      checked_value_2
-    );
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(4)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a0 = loadu_64!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a1 = loadu_64!(
-      checked_value_3
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a1 = loadu_64!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a2 = loadu_64!(
-      checked_value_4
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a2 = loadu_64!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a3 = loadu_64!(
-      checked_value_5
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a3 = loadu_64!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a4 = loadu_64!(
-      checked_value_6
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a4 = loadu_64!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a5 = loadu_64!(
-      checked_value_7
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a5 = loadu_64!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a6 = loadu_64!(
-      checked_value_8
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a6 = loadu_64!(checked_value_8);
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a7 = loadu_64!(
-      checked_value_9
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a7 = loadu_64!(checked_value_9);
     let checked_value_10 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a8 = loadu_64!(
-      checked_value_10
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a8 = loadu_64!(checked_value_10);
     let checked_value_11 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a9 = loadu_64!(
-      checked_value_11
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a9 = loadu_64!(checked_value_11);
     let checked_value_12 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a10 = loadu_64!(
-      checked_value_12
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a10 = loadu_64!(checked_value_12);
     let checked_value_13 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a11 = loadu_64!(
-      checked_value_13
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a11 = loadu_64!(checked_value_13);
 
     let s0 = _mm256_inserti128_si256(_mm256_castsi128_si256(a0), a4, 1);
     let s1 = _mm256_inserti128_si256(_mm256_castsi128_si256(a1), a5, 1);
@@ -4337,16 +4619,16 @@ fn h_filter_8tap_16bpc_avx2_inner(
 
     let result = _mm256_sra_epi32(_mm256_add_epi32(sum, rnd), shift_count);
 
-    let checked_value_14 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i32; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_14,
-      result
-    );
+    let checked_value_14 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_14, result);
   }
 
   for col in vector_columns..width {
@@ -4354,14 +4636,18 @@ fn h_filter_8tap_16bpc_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
     let r =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_shl(1, i32::cast_unsigned(sh)), 1_u32);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh));
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh));
   }
 
   Ok(())
@@ -4379,7 +4665,10 @@ fn v_filter_8tap_16bpc_avx2_inner(
 ) -> Rav1dResult {
   let MotionRow { width, ordinal } = row;
   let Ok(y) = console_core_number_conversion::index(ordinal);
-  let WordVerticalScale { shift: sh, maximum: max } = *scale;
+  let WordVerticalScale {
+    shift: sh,
+    maximum: max,
+  } = *scale;
   let dst_2 = &mut *dst;
 
   let coeff: [i32; 8] = [
@@ -4423,101 +4712,116 @@ fn v_filter_8tap_16bpc_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r0 = loadu_256!(
-      checked_value
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r0 = loadu_256!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r1 = loadu_256!(
-      checked_value_2
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r1 = loadu_256!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r2 = loadu_256!(
-      checked_value_3
-    );
+      &(*{
+        let checked_value_38 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r2 = loadu_256!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r3 = loadu_256!(
-      checked_value_4
-    );
+      &(*{
+        let checked_value_39 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r3 = loadu_256!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r4 = loadu_256!(
-      checked_value_5
-    );
+      &(*{
+        let checked_value_40 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r4 = loadu_256!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r5 = loadu_256!(
-      checked_value_6
-    );
+      &(*{
+        let checked_value_41 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r5 = loadu_256!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r6 = loadu_256!(
-      checked_value_7
-    );
+      &(*{
+        let checked_value_42 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r6 = loadu_256!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r7 = loadu_256!(
-      checked_value_8
-    );
+      &(*{
+        let checked_value_43 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r7 = loadu_256!(checked_value_8);
 
     let c0 = _mm256_set1_epi32(match coeff {
       [element, ..] => element,
@@ -4566,16 +4870,16 @@ fn v_filter_8tap_16bpc_avx2_inner(
 
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_9,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_9, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
@@ -4585,14 +4889,18 @@ fn v_filter_8tap_16bpc_avx2_inner(
 
     for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
       match (
-        i32::wrapping_mul(
-          *coeff_element,
-          *{ let checked_value_44 = <[_]>::get(
-            &(*{ let checked_value_19 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?; checked_value_19 }),
+        i32::wrapping_mul(*coeff_element, *{
+          let checked_value_44 = <[_]>::get(
+            &(*{
+              let checked_value_19 =
+                <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?;
+              checked_value_19
+            }),
             column_index,
           )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_44 },
-        ),
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_44
+        }),
         &mut sum,
       ) {
         (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -4606,9 +4914,15 @@ fn v_filter_8tap_16bpc_avx2_inner(
 
     let r =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_shl(1, i32::cast_unsigned(sh)), 1_u32);
-    let output_sample = i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)).clamp(0, max);
-    *{ let checked_value_20 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_20 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    let output_sample =
+      i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)).clamp(0, max);
+    *{
+      let checked_value_20 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_20
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -4628,7 +4942,10 @@ fn v_filter_8tap_16bpc_prep_avx2_inner(
 ) -> Rav1dResult {
   let MotionRow { width, ordinal } = row;
   let Ok(y) = console_core_number_conversion::index(ordinal);
-  let WordPreparationScale { shift: sh, bias: prep_bias } = *scale;
+  let WordPreparationScale {
+    shift: sh,
+    bias: prep_bias,
+  } = *scale;
   let dst_2 = &mut *dst;
   let coeff: [i32; 8] = [
     <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
@@ -4670,101 +4987,116 @@ fn v_filter_8tap_16bpc_prep_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r0 = loadu_256!(
-      checked_value
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r0 = loadu_256!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r1 = loadu_256!(
-      checked_value_2
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r1 = loadu_256!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r2 = loadu_256!(
-      checked_value_3
-    );
+      &(*{
+        let checked_value_38 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r2 = loadu_256!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r3 = loadu_256!(
-      checked_value_4
-    );
+      &(*{
+        let checked_value_39 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r3 = loadu_256!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r4 = loadu_256!(
-      checked_value_5
-    );
+      &(*{
+        let checked_value_40 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r4 = loadu_256!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r5 = loadu_256!(
-      checked_value_6
-    );
+      &(*{
+        let checked_value_41 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r5 = loadu_256!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r6 = loadu_256!(
-      checked_value_7
-    );
+      &(*{
+        let checked_value_42 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r6 = loadu_256!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r7 = loadu_256!(
-      checked_value_8
-    );
+      &(*{
+        let checked_value_43 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r7 = loadu_256!(checked_value_8);
 
     let c0 = _mm256_set1_epi32(match coeff {
       [element, ..] => element,
@@ -4812,16 +5144,16 @@ fn v_filter_8tap_16bpc_prep_avx2_inner(
 
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_9,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_9, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
@@ -4831,14 +5163,18 @@ fn v_filter_8tap_16bpc_prep_avx2_inner(
 
     for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
       match (
-        i32::wrapping_mul(
-          *coeff_element,
-          *{ let checked_value_44 = <[_]>::get(
-            &(*{ let checked_value_19 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?; checked_value_19 }),
+        i32::wrapping_mul(*coeff_element, *{
+          let checked_value_44 = <[_]>::get(
+            &(*{
+              let checked_value_19 =
+                <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?;
+              checked_value_19
+            }),
             column_index,
           )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_44 },
-        ),
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_44
+        }),
         &mut sum,
       ) {
         (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -4856,8 +5192,13 @@ fn v_filter_8tap_16bpc_prep_avx2_inner(
       i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_20 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_20 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_20 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_20
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -4943,7 +5284,10 @@ fn h_filter_8tap_16bpc_put_avx2_inner(
     ),
   );
 
-  let intermediate_bits = match ::core::primitive::bool::then_some(::core::primitive::i32::wrapping_shr(max, 11_u32) != 0, ()) {
+  let intermediate_bits = match ::core::primitive::bool::then_some(
+    ::core::primitive::i32::wrapping_shr(max, 11_u32) != 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => 2,
     ::core::option::Option::None => 4,
   };
@@ -4966,147 +5310,126 @@ fn h_filter_8tap_16bpc_put_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(4)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let a0 = loadu_64!(
-      checked_value_2
-    );
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(4)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a0 = loadu_64!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a1 = loadu_64!(
-      checked_value_3
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a1 = loadu_64!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a2 = loadu_64!(
-      checked_value_4
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a2 = loadu_64!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a3 = loadu_64!(
-      checked_value_5
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a3 = loadu_64!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a4 = loadu_64!(
-      checked_value_6
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a4 = loadu_64!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a5 = loadu_64!(
-      checked_value_7
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a5 = loadu_64!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a6 = loadu_64!(
-      checked_value_8
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a6 = loadu_64!(checked_value_8);
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a7 = loadu_64!(
-      checked_value_9
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a7 = loadu_64!(checked_value_9);
     let checked_value_10 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a8 = loadu_64!(
-      checked_value_10
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a8 = loadu_64!(checked_value_10);
     let checked_value_11 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a9 = loadu_64!(
-      checked_value_11
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a9 = loadu_64!(checked_value_11);
     let checked_value_12 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a10 = loadu_64!(
-      checked_value_12
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a10 = loadu_64!(checked_value_12);
     let checked_value_13 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a11 = loadu_64!(
-      checked_value_13
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a11 = loadu_64!(checked_value_13);
 
     let s0 = _mm256_inserti128_si256(_mm256_castsi128_si256(a0), a4, 1);
     let s1 = _mm256_inserti128_si256(_mm256_castsi128_si256(a1), a5, 1);
@@ -5136,16 +5459,16 @@ fn h_filter_8tap_16bpc_put_avx2_inner(
     let packed = _mm256_packus_epi32(clamped, zero);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_14 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_14,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_14 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_14, _mm256_castsi256_si128(result));
   }
 
   let scalar_rnd = i32::wrapping_add(
@@ -5164,14 +5487,21 @@ fn h_filter_8tap_16bpc_put_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
-    let output_sample = ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, scalar_rnd), 6_u32)
-      .clamp(0, max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    let output_sample =
+      ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, scalar_rnd), 6_u32)
+        .clamp(0, max);
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -5257,118 +5587,105 @@ fn v_filter_8tap_16bpc_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(stride_u) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(stride_u) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p2 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p2 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p3 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p3 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p4 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p4 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p5 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p5 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p6 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p6 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p7 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p7 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_8));
 
     let m0 = _mm256_mullo_epi32(p0, c0);
     let m1 = _mm256_mullo_epi32(p1, c1);
@@ -5391,16 +5708,16 @@ fn v_filter_8tap_16bpc_direct_avx2_inner(
     let packed = _mm256_packus_epi32(clamped, zero);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_9,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_9, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
@@ -5410,13 +5727,11 @@ fn v_filter_8tap_16bpc_direct_avx2_inner(
 
     for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
       let checked_value_10 = <[_]>::get(
-          &*src_2,
-          (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
-      let px = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-        *checked_value_10,
-      );
+        &*src_2,
+        (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      let px = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_10);
 
       match (i32::wrapping_mul(*coeff_element, px), &mut sum) {
         (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -5430,8 +5745,13 @@ fn v_filter_8tap_16bpc_direct_avx2_inner(
 
     let output_sample =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 32), 6_u32).clamp(0, max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -5449,7 +5769,10 @@ fn h_filter_8tap_16bpc_prep_direct_avx2_inner(
   filter: &[i8; 8],
   scale: WordPreparationScale,
 ) -> Rav1dResult {
-  let WordPreparationScale { shift: sh, bias: prep_bias } = scale;
+  let WordPreparationScale {
+    shift: sh,
+    bias: prep_bias,
+  } = scale;
   let dst_2 = &mut *dst;
   let src_2 = &*src;
 
@@ -5530,147 +5853,126 @@ fn h_filter_8tap_16bpc_prep_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(4)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let a0 = loadu_64!(
-      checked_value_2
-    );
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(4)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a0 = loadu_64!(checked_value_2);
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a1 = loadu_64!(
-      checked_value_3
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a1 = loadu_64!(checked_value_3);
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a2 = loadu_64!(
-      checked_value_4
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a2 = loadu_64!(checked_value_4);
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a3 = loadu_64!(
-      checked_value_5
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a3 = loadu_64!(checked_value_5);
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a4 = loadu_64!(
-      checked_value_6
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a4 = loadu_64!(checked_value_6);
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a5 = loadu_64!(
-      checked_value_7
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a5 = loadu_64!(checked_value_7);
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a6 = loadu_64!(
-      checked_value_8
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a6 = loadu_64!(checked_value_8);
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a7 = loadu_64!(
-      checked_value_9
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a7 = loadu_64!(checked_value_9);
     let checked_value_10 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a8 = loadu_64!(
-      checked_value_10
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a8 = loadu_64!(checked_value_10);
     let checked_value_11 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a9 = loadu_64!(
-      checked_value_11
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a9 = loadu_64!(checked_value_11);
     let checked_value_12 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a10 = loadu_64!(
-      checked_value_12
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a10 = loadu_64!(checked_value_12);
     let checked_value_13 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 4]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let a11 = loadu_64!(
-      checked_value_13
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 4]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let a11 = loadu_64!(checked_value_13);
 
     let s0 = _mm256_inserti128_si256(_mm256_castsi128_si256(a0), a4, 1);
     let s1 = _mm256_inserti128_si256(_mm256_castsi128_si256(a1), a5, 1);
@@ -5699,16 +6001,16 @@ fn h_filter_8tap_16bpc_prep_direct_avx2_inner(
     let packed = _mm256_packs_epi32(biased, biased);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_14 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_14,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_14 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_14, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
@@ -5716,7 +6018,8 @@ fn h_filter_8tap_16bpc_prep_direct_avx2_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
@@ -5726,8 +6029,13 @@ fn h_filter_8tap_16bpc_prep_direct_avx2_inner(
       i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -5746,7 +6054,10 @@ fn v_filter_8tap_16bpc_prep_direct_avx2_inner(
   filter: &[i8; 8],
   scale: WordPreparationScale,
 ) -> Rav1dResult {
-  let WordPreparationScale { shift: sh, bias: prep_bias } = scale;
+  let WordPreparationScale {
+    shift: sh,
+    bias: prep_bias,
+  } = scale;
   let dst_2 = &mut *dst;
   let src_2 = &*src;
   let coeff: [i32; 8] = [
@@ -5816,118 +6127,105 @@ fn v_filter_8tap_16bpc_prep_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(stride_u) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(stride_u) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p2 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p2 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p3 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p3 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p4 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p4 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p5 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p5 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p6 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p6 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(8))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p7 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(8))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p7 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_8));
 
     let m0 = _mm256_mullo_epi32(p0, c0);
     let m1 = _mm256_mullo_epi32(p1, c1);
@@ -5949,16 +6247,16 @@ fn v_filter_8tap_16bpc_prep_direct_avx2_inner(
     let packed = _mm256_packs_epi32(biased, biased);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_9,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_9, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
@@ -5968,13 +6266,11 @@ fn v_filter_8tap_16bpc_prep_direct_avx2_inner(
 
     for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
       let checked_value_10 = <[_]>::get(
-          &*src_2,
-          (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
-      let px = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-        *checked_value_10,
-      );
+        &*src_2,
+        (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      let px = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_10);
 
       match (i32::wrapping_mul(*coeff_element, px), &mut sum) {
         (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -5992,8 +6288,13 @@ fn v_filter_8tap_16bpc_prep_direct_avx2_inner(
       i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -6066,99 +6367,86 @@ fn h_filter_8tap_16bpc_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_2 = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+    let checked_value_2 = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(18)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p2 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(18)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p2 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(19)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p3 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(19)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p3 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(20)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p4 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(20)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p4 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(21)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p5 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(21)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p5 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(22)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p6 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(22)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p6 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_8));
     let checked_value_9 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(23)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p7 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_9
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(23)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p7 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_9));
 
     let mut sum = _mm512_mullo_epi32(p0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p1, c1));
@@ -6170,13 +6458,12 @@ fn h_filter_8tap_16bpc_avx512_inner(
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p7, c7));
 
     let result = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
-    let checked_value_10 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(Rav1dError::EINVAL)?;
-    storeu_512!(
-      checked_value_10,
-      [i32; 16],
-      result
-    );
+    let checked_value_10 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    storeu_512!(checked_value_10, [i32; 16], result);
   }
 
   for col in vector_columns..width {
@@ -6184,14 +6471,18 @@ fn h_filter_8tap_16bpc_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
     let r =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_shl(1, i32::cast_unsigned(sh)), 1_u32);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh));
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh));
   }
 
   Ok(())
@@ -6209,7 +6500,10 @@ fn v_filter_8tap_16bpc_avx512_inner(
 ) -> Rav1dResult {
   let MotionRow { width, ordinal } = row;
   let Ok(y) = console_core_number_conversion::index(ordinal);
-  let WordVerticalScale { shift: sh, maximum: max } = *scale;
+  let WordVerticalScale {
+    shift: sh,
+    maximum: max,
+  } = *scale;
   let dst_2 = &mut *dst;
 
   let c0 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
@@ -6267,77 +6561,84 @@ fn v_filter_8tap_16bpc_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r0 = loadu_512!(
-      checked_value,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = loadu_512!(checked_value, [i32; 16]);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r1 = loadu_512!(
-      checked_value_2,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = loadu_512!(checked_value_2, [i32; 16]);
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r2 = loadu_512!(
-      checked_value_3,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_38 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r2 = loadu_512!(checked_value_3, [i32; 16]);
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r3 = loadu_512!(
-      checked_value_4,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_39 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r3 = loadu_512!(checked_value_4, [i32; 16]);
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r4 = loadu_512!(
-      checked_value_5,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_40 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r4 = loadu_512!(checked_value_5, [i32; 16]);
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r5 = loadu_512!(
-      checked_value_6,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_41 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r5 = loadu_512!(checked_value_6, [i32; 16]);
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r6 = loadu_512!(
-      checked_value_7,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_42 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r6 = loadu_512!(checked_value_7, [i32; 16]);
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r7 = loadu_512!(
-      checked_value_8,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_43 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r7 = loadu_512!(checked_value_8, [i32; 16]);
 
     let mut sum = _mm512_mullo_epi32(r0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r1, c1));
@@ -6351,16 +6652,16 @@ fn v_filter_8tap_16bpc_avx512_inner(
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
     let packed = _mm512_cvtusepi32_epi16(clamped);
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_9,
-      packed
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_9, packed);
   }
 
   for col in vector_columns..width {
@@ -6371,14 +6672,18 @@ fn v_filter_8tap_16bpc_avx512_inner(
 
     for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
       match (
-        i32::wrapping_mul(
-          *coeff_element,
-          *{ let checked_value_44 = <[_]>::get(
-            &(*{ let checked_value_19 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?; checked_value_19 }),
+        i32::wrapping_mul(*coeff_element, *{
+          let checked_value_44 = <[_]>::get(
+            &(*{
+              let checked_value_19 =
+                <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?;
+              checked_value_19
+            }),
             column_index,
           )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_44 },
-        ),
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_44
+        }),
         &mut sum,
       ) {
         (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -6392,9 +6697,15 @@ fn v_filter_8tap_16bpc_avx512_inner(
 
     let r =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_shl(1, i32::cast_unsigned(sh)), 1_u32);
-    let output_sample = i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)).clamp(0, max);
-    *{ let checked_value_20 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_20 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    let output_sample =
+      i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)).clamp(0, max);
+    *{
+      let checked_value_20 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_20
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -6414,7 +6725,10 @@ fn v_filter_8tap_16bpc_prep_avx512_inner(
 ) -> Rav1dResult {
   let MotionRow { width, ordinal } = row;
   let Ok(y) = console_core_number_conversion::index(ordinal);
-  let WordPreparationScale { shift: sh, bias: prep_bias } = *scale;
+  let WordPreparationScale {
+    shift: sh,
+    bias: prep_bias,
+  } = *scale;
   let dst_2 = &mut *dst;
 
   let c0 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
@@ -6471,77 +6785,84 @@ fn v_filter_8tap_16bpc_prep_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r0 = loadu_512!(
-      checked_value,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y.wrapping_add(0)).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = loadu_512!(checked_value, [i32; 16]);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r1 = loadu_512!(
-      checked_value_2,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = loadu_512!(checked_value_2, [i32; 16]);
     let checked_value_3 = <[_]>::get(
-        &(*{ let checked_value_38 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?; checked_value_38 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r2 = loadu_512!(
-      checked_value_3,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_38 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(2)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_38
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r2 = loadu_512!(checked_value_3, [i32; 16]);
     let checked_value_4 = <[_]>::get(
-        &(*{ let checked_value_39 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?; checked_value_39 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r3 = loadu_512!(
-      checked_value_4,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_39 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(3)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r3 = loadu_512!(checked_value_4, [i32; 16]);
     let checked_value_5 = <[_]>::get(
-        &(*{ let checked_value_40 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?; checked_value_40 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r4 = loadu_512!(
-      checked_value_5,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_40 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(4)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_40
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r4 = loadu_512!(checked_value_5, [i32; 16]);
     let checked_value_6 = <[_]>::get(
-        &(*{ let checked_value_41 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?; checked_value_41 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r5 = loadu_512!(
-      checked_value_6,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_41 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(5)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_41
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r5 = loadu_512!(checked_value_6, [i32; 16]);
     let checked_value_7 = <[_]>::get(
-        &(*{ let checked_value_42 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?; checked_value_42 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r6 = loadu_512!(
-      checked_value_7,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_42 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(6)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_42
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r6 = loadu_512!(checked_value_7, [i32; 16]);
     let checked_value_8 = <[_]>::get(
-        &(*{ let checked_value_43 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?; checked_value_43 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r7 = loadu_512!(
-      checked_value_8,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_43 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(7)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_43
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r7 = loadu_512!(checked_value_8, [i32; 16]);
 
     let mut sum = _mm512_mullo_epi32(r0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r1, c1));
@@ -6555,16 +6876,16 @@ fn v_filter_8tap_16bpc_prep_avx512_inner(
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let biased = _mm512_sub_epi32(shifted, bias);
     let packed = _mm512_cvtsepi32_epi16(biased);
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_9,
-      packed
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_9, packed);
   }
 
   for col in vector_columns..width {
@@ -6575,14 +6896,18 @@ fn v_filter_8tap_16bpc_prep_avx512_inner(
 
     for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
       match (
-        i32::wrapping_mul(
-          *coeff_element,
-          *{ let checked_value_44 = <[_]>::get(
-            &(*{ let checked_value_19 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?; checked_value_19 }),
+        i32::wrapping_mul(*coeff_element, *{
+          let checked_value_44 = <[_]>::get(
+            &(*{
+              let checked_value_19 =
+                <[_]>::get(&*mid, (Wrapping(y) + Wrapping(i)).0).ok_or(Rav1dError::EINVAL)?;
+              checked_value_19
+            }),
             column_index,
           )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_44 },
-        ),
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_44
+        }),
         &mut sum,
       ) {
         (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -6600,8 +6925,13 @@ fn v_filter_8tap_16bpc_prep_avx512_inner(
       i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_20 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_20 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_20 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_20
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -6624,7 +6954,10 @@ fn h_filter_8tap_16bpc_put_avx512_inner(
 
   let Ok(coefficients) = word_tap_coefficients(token, *filter);
 
-  let intermediate_bits = match ::core::primitive::bool::then_some(::core::primitive::i32::wrapping_shr(max, 11_u32) != 0, ()) {
+  let intermediate_bits = match ::core::primitive::bool::then_some(
+    ::core::primitive::i32::wrapping_shr(max, 11_u32) != 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => 2,
     ::core::option::Option::None => 4,
   };
@@ -6647,7 +6980,8 @@ fn h_filter_8tap_16bpc_put_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let window = src_2.get(column_index..)
+    let window = src_2
+      .get(column_index..)
       .and_then(<[u16]>::first_chunk::<23>)
       .ok_or(Rav1dError::EINVAL)?;
     let sum = horizontal_word_sums(token, window, coefficients)?;
@@ -6655,7 +6989,8 @@ fn h_filter_8tap_16bpc_put_avx512_inner(
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
     let packed = _mm512_cvtusepi32_epi16(clamped);
-    let target = dst_2.get_mut(column_index..)
+    let target = dst_2
+      .get_mut(column_index..)
       .and_then(<[u16]>::first_chunk_mut::<16>)
       .ok_or(Rav1dError::EINVAL)?;
     storeu_256!(target, packed);
@@ -6677,14 +7012,21 @@ fn h_filter_8tap_16bpc_put_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
-    let output_sample = ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, scalar_rnd), 6_u32)
-      .clamp(0, max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    let output_sample =
+      ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, scalar_rnd), 6_u32)
+        .clamp(0, max);
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -6702,7 +7044,10 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
   filter: &[i8; 8],
   scale: WordPreparationScale,
 ) -> Rav1dResult {
-  let WordPreparationScale { shift: sh, bias: prep_bias } = scale;
+  let WordPreparationScale {
+    shift: sh,
+    bias: prep_bias,
+  } = scale;
   let dst_2 = &mut *dst;
   let src_2 = &*src;
 
@@ -6720,7 +7065,8 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let window = src_2.get(column_index..)
+    let window = src_2
+      .get(column_index..)
       .and_then(<[u16]>::first_chunk::<23>)
       .ok_or(Rav1dError::EINVAL)?;
     let sum = horizontal_word_sums(token, window, coefficients)?;
@@ -6728,7 +7074,8 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let biased = _mm512_sub_epi32(shifted, bias);
     let packed = _mm512_cvtsepi32_epi16(biased);
-    let target = dst_2.get_mut(column_index..)
+    let target = dst_2
+      .get_mut(column_index..)
       .and_then(<[i16]>::first_chunk_mut::<16>)
       .ok_or(Rav1dError::EINVAL)?;
     storeu_256!(target, packed);
@@ -6739,7 +7086,8 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
 
     let sum = try_convolve8(filter, |ordinal| {
       let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value = <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
       Ok(i32::from(*checked_value))
     })?;
 
@@ -6749,8 +7097,13 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
       i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -6825,118 +7178,105 @@ fn v_filter_8tap_16bpc_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(stride_u) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(stride_u) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p2 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p2 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p3 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p3 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p4 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p4 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p5 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p5 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p6 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p6 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p7 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p7 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_8));
 
     let mut sum = _mm512_mullo_epi32(p0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p1, c1));
@@ -6950,16 +7290,16 @@ fn v_filter_8tap_16bpc_direct_avx512_inner(
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
     let packed = _mm512_cvtusepi32_epi16(clamped);
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_9,
-      packed
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_9, packed);
   }
 
   let coeff: [i32; 8] = filter.map(i32::from);
@@ -6973,13 +7313,14 @@ fn v_filter_8tap_16bpc_direct_avx512_inner(
       match (
         i32::wrapping_mul(
           *coeff_element,
-          <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-            *{ let checked_value_18 = <[_]>::get(
+          <i32 as ::core::convert::From<::core::primitive::u16>>::from(*{
+            let checked_value_18 = <[_]>::get(
               &*src_2,
               (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
             )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_18 },
-          ),
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_18
+          }),
         ),
         &mut sum,
       ) {
@@ -6994,8 +7335,13 @@ fn v_filter_8tap_16bpc_direct_avx512_inner(
 
     let output_sample =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 32), 6_u32).clamp(0, max);
-    *{ let checked_value_19 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_19 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    *{
+      let checked_value_19 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_19
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -7014,7 +7360,10 @@ fn v_filter_8tap_16bpc_prep_direct_avx512_inner(
   filter: &[i8; 8],
   scale: WordPreparationScale,
 ) -> Rav1dResult {
-  let WordPreparationScale { shift: sh, bias: prep_bias } = scale;
+  let WordPreparationScale {
+    shift: sh,
+    bias: prep_bias,
+  } = scale;
   let dst_2 = &mut *dst;
   let src_2 = &*src;
 
@@ -7073,118 +7422,105 @@ fn v_filter_8tap_16bpc_prep_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(stride_u) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(stride_u) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
     let checked_value_3 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p2 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_3
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p2 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_3));
     let checked_value_4 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p3 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_4
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p3 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_4));
     let checked_value_5 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p4 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_5
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p4 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_5));
     let checked_value_6 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p5 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_6
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p5 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_6));
     let checked_value_7 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p6 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_7
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p6 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_7));
     let checked_value_8 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-          ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-            + Wrapping(16))
-          .0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p7 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_8
-    ));
+      &*src_2,
+      (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
+        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
+          + Wrapping(16))
+        .0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p7 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_8));
 
     let mut sum = _mm512_mullo_epi32(p0, c0);
     sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p1, c1));
@@ -7198,16 +7534,16 @@ fn v_filter_8tap_16bpc_prep_direct_avx512_inner(
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let biased = _mm512_sub_epi32(shifted, bias);
     let packed = _mm512_cvtsepi32_epi16(biased);
-    let checked_value_9 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_9,
-      packed
-    );
+    let checked_value_9 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_9, packed);
   }
 
   let coeff: [i32; 8] = filter.map(i32::from);
@@ -7221,13 +7557,14 @@ fn v_filter_8tap_16bpc_prep_direct_avx512_inner(
       match (
         i32::wrapping_mul(
           *coeff_element,
-          <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-            *{ let checked_value_18 = <[_]>::get(
+          <i32 as ::core::convert::From<::core::primitive::u16>>::from(*{
+            let checked_value_18 = <[_]>::get(
               &*src_2,
               (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
             )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_18 },
-          ),
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_18
+          }),
         ),
         &mut sum,
       ) {
@@ -7246,8 +7583,13 @@ fn v_filter_8tap_16bpc_prep_direct_avx512_inner(
       i32::wrapping_shr(i32::wrapping_add(sum, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_19 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_19 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_19 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_19
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -7292,8 +7634,11 @@ struct MotionOutput<'a, Pixel> {
 impl<Pixel> MotionOutput<'_, Pixel> {
   #[inline]
   fn row_tail(&mut self, row: u32) -> Rav1dResult<&mut [Pixel]> {
-    let offset = i64::from(row).checked_mul(self.row_stride).ok_or(Rav1dError::EINVAL)?;
-    let start = console_core_number_conversion::checked_index(offset).map_err(|_| Rav1dError::EINVAL)?;
+    let offset = i64::from(row)
+      .checked_mul(self.row_stride)
+      .ok_or(Rav1dError::EINVAL)?;
+    let start =
+      console_core_number_conversion::checked_index(offset).map_err(|_| Rav1dError::EINVAL)?;
     self.samples.get_mut(start..).ok_or(Rav1dError::EINVAL)
   }
 }
@@ -7310,7 +7655,10 @@ struct EightTapOutput<'a, Pixel> {
 #[doc = "Connects the selected word SIMD backend to the shared eight-tap output loop."]
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one four-callback definition covers both word eight-tap output backends while retaining their compile-time CPU tokens")
+  expect(
+    explicit080_macro_budget,
+    reason = "one four-callback definition covers both word eight-tap output backends while retaining their compile-time CPU tokens"
+  )
 )]
 macro_rules! word_tap_writer {
   ($token:ident; $horizontal:path, $vertical:path, $horizontal_direct:path, $vertical_direct:path) => {
@@ -7318,13 +7666,22 @@ macro_rules! word_tap_writer {
       horizontal_buffered: |target: &mut [i32], input: &[u16], width, taps: &[i8; 8], shift| {
         $horizontal($token, target, input, width, taps, shift)
       },
-      vertical_buffered: |target: &mut [u16], filtered: &[[i32; MID_STRIDE]], geometry: MotionRow, taps: &[i8; 8], scale: &WordVerticalScale| {
+      vertical_buffered: |target: &mut [u16],
+                          filtered: &[[i32; MID_STRIDE]],
+                          geometry: MotionRow,
+                          taps: &[i8; 8],
+                          scale: &WordVerticalScale| {
         $vertical($token, target, filtered, geometry, taps, scale)
       },
       horizontal_direct: |target: &mut [u16], input: &[u16], width, taps: &[i8; 8], maximum| {
         $horizontal_direct($token, target, input, width, taps, maximum)
       },
-      vertical_direct: |target: &mut [u16], input: &[u16], pitch, width, taps: &[i8; 8], maximum| {
+      vertical_direct: |target: &mut [u16],
+                        input: &[u16],
+                        pitch,
+                        width,
+                        taps: &[i8; 8],
+                        maximum| {
         $vertical_direct($token, target, input, pitch, width, taps, maximum)
       },
     }
@@ -7335,48 +7692,90 @@ macro_rules! word_tap_writer {
 fn put_eight_tap<Pixel: Copy, Intermediate: Copy + Default + 'static>(
   writer: MotionRowWriters<
     impl Fn(&mut [Intermediate], &[Pixel], u32, &[i8; 8], i32) -> Rav1dResult,
-    impl Fn(&mut [Pixel], &[[Intermediate; MID_STRIDE]], MotionRow, &[i8; 8], &WordVerticalScale) -> Rav1dResult,
+    impl Fn(
+      &mut [Pixel],
+      &[[Intermediate; MID_STRIDE]],
+      MotionRow,
+      &[i8; 8],
+      &WordVerticalScale,
+    ) -> Rav1dResult,
     impl Fn(&mut [Pixel], &[Pixel], u32, &[i8; 8], i32) -> Rav1dResult,
     impl Fn(&mut [Pixel], &[Pixel], i64, u32, &[i8; 8], i32) -> Rav1dResult,
   >,
   request: EightTapOutput<'_, Pixel>,
   pool: &'static MidPool<Intermediate, 135>,
 ) -> Rav1dResult {
-  let EightTapOutput { mut output, source, sampling, axes } = request;
-  let EightTapBlock { size: Size { width, height }, coefficients } = EightTapBlock::new(sampling, axes)?;
+  let EightTapOutput {
+    mut output,
+    source,
+    sampling,
+    axes,
+  } = request;
+  let EightTapBlock {
+    size: Size { width, height },
+    coefficients,
+  } = EightTapBlock::new(sampling, axes)?;
   let maximum = output.maximum;
-  let intermediate_bits = match maximum.wrapping_shr(11) { 0 => 4i32, _ => 2i32 };
-  let Point { x: horizontal, y: vertical } = coefficients;
+  let intermediate_bits = match maximum.wrapping_shr(11) {
+    0 => 4i32,
+    _ => 2i32,
+  };
+  let Point {
+    x: horizontal,
+    y: vertical,
+  } = coefficients;
 
   match (horizontal, vertical) {
     (Some(horizontal_pass), Some(vertical_pass)) => {
       let Ok(mut scratch) = take_mid(pool);
       let horizontal_shift = 6i32.wrapping_sub(intermediate_bits);
-      let vertical_scale = WordVerticalScale { shift: 6i32.wrapping_add(intermediate_bits), maximum };
+      let vertical_scale = WordVerticalScale {
+        shift: 6i32.wrapping_add(intermediate_bits),
+        maximum,
+      };
       fill_horizontal_tap_rows(&source, height, scratch.as_mut(), |target, input| {
         (writer.horizontal_buffered)(target, input, width, horizontal_pass, horizontal_shift)
       })?;
 
       for row in 0..height {
         let target = output.row_tail(row)?;
-        (writer.vertical_buffered)(target, scratch.as_ref(), MotionRow { width, ordinal: row }, vertical_pass, &vertical_scale)?;
+        (writer.vertical_buffered)(
+          target,
+          scratch.as_ref(),
+          MotionRow {
+            width,
+            ordinal: row,
+          },
+          vertical_pass,
+          &vertical_scale,
+        )?;
       }
 
       let Ok(()) = put_mid(pool, scratch);
     }
     (Some(horizontal_only), None) => {
       for row in 0..height {
-        let input = source.row_tail(Point { x: -3, y: i64::from(row) })?;
+        let input = source.row_tail(Point {
+          x: -3,
+          y: i64::from(row),
+        })?;
         let target = output.row_tail(row)?;
         (writer.horizontal_direct)(target, input, width, horizontal_only, maximum)?;
       }
     }
     (None, Some(vertical_only)) => {
-      let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<Pixel>());
-      let stride = source.stride_bytes.checked_div(pixel_bytes.cast_signed()).ok_or(Rav1dError::EINVAL)?;
+      let Ok(pixel_bytes) =
+        console_core_number_conversion::fixed_index(core::mem::size_of::<Pixel>());
+      let stride = source
+        .stride_bytes
+        .checked_div(pixel_bytes.cast_signed())
+        .ok_or(Rav1dError::EINVAL)?;
 
       for row in 0..height {
-        let input = source.row_tail(Point { x: 0, y: i64::from(row).wrapping_sub(3) })?;
+        let input = source.row_tail(Point {
+          x: 0,
+          y: i64::from(row).wrapping_sub(3),
+        })?;
         let target = output.row_tail(row)?;
         (writer.vertical_direct)(target, input, stride, width, vertical_only, maximum)?;
       }
@@ -7385,7 +7784,10 @@ fn put_eight_tap<Pixel: Copy, Intermediate: Copy + Default + 'static>(
       let Ok(columns) = console_core_number_conversion::index(width);
 
       for row in 0..height {
-        let input = source.row_tail(Point { x: 0, y: i64::from(row) })?;
+        let input = source.row_tail(Point {
+          x: 0,
+          y: i64::from(row),
+        })?;
         let target = output.row_tail(row)?;
         let into = target.get_mut(..columns).ok_or(Rav1dError::EINVAL)?;
         let from = input.get(..columns).ok_or(Rav1dError::EINVAL)?;
@@ -7424,10 +7826,22 @@ fn prep_8tap_16bpc_avx512_impl_inner(
   bitdepth_max: i32,
   axes: Point<Rav1dFilterMode>,
 ) -> Rav1dResult {
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let request = EightTapPrediction { output, source, sampling, axes };
-  let precision = match bitdepth_max.wrapping_shr(11) { 0 => 4_u32, _ => 2_u32 };
-  let Ok(shift) = console_core_number_conversion::wrapped::<_, i32>(6_u32.wrapping_sub(precision));
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let request = EightTapPrediction {
+    output,
+    source,
+    sampling,
+    axes,
+  };
+  let precision = match bitdepth_max.wrapping_shr(11) {
+    0 => 4_u32,
+    _ => 2_u32,
+  };
+  let Ok(shift) =
+    console_core_number_conversion::wrapped::<_, i32>(6_u32.wrapping_sub(precision));
   let writer = word_eight_tap_prediction!(
     token, shift;
     h_filter_8tap_16bpc_avx512_inner,
@@ -7435,7 +7849,9 @@ fn prep_8tap_16bpc_avx512_impl_inner(
     h_filter_8tap_16bpc_prep_direct_avx512_inner,
     v_filter_8tap_16bpc_prep_direct_avx512_inner
   );
-  prepare_eight_tap(request, writer, &MID_I32_135, |target, reference| prepare_word_identity(target, reference, precision))
+  prepare_eight_tap(request, writer, &MID_I32_135, |target, reference| {
+    prepare_word_identity(target, reference, precision)
+  })
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -7465,10 +7881,22 @@ fn prep_8tap_16bpc_avx2_impl_inner(
   bitdepth_max: i32,
   axes: Point<Rav1dFilterMode>,
 ) -> Rav1dResult {
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let request = EightTapPrediction { output, source, sampling, axes };
-  let precision = match bitdepth_max.wrapping_shr(11) { 0 => 4_u32, _ => 2_u32 };
-  let Ok(shift) = console_core_number_conversion::wrapped::<_, i32>(6_u32.wrapping_sub(precision));
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let request = EightTapPrediction {
+    output,
+    source,
+    sampling,
+    axes,
+  };
+  let precision = match bitdepth_max.wrapping_shr(11) {
+    0 => 4_u32,
+    _ => 2_u32,
+  };
+  let Ok(shift) =
+    console_core_number_conversion::wrapped::<_, i32>(6_u32.wrapping_sub(precision));
   let writer = word_eight_tap_prediction!(
     token, shift;
     h_filter_8tap_16bpc_avx2_inner,
@@ -7476,7 +7904,9 @@ fn prep_8tap_16bpc_avx2_impl_inner(
     h_filter_8tap_16bpc_prep_direct_avx2_inner,
     v_filter_8tap_16bpc_prep_direct_avx2_inner
   );
-  prepare_eight_tap(request, writer, &MID_I32_135, |target, reference| prepare_word_identity(target, reference, precision))
+  prepare_eight_tap(request, writer, &MID_I32_135, |target, reference| {
+    prepare_word_identity(target, reference, precision)
+  })
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -7506,7 +7936,9 @@ fn h_filter_bilin_8bpc_avx2_inner(
   );
 
   let rnd = match ::core::primitive::bool::then_some(sh > 0, ()) {
-    ::core::option::Option::Some(()) => _mm256_set1_epi16(i16::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1)))),
+    ::core::option::Option::Some(()) => {
+      _mm256_set1_epi16(i16::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1))))
+    }
     ::core::option::Option::None => _mm256_setzero_si256(),
   };
 
@@ -7519,27 +7951,26 @@ fn h_filter_bilin_8bpc_avx2_inner(
   for x in (0..vector_columns).step_by(32) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let src_lo = loadu_256!(
-      checked_value
-    );
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let src_lo = loadu_256!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let src_hi = loadu_256!(
-      checked_value_2
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let src_hi = loadu_256!(checked_value_2);
 
     let pairs_lo = _mm256_unpacklo_epi8(src_lo, src_hi);
     let pairs_hi = _mm256_unpackhi_epi8(src_lo, src_hi);
@@ -7553,42 +7984,36 @@ fn h_filter_bilin_8bpc_avx2_inner(
     let lo_128 = _mm256_permute2x128_si256(result_lo_2, result_hi_2, 0x20);
     let hi_128 = _mm256_permute2x128_si256(result_lo_2, result_hi_2, 0x31);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      lo_128
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, lo_128);
     let checked_value_4 = <[_]>::get_mut(
-        &mut *dst_2,
-        (Wrapping(column_index) + Wrapping(16)).0..(Wrapping(column_index) + Wrapping(32)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    storeu_256!(
-      checked_value_4,
-      hi_128
-    );
+      &mut *dst_2,
+      (Wrapping(column_index) + Wrapping(16)).0..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_4, hi_128);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_5 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
-    let checked_value_6 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_6,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
+    let checked_value_6 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_6);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -7612,10 +8037,13 @@ fn h_filter_bilin_8bpc_avx2_inner(
       ),
       ::core::option::Option::None => pixel,
     };
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -7658,29 +8086,31 @@ fn v_filter_bilin_8bpc_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value = <[_]>::get(
-        &*(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let row0 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value
-    ));
+      &*(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let row0 = _mm256_cvtepi16_epi32(loadu_128!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let row1 = _mm256_cvtepi16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &*(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let row1 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_2));
 
     let mul0 = _mm256_mullo_epi32(row0, c0_32);
     let mul1 = _mm256_mullo_epi32(row1, c1_32);
@@ -7708,16 +8138,24 @@ fn v_filter_bilin_8bpc_avx2_inner(
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value_38 = <[_]>::get(&*(*{ let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-        .ok_or(Rav1dError::EINVAL)?;
-    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-      *checked_value_38,
-    );
-    let checked_value_39 = <[_]>::get(&*(*{ let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_20 }), column_index)
-        .ok_or(Rav1dError::EINVAL)?;
-    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-      *checked_value_39,
-    );
+    let checked_value_38 = <[_]>::get(
+      &*(*{
+        let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_38);
+    let checked_value_39 = <[_]>::get(
+      &*(*{
+        let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_39);
     let pixel = i32::wrapping_add(i32::wrapping_mul(coeff0, r0), i32::wrapping_mul(coeff1, r1));
     let result = match ::core::primitive::bool::then_some(sh > 0, ()) {
       ::core::option::Option::Some(()) => i32::wrapping_shr(
@@ -7736,10 +8174,13 @@ fn v_filter_bilin_8bpc_avx2_inner(
         <i32 as ::core::convert::From<::core::primitive::i16>>::from(bd_max),
       ),
     };
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -7776,27 +8217,26 @@ fn h_bilin_8bpc_put_avx2_inner(
   for x in (0..vector_columns).step_by(32) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let src_lo = loadu_256!(
-      checked_value
-    );
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let src_lo = loadu_256!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let src_hi = loadu_256!(
-      checked_value_2
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(33)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let src_hi = loadu_256!(checked_value_2);
 
     let pairs_lo = _mm256_unpacklo_epi8(src_lo, src_hi);
     let pairs_hi = _mm256_unpackhi_epi8(src_lo, src_hi);
@@ -7813,29 +8253,26 @@ fn h_bilin_8bpc_put_avx2_inner(
 
     let packed = _mm256_packus_epi16(result_lo_3, result_hi_3);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -7851,10 +8288,13 @@ fn h_bilin_8bpc_put_avx2_inner(
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -7892,24 +8332,26 @@ fn v_bilin_8bpc_direct_avx2_inner(
   for x in (0..vector_columns).step_by(32) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src0_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let s0 = loadu_256!(
-      checked_value
-    );
-    let checked_value_2 = <[_]>::get(&*src1_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let s1 = loadu_256!(
-      checked_value_2
-    );
+    let checked_value = <[_]>::get(
+      &*src0_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s0 = loadu_256!(checked_value);
+    let checked_value_2 = <[_]>::get(
+      &*src1_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let s1 = loadu_256!(checked_value_2);
 
     let pairs_lo = _mm256_unpacklo_epi8(s0, s1);
     let pairs_hi = _mm256_unpackhi_epi8(s0, s1);
@@ -7922,29 +8364,25 @@ fn v_bilin_8bpc_direct_avx2_inner(
 
     let packed = _mm256_packus_epi16(result_lo_2, result_hi_2);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u8; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u8; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_4 = <[_]>::get(&*src0_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_4,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
     let checked_value_5 = <[_]>::get(&*src1_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -7960,10 +8398,13 @@ fn v_bilin_8bpc_direct_avx2_inner(
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -7993,7 +8434,9 @@ fn h_filter_bilin_8bpc_avx512_inner(
     ) | <i16 as ::core::convert::From<::core::primitive::u8>>::from(coeff0),
   );
   let rnd = match ::core::primitive::bool::then_some(sh > 0, ()) {
-    ::core::option::Option::Some(()) => _mm512_set1_epi16(i16::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1)))),
+    ::core::option::Option::Some(()) => {
+      _mm512_set1_epi16(i16::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1))))
+    }
     ::core::option::Option::None => _mm512_setzero_si512(),
   };
   let sh_reg = _mm_cvtsi32_si128(<i32 as ::core::convert::From<::core::primitive::u8>>::from(
@@ -8008,20 +8451,18 @@ fn h_filter_bilin_8bpc_avx512_inner(
   for x in (0..vector_columns).step_by(64) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(64)).0).ok_or(Rav1dError::EINVAL)?;
-    let src_lo = loadu_512!(
-      checked_value,
-      [u8; 64]
-    );
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let src_lo = loadu_512!(checked_value, [u8; 64]);
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(65)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let src_hi = loadu_512!(
-      checked_value_2,
-      [u8; 64]
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(65)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let src_hi = loadu_512!(checked_value_2, [u8; 64]);
 
     let pairs_lo = _mm512_unpacklo_epi8(src_lo, src_hi);
     let pairs_hi = _mm512_unpackhi_epi8(src_lo, src_hi);
@@ -8035,42 +8476,36 @@ fn h_filter_bilin_8bpc_avx512_inner(
     let out0 = _mm512_permutex2var_epi64(result_lo_2, idx0, result_hi_2);
     let out1 = _mm512_permutex2var_epi64(result_lo_2, idx1, result_hi_2);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_512!(
-      checked_value_3,
-      out0
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_512!(checked_value_3, out0);
     let checked_value_4 = <[_]>::get_mut(
-        &mut *dst_2,
-        (Wrapping(column_index) + Wrapping(32)).0..(Wrapping(column_index) + Wrapping(64)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&mut [i16; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    storeu_512!(
-      checked_value_4,
-      out1
-    );
+      &mut *dst_2,
+      (Wrapping(column_index) + Wrapping(32)).0..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_512!(checked_value_4, out1);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_5 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
-    let checked_value_6 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_6,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
+    let checked_value_6 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_6);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -8094,10 +8529,13 @@ fn h_filter_bilin_8bpc_avx512_inner(
       ),
       ::core::option::Option::None => pixel,
     };
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -8139,29 +8577,31 @@ fn v_filter_bilin_8bpc_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value = <[_]>::get(
-        &*(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let row0 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value
-    ));
+      &*(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let row0 = _mm512_cvtepi16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let row1 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let row1 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_2));
 
     let mul0 = _mm512_mullo_epi32(row0, c0_32);
     let mul1 = _mm512_mullo_epi32(row1, c1_32);
@@ -8172,31 +8612,39 @@ fn v_filter_bilin_8bpc_avx512_inner(
     let result_3 = _mm512_min_epi32(result_2, max_32);
 
     let packed = _mm512_cvtusepi32_epi8(result_3);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u8; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u8; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, packed);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value_38 = <[_]>::get(&*(*{ let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-        .ok_or(Rav1dError::EINVAL)?;
-    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-      *checked_value_38,
-    );
-    let checked_value_39 = <[_]>::get(&*(*{ let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_20 }), column_index)
-        .ok_or(Rav1dError::EINVAL)?;
-    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-      *checked_value_39,
-    );
+    let checked_value_38 = <[_]>::get(
+      &*(*{
+        let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_38);
+    let checked_value_39 = <[_]>::get(
+      &*(*{
+        let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_39);
     let pixel = i32::wrapping_add(i32::wrapping_mul(coeff0, r0), i32::wrapping_mul(coeff1, r1));
     let result = match ::core::primitive::bool::then_some(sh > 0, ()) {
       ::core::option::Option::Some(()) => i32::wrapping_shr(
@@ -8209,10 +8657,13 @@ fn v_filter_bilin_8bpc_avx512_inner(
       .clamp(0, 255),
       ::core::option::Option::None => pixel.clamp(0, 255),
     };
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -8251,29 +8702,31 @@ fn v_filter_bilin_8bpc_prep_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value = <[_]>::get(
-        &*(*{ let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let row0 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value
-    ));
+      &*(*{
+        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let row0 = _mm512_cvtepi16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*(*{ let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let row1 = _mm512_cvtepi16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*(*{
+        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let row1 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_2));
 
     let mul0 = _mm512_mullo_epi32(row0, c0_32);
     let mul1 = _mm512_mullo_epi32(row1, c1_32);
@@ -8282,31 +8735,39 @@ fn v_filter_bilin_8bpc_prep_avx512_inner(
     let result = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), sh_reg);
 
     let packed = _mm512_cvtsepi32_epi16(result);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value_38 = <[_]>::get(&*(*{ let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-        .ok_or(Rav1dError::EINVAL)?;
-    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-      *checked_value_38,
-    );
-    let checked_value_39 = <[_]>::get(&*(*{ let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?; checked_value_20 }), column_index)
-        .ok_or(Rav1dError::EINVAL)?;
-    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-      *checked_value_39,
-    );
+    let checked_value_38 = <[_]>::get(
+      &*(*{
+        let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_38);
+    let checked_value_39 = <[_]>::get(
+      &*(*{
+        let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_39);
     let pixel = i32::wrapping_add(i32::wrapping_mul(coeff0, r0), i32::wrapping_mul(coeff1, r1));
     let result = match ::core::primitive::bool::then_some(sh > 0, ()) {
       ::core::option::Option::Some(()) => i32::wrapping_shr(
@@ -8318,10 +8779,13 @@ fn v_filter_bilin_8bpc_prep_avx512_inner(
       ),
       ::core::option::Option::None => pixel,
     };
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -8357,20 +8821,18 @@ fn h_bilin_8bpc_put_avx512_inner(
   for x in (0..vector_columns).step_by(64) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(64)).0).ok_or(Rav1dError::EINVAL)?;
-    let src_lo = loadu_512!(
-      checked_value,
-      [u8; 64]
-    );
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let src_lo = loadu_512!(checked_value, [u8; 64]);
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(65)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let src_hi = loadu_512!(
-      checked_value_2,
-      [u8; 64]
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(65)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let src_hi = loadu_512!(checked_value_2, [u8; 64]);
 
     let pairs_lo = _mm512_unpacklo_epi8(src_lo, src_hi);
     let pairs_hi = _mm512_unpackhi_epi8(src_lo, src_hi);
@@ -8382,26 +8844,22 @@ fn h_bilin_8bpc_put_avx512_inner(
     let result_hi_2 = _mm512_sra_epi16(_mm512_add_epi16(result_hi, rnd), sh_reg);
 
     let packed = _mm512_packus_epi16(result_lo_2, result_hi_2);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(64)).0)
-        .ok_or(Rav1dError::EINVAL)?;
-    storeu_512!(
-      checked_value_3,
-      [u8; 64],
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    storeu_512!(checked_value_3, [u8; 64], packed);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -8417,10 +8875,13 @@ fn h_bilin_8bpc_put_avx512_inner(
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -8458,16 +8919,18 @@ fn v_bilin_8bpc_direct_avx512_inner(
   for x in (0..vector_columns).step_by(64) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src0_2, column_index..(Wrapping(column_index) + Wrapping(64)).0).ok_or(Rav1dError::EINVAL)?;
-    let s0 = loadu_512!(
-      checked_value,
-      [u8; 64]
-    );
-    let checked_value_2 = <[_]>::get(&*src1_2, column_index..(Wrapping(column_index) + Wrapping(64)).0).ok_or(Rav1dError::EINVAL)?;
-    let s1 = loadu_512!(
-      checked_value_2,
-      [u8; 64]
-    );
+    let checked_value = <[_]>::get(
+      &*src0_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let s0 = loadu_512!(checked_value, [u8; 64]);
+    let checked_value_2 = <[_]>::get(
+      &*src1_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let s1 = loadu_512!(checked_value_2, [u8; 64]);
 
     let pairs_lo = _mm512_unpacklo_epi8(s0, s1);
     let pairs_hi = _mm512_unpackhi_epi8(s0, s1);
@@ -8479,26 +8942,21 @@ fn v_bilin_8bpc_direct_avx512_inner(
     let result_hi_2 = _mm512_sra_epi16(_mm512_add_epi16(result_hi, rnd), sh_reg);
 
     let packed = _mm512_packus_epi16(result_lo_2, result_hi_2);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(64)).0)
-        .ok_or(Rav1dError::EINVAL)?;
-    storeu_512!(
-      checked_value_3,
-      [u8; 64],
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    storeu_512!(checked_value_3, [u8; 64], packed);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_4 = <[_]>::get(&*src0_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_4,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
     let checked_value_5 = <[_]>::get(&*src1_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -8514,10 +8972,13 @@ fn v_bilin_8bpc_direct_avx512_inner(
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, 255);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -8556,16 +9017,18 @@ fn v_bilin_8bpc_prep_direct_avx512_inner(
   for x in (0..vector_columns).step_by(64) {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
-    let checked_value = <[_]>::get(&*src0_2, column_index..(Wrapping(column_index) + Wrapping(64)).0).ok_or(Rav1dError::EINVAL)?;
-    let s0 = loadu_512!(
-      checked_value,
-      [u8; 64]
-    );
-    let checked_value_2 = <[_]>::get(&*src1_2, column_index..(Wrapping(column_index) + Wrapping(64)).0).ok_or(Rav1dError::EINVAL)?;
-    let s1 = loadu_512!(
-      checked_value_2,
-      [u8; 64]
-    );
+    let checked_value = <[_]>::get(
+      &*src0_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let s0 = loadu_512!(checked_value, [u8; 64]);
+    let checked_value_2 = <[_]>::get(
+      &*src1_2,
+      column_index..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let s1 = loadu_512!(checked_value_2, [u8; 64]);
 
     let pairs_lo = _mm512_unpacklo_epi8(s0, s1);
     let pairs_hi = _mm512_unpackhi_epi8(s0, s1);
@@ -8576,42 +9039,35 @@ fn v_bilin_8bpc_prep_direct_avx512_inner(
     let out0 = _mm512_permutex2var_epi64(result_lo, idx0, result_hi);
     let out1 = _mm512_permutex2var_epi64(result_lo, idx1, result_hi);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(32)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 32]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_512!(
-      checked_value_3,
-      out0
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(32)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_512!(checked_value_3, out0);
     let checked_value_4 = <[_]>::get_mut(
-        &mut *dst_2,
-        (Wrapping(column_index) + Wrapping(32)).0..(Wrapping(column_index) + Wrapping(64)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&mut [i16; 32]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    storeu_512!(
-      checked_value_4,
-      out1
-    );
+      &mut *dst_2,
+      (Wrapping(column_index) + Wrapping(32)).0..(Wrapping(column_index) + Wrapping(64)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 32]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_512!(checked_value_4, out1);
   }
 
   for x in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(x);
 
     let checked_value_5 = <[_]>::get(&*src0_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
     let checked_value_6 = <[_]>::get(&*src1_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-      *checked_value_6,
-    );
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_6);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(
         ::core::primitive::i32::wrapping_sub(
@@ -8625,10 +9081,13 @@ fn v_bilin_8bpc_prep_direct_avx512_inner(
         x1,
       ),
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(pixel) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(pixel) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -8667,22 +9126,42 @@ impl WeightedMaskRounding {
       },
     };
     let pixel_shift = intermediate_bits.wrapping_add(6);
-    let pixel_rounding = 32_i32.wrapping_shl(intermediate_bits).wrapping_add(predictor_bias.wrapping_mul(64));
+    let pixel_rounding = 32_i32
+      .wrapping_shl(intermediate_bits)
+      .wrapping_add(predictor_bias.wrapping_mul(64));
     let weight_shift = bitdepth.wrapping_add(intermediate_bits).wrapping_sub(4);
     let weight_rounding = 1_u16.wrapping_shl(weight_shift.wrapping_sub(5));
-    Ok(Self { pixel_shift, pixel_rounding, weight_shift, weight_rounding, maximum })
+    Ok(Self {
+      pixel_shift,
+      pixel_rounding,
+      weight_shift,
+      weight_rounding,
+      maximum,
+    })
   }
 
   #[inline(always)]
-  fn sample<Pixel: TryFrom<i32>>(&self, output: &mut Pixel, [first, second]: [i16; 2]) -> Rav1dResult<u8> {
+  fn sample<Pixel: TryFrom<i32>>(
+    &self,
+    output: &mut Pixel,
+    [first, second]: [i16; 2],
+  ) -> Rav1dResult<u8> {
     let difference = first.abs_diff(second);
-    let weight = 38_u16.wrapping_add(difference.saturating_add(self.weight_rounding).wrapping_shr(self.weight_shift)).min(64);
+    let weight = 38_u16
+      .wrapping_add(
+        difference
+          .saturating_add(self.weight_rounding)
+          .wrapping_shr(self.weight_shift),
+      )
+      .min(64);
     let second_weight = 64_i32.wrapping_sub(i32::from(weight));
-    let value = i32::from(first).wrapping_mul(i32::from(weight))
+    let value = i32::from(first)
+      .wrapping_mul(i32::from(weight))
       .wrapping_add(i32::from(second).wrapping_mul(second_weight))
       .wrapping_add(self.pixel_rounding)
       .wrapping_shr(self.pixel_shift);
-    let clipped = Pixel::try_from(value.clamp(0, self.maximum)).map_err(|_| Rav1dError::EINVAL)?;
+    let clipped =
+      Pixel::try_from(value.clamp(0, self.maximum)).map_err(|_| Rav1dError::EINVAL)?;
     *output = clipped;
     let Ok(mask) = console_core_number_conversion::wrapped(weight);
     Ok(mask)
@@ -8713,17 +9192,28 @@ fn write_weighted_mask_row<Pixel: TryFrom<i32>>(
         *output = weight;
       }
     }
-    WeightedMaskRow::Horizontal { .. } | WeightedMaskRow::VerticalFirst | WeightedMaskRow::VerticalSecond { .. } => {
+    WeightedMaskRow::Horizontal { .. }
+    | WeightedMaskRow::VerticalFirst
+    | WeightedMaskRow::VerticalSecond { .. } => {
       let Ok(pairs) = row.blocks::<2>();
 
-      for (([left, right], &[left_first, right_first], &[left_second, right_second]), output) in pairs.zip(mask) {
+      for (([left, right], &[left_first, right_first], &[left_second, right_second]), output) in
+        pairs.zip(mask)
+      {
         let left_weight = rounding.sample(left, [left_first, left_second])?;
         let right_weight = rounding.sample(right, [right_first, right_second])?;
         let sum = u16::from(left_weight).wrapping_add(u16::from(right_weight));
         let weight = match operation {
-          WeightedMaskRow::Horizontal { sign } => sum.wrapping_add(1).wrapping_sub(u16::from(sign)).wrapping_shr(1),
+          WeightedMaskRow::Horizontal { sign } => sum
+            .wrapping_add(1)
+            .wrapping_sub(u16::from(sign))
+            .wrapping_shr(1),
           WeightedMaskRow::VerticalFirst => sum,
-          WeightedMaskRow::VerticalSecond { sign } => sum.wrapping_add(2).wrapping_sub(u16::from(sign)).wrapping_add(u16::from(*output)).wrapping_shr(2),
+          WeightedMaskRow::VerticalSecond { sign } => sum
+            .wrapping_add(2)
+            .wrapping_sub(u16::from(sign))
+            .wrapping_add(u16::from(*output))
+            .wrapping_shr(2),
           WeightedMaskRow::Full => return Err(Rav1dError::EINVAL),
         };
         let Ok(value) = console_core_number_conversion::wrapped(weight);
@@ -8747,20 +9237,35 @@ pub(super) fn write_weighted_mask<BD: BitDepth>(
   use Rav1dPixelLayoutSubSampled::{I420, I422, I444};
   use console_core_number_conversion::indices;
 
-  let WeightedMaskMode { layout, sign, depth } = mode;
+  let WeightedMaskMode {
+    layout,
+    sign,
+    depth,
+  } = mode;
   let shape = BlendSize::new(extent).map_err(|_| Rav1dError::EINVAL)?;
   let width = u64::from(extent.width.cast_unsigned());
   let height = u64::from(extent.height.cast_unsigned());
   let mask_extent = match (layout, width & 1) {
     (I444, _) => Size { width, height },
-    (I422, 0) => Size { width: width.wrapping_shr(1), height },
-    (I420, 0) => Size { width: width.wrapping_shr(1), height: height.div_ceil(2) },
+    (I422, 0) => Size {
+      width: width.wrapping_shr(1),
+      height,
+    },
+    (I420, 0) => Size {
+      width: width.wrapping_shr(1),
+      height: height.div_ceil(2),
+    },
     (I420 | I422, _) => return Err(Rav1dError::EINVAL),
   };
-  let mask_layout = console_core_pixel_buffers::RowLayout::new(mask_extent, 0, mask_extent.width.cast_signed())
+  let mask_layout =
+    console_core_pixel_buffers::RowLayout::new(mask_extent, 0, mask_extent.width.cast_signed())
+      .map_err(|_| Rav1dError::EINVAL)?;
+  mask_layout
+    .validate_len(mask.len())
     .map_err(|_| Rav1dError::EINVAL)?;
-  mask_layout.validate_len(mask.len()).map_err(|_| Rav1dError::EINVAL)?;
-  let rows = shape.blend_rows::<BD::Pixel>(predictors, destination, stride).map_err(|_| Rav1dError::EINVAL)?;
+  let rows = shape
+    .blend_rows::<BD::Pixel>(predictors, destination, stride)
+    .map_err(|_| Rav1dError::EINVAL)?;
   let Ok(rounding) = WeightedMaskRounding::new(depth);
 
   for (ordinal, row) in (0..height).zip(rows) {
@@ -8768,7 +9273,10 @@ pub(super) fn write_weighted_mask<BD: BitDepth>(
       (I444, _) => (ordinal, WeightedMaskRow::Full),
       (I422, _) => (ordinal, WeightedMaskRow::Horizontal { sign }),
       (I420, 0) => (ordinal.wrapping_shr(1), WeightedMaskRow::VerticalFirst),
-      (I420, _) => (ordinal.wrapping_shr(1), WeightedMaskRow::VerticalSecond { sign }),
+      (I420, _) => (
+        ordinal.wrapping_shr(1),
+        WeightedMaskRow::VerticalSecond { sign },
+      ),
     };
     let start = index.wrapping_mul(mask_extent.width);
     let Ok(range) = indices(start..start.wrapping_add(mask_extent.width));
@@ -8799,27 +9307,26 @@ fn h_bilin_16bpc_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0_7 = loadu_128!(
-      checked_value
-    );
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0_7 = loadu_128!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(9)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1_8 = loadu_128!(
-      checked_value_2
-    );
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(9)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1_8 = loadu_128!(checked_value_2);
 
     let p0_lo = _mm256_cvtepu16_epi32(p0_7);
     let p1_lo = _mm256_cvtepu16_epi32(p1_8);
@@ -8828,30 +9335,31 @@ fn h_bilin_16bpc_avx2_inner(
     let term1 = _mm256_mullo_epi32(p1_lo, w1);
     let result = _mm256_add_epi32(term0, term1);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i32; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      result
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, result);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } = i32::wrapping_add(
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = i32::wrapping_add(
       ::core::primitive::i32::wrapping_mul(16, x0),
       i32::wrapping_mul(mx, i32::wrapping_sub(x1, x0)),
     );
@@ -8891,29 +9399,32 @@ fn v_bilin_16bpc_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r0 = loadu_256!(
-      checked_value
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r0 = loadu_256!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r1 = loadu_256!(
-      checked_value_2
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r1 = loadu_256!(checked_value_2);
 
     let term0 = _mm256_mullo_epi32(r0, w0);
     let term1 = _mm256_mullo_epi32(r1, w1);
@@ -8925,26 +9436,36 @@ fn v_bilin_16bpc_avx2_inner(
     let packed = _mm256_packus_epi32(clamped, zero);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_38 = <[_]>::get(&(*{ let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-      .ok_or(Rav1dError::EINVAL)?;
+    let checked_value_38 = <[_]>::get(
+      &(*{
+        let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
     let r0 = *checked_value_38;
     let checked_value_39 = <[_]>::get(
-      &(*{ let checked_value_20 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_20 }),
+      &(*{
+        let checked_value_20 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
       column_index,
     )
     .ok_or(Rav1dError::EINVAL)?;
@@ -8957,8 +9478,13 @@ fn v_bilin_16bpc_avx2_inner(
       ::core::primitive::i32::wrapping_shr(i32::wrapping_shl(1, i32::cast_unsigned(sh)), 1_u32);
     let output_sample =
       i32::wrapping_shr(i32::wrapping_add(pixel, r), i32::cast_unsigned(sh)).clamp(0, max);
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -8996,29 +9522,32 @@ fn v_bilin_16bpc_prep_avx2_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r0 = loadu_256!(
-      checked_value
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r0 = loadu_256!(checked_value);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(8)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[i32; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let r1 = loadu_256!(
-      checked_value_2
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[i32; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let r1 = loadu_256!(checked_value_2);
 
     let term0 = _mm256_mullo_epi32(r0, w0);
     let term1 = _mm256_mullo_epi32(r1, w1);
@@ -9030,26 +9559,36 @@ fn v_bilin_16bpc_prep_avx2_inner(
     let packed = _mm256_packs_epi32(biased, biased);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_38 = <[_]>::get(&(*{ let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-      .ok_or(Rav1dError::EINVAL)?;
+    let checked_value_38 = <[_]>::get(
+      &(*{
+        let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
     let r0 = *checked_value_38;
     let checked_value_39 = <[_]>::get(
-      &(*{ let checked_value_20 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_20 }),
+      &(*{
+        let checked_value_20 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
       column_index,
     )
     .ok_or(Rav1dError::EINVAL)?;
@@ -9064,8 +9603,13 @@ fn v_bilin_16bpc_prep_avx2_inner(
       i32::wrapping_shr(i32::wrapping_add(pixel, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -9098,27 +9642,26 @@ fn h_bilin_16bpc_put_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(9)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(9)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
 
     let term0 = _mm256_mullo_epi32(p0, w0);
     let term1 = _mm256_mullo_epi32(p1, w1);
@@ -9130,39 +9673,39 @@ fn h_bilin_16bpc_put_avx2_inner(
     let packed = _mm256_packus_epi32(clamped, zero);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, mx), x0),
       i32::wrapping_mul(mx, x1),
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, bd_max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -9193,27 +9736,23 @@ fn v_bilin_16bpc_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(first, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value
-    ));
-    let checked_value_2 = <[_]>::get(
-        next,
-        column_index..column_index.wrapping_add(8)
-      )
+    let checked_value = <[_]>::get(
+      first,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
+    let checked_value_2 = <[_]>::get(next, column_index..column_index.wrapping_add(8))
       .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
+      .and_then(|_explicit_array_source| {
+        <&[u16; 8]>::try_from(_explicit_array_source)
           .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      })?;
+    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
 
     let term0 = _mm256_mullo_epi32(p0, w0);
     let term1 = _mm256_mullo_epi32(p1, w1);
@@ -9225,43 +9764,38 @@ fn v_bilin_16bpc_direct_avx2_inner(
     let packed = _mm256_packus_epi32(clamped, zero);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(first, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(
-        next,
-        column_index,
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 = <[_]>::get(next, column_index).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, my), x0),
       i32::wrapping_mul(my, x1),
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, bd_max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -9291,27 +9825,26 @@ fn h_bilin_16bpc_prep_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(9)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(9)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
 
     let term0 = _mm256_mullo_epi32(p0, w0);
     let term1 = _mm256_mullo_epi32(p1, w1);
@@ -9323,29 +9856,26 @@ fn h_bilin_16bpc_prep_direct_avx2_inner(
     let packed = _mm256_packs_epi32(biased, biased);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, mx), x0),
       i32::wrapping_mul(mx, x1),
@@ -9354,10 +9884,13 @@ fn h_bilin_16bpc_prep_direct_avx2_inner(
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -9387,27 +9920,23 @@ fn v_bilin_16bpc_prep_direct_avx2_inner(
   for col in (0..vector_columns).step_by(8) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(first, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value
-    ));
-    let checked_value_2 = <[_]>::get(
-        next,
-        column_index..column_index.wrapping_add(8)
-      )
+    let checked_value = <[_]>::get(
+      first,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
+    let checked_value_2 = <[_]>::get(next, column_index..column_index.wrapping_add(8))
       .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 8]>::try_from(_explicit_array_source)
+      .and_then(|_explicit_array_source| {
+        <&[u16; 8]>::try_from(_explicit_array_source)
           .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(
-      checked_value_2
-    ));
+      })?;
+    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
 
     let term0 = _mm256_mullo_epi32(p0, w0);
     let term1 = _mm256_mullo_epi32(p1, w1);
@@ -9419,33 +9948,25 @@ fn v_bilin_16bpc_prep_direct_avx2_inner(
     let packed = _mm256_packs_epi32(biased, biased);
     let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(8)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 8]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_128!(
-      checked_value_3,
-      _mm256_castsi256_si128(result)
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(8)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 8]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_128!(checked_value_3, _mm256_castsi256_si128(result));
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(first, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(
-        next,
-        column_index,
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 = <[_]>::get(next, column_index).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, my), x0),
       i32::wrapping_mul(my, x1),
@@ -9454,10 +9975,13 @@ fn v_bilin_16bpc_prep_direct_avx2_inner(
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -9484,53 +10008,52 @@ fn h_bilin_16bpc_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
 
     let term0 = _mm512_mullo_epi32(p0, w0);
     let term1 = _mm512_mullo_epi32(p1, w1);
     let result = _mm512_add_epi32(term0, term1);
 
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(Rav1dError::EINVAL)?;
-    storeu_512!(
-      checked_value_3,
-      [i32; 16],
-      result
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    storeu_512!(checked_value_3, [i32; 16], result);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } = i32::wrapping_add(
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = i32::wrapping_add(
       ::core::primitive::i32::wrapping_mul(16, x0),
       i32::wrapping_mul(mx, i32::wrapping_sub(x1, x0)),
     );
@@ -9570,23 +10093,24 @@ fn v_bilin_16bpc_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r0 = loadu_512!(
-      checked_value,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = loadu_512!(checked_value, [i32; 16]);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r1 = loadu_512!(
-      checked_value_2,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = loadu_512!(checked_value_2, [i32; 16]);
 
     let term0 = _mm512_mullo_epi32(r0, w0);
     let term1 = _mm512_mullo_epi32(r1, w1);
@@ -9596,26 +10120,36 @@ fn v_bilin_16bpc_avx512_inner(
     let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
 
     let packed = _mm512_cvtusepi32_epi16(clamped);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_38 = <[_]>::get(&(*{ let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-      .ok_or(Rav1dError::EINVAL)?;
+    let checked_value_38 = <[_]>::get(
+      &(*{
+        let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
     let r0 = *checked_value_38;
     let checked_value_39 = <[_]>::get(
-      &(*{ let checked_value_20 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_20 }),
+      &(*{
+        let checked_value_20 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
       column_index,
     )
     .ok_or(Rav1dError::EINVAL)?;
@@ -9628,8 +10162,13 @@ fn v_bilin_16bpc_avx512_inner(
       ::core::primitive::i32::wrapping_shr(i32::wrapping_shl(1, i32::cast_unsigned(sh)), 1_u32);
     let output_sample =
       i32::wrapping_shr(i32::wrapping_add(pixel, r), i32::cast_unsigned(sh)).clamp(0, max);
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample) {
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -9667,23 +10206,24 @@ fn v_bilin_16bpc_prep_avx512_inner(
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value = <[_]>::get(
-        &(*{ let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_36 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r0 = loadu_512!(
-      checked_value,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_36 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_36
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r0 = loadu_512!(checked_value, [i32; 16]);
     let checked_value_2 = <[_]>::get(
-        &(*{ let checked_value_37 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_37 }),
-        column_index..(Wrapping(column_index) + Wrapping(16)).0
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let r1 = loadu_512!(
-      checked_value_2,
-      [i32; 16]
-    );
+      &(*{
+        let checked_value_37 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      }),
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
+    let r1 = loadu_512!(checked_value_2, [i32; 16]);
 
     let term0 = _mm512_mullo_epi32(r0, w0);
     let term1 = _mm512_mullo_epi32(r1, w1);
@@ -9693,26 +10233,36 @@ fn v_bilin_16bpc_prep_avx512_inner(
     let biased = _mm512_sub_epi32(shifted, bias);
 
     let packed = _mm512_cvtsepi32_epi16(biased);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value_38 = <[_]>::get(&(*{ let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?; checked_value_18 }), column_index)
-      .ok_or(Rav1dError::EINVAL)?;
+    let checked_value_38 = <[_]>::get(
+      &(*{
+        let checked_value_18 = <[_]>::get(&*mid, y).ok_or(Rav1dError::EINVAL)?;
+        checked_value_18
+      }),
+      column_index,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
     let r0 = *checked_value_38;
     let checked_value_39 = <[_]>::get(
-      &(*{ let checked_value_20 = <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?; checked_value_20 }),
+      &(*{
+        let checked_value_20 =
+          <[_]>::get(&*mid, (Wrapping(y) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+        checked_value_20
+      }),
       column_index,
     )
     .ok_or(Rav1dError::EINVAL)?;
@@ -9727,8 +10277,13 @@ fn v_bilin_16bpc_prep_avx512_inner(
       i32::wrapping_shr(i32::wrapping_add(pixel, r), i32::cast_unsigned(sh)),
       prep_bias,
     );
-    *{ let checked_value_21 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_21 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample) {
+    *{
+      let checked_value_21 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_21
+    } =
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
+      {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
   }
@@ -9761,27 +10316,26 @@ fn h_bilin_16bpc_put_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
 
     let term0 = _mm512_mullo_epi32(p0, w0);
     let term1 = _mm512_mullo_epi32(p1, w1);
@@ -9791,39 +10345,39 @@ fn h_bilin_16bpc_put_avx512_inner(
     let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
 
     let packed = _mm512_cvtusepi32_epi16(clamped);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, mx), x0),
       i32::wrapping_mul(mx, x1),
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, bd_max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -9854,27 +10408,23 @@ fn v_bilin_16bpc_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(first, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
-    let checked_value_2 = <[_]>::get(
-        next,
-        column_index..column_index.wrapping_add(16)
-      )
+    let checked_value = <[_]>::get(
+      first,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
+    let checked_value_2 = <[_]>::get(next, column_index..column_index.wrapping_add(16))
       .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
+      .and_then(|_explicit_array_source| {
+        <&[u16; 16]>::try_from(_explicit_array_source)
           .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
 
     let term0 = _mm512_mullo_epi32(p0, w0);
     let term1 = _mm512_mullo_epi32(p1, w1);
@@ -9884,43 +10434,38 @@ fn v_bilin_16bpc_direct_avx512_inner(
     let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
 
     let packed = _mm512_cvtusepi32_epi16(clamped);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(first, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(
-        next,
-        column_index,
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 = <[_]>::get(next, column_index).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, my), x0),
       i32::wrapping_mul(my, x1),
     );
     let result =
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32).clamp(0, bd_max);
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -9950,27 +10495,26 @@ fn h_bilin_16bpc_prep_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(&*src_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
+    let checked_value = <[_]>::get(
+      &*src_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
     let checked_value_2 = <[_]>::get(
-        &*src_2,
-        (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0
-      )
-      .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-          .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      &*src_2,
+      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(17)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
 
     let term0 = _mm512_mullo_epi32(p0, w0);
     let term1 = _mm512_mullo_epi32(p1, w1);
@@ -9980,29 +10524,26 @@ fn h_bilin_16bpc_prep_direct_avx512_inner(
     let biased = _mm512_sub_epi32(shifted, bias);
 
     let packed = _mm512_cvtsepi32_epi16(biased);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(&*src_2, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 =
+      <[_]>::get(&*src_2, (Wrapping(column_index) + Wrapping(1)).0).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, mx), x0),
       i32::wrapping_mul(mx, x1),
@@ -10011,10 +10552,13 @@ fn h_bilin_16bpc_prep_direct_avx512_inner(
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -10044,27 +10588,23 @@ fn v_bilin_16bpc_prep_direct_avx512_inner(
   for col in (0..vector_columns).step_by(16) {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
-    let checked_value = <[_]>::get(first, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value
-    ));
-    let checked_value_2 = <[_]>::get(
-        next,
-        column_index..column_index.wrapping_add(16)
-      )
+    let checked_value = <[_]>::get(
+      first,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&[u16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
+    let checked_value_2 = <[_]>::get(next, column_index..column_index.wrapping_add(16))
       .ok_or(crate::src::error::Rav1dError::EINVAL)
-      .and_then(
-        |_explicit_array_source| <&[u16; 16]>::try_from(_explicit_array_source)
+      .and_then(|_explicit_array_source| {
+        <&[u16; 16]>::try_from(_explicit_array_source)
           .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-      )?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(
-      checked_value_2
-    ));
+      })?;
+    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
 
     let term0 = _mm512_mullo_epi32(p0, w0);
     let term1 = _mm512_mullo_epi32(p1, w1);
@@ -10074,33 +10614,25 @@ fn v_bilin_16bpc_prep_direct_avx512_inner(
     let biased = _mm512_sub_epi32(shifted, bias);
 
     let packed = _mm512_cvtsepi32_epi16(biased);
-    let checked_value_3 = <[_]>::get_mut(&mut *dst_2, column_index..(Wrapping(column_index) + Wrapping(16)).0)
-        .ok_or(crate::src::error::Rav1dError::EINVAL)
-        .and_then(
-          |_explicit_array_source| <&mut [i16; 16]>::try_from(_explicit_array_source)
-            .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-        )?;
-    storeu_256!(
-      checked_value_3,
-      packed
-    );
+    let checked_value_3 = <[_]>::get_mut(
+      &mut *dst_2,
+      column_index..(Wrapping(column_index) + Wrapping(16)).0,
+    )
+    .ok_or(crate::src::error::Rav1dError::EINVAL)
+    .and_then(|_explicit_array_source| {
+      <&mut [i16; 16]>::try_from(_explicit_array_source)
+        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
+    })?;
+    storeu_256!(checked_value_3, packed);
   }
 
   for col in vector_columns..width {
     let Ok(column_index) = console_core_number_conversion::index(col);
 
     let checked_value_4 = <[_]>::get(first, column_index).ok_or(Rav1dError::EINVAL)?;
-    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_4,
-    );
-    let checked_value_5 = <[_]>::get(
-        next,
-        column_index,
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      *checked_value_5,
-    );
+    let x0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
+    let checked_value_5 = <[_]>::get(next, column_index).ok_or(Rav1dError::EINVAL)?;
+    let x1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
     let pixel = i32::wrapping_add(
       i32::wrapping_mul(i32::wrapping_sub(16, my), x0),
       i32::wrapping_mul(my, x1),
@@ -10109,10 +10641,13 @@ fn v_bilin_16bpc_prep_direct_avx512_inner(
       ::core::primitive::i32::wrapping_shr(i32::wrapping_add(pixel, 8), 4_u32),
       prep_bias,
     );
-    *{ let checked_value_18 = <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?; checked_value_18 } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
+    *{
+      let checked_value_18 =
+        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
+      checked_value_18
+    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
   }
 
   Ok(())
@@ -10142,7 +10677,10 @@ const WORD_BILINEAR_BUFFERED_SHIFT: i32 = 8;
 #[doc = "Connects the selected word SIMD backend to the shared bilinear row traversal."]
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one four-callback definition covers both word bilinear outputs and both word bilinear predictors with their original CPU tokens")
+  expect(
+    explicit080_macro_budget,
+    reason = "one four-callback definition covers both word bilinear outputs and both word bilinear predictors with their original CPU tokens"
+  )
 )]
 macro_rules! word_bilinear_writer {
   ($token:ident, $output:ty, $scale:expr; $horizontal:path, $vertical:path, $horizontal_direct:path, $vertical_direct:path) => {
@@ -10150,14 +10688,41 @@ macro_rules! word_bilinear_writer {
       horizontal_buffered: |target: &mut [i32], input: &[u16], width, phase| {
         $horizontal($token, target, input, width, phase)
       },
-      vertical_buffered: |target: &mut [$output], filtered: &[[i32; MID_STRIDE]], geometry: MotionRow, phase| {
-        $vertical($token, target, filtered, geometry, WordBilinearPhase(phase), $scale)
+      vertical_buffered: |target: &mut [$output],
+                          filtered: &[[i32; MID_STRIDE]],
+                          geometry: MotionRow,
+                          phase| {
+        $vertical(
+          $token,
+          target,
+          filtered,
+          geometry,
+          WordBilinearPhase(phase),
+          $scale,
+        )
       },
       horizontal_direct: |target: &mut [$output], input: &[u16], width, phase| {
-        $horizontal_direct($token, target, input, width, WordBilinearPhase(phase), $scale)
+        $horizontal_direct(
+          $token,
+          target,
+          input,
+          width,
+          WordBilinearPhase(phase),
+          $scale,
+        )
       },
-      vertical_direct: |target: &mut [$output], input: BilinearInputRows<'_, u16>, width, phase| {
-        $vertical_direct($token, target, input, width, WordBilinearPhase(phase), $scale)
+      vertical_direct: |target: &mut [$output],
+                        input: BilinearInputRows<'_, u16>,
+                        width,
+                        phase| {
+        $vertical_direct(
+          $token,
+          target,
+          input,
+          width,
+          WordBilinearPhase(phase),
+          $scale,
+        )
       },
     }
   };
@@ -10176,25 +10741,42 @@ fn write_bilinear<Pixel, Intermediate: Copy + Default + 'static, Output>(
   copy: impl Fn(&mut [Output], &[Pixel]) -> Result<(), Never>,
 ) -> Rav1dResult {
   use console_core_pixel_buffers::RowLayout;
-  let BilinearRequest { destination, stride, source, sampling } = request;
+  let BilinearRequest {
+    destination,
+    stride,
+    source,
+    sampling,
+  } = request;
   let extent = sampling.checked_size()?;
-  let Ok(bytes_per_pixel) = console_core_number_conversion::fixed_index(core::mem::size_of::<Pixel>());
-  let pitch = source.stride_bytes.checked_div(bytes_per_pixel.cast_signed()).ok_or(Rav1dError::EINVAL)?;
+  let Ok(bytes_per_pixel) =
+    console_core_number_conversion::fixed_index(core::mem::size_of::<Pixel>());
+  let pitch = source
+    .stride_bytes
+    .checked_div(bytes_per_pixel.cast_signed())
+    .ok_or(Rav1dError::EINVAL)?;
 
   match (pitch, stride) {
     (1.., 1..) => {}
     _ => return Err(Rav1dError::EINVAL),
   }
 
-  let Point { x: horizontal, y: vertical } = sampling.phase;
+  let Point {
+    x: horizontal,
+    y: vertical,
+  } = sampling.phase;
   let reference_extent = Size {
     width: extent.width.wrapping_add(u64::from(horizontal != 0)),
     height: extent.height.wrapping_add(u64::from(vertical != 0)),
   };
-  let input = RowLayout::new(reference_extent, source.origin, pitch).map_err(|_| Rav1dError::EINVAL)?;
-  input.validate_len(source.samples.len()).map_err(|_| Rav1dError::EINVAL)?;
+  let input =
+    RowLayout::new(reference_extent, source.origin, pitch).map_err(|_| Rav1dError::EINVAL)?;
+  input
+    .validate_len(source.samples.len())
+    .map_err(|_| Rav1dError::EINVAL)?;
   let output = RowLayout::new(extent, 0, stride).map_err(|_| Rav1dError::EINVAL)?;
-  let rows = output.rows_mut(destination).map_err(|_| Rav1dError::EINVAL)?;
+  let rows = output
+    .rows_mut(destination)
+    .map_err(|_| Rav1dError::EINVAL)?;
   let width = sampling.size.width.cast_unsigned();
   let height = sampling.size.height.cast_unsigned();
 
@@ -10208,7 +10790,10 @@ fn write_bilinear<Pixel, Intermediate: Copy + Default + 'static, Output>(
     }
     (1.., 0) => {
       for (row, target) in (0..height).zip(rows) {
-        let reference = source.row_tail(Point { x: 0, y: i64::from(row) })?;
+        let reference = source.row_tail(Point {
+          x: 0,
+          y: i64::from(row),
+        })?;
         (writer.horizontal_direct)(target, reference, width, horizontal)?;
       }
     }
@@ -10216,7 +10801,10 @@ fn write_bilinear<Pixel, Intermediate: Copy + Default + 'static, Output>(
       for (row, target) in (0..height).zip(rows) {
         let ordinal = i64::from(row);
         let first = source.row_tail(Point { x: 0, y: ordinal })?;
-        let next = source.row_tail(Point { x: 0, y: ordinal.wrapping_add(1) })?;
+        let next = source.row_tail(Point {
+          x: 0,
+          y: ordinal.wrapping_add(1),
+        })?;
         let input_2 = BilinearInputRows { first, next };
         (writer.vertical_direct)(target, input_2, width, vertical)?;
       }
@@ -10228,12 +10816,18 @@ fn write_bilinear<Pixel, Intermediate: Copy + Default + 'static, Output>(
       for row in 0..=height {
         let Ok(index) = console_core_number_conversion::index(row);
         let target = filtered.get_mut(index).ok_or(Rav1dError::EINVAL)?;
-        let reference = source.row_tail(Point { x: 0, y: i64::from(row) })?;
+        let reference = source.row_tail(Point {
+          x: 0,
+          y: i64::from(row),
+        })?;
         (writer.horizontal_buffered)(target, reference, width, horizontal)?;
       }
 
       for (row, target) in (0..height).zip(rows) {
-        let line = MotionRow { width, ordinal: row };
+        let line = MotionRow {
+          width,
+          ordinal: row,
+        };
         (writer.vertical_buffered)(target, filtered, line, vertical)?;
       }
 
@@ -10247,7 +10841,11 @@ fn write_bilinear<Pixel, Intermediate: Copy + Default + 'static, Output>(
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn put_bilin_16bpc_avx512_impl_inner(token: Server64, request: BilinearRequest<'_, u16, u16>, maximum: i32) -> Rav1dResult {
+fn put_bilin_16bpc_avx512_impl_inner(
+  token: Server64,
+  request: BilinearRequest<'_, u16, u16>,
+  maximum: i32,
+) -> Rav1dResult {
   let writer = word_bilinear_writer!(
     token, u16, maximum;
     h_bilin_16bpc_avx512_inner,
@@ -10260,7 +10858,11 @@ fn put_bilin_16bpc_avx512_impl_inner(token: Server64, request: BilinearRequest<'
 }
 
 #[cfg(target_arch = "x86_64")]
-fn put_bilin_16bpc_dispatch_inner(token: Desktop64, request: BilinearRequest<'_, u16, u16>, maximum: i32) -> Rav1dResult {
+fn put_bilin_16bpc_dispatch_inner(
+  token: Desktop64,
+  request: BilinearRequest<'_, u16, u16>,
+  maximum: i32,
+) -> Rav1dResult {
   let Ok(avx512) = crate::src::cpu::summon_avx512();
 
   match avx512 {
@@ -10271,7 +10873,11 @@ fn put_bilin_16bpc_dispatch_inner(token: Desktop64, request: BilinearRequest<'_,
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn put_bilin_16bpc_avx2_impl_inner_safe(token: Desktop64, request: BilinearRequest<'_, u16, u16>, maximum: i32) -> Rav1dResult {
+fn put_bilin_16bpc_avx2_impl_inner_safe(
+  token: Desktop64,
+  request: BilinearRequest<'_, u16, u16>,
+  maximum: i32,
+) -> Rav1dResult {
   let writer = word_bilinear_writer!(
     token, u16, maximum;
     h_bilin_16bpc_avx2_inner,
@@ -10284,7 +10890,10 @@ fn put_bilin_16bpc_avx2_impl_inner_safe(token: Desktop64, request: BilinearReque
 }
 
 #[cfg(target_arch = "x86_64")]
-fn copy_bilinear_pixels<Pixel: Copy>(output: &mut [Pixel], source: &[Pixel]) -> Result<(), Never> {
+fn copy_bilinear_pixels<Pixel: Copy>(
+  output: &mut [Pixel],
+  source: &[Pixel],
+) -> Result<(), Never> {
   for (target, &pixel) in output.iter_mut().zip(source) {
     *target = pixel;
   }
@@ -10294,7 +10903,10 @@ fn copy_bilinear_pixels<Pixel: Copy>(output: &mut [Pixel], source: &[Pixel]) -> 
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn prep_word_bilinear_avx2(token: Desktop64, request: BilinearRequest<'_, u16, i16>) -> Rav1dResult {
+fn prep_word_bilinear_avx2(
+  token: Desktop64,
+  request: BilinearRequest<'_, u16, i16>,
+) -> Rav1dResult {
   let writer = word_bilinear_writer!(
     token, i16, 8192;
     h_bilin_16bpc_avx2_inner,
@@ -10303,12 +10915,17 @@ fn prep_word_bilinear_avx2(token: Desktop64, request: BilinearRequest<'_, u16, i
     v_bilin_16bpc_prep_direct_avx2_inner
   );
 
-  write_bilinear(writer, request, &MID_I32_130, |target, reference| prepare_word_identity(target, reference, 0))
+  write_bilinear(writer, request, &MID_I32_130, |target, reference| {
+    prepare_word_identity(target, reference, 0)
+  })
 }
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn prep_word_bilinear_avx512(token: Server64, request: BilinearRequest<'_, u16, i16>) -> Rav1dResult {
+fn prep_word_bilinear_avx512(
+  token: Server64,
+  request: BilinearRequest<'_, u16, i16>,
+) -> Rav1dResult {
   let writer = word_bilinear_writer!(
     token, i16, 8192;
     h_bilin_16bpc_avx512_inner,
@@ -10317,11 +10934,16 @@ fn prep_word_bilinear_avx512(token: Server64, request: BilinearRequest<'_, u16, 
     v_bilin_16bpc_prep_direct_avx512_inner
   );
 
-  write_bilinear(writer, request, &MID_I32_130, |target, reference| prepare_word_identity(target, reference, 0))
+  write_bilinear(writer, request, &MID_I32_130, |target, reference| {
+    prepare_word_identity(target, reference, 0)
+  })
 }
 
 #[cfg(target_arch = "x86_64")]
-fn prep_word_bilinear_dispatch(token: Desktop64, request: BilinearRequest<'_, u16, i16>) -> Rav1dResult {
+fn prep_word_bilinear_dispatch(
+  token: Desktop64,
+  request: BilinearRequest<'_, u16, i16>,
+) -> Rav1dResult {
   let Ok(avx512) = crate::src::cpu::summon_avx512();
 
   match avx512 {
@@ -10334,20 +10956,34 @@ fn prep_word_bilinear_dispatch(token: Desktop64, request: BilinearRequest<'_, u1
 #[doc = "Connects the selected byte SIMD backend to the shared bilinear row traversal."]
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one four-callback definition covers the four byte bilinear output and predictor backends with their original CPU tokens")
+  expect(
+    explicit080_macro_budget,
+    reason = "one four-callback definition covers the four byte bilinear output and predictor backends with their original CPU tokens"
+  )
 )]
 macro_rules! byte_bilinear_writer {
   ($output:ty; $horizontal:expr, $vertical:expr, $horizontal_direct:expr, $vertical_direct:expr) => {
     MotionRowWriters {
       horizontal_buffered: $horizontal,
-      vertical_buffered: |target: &mut [$output], filtered: &[[i16; MID_STRIDE]], geometry: MotionRow, phase| {
+      vertical_buffered: |target: &mut [$output],
+                          filtered: &[[i16; MID_STRIDE]],
+                          geometry: MotionRow,
+                          phase| {
         let Ok(index) = console_core_number_conversion::index(geometry.ordinal);
         let window = filtered.get(index..).ok_or(Rav1dError::EINVAL)?;
         let [first, next] = window.first_chunk::<2>().ok_or(Rav1dError::EINVAL)?;
-        ($vertical)(target, [first.as_slice(), next.as_slice()], geometry.width, phase)
+        ($vertical)(
+          target,
+          [first.as_slice(), next.as_slice()],
+          geometry.width,
+          phase,
+        )
       },
       horizontal_direct: $horizontal_direct,
-      vertical_direct: |target: &mut [$output], input: BilinearInputRows<'_, u8>, width, phase| {
+      vertical_direct: |target: &mut [$output],
+                        input: BilinearInputRows<'_, u8>,
+                        width,
+                        phase| {
         ($vertical_direct)(target, input.first, input.next, width, phase)
       },
     }
@@ -10364,7 +11000,11 @@ fn prepare_byte_bilinear_pair<Pixel: Copy + Into<i32>>(
   let front = 16_i32.wrapping_sub(phase);
 
   for (target, (&a, &b)) in output.iter_mut().zip(first.iter().zip(next)) {
-    let sum = <_ as ::core::convert::Into<::core::primitive::i32>>::into(a).wrapping_mul(front).wrapping_add(<_ as ::core::convert::Into<::core::primitive::i32>>::into(b).wrapping_mul(phase));
+    let sum = <_ as ::core::convert::Into<::core::primitive::i32>>::into(a)
+      .wrapping_mul(front)
+      .wrapping_add(
+        <_ as ::core::convert::Into<::core::primitive::i32>>::into(b).wrapping_mul(phase),
+      );
     let shifted = console_core_video_interpolation::round_shift(sum, shift);
     let Ok(prediction) = console_core_number_conversion::wrapped::<_, i16>(shifted);
     *target = prediction;
@@ -10398,7 +11038,10 @@ fn put_byte_bilinear_avx2(token: Desktop64, request: BilinearRequest<'_, u8, u8>
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn prep_byte_bilinear_avx2(token: Desktop64, request: BilinearRequest<'_, u8, i16>) -> Rav1dResult {
+fn prep_byte_bilinear_avx2(
+  token: Desktop64,
+  request: BilinearRequest<'_, u8, i16>,
+) -> Rav1dResult {
   let writer = byte_bilinear_writer!(
     i16;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx2_inner(token, target, source, width, phase, 0),
@@ -10407,12 +11050,20 @@ fn prep_byte_bilinear_avx2(token: Desktop64, request: BilinearRequest<'_, u8, i1
     |target, first, next, _width, phase| prepare_byte_bilinear_pair(target, [first, next], phase, 0)
   );
 
-  write_bilinear(writer, request, &MID_I16_130, prepare_byte_bilinear_identity)
+  write_bilinear(
+    writer,
+    request,
+    &MID_I16_130,
+    prepare_byte_bilinear_identity,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn put_byte_bilinear_avx512(token: Server64, request: BilinearRequest<'_, u8, u8>) -> Rav1dResult {
+fn put_byte_bilinear_avx512(
+  token: Server64,
+  request: BilinearRequest<'_, u8, u8>,
+) -> Rav1dResult {
   let writer = byte_bilinear_writer!(
     u8;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx512_inner(token, target, source, width, phase, 0),
@@ -10426,7 +11077,10 @@ fn put_byte_bilinear_avx512(token: Server64, request: BilinearRequest<'_, u8, u8
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-fn prep_byte_bilinear_avx512(token: Server64, request: BilinearRequest<'_, u8, i16>) -> Rav1dResult {
+fn prep_byte_bilinear_avx512(
+  token: Server64,
+  request: BilinearRequest<'_, u8, i16>,
+) -> Rav1dResult {
   let writer = byte_bilinear_writer!(
     i16;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx512_inner(token, target, source, width, phase, 0),
@@ -10435,11 +11089,19 @@ fn prep_byte_bilinear_avx512(token: Server64, request: BilinearRequest<'_, u8, i
     |target, first, next, width, phase| v_bilin_8bpc_prep_direct_avx512_inner(token, target, first, next, width, phase)
   );
 
-  write_bilinear(writer, request, &MID_I16_130, prepare_byte_bilinear_identity)
+  write_bilinear(
+    writer,
+    request,
+    &MID_I16_130,
+    prepare_byte_bilinear_identity,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
-fn put_bilin_8bpc_dispatch_inner(token: Desktop64, request: BilinearRequest<'_, u8, u8>) -> Rav1dResult {
+fn put_bilin_8bpc_dispatch_inner(
+  token: Desktop64,
+  request: BilinearRequest<'_, u8, u8>,
+) -> Rav1dResult {
   let Ok(avx512) = crate::src::cpu::summon_avx512();
 
   match avx512 {
@@ -10449,7 +11111,10 @@ fn put_bilin_8bpc_dispatch_inner(token: Desktop64, request: BilinearRequest<'_, 
 }
 
 #[cfg(target_arch = "x86_64")]
-fn prep_bilin_8bpc_dispatch_inner(token: Desktop64, request: BilinearRequest<'_, u8, i16>) -> Rav1dResult {
+fn prep_bilin_8bpc_dispatch_inner(
+  token: Desktop64,
+  request: BilinearRequest<'_, u8, i16>,
+) -> Rav1dResult {
   let Ok(avx512) = crate::src::cpu::summon_avx512();
 
   match avx512 {
@@ -10492,7 +11157,14 @@ fn with_motion_destination<BD: BitDepth, Context>(
     |bytes, start, pitch| {
       let Ok(origin) = console_core_number_conversion::fixed_index(start);
       let Ok(stride) = console_core_number_conversion::fixed_offset(pitch);
-      write(PixelDestination { bytes, origin, stride }, context)
+      write(
+        PixelDestination {
+          bytes,
+          origin,
+          stride,
+        },
+        context,
+      )
     },
   )
 }
@@ -10526,7 +11198,10 @@ fn avg_dispatch_inner<BD: BitDepth>(
   block_extent: Size<i32>,
   bd: BD,
 ) -> MotionDispatch {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   use crate::include::common::bitdepth::BPC;
   let Ok(avx512_token) = crate::src::cpu::summon_avx512();
   let Ok(avx2) = crate::src::cpu::summon_avx2();
@@ -10541,12 +11216,54 @@ fn avg_dispatch_inner<BD: BitDepth>(
 
   let blended = match BD::BPC {
     BPC::BPC8 => match avx512_token {
-      Some(t512) => avg_8bpc_avx512_safe(t512, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }),
-      None => avg_8bpc_avx2_safe(token, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }),
+      Some(t512) => avg_8bpc_avx512_safe(
+        t512,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+      ),
+      None => avg_8bpc_avx2_safe(
+        token,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+      ),
     },
     BPC::BPC16 => match avx512_token {
-      Some(t512) => avg_16bpc_avx512_safe(t512, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, bd_c),
-      None => avg_16bpc_avx2_safe(token, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, bd_c),
+      Some(t512) => avg_16bpc_avx512_safe(
+        t512,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        bd_c,
+      ),
+      None => avg_16bpc_avx2_safe(
+        token,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        bd_c,
+      ),
     },
   };
 
@@ -10584,7 +11301,10 @@ fn w_avg_dispatch_inner<BD: BitDepth>(
   weight: i32,
   bd: BD,
 ) -> MotionDispatch {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   use crate::include::common::bitdepth::BPC;
   let Ok(avx512_token) = crate::src::cpu::summon_avx512();
   let Ok(avx2) = crate::src::cpu::summon_avx2();
@@ -10599,14 +11319,62 @@ fn w_avg_dispatch_inner<BD: BitDepth>(
 
   let blended = match BD::BPC {
     BPC::BPC8 => match avx512_token {
-      Some(t512) => w_avg_8bpc_avx512_safe(t512, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, weight),
-      None => w_avg_8bpc_avx2_safe(token, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, weight),
+      Some(t512) => w_avg_8bpc_avx512_safe(
+        t512,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        weight,
+      ),
+      None => w_avg_8bpc_avx2_safe(
+        token,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        weight,
+      ),
     },
     BPC::BPC16 => match avx512_token {
-      Some(t512) => {
-        w_avg_16bpc_avx512_safe(t512, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, WeightedAverageScale { weight, bitdepth_max: bd_c })
-      }
-      None => w_avg_16bpc_avx2_safe(token, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, WeightedAverageScale { weight, bitdepth_max: bd_c }),
+      Some(t512) => w_avg_16bpc_avx512_safe(
+        t512,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        WeightedAverageScale {
+          weight,
+          bitdepth_max: bd_c,
+        },
+      ),
+      None => w_avg_16bpc_avx2_safe(
+        token,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        WeightedAverageScale {
+          weight,
+          bitdepth_max: bd_c,
+        },
+      ),
     },
   };
 
@@ -10644,7 +11412,10 @@ fn mask_dispatch_inner<BD: BitDepth>(
   mask: &[u8],
   bd: BD,
 ) -> MotionDispatch {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   use crate::include::common::bitdepth::BPC;
   let Ok(avx512_token) = crate::src::cpu::summon_avx512();
   let Ok(avx2) = crate::src::cpu::summon_avx2();
@@ -10659,12 +11430,58 @@ fn mask_dispatch_inner<BD: BitDepth>(
 
   let blended = match BD::BPC {
     BPC::BPC8 => match avx512_token {
-      Some(t512) => mask_8bpc_avx512_safe(t512, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, mask),
-      None => mask_8bpc_avx2_safe(token, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, mask),
+      Some(t512) => mask_8bpc_avx512_safe(
+        t512,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        mask,
+      ),
+      None => mask_8bpc_avx2_safe(
+        token,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        mask,
+      ),
     },
     BPC::BPC16 => match avx512_token {
-      Some(t512) => mask_16bpc_avx512_safe(t512, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, mask, bd_c),
-      None => mask_16bpc_avx2_safe(token, dst, byte_stride, tmp1, tmp2, Size { width: w, height: h }, mask, bd_c),
+      Some(t512) => mask_16bpc_avx512_safe(
+        t512,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        mask,
+        bd_c,
+      ),
+      None => mask_16bpc_avx2_safe(
+        token,
+        dst,
+        byte_stride,
+        tmp1,
+        tmp2,
+        Size {
+          width: w,
+          height: h,
+        },
+        mask,
+        bd_c,
+      ),
     },
   };
 
@@ -10700,7 +11517,10 @@ fn blend_dispatch_inner<BD: BitDepth>(
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> MotionDispatch {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   use crate::include::common::bitdepth::BPC;
   let Ok(avx2) = crate::src::cpu::summon_avx2();
   let token = match avx2 {
@@ -10713,8 +11533,28 @@ fn blend_dispatch_inner<BD: BitDepth>(
   let (dst, stride) = destination.forward()?;
 
   let applied = match BD::BPC {
-    BPC::BPC8 => blend_8bpc_avx2_safe(token, dst, stride, tmp_bytes, Size { width: w, height: h }, mask),
-    BPC::BPC16 => blend_16bpc_avx2_safe(token, dst, stride, tmp_bytes, Size { width: w, height: h }, mask),
+    BPC::BPC8 => blend_8bpc_avx2_safe(
+      token,
+      dst,
+      stride,
+      tmp_bytes,
+      Size {
+        width: w,
+        height: h,
+      },
+      mask,
+    ),
+    BPC::BPC16 => blend_16bpc_avx2_safe(
+      token,
+      dst,
+      stride,
+      tmp_bytes,
+      Size {
+        width: w,
+        height: h,
+      },
+      mask,
+    ),
   };
   applied.map_err(|_invalid_layout| MotionFallback::BufferLayout)
 }
@@ -10748,7 +11588,10 @@ fn blend_dir_dispatch_inner<BD: BitDepth>(
   tmp_bytes: &[u8],
   block_extent: Size<i32>,
 ) -> MotionDispatch {
-  let Size { width: w, height: h } = block_extent;
+  let Size {
+    width: w,
+    height: h,
+  } = block_extent;
   use crate::include::common::bitdepth::BPC;
   let Ok(avx2) = crate::src::cpu::summon_avx2();
   let token = match avx2 {
@@ -10761,10 +11604,46 @@ fn blend_dir_dispatch_inner<BD: BitDepth>(
   let (dst, stride) = destination.forward()?;
 
   let applied = match (BD::BPC, axis) {
-    (BPC::BPC8, BlendAxis::Horizontal) => blend_h_8bpc_avx2_safe(token, dst, stride, tmp_bytes, Size { width: w, height: h }),
-    (BPC::BPC8, BlendAxis::Vertical) => blend_v_8bpc_avx2_safe(token, dst, stride, tmp_bytes, Size { width: w, height: h }),
-    (BPC::BPC16, BlendAxis::Horizontal) => blend_h_16bpc_avx2_safe(token, dst, stride, tmp_bytes, Size { width: w, height: h }),
-    (BPC::BPC16, BlendAxis::Vertical) => blend_v_16bpc_avx2_safe(token, dst, stride, tmp_bytes, Size { width: w, height: h }),
+    (BPC::BPC8, BlendAxis::Horizontal) => blend_h_8bpc_avx2_safe(
+      token,
+      dst,
+      stride,
+      tmp_bytes,
+      Size {
+        width: w,
+        height: h,
+      },
+    ),
+    (BPC::BPC8, BlendAxis::Vertical) => blend_v_8bpc_avx2_safe(
+      token,
+      dst,
+      stride,
+      tmp_bytes,
+      Size {
+        width: w,
+        height: h,
+      },
+    ),
+    (BPC::BPC16, BlendAxis::Horizontal) => blend_h_16bpc_avx2_safe(
+      token,
+      dst,
+      stride,
+      tmp_bytes,
+      Size {
+        width: w,
+        height: h,
+      },
+    ),
+    (BPC::BPC16, BlendAxis::Vertical) => blend_v_16bpc_avx2_safe(
+      token,
+      dst,
+      stride,
+      tmp_bytes,
+      Size {
+        width: w,
+        height: h,
+      },
+    ),
   };
   applied.map_err(|_invalid_layout| MotionFallback::BufferLayout)
 }
@@ -10788,7 +11667,11 @@ pub(crate) fn w_mask_dispatch<BD: BitDepth>(
   }
 
   let Ok(mask_sign) = console_core_number_conversion::wrapped(sign);
-  let mode = WeightedMaskMode { layout, sign: mask_sign, depth: bd };
+  let mode = WeightedMaskMode {
+    layout,
+    sign: mask_sign,
+    depth: bd,
+  };
   with_motion_destination::<BD, _>(dst, block_extent, mask, |destination, mask_2| {
     let (pixels, stride) = destination.forward()?;
     write_weighted_mask(pixels, stride, [tmp1, tmp2], block_extent, mask_2, mode)
@@ -10828,8 +11711,16 @@ fn put_8tap_8bpc_dispatch_inner(
     row_stride: dst_stride,
     maximum: 255,
   };
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let request = EightTapOutput { output, source, sampling, axes: filter_axes };
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let request = EightTapOutput {
+    output,
+    source,
+    sampling,
+    axes: filter_axes,
+  };
   dispatch_eight_tap(
     token,
     request,
@@ -10855,8 +11746,16 @@ fn put_8tap_16bpc_dispatch_inner(
     row_stride: dst_stride.wrapping_div(2),
     maximum: bd_c,
   };
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let request = EightTapOutput { output, source, sampling, axes: filter_axes };
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let request = EightTapOutput {
+    output,
+    source,
+    sampling,
+    axes: filter_axes,
+  };
   dispatch_eight_tap(
     token,
     request,
@@ -10878,8 +11777,26 @@ fn prep_8tap_8bpc_dispatch_inner(
   dispatch_eight_tap(
     token,
     tmp,
-    |narrow, target| prep_8tap_8bpc_avx2_impl_inner(narrow, target, source, block_extent, motion_phase, filter_axes),
-    |wide, target| prep_8tap_8bpc_avx512_impl_inner(wide, target, source, block_extent, motion_phase, filter_axes),
+    |narrow, target| {
+      prep_8tap_8bpc_avx2_impl_inner(
+        narrow,
+        target,
+        source,
+        block_extent,
+        motion_phase,
+        filter_axes,
+      )
+    },
+    |wide, target| {
+      prep_8tap_8bpc_avx512_impl_inner(
+        wide,
+        target,
+        source,
+        block_extent,
+        motion_phase,
+        filter_axes,
+      )
+    },
   )
 }
 
@@ -10897,8 +11814,28 @@ fn prep_8tap_16bpc_dispatch_inner(
   dispatch_eight_tap(
     token,
     tmp,
-    |narrow, target| prep_8tap_16bpc_avx2_impl_inner(narrow, target, source, block_extent, motion_phase, bitdepth_max, filter_axes),
-    |wide, target| prep_8tap_16bpc_avx512_impl_inner(wide, target, source, block_extent, motion_phase, bitdepth_max, filter_axes),
+    |narrow, target| {
+      prep_8tap_16bpc_avx2_impl_inner(
+        narrow,
+        target,
+        source,
+        block_extent,
+        motion_phase,
+        bitdepth_max,
+        filter_axes,
+      )
+    },
+    |wide, target| {
+      prep_8tap_16bpc_avx512_impl_inner(
+        wide,
+        target,
+        source,
+        block_extent,
+        motion_phase,
+        bitdepth_max,
+        filter_axes,
+      )
+    },
   )
 }
 
@@ -10915,36 +11852,50 @@ pub fn mc_put_dispatch<BD: BitDepth>(
   let Ok(avx2) = crate::src::cpu::summon_avx2();
 
   let token = match avx2 {
-      Some(matched_token_2) => matched_token_2,
-      ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
+    Some(matched_token_2) => matched_token_2,
+    ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
   };
 
-  match {
-      ::core::primitive::bool::then_some(dst.data.ref_eq(src.data), ())
-  } {
-      ::core::option::Option::Some(()) => {
-        return Err(MotionFallback::AliasedView);
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some(dst.data.ref_eq(src.data), ()) } {
+    ::core::option::Option::Some(()) => {
+      return Err(MotionFallback::AliasedView);
+    }
+    ::core::option::Option::None => {}
   }
 
-  let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
-  let size = sampling.checked_size().map_err(|_| MotionFallback::BufferLayout)?;
+  let sampling = reference::Sampling {
+    size: block_extent,
+    phase: motion_phase,
+  };
+  let size = sampling
+    .checked_size()
+    .map_err(|_| MotionFallback::BufferLayout)?;
   let Ok(origin) = console_core_number_conversion::fixed_index(dst.offset);
   let Ok(pitch) = console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
     Ok(samples) => samples,
   });
   let layout = console_core_pixel_buffers::RowLayout::new(size, origin, pitch)
     .map_err(|_| MotionFallback::BufferLayout)?;
-  layout.validate_len(dst.data.pixel_len::<BD>()).map_err(|_| MotionFallback::BufferLayout)?;
+  layout
+    .validate_len(dst.data.pixel_len::<BD>())
+    .map_err(|_| MotionFallback::BufferLayout)?;
   let Ok(width) = console_core_number_conversion::index(size.width);
   let Ok(height) = console_core_number_conversion::index(size.height);
-  crate::include::dav1d::picture::with_pixel_guard_mut::<BD, _>(&dst, width, height, |bytes, offset, pitch_2| {
-    let Ok(origin_2) = console_core_number_conversion::fixed_index(offset);
-    let Ok(stride) = console_core_number_conversion::fixed_offset(pitch_2);
-    let output = PixelDestination { bytes, origin: origin_2, stride };
-    mc_put_dispatch_inner(token, filter, output, src, sampling, depth)
-  })
+  crate::include::dav1d::picture::with_pixel_guard_mut::<BD, _>(
+    &dst,
+    width,
+    height,
+    |bytes, offset, pitch_2| {
+      let Ok(origin_2) = console_core_number_conversion::fixed_index(offset);
+      let Ok(stride) = console_core_number_conversion::fixed_offset(pitch_2);
+      let output = PixelDestination {
+        bytes,
+        origin: origin_2,
+        stride,
+      };
+      mc_put_dispatch_inner(token, filter, output, src, sampling, depth)
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -10963,37 +11914,102 @@ fn mc_put_dispatch_inner<BD: BitDepth>(
     let source = guard.as_bytes();
     let Ok(video_stride) = console_core_number_conversion::fixed_offset(src.stride());
     let Ok(start) = console_core_number_conversion::index(destination_view.origin);
-    let destination = destination_view.bytes.get_mut(start..).ok_or(Rav1dError::EINVAL)?;
+    let destination = destination_view
+      .bytes
+      .get_mut(start..)
+      .ok_or(Rav1dError::EINVAL)?;
     let reference::Sampling { size, phase } = sampling;
     let Ok((horizontal, vertical)) = filter.hv();
 
     match (BD::BPC, filter) {
       (BPC::BPC8, Filter2d::Bilinear) => {
-        let input = PixelSource { samples: source, origin, stride_bytes: video_stride };
-        let request = BilinearRequest { destination, stride: destination_view.stride, source: input, sampling };
+        let input = PixelSource {
+          samples: source,
+          origin,
+          stride_bytes: video_stride,
+        };
+        let request = BilinearRequest {
+          destination,
+          stride: destination_view.stride,
+          source: input,
+          sampling,
+        };
         put_bilin_8bpc_dispatch_inner(token, request)
       }
-      (BPC::BPC8, Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-        | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-        | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap) => put_8tap_8bpc_dispatch_inner(
-        token, destination, destination_view.stride, PixelSource { samples: source, origin, stride_bytes: video_stride }, size, phase, Point { x: horizontal, y: vertical },
+      (
+        BPC::BPC8,
+        Filter2d::Regular8Tap
+        | Filter2d::RegularSmooth8Tap
+        | Filter2d::RegularSharp8Tap
+        | Filter2d::SharpRegular8Tap
+        | Filter2d::SharpSmooth8Tap
+        | Filter2d::Sharp8Tap
+        | Filter2d::SmoothRegular8Tap
+        | Filter2d::Smooth8Tap
+        | Filter2d::SmoothSharp8Tap,
+      ) => put_8tap_8bpc_dispatch_inner(
+        token,
+        destination,
+        destination_view.stride,
+        PixelSource {
+          samples: source,
+          origin,
+          stride_bytes: video_stride,
+        },
+        size,
+        phase,
+        Point {
+          x: horizontal,
+          y: vertical,
+        },
       ),
       (BPC::BPC16, mode) => {
-        let input: &[u16] = zerocopy::FromBytes::ref_from_bytes(source).map_err(|_| Rav1dError::EINVAL)?;
-        let output_2: &mut [u16] = zerocopy::FromBytes::mut_from_bytes(destination).map_err(|_| Rav1dError::EINVAL)?;
+        let input: &[u16] =
+          zerocopy::FromBytes::ref_from_bytes(source).map_err(|_| Rav1dError::EINVAL)?;
+        let output_2: &mut [u16] =
+          zerocopy::FromBytes::mut_from_bytes(destination).map_err(|_| Rav1dError::EINVAL)?;
         let max = depth.into_c();
 
         match mode {
           Filter2d::Bilinear => {
-            let source_2 = PixelSource { samples: input, origin, stride_bytes: video_stride };
+            let source_2 = PixelSource {
+              samples: input,
+              origin,
+              stride_bytes: video_stride,
+            };
             let stride = destination_view.stride.wrapping_div(2);
-            let request = BilinearRequest { destination: output_2, stride, source: source_2, sampling };
+            let request = BilinearRequest {
+              destination: output_2,
+              stride,
+              source: source_2,
+              sampling,
+            };
             put_bilin_16bpc_dispatch_inner(token, request, max)
           }
-          Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-        | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-        | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap => put_8tap_16bpc_dispatch_inner(
-            token, output_2, destination_view.stride, PixelSource { samples: input, origin, stride_bytes: video_stride }, size, phase, max, Point { x: horizontal, y: vertical },
+          Filter2d::Regular8Tap
+          | Filter2d::RegularSmooth8Tap
+          | Filter2d::RegularSharp8Tap
+          | Filter2d::SharpRegular8Tap
+          | Filter2d::SharpSmooth8Tap
+          | Filter2d::Sharp8Tap
+          | Filter2d::SmoothRegular8Tap
+          | Filter2d::Smooth8Tap
+          | Filter2d::SmoothSharp8Tap => put_8tap_16bpc_dispatch_inner(
+            token,
+            output_2,
+            destination_view.stride,
+            PixelSource {
+              samples: input,
+              origin,
+              stride_bytes: video_stride,
+            },
+            size,
+            phase,
+            max,
+            Point {
+              x: horizontal,
+              y: vertical,
+            },
           ),
         }
       }
@@ -11016,16 +12032,24 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
   let Ok(avx2) = crate::src::cpu::summon_avx2();
 
   let token = match avx2 {
-      Some(matched_token_2) => matched_token_2,
-      ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
+    Some(matched_token_2) => matched_token_2,
+    ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
   };
 
   let checked = (|prediction_storage: &mut [i16]| -> Rav1dResult {
-    let sampling = reference::Sampling { size: block_extent, phase: motion_phase };
+    let sampling = reference::Sampling {
+      size: block_extent,
+      phase: motion_phase,
+    };
     let size = sampling.checked_size()?;
-    let length = size.width.checked_mul(size.height).ok_or(Rav1dError::EINVAL)?;
+    let length = size
+      .width
+      .checked_mul(size.height)
+      .ok_or(Rav1dError::EINVAL)?;
     let Ok(end) = console_core_number_conversion::index(length);
-    let output = prediction_storage.get_mut(..end).ok_or(Rav1dError::EINVAL)?;
+    let output = prediction_storage
+      .get_mut(..end)
+      .ok_or(Rav1dError::EINVAL)?;
     let (guard, origin) = reference::filter_guard::<BD>(src, filter, sampling)?;
     let source = guard.as_bytes();
     let Ok(stride) = console_core_number_conversion::fixed_offset(src.stride());
@@ -11033,22 +12057,57 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
 
     match (BD::BPC, filter) {
       (BPC::BPC8, Filter2d::Bilinear) => {
-        let input = PixelSource { samples: source, origin, stride_bytes: stride };
-        let request = BilinearRequest { destination: output, stride: i64::from(block_extent.width), source: input, sampling };
+        let input = PixelSource {
+          samples: source,
+          origin,
+          stride_bytes: stride,
+        };
+        let request = BilinearRequest {
+          destination: output,
+          stride: i64::from(block_extent.width),
+          source: input,
+          sampling,
+        };
         prep_bilin_8bpc_dispatch_inner(token, request)
       }
-      (BPC::BPC8, Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-        | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-        | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap) => prep_8tap_8bpc_dispatch_inner(
-        token, output, PixelSource { samples: source, origin, stride_bytes: stride }, block_extent, motion_phase, Point { x: horizontal, y: vertical },
+      (
+        BPC::BPC8,
+        Filter2d::Regular8Tap
+        | Filter2d::RegularSmooth8Tap
+        | Filter2d::RegularSharp8Tap
+        | Filter2d::SharpRegular8Tap
+        | Filter2d::SharpSmooth8Tap
+        | Filter2d::Sharp8Tap
+        | Filter2d::SmoothRegular8Tap
+        | Filter2d::Smooth8Tap
+        | Filter2d::SmoothSharp8Tap,
+      ) => prep_8tap_8bpc_dispatch_inner(
+        token,
+        output,
+        PixelSource {
+          samples: source,
+          origin,
+          stride_bytes: stride,
+        },
+        block_extent,
+        motion_phase,
+        Point {
+          x: horizontal,
+          y: vertical,
+        },
       ),
       (BPC::BPC16, mode) => {
-        let input: &[u16] = zerocopy::FromBytes::ref_from_bytes(source).map_err(|_| Rav1dError::EINVAL)?;
+        let input: &[u16] =
+          zerocopy::FromBytes::ref_from_bytes(source).map_err(|_| Rav1dError::EINVAL)?;
         let max = depth.into_c();
 
         match mode {
           Filter2d::Bilinear => {
-            let input_plane = PixelSource { samples: input, origin, stride_bytes: stride };
+            let input_plane = PixelSource {
+              samples: input,
+              origin,
+              stride_bytes: stride,
+            };
             let request = BilinearRequest {
               destination: output,
               stride: i64::from(block_extent.width),
@@ -11057,10 +12116,29 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
             };
             prep_word_bilinear_dispatch(token, request)
           }
-          Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-        | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-        | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap => prep_8tap_16bpc_dispatch_inner(
-            token, output, PixelSource { samples: input, origin, stride_bytes: stride }, block_extent, motion_phase, max, Point { x: horizontal, y: vertical },
+          Filter2d::Regular8Tap
+          | Filter2d::RegularSmooth8Tap
+          | Filter2d::RegularSharp8Tap
+          | Filter2d::SharpRegular8Tap
+          | Filter2d::SharpSmooth8Tap
+          | Filter2d::Sharp8Tap
+          | Filter2d::SmoothRegular8Tap
+          | Filter2d::Smooth8Tap
+          | Filter2d::SmoothSharp8Tap => prep_8tap_16bpc_dispatch_inner(
+            token,
+            output,
+            PixelSource {
+              samples: input,
+              origin,
+              stride_bytes: stride,
+            },
+            block_extent,
+            motion_phase,
+            max,
+            Point {
+              x: horizontal,
+              y: vertical,
+            },
           ),
         }
       }
@@ -11081,14 +12159,24 @@ struct PixelSource<'a, Sample> {
 impl<'a, Sample> PixelSource<'a, Sample> {
   #[inline]
   fn row_tail(&self, position: Point<i64>) -> Rav1dResult<&'a [Sample]> {
-    let Ok(sample_size) = console_core_number_conversion::fixed_index(core::mem::size_of::<Sample>());
+    let Ok(sample_size) =
+      console_core_number_conversion::fixed_index(core::mem::size_of::<Sample>());
     let sample_bytes = i64::try_from(sample_size).map_err(|_| Rav1dError::EINVAL)?;
-    let stride = self.stride_bytes.checked_div(sample_bytes).ok_or(Rav1dError::EINVAL)?;
-    let delta = position.y.checked_mul(stride)
+    let stride = self
+      .stride_bytes
+      .checked_div(sample_bytes)
+      .ok_or(Rav1dError::EINVAL)?;
+    let delta = position
+      .y
+      .checked_mul(stride)
       .and_then(|offset| offset.checked_add(position.x))
       .ok_or(Rav1dError::EINVAL)?;
-    let offset = self.origin.checked_add_signed(delta).ok_or(Rav1dError::EINVAL)?;
-    let start = console_core_number_conversion::checked_index(offset).map_err(|_| Rav1dError::EINVAL)?;
+    let offset = self
+      .origin
+      .checked_add_signed(delta)
+      .ok_or(Rav1dError::EINVAL)?;
+    let start =
+      console_core_number_conversion::checked_index(offset).map_err(|_| Rav1dError::EINVAL)?;
     self.samples.get(start..).ok_or(Rav1dError::EINVAL)
   }
 }
@@ -11136,13 +12224,27 @@ fn warp_accumulate<BD: BitDepth>(
 ) -> Rav1dResult<[[i32; 8]; 8]> {
   use console_core_pixel_buffers::RowLayout;
   use console_core_video_interpolation::round_shift;
-  let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
+  let Ok(pixel_bytes) =
+    console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
   let byte_size = i64::try_from(pixel_bytes).map_err(|_| Rav1dError::EINVAL)?;
-  let margin = source.stride_bytes.checked_mul(-3).and_then(|rows| rows.checked_sub(byte_size.wrapping_mul(3))).ok_or(Rav1dError::EINVAL)?;
-  let start = source.origin.checked_add_signed(margin).ok_or(Rav1dError::EINVAL)?;
-  let size = Size { width: pixel_bytes.wrapping_mul(15), height: 15 };
-  let layout = RowLayout::new(size, start, source.stride_bytes).map_err(|_| Rav1dError::EINVAL)?;
-  let source_rows = layout.rows(source.samples).map_err(|_| Rav1dError::EINVAL)?;
+  let margin = source
+    .stride_bytes
+    .checked_mul(-3)
+    .and_then(|rows| rows.checked_sub(byte_size.wrapping_mul(3)))
+    .ok_or(Rav1dError::EINVAL)?;
+  let start = source
+    .origin
+    .checked_add_signed(margin)
+    .ok_or(Rav1dError::EINVAL)?;
+  let size = Size {
+    width: pixel_bytes.wrapping_mul(15),
+    height: 15,
+  };
+  let layout =
+    RowLayout::new(size, start, source.stride_bytes).map_err(|_| Rav1dError::EINVAL)?;
+  let source_rows = layout
+    .rows(source.samples)
+    .map_err(|_| Rav1dError::EINVAL)?;
   let [alpha, beta, _, _] = sampling.coefficients.map(i32::from);
   let precision = depth.get_intermediate_bits();
   let horizontal_shift = 7_u32.wrapping_sub(u32::from(precision));
@@ -11157,7 +12259,8 @@ fn warp_accumulate<BD: BitDepth>(
       let Ok(offset) = console_core_number_conversion::index(column.wrapping_mul(pixel_bytes));
       let window = pixels.get(offset..).ok_or(Rav1dError::EINVAL)?;
       let sum = warp_horizontal_dot::<BD>(token, window, taps)?;
-      let Ok(value) = console_core_number_conversion::wrapped::<_, i16>(round_shift(sum, horizontal_shift));
+      let Ok(value) =
+        console_core_number_conversion::wrapped::<_, i16>(round_shift(sum, horizontal_shift));
       *sample = value;
       phase = phase.wrapping_add(alpha);
     }
@@ -11177,7 +12280,10 @@ struct PixelDestination<'a> {
 impl<'a> PixelDestination<'a> {
   fn forward(self) -> Result<(&'a mut [u8], u64), MotionFallback> {
     let Ok(start) = console_core_number_conversion::index(self.origin);
-    let buffer = self.bytes.get_mut(start..).ok_or(MotionFallback::BufferLayout)?;
+    let buffer = self
+      .bytes
+      .get_mut(start..)
+      .ok_or(MotionFallback::BufferLayout)?;
     let stride = u64::try_from(self.stride).map_err(|_| MotionFallback::BufferLayout)?;
 
     Ok((buffer, stride))
@@ -11196,17 +12302,26 @@ fn warp_put<BD: BitDepth>(
   use console_core_pixel_buffers::RowLayout;
   use console_core_video_interpolation::round_shift;
   use zerocopy::IntoBytes;
-  let Ok(pixel_size) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
-  let size = Size { width: pixel_size.wrapping_mul(8), height: 8 };
-  let layout = RowLayout::new(size, output.origin, output.stride).map_err(|_| Rav1dError::EINVAL)?;
-  let rows = layout.rows_mut(output.bytes).map_err(|_| Rav1dError::EINVAL)?;
+  let Ok(pixel_size) =
+    console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
+  let size = Size {
+    width: pixel_size.wrapping_mul(8),
+    height: 8,
+  };
+  let layout =
+    RowLayout::new(size, output.origin, output.stride).map_err(|_| Rav1dError::EINVAL)?;
+  let rows = layout
+    .rows_mut(output.bytes)
+    .map_err(|_| Rav1dError::EINVAL)?;
   let samples = warp_accumulate(token, source, sampling, depth)?;
   let shift = 7_u32.wrapping_add(u32::from(depth.get_intermediate_bits()));
   let Ok(pixel_bytes) = console_core_number_conversion::index(pixel_size);
 
   for (mut line, sums) in rows.zip(samples) {
     for sample in sums {
-      let (target, rest) = line.split_at_mut_checked(pixel_bytes).ok_or(Rav1dError::EINVAL)?;
+      let (target, rest) = line
+        .split_at_mut_checked(pixel_bytes)
+        .ok_or(Rav1dError::EINVAL)?;
       let clipped = depth.iclip_pixel(round_shift(sample, shift));
       let Ok(()) = copy_bilinear_pixels(target, clipped.as_bytes());
       line = rest;
@@ -11226,7 +12341,9 @@ fn warp_prep<BD: BitDepth>(
   stride: u64,
   depth: BD,
 ) -> Rav1dResult {
-  write_warp_predictor::<BD>(output, stride, || warp_accumulate(token, source, sampling, depth))
+  write_warp_predictor::<BD>(output, stride, || {
+    warp_accumulate(token, source, sampling, depth)
+  })
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -11240,31 +12357,43 @@ pub(crate) fn warp8x8_dispatch<BD: BitDepth>(
   let Ok(avx2) = crate::src::cpu::summon_avx2();
 
   let token = match avx2 {
-      Some(matched_token) => matched_token,
-      ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
+    Some(matched_token) => matched_token,
+    ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
   };
 
-  match {
-      ::core::primitive::bool::then_some(dst.data.ref_eq(src.data), ())
-  } {
-      ::core::option::Option::Some(()) => {
-        return Err(MotionFallback::AliasedView);
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some(dst.data.ref_eq(src.data), ()) } {
+    ::core::option::Option::Some(()) => {
+      return Err(MotionFallback::AliasedView);
+    }
+    ::core::option::Option::None => {}
   }
 
   let checked = (|| -> Rav1dResult {
     let Ok(stride) = console_core_number_conversion::fixed_offset(src.stride());
-    let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
+    let Ok(pixel_bytes) =
+      console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
     let (guard, base) = reference::warp_guard::<BD>(src)?;
     let origin = base.checked_mul(pixel_bytes).ok_or(Rav1dError::EINVAL)?;
-    let reference = PixelSource { samples: guard.as_bytes(), origin, stride_bytes: stride };
-    crate::include::dav1d::picture::with_pixel_guard_mut::<BD, _>(&dst, 8, 8, |buffer, offset, pitch| {
-      let Ok(origin_2) = console_core_number_conversion::fixed_index(offset);
-      let Ok(stride_2) = console_core_number_conversion::fixed_offset(pitch);
-      let output = PixelDestination { bytes: buffer, origin: origin_2, stride: stride_2 };
-      warp_put(token, reference, sampling, output, depth)
-    })
+    let reference = PixelSource {
+      samples: guard.as_bytes(),
+      origin,
+      stride_bytes: stride,
+    };
+    crate::include::dav1d::picture::with_pixel_guard_mut::<BD, _>(
+      &dst,
+      8,
+      8,
+      |buffer, offset, pitch| {
+        let Ok(origin_2) = console_core_number_conversion::fixed_index(offset);
+        let Ok(stride_2) = console_core_number_conversion::fixed_offset(pitch);
+        let output = PixelDestination {
+          bytes: buffer,
+          origin: origin_2,
+          stride: stride_2,
+        };
+        warp_put(token, reference, sampling, output, depth)
+      },
+    )
   })();
   checked.map_err(|_invalid_layout| MotionFallback::BufferLayout)
 }
@@ -11281,16 +12410,21 @@ pub(crate) fn warp8x8t_dispatch<BD: BitDepth>(
   let Ok(avx2) = crate::src::cpu::summon_avx2();
 
   let token = match avx2 {
-      Some(matched_token) => matched_token,
-      ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
+    Some(matched_token) => matched_token,
+    ::core::option::Option::None => return Err(MotionFallback::MissingCpuFeature),
   };
 
   let checked = (|target: &mut [i16]| -> Rav1dResult {
     let Ok(stride) = console_core_number_conversion::fixed_offset(src.stride());
-    let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
+    let Ok(pixel_bytes) =
+      console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
     let (guard, base) = reference::warp_guard::<BD>(src)?;
     let origin = base.checked_mul(pixel_bytes).ok_or(Rav1dError::EINVAL)?;
-    let reference = PixelSource { samples: guard.as_bytes(), origin, stride_bytes: stride };
+    let reference = PixelSource {
+      samples: guard.as_bytes(),
+      origin,
+      stride_bytes: stride,
+    };
     warp_prep(token, reference, sampling, target, pitch, depth)
   })(output);
   checked.map_err(|_invalid_layout| MotionFallback::BufferLayout)
@@ -11309,14 +12443,29 @@ mod tests {
     };
     let input = [117_u16; 128];
     let mut result = [711_u16; 128];
-    let source = PixelSource { samples: &input, origin: 0, stride_bytes: 64 };
+    let source = PixelSource {
+      samples: &input,
+      origin: 0,
+      stride_bytes: 64,
+    };
     let sampling = reference::Sampling {
-      size: Size { width: 23, height: 4 },
+      size: Size {
+        width: 23,
+        height: 4,
+      },
       phase: Point { x: 7, y: 1 },
     };
-    let request = BilinearRequest { destination: &mut result, stride: 32, source, sampling };
+    let request = BilinearRequest {
+      destination: &mut result,
+      stride: 32,
+      source,
+      sampling,
+    };
 
-    assert_eq!(put_bilin_16bpc_dispatch_inner(token, request, 1023), Err(Rav1dError::EINVAL));
+    assert_eq!(
+      put_bilin_16bpc_dispatch_inner(token, request, 1023),
+      Err(Rav1dError::EINVAL)
+    );
     assert!(result.iter().all(|&sample| sample == 711));
   }
 
@@ -11331,28 +12480,51 @@ mod tests {
     let Ok(avx2) = crate::src::cpu::summon_avx2();
 
     let _available = match avx2 {
-        Some(matched_available) => matched_available,
-        ::core::option::Option::None => return,
+      Some(matched_available) => matched_available,
+      ::core::option::Option::None => return,
     };
 
     let mut reference: Align64<[u8; 4096]> = Aligned([17; 4096]);
     let mut short: Align64<[u8; 64]> = Aligned([39; 64]);
     let input = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *reference, 64);
     let output = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *short, 64);
-    let source = PicOffset { data: &input, offset: 520 };
-    let destination = PicOffset { data: &output, offset: 0 };
-    let shape = Size { width: 8, height: 8 };
+    let source = PicOffset {
+      data: &input,
+      offset: 520,
+    };
+    let destination = PicOffset {
+      data: &output,
+      offset: 0,
+    };
+    let shape = Size {
+      width: 8,
+      height: 8,
+    };
     let phase = Point { x: 3, y: 11 };
     let depth = BitDepth8::new(());
     let mut predictors = [41_i16; 32];
 
     assert_eq!(
-      mc_put_dispatch(Filter2d::Regular8Tap, destination, source, shape, phase, depth),
+      mc_put_dispatch(
+        Filter2d::Regular8Tap,
+        destination,
+        source,
+        shape,
+        phase,
+        depth
+      ),
       Err(MotionFallback::BufferLayout),
     );
     assert_eq!(&*destination.slice::<BitDepth8>(64), &[39; 64]);
     assert_eq!(
-      mct_prep_dispatch(Filter2d::Regular8Tap, &mut predictors, source, shape, phase, depth),
+      mct_prep_dispatch(
+        Filter2d::Regular8Tap,
+        &mut predictors,
+        source,
+        shape,
+        phase,
+        depth
+      ),
       Err(MotionFallback::BufferLayout),
     );
     assert_eq!(predictors, [41; 32]);
@@ -11370,7 +12542,18 @@ mod tests {
     let mask = [32u8; 127];
 
     assert_eq!(
-      mask_8bpc_avx2_safe(avx2, &mut dst, 67, &samples, &samples, Size { width: 64, height: 2 }, &mask),
+      mask_8bpc_avx2_safe(
+        avx2,
+        &mut dst,
+        67,
+        &samples,
+        &samples,
+        Size {
+          width: 64,
+          height: 2
+        },
+        &mask
+      ),
       Err(BlendLayoutError::Source),
     );
     assert_eq!(dst, [71; 131]);
@@ -11395,7 +12578,10 @@ mod tests {
         88,
         &samples,
         &samples,
-        Size { width: 41, height: 2 },
+        Size {
+          width: 41,
+          height: 2
+        },
         1023
       ),
       Ok(()),
@@ -11427,7 +12613,10 @@ mod tests {
         88,
         &dark,
         &samples,
-        Size { width: 41, height: 2 },
+        Size {
+          width: 41,
+          height: 2
+        },
         &mask,
         1023
       ),
@@ -11447,7 +12636,10 @@ mod tests {
             88,
             &dark,
             &samples,
-            Size { width: 41, height: 2 },
+            Size {
+              width: 41,
+              height: 2
+            },
             &mask,
             1023
           ),
@@ -11471,8 +12663,24 @@ mod tests {
     };
 
     let test_values: [i16; 18] = [
-      0, 1, 2, 127, 128, 255, 256, 511, 512, 1023, 1024,
-      -1, -128, -256, -512, -1024, i16::MIN, i16::MAX,
+      0,
+      1,
+      2,
+      127,
+      128,
+      255,
+      256,
+      511,
+      512,
+      1023,
+      1024,
+      -1,
+      -128,
+      -256,
+      -512,
+      -1024,
+      i16::MIN,
+      i16::MAX,
     ];
 
     let w = 67i32;
@@ -11495,7 +12703,11 @@ mod tests {
         dst_avx2.fill(0);
         dst_scalar.fill(0);
 
-        let golden = ::core::primitive::i32::wrapping_shr(i32::from(v1.wrapping_add(v2)).wrapping_add(16), 5_u32).clamp(0, 255);
+        let golden = ::core::primitive::i32::wrapping_shr(
+          i32::from(v1.wrapping_add(v2)).wrapping_add(16),
+          5_u32,
+        )
+        .clamp(0, 255);
         let Ok(expected) = console_core_number_conversion::wrapped::<_, u8>(golden);
         dst_scalar.fill(expected);
 
@@ -11506,7 +12718,11 @@ mod tests {
             u64::from(w.cast_unsigned()),
             &tmp1,
             &tmp2,
-            Size { width: w, height: h }),
+            Size {
+              width: w,
+              height: h
+            }
+          ),
           Ok(())
         );
 
@@ -11573,7 +12789,11 @@ mod tests {
         u64::from(w.cast_unsigned()),
         &tmp1,
         &tmp2,
-        Size { width: w, height: h }),
+        Size {
+          width: w,
+          height: h
+        }
+      ),
       Ok(())
     );
 
@@ -11584,7 +12804,11 @@ mod tests {
         u64::from(w.cast_unsigned()),
         &tmp1,
         &tmp2,
-        Size { width: w, height: h }),
+        Size {
+          width: w,
+          height: h
+        }
+      ),
       Ok(())
     );
 
@@ -11635,7 +12859,10 @@ mod tests {
               u64::from(w.cast_unsigned()),
               &tmp1,
               &tmp2,
-              Size { width: w, height: h },
+              Size {
+                width: w,
+                height: h
+              },
               weight
             ),
             Ok(())
@@ -11645,8 +12872,15 @@ mod tests {
             8.. => (i32::from(v1), i32::from(v2), weight.wrapping_sub(16)),
             ..=7 => (i32::from(v2), i32::from(v1), weight.wrapping_neg()),
           };
-          let adjustment = ::core::primitive::i32::wrapping_shr(primary.wrapping_sub(secondary).wrapping_mul(factor), 4_u32);
-          let golden = ::core::primitive::i32::wrapping_shr(primary.wrapping_add(adjustment).wrapping_add(8), 4_u32).clamp(0, 255);
+          let adjustment = ::core::primitive::i32::wrapping_shr(
+            primary.wrapping_sub(secondary).wrapping_mul(factor),
+            4_u32,
+          );
+          let golden = ::core::primitive::i32::wrapping_shr(
+            primary.wrapping_add(adjustment).wrapping_add(8),
+            4_u32,
+          )
+          .clamp(0, 255);
           let Ok(expected) = console_core_number_conversion::wrapped::<_, u8>(golden);
           dst_b.fill(expected);
 
@@ -11709,7 +12943,10 @@ mod tests {
               u64::from(w.cast_unsigned()),
               &tmp1,
               &tmp2,
-              Size { width: w, height: h },
+              Size {
+                width: w,
+                height: h
+              },
               &mask
             ),
             Ok(())
@@ -11718,7 +12955,11 @@ mod tests {
           let alpha = i32::from(m);
           let left = i32::from(v1).wrapping_mul(alpha);
           let right = i32::from(v2).wrapping_mul(64i32.wrapping_sub(alpha));
-          let golden = ::core::primitive::i32::wrapping_shr(left.wrapping_add(right).wrapping_add(512), 10_u32).clamp(0, 255);
+          let golden = ::core::primitive::i32::wrapping_shr(
+            left.wrapping_add(right).wrapping_add(512),
+            10_u32,
+          )
+          .clamp(0, 255);
           let Ok(expected) = console_core_number_conversion::wrapped::<_, u8>(golden);
           dst_b.fill(expected);
 
@@ -11780,7 +13021,11 @@ mod tests {
           u64::from(w.cast_unsigned()),
           &tmp1,
           &tmp2,
-          Size { width: w, height: h }),
+          Size {
+            width: w,
+            height: h
+          }
+        ),
         Ok(())
       );
       dst
@@ -11799,7 +13044,11 @@ mod tests {
               u64::from(w.cast_unsigned()),
               &tmp1,
               &tmp2,
-              Size { width: w, height: h }),
+              Size {
+                width: w,
+                height: h
+              }
+            ),
             Ok(())
           );
           assert_eq!(dst, reference, "avg output mismatch at: {perm}");

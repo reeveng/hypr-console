@@ -48,7 +48,12 @@ impl Type2 {
     let Ok(wide) = exponent.as_f64();
     let Ok(n) = console_core_number_conversion::narrow_f32(wide);
 
-    Ok(Some(Self { c0, c1, clamper, n: Exponent(n) }))
+    Ok(Some(Self {
+      c0,
+      c1,
+      clamper,
+      n: Exponent(n),
+    }))
   }
 
   pub(crate) fn eval(

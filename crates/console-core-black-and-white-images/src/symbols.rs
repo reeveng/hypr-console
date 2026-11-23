@@ -19,7 +19,7 @@ use crate::reading::Reader;
 use crate::refinement;
 use crate::standard::Standard;
 use crate::text::{
-  self, Corner, Integers, Orientation, Refining, Selection, Selections, Source, code_length,
+  self, CornerPosition, Integers, Orientation, Refining, Selection, Selections, Source, code_length,
 };
 
 const MAX_SYMBOLS: u32 = 65_535;
@@ -46,7 +46,7 @@ pub(crate) enum Contexts {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Retention {
-  Kept,
+  Preserve,
   Dropped,
 }
 
@@ -121,7 +121,7 @@ fn parse_flags(word: u16) -> Result<Flags, DecodeError> {
   };
   let retention = match word & 0x0200 {
     0 => Retention::Dropped,
-    _ => Retention::Kept,
+    _ => Retention::Preserve,
   };
   let template = u8::try_from(word.wrapping_shr(10) & 0x03).map_err(|_| DecodeError::Overflow)?;
   let refinement_template =
@@ -310,7 +310,7 @@ pub(crate) fn decode(
 
   let exported = dictionary.export()?;
   let retained_2 = match header.flags.retention {
-    Retention::Kept => Some(Retained {
+    Retention::Preserve => Some(Retained {
       generic: dictionary.generic,
       refinement: dictionary.refinement,
     }),
@@ -602,7 +602,7 @@ impl Dictionary<'_, '_> {
     let settings = text::Settings {
       refining: Refining::Allowed,
       log_strip_size: 0,
-      corner: Corner::TopLeft,
+      corner: CornerPosition::TopLeft,
       orientation: Orientation::Upright,
       operator: Operator::Or,
       default_pixel: Color::White,

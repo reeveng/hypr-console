@@ -17,8 +17,8 @@ use skrifa::raw::types::BoundingBox;
 use crate::text::OPSZ;
 use crate::text::colr::GlyphPainter;
 use crate::text::layout::PositionedGlyph;
-use console_core_never::Never;
 use crate::*;
+use console_core_never::Never;
 
 fn resolve_rendering_mode(
   text: &Text,
@@ -37,10 +37,15 @@ fn effective_variations(
 ) -> ::core::result::Result<Vec<FontVariation>, ::console_core_never::Never> {
   let mut variations = span.variations.clone();
 
-  match ::core::primitive::bool::then_some(span.font_optical_sizing == crate::FontOpticalSizing::Auto
-    && !variations.iter().any(|v| &v.tag == b"opsz")
-    && matches!(cache.optical_size_axis(glyph.font), Ok(crate::Presence::Present)), ())
-  {
+  match ::core::primitive::bool::then_some(
+    span.font_optical_sizing == crate::FontOpticalSizing::Auto
+      && !variations.iter().any(|v| &v.tag == b"opsz")
+      && matches!(
+        cache.optical_size_axis(glyph.font),
+        Ok(crate::Presence::Present)
+      ),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(font_variation) = FontVariation::new(*b"opsz", glyph.font_size());
       variations.push(font_variation);
@@ -98,9 +103,15 @@ fn push_outline_paths(
     reason = "Embedded glyph SVG documents share the document depth guard with the enclosing SVG parser"
   )
 )]
-pub(crate) fn flatten(text: &Text, cache: &mut Cache) -> Result<Option<(Group, NonZeroRect)>, Never> {
+pub(crate) fn flatten(
+  text: &Text,
+  cache: &mut Cache,
+) -> Result<Option<(Group, NonZeroRect)>, Never> {
   let Ok(empty) = Group::empty();
-  let mut group = Group { id: text.id.clone(), ..empty };
+  let mut group = Group {
+    id: text.id.clone(),
+    ..empty
+  };
   let Ok(rendering_mode) = resolve_rendering_mode(text);
 
   for span in &text.layouted {
@@ -127,7 +138,7 @@ pub(crate) fn flatten(text: &Text, cache: &mut Cache) -> Result<Option<(Group, N
         GlyphDrawing::Outline(path) => {
           let Ok(()) = append_glyph_outline(path, glyph, &mut span_builder);
         }
-        GlyphDrawing::Missing => {}
+        GlyphDrawing::Absent => {}
       }
     }
 
@@ -138,7 +149,11 @@ pub(crate) fn flatten(text: &Text, cache: &mut Cache) -> Result<Option<(Group, N
       rendering_mode,
       text.abs_transform,
     );
-    let Ok(()) = append_decoration(span.line_through.as_ref(), &mut group.children, rendering_mode);
+    let Ok(()) = append_decoration(
+      span.line_through.as_ref(),
+      &mut group.children,
+      rendering_mode,
+    );
   }
 
   let Ok(_) = group.calculate_bounding_boxes();
@@ -180,7 +195,7 @@ enum GlyphDrawing {
   ColorLayer(Node),
   Embedded(Node),
   Outline(console_core_paths::Path),
-  Missing,
+  Absent,
 }
 
 #[cfg_attr(
@@ -233,7 +248,7 @@ fn load_glyph_drawing(
 
   match outline {
     Some(path) => Ok(GlyphDrawing::Outline(path)),
-    None => Ok(GlyphDrawing::Missing),
+    None => Ok(GlyphDrawing::Absent),
   }
 }
 
@@ -375,7 +390,10 @@ impl DatabaseExt for Database {
 
   fn optical_size_axis(&self, id: ID) -> crate::Presence {
     let Ok(axis) = self.with_face_data(id, |data, face_index| {
-      let font = match skrifa::FontRef::from_index(data, face_index) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_unreadable_font_data_) => ::core::option::Option::None }?;
+      let font = match skrifa::FontRef::from_index(data, face_index) {
+        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+        ::core::result::Result::Err(_unreadable_font_data_) => ::core::option::Option::None,
+      }?;
 
       match font.axes().get_by_tag(OPSZ) {
         Some(_) => Some(crate::Presence::Present),
@@ -384,8 +402,8 @@ impl DatabaseExt for Database {
     });
 
     match axis.flatten() {
-        ::core::option::Option::Some(option_value) => option_value,
-        ::core::option::Option::None => crate::Presence::Absent,
+      ::core::option::Option::Some(option_value) => option_value,
+      ::core::option::Option::None => crate::Presence::Absent,
     }
   }
 
@@ -449,12 +467,14 @@ impl DatabaseExt for Database {
               },
             });
 
-          let bitmap_image = BitmapImage {
-            image: Image {
-              id: String::new(),
-              visible: crate::Visibility::Visible,
-              size: { let checked_value = ({
-                let Ok(value) = Size::from_wh(
+          let bitmap_image =
+            BitmapImage {
+              image: Image {
+                id: String::new(),
+                visible: crate::Visibility::Visible,
+                size: {
+                  let checked_value = ({
+                    let Ok(value) = Size::from_wh(
                       match ::console_core_number_conversion::nearest_f32_from_u64(
                         <::core::primitive::u64 as ::core::convert::From<
                           ::core::primitive::u32,
@@ -470,13 +490,16 @@ impl DatabaseExt for Database {
                         ::core::result::Result::Ok(_converted_number) => _converted_number,
                       },
                     );
-                value
-              })?; checked_value },
-              rendering_mode: ImageRendering::OptimizeQuality,
-              kind: ImageKind::PNG(Arc::new(data_2.to_vec())),
-              abs_transform: Transform::default(),
-              abs_bounding_box: { let checked_value_2 = ({
-                let Ok(value) = NonZeroRect::from_xywh(
+                    value
+                  })?;
+                  checked_value
+                },
+                rendering_mode: ImageRendering::OptimizeQuality,
+                kind: ImageKind::PNG(Arc::new(data_2.to_vec())),
+                abs_transform: Transform::default(),
+                abs_bounding_box: {
+                  let checked_value_2 = ({
+                    let Ok(value) = NonZeroRect::from_xywh(
                       0.0,
                       0.0,
                       match ::console_core_number_conversion::nearest_f32_from_u64(
@@ -494,35 +517,39 @@ impl DatabaseExt for Database {
                         ::core::result::Result::Ok(_converted_number) => _converted_number,
                       },
                     );
-                value
-              })?; checked_value_2 },
-            },
-            x: match ::console_core_number_conversion::toward_zero_i16(
-              <::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(
-                image.inner_bearing_x,
-              ),
-            ) {
-              ::core::result::Result::Ok(_converted_number) => _converted_number,
-            },
-            y: match ::console_core_number_conversion::toward_zero_i16(
-              <::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(
-                image.inner_bearing_y,
-              ),
-            ) {
-              ::core::result::Result::Ok(_converted_number) => _converted_number,
-            },
-            pixels_per_em: match ::console_core_number_conversion::toward_zero_u16(
-              <::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(
-                image.ppem_x,
-              ),
-            ) {
-              ::core::result::Result::Ok(_converted_number) => _converted_number,
-            },
-            placement: match bitmap_strikes.format() {
-              Some(BitmapFormat::Sbix) => BitmapPlacement::Sbix(bounding_box),
-              Some(BitmapFormat::Cbdt | BitmapFormat::Ebdt) | None => BitmapPlacement::BitmapStrike,
-            },
-          };
+                    value
+                  })?;
+                  checked_value_2
+                },
+              },
+              x: match ::console_core_number_conversion::toward_zero_i16(
+                <::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(
+                  image.inner_bearing_x,
+                ),
+              ) {
+                ::core::result::Result::Ok(_converted_number) => _converted_number,
+              },
+              y: match ::console_core_number_conversion::toward_zero_i16(
+                <::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(
+                  image.inner_bearing_y,
+                ),
+              ) {
+                ::core::result::Result::Ok(_converted_number) => _converted_number,
+              },
+              pixels_per_em: match ::console_core_number_conversion::toward_zero_u16(
+                <::core::primitive::f64 as ::core::convert::From<::core::primitive::f32>>::from(
+                  image.ppem_x,
+                ),
+              ) {
+                ::core::result::Result::Ok(_converted_number) => _converted_number,
+              },
+              placement: match bitmap_strikes.format() {
+                Some(BitmapFormat::Sbix) => BitmapPlacement::Sbix(bounding_box),
+                Some(BitmapFormat::Cbdt | BitmapFormat::Ebdt) | None => {
+                  BitmapPlacement::BitmapStrike
+                }
+              },
+            };
 
           Some(bitmap_image)
         }
@@ -536,7 +563,10 @@ impl DatabaseExt for Database {
 
   #[cfg_attr(
     dylint_lib = "explicit049_no_recursion",
-    expect(explicit049_no_recursion, reason = "OpenType SVG glyph images enter the guarded document parser")
+    expect(
+      explicit049_no_recursion,
+      reason = "OpenType SVG glyph images enter the guarded document parser"
+    )
   )]
   fn svg(&self, id: ID, glyph_id: GlyphId) -> Option<Node> {
     let Ok(with_face_data) = self.with_face_data(id, |data, face_index| -> Option<Node> {
@@ -579,7 +609,10 @@ impl DatabaseExt for Database {
         })
         .contains(&glyph_id.0)
       })?;
-      let node = match ::core::primitive::bool::then_some(doc_record.start_glyph_id == doc_record.end_glyph_id, ()) {
+      let node = match ::core::primitive::bool::then_some(
+        doc_record.start_glyph_id == doc_record.end_glyph_id,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Node::Group(Box::new(tree.root)),
         ::core::option::Option::None => {
           let Ok(node_by_id) = tree.node_by_id(&format!("glyph{}", glyph_id.0));

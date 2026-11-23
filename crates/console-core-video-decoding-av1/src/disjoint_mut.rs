@@ -34,7 +34,10 @@ pub fn dm_new<T: AsMutPtr>(
 #[cfg(feature = "unchecked")]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the unchecked feature selects the same tile-owned buffer layout without the default runtime disjointness checks")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the unchecked feature selects the same tile-owned buffer layout without the default runtime disjointness checks"
+  )
 )]
 pub fn dm_new<T: AsMutPtr>(
   val: T,
@@ -48,7 +51,10 @@ pub fn dm_new<T: AsMutPtr>(
 
 #[cfg_attr(
   all(feature = "unchecked", dylint_lib = "explicit058_contain_unsafe"),
-  expect(explicit058_contain_unsafe, reason = "only the opt-in unchecked mode selects the untracked form of the frame-shared tile allocation")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "only the opt-in unchecked mode selects the untracked form of the frame-shared tile allocation"
+  )
 )]
 pub fn dm_arc_try_new<T: Copy>(count: u64, value: T) -> Rav1dResult<DisjointMutArcSlice<T>> {
   let Ok(native_count) = index(count);

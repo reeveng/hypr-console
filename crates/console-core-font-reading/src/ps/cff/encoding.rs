@@ -37,7 +37,10 @@ impl<'a> Encoding<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Encoding::map` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Encoding::map` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn map(&self, charset: &Charset, code: u8) -> Option<GlyphId> {
     match self {
@@ -114,7 +117,10 @@ impl<'a> CustomEncoding<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CustomEncoding::map` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CustomEncoding::map` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn map(&self, charset: &Charset, code: u8) -> Option<GlyphId> {
     let read_sup = |sup: &[Supplement]| {
@@ -212,22 +218,19 @@ mod tests {
     for code in 0..=255 {
       let gid = encoding.map(&charset, code);
       let fixture_value = crate::test_support::fixture_value(gid, "fixture value")?;
-      assert_eq!(
-        fixture_value,
-        {
-          let standard_glyph = crate::test_support::fixture_value(
+      assert_eq!(fixture_value, {
+        let standard_glyph = crate::test_support::fixture_value(
           charset.glyph_id({
             let standard_sid = crate::test_support::fixture_value(
-            PredefinedEncoding::Standard.sid(code),
-            "fixture value"
-          )?;
+              PredefinedEncoding::Standard.sid(code),
+              "fixture value",
+            )?;
             standard_sid
           }),
-          "fixture value"
+          "fixture value",
         )?;
-          standard_glyph
-        }
-      );
+        standard_glyph
+      });
     }
 
     Ok(())
@@ -241,22 +244,19 @@ mod tests {
     for code in 0..=255 {
       let gid = encoding.map(&charset, code);
       let fixture_value = crate::test_support::fixture_value(gid, "fixture value")?;
-      assert_eq!(
-        fixture_value,
-        {
-          let expert_glyph = crate::test_support::fixture_value(
+      assert_eq!(fixture_value, {
+        let expert_glyph = crate::test_support::fixture_value(
           charset.glyph_id({
             let expert_sid = crate::test_support::fixture_value(
-            PredefinedEncoding::Expert.sid(code),
-            "fixture value"
-          )?;
+              PredefinedEncoding::Expert.sid(code),
+              "fixture value",
+            )?;
             expert_sid
           }),
-          "fixture value"
+          "fixture value",
         )?;
-          expert_glyph
-        }
-      );
+        expert_glyph
+      });
     }
 
     Ok(())
@@ -269,20 +269,18 @@ mod tests {
     let charset = iso_adobe_charset()?;
 
     for (i, code) in codes.into_iter().enumerate() {
-      let fixture_value = crate::test_support::fixture_value(encoding.map(&charset, code), "fixture value")?;
-      assert_eq!(
-        fixture_value,
-        {
-          let Ok(value) = GlyphId::new(::core::primitive::u32::wrapping_add(
-            {
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(i);
-              migrated_value
-            },
-            1,
-          ));
-          value
-        }
-      );
+      let fixture_value =
+        crate::test_support::fixture_value(encoding.map(&charset, code), "fixture value")?;
+      assert_eq!(fixture_value, {
+        let Ok(value) = GlyphId::new(::core::primitive::u32::wrapping_add(
+          {
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(i);
+            migrated_value
+          },
+          1,
+        ));
+        value
+      });
     }
 
     Ok(())
@@ -341,20 +339,18 @@ mod tests {
     let charset = iso_adobe_charset()?;
     assert_eq!(
       ({
-        let fixture_value = crate::test_support::fixture_value(encoding.map(&charset, 40), "fixture value")?;
-        let Ok(value) =
-          fixture_value
-            .to_u32();
+        let fixture_value =
+          crate::test_support::fixture_value(encoding.map(&charset, 40), "fixture value")?;
+        let Ok(value) = fixture_value.to_u32();
         value
       }),
       91
     );
     assert_eq!(
       ({
-        let fixture_value = crate::test_support::fixture_value(encoding.map(&charset, 122), "fixture value")?;
-        let Ok(value) =
-          fixture_value
-            .to_u32();
+        let fixture_value =
+          crate::test_support::fixture_value(encoding.map(&charset, 122), "fixture value")?;
+        let Ok(value) = fixture_value.to_u32();
         value
       }),
       9
@@ -365,30 +361,29 @@ mod tests {
       >>::from(91u32))
       {
         ::core::result::Result::Ok(read_value) => read_value,
-        ::core::result::Result::Err(read_error) =>
-          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
       }
       .resolve_standard(),
-      "fixture value"
+      "fixture value",
     )?;
-    assert_eq!(
-      fixture_value,
-      b"z"
-    );
+    assert_eq!(fixture_value, b"z");
     assert_eq!(
       {
         let supplement_name = crate::test_support::fixture_value(
-        match charset.string_id(<::font_types::GlyphId as ::core::convert::From<
-          ::core::primitive::u32,
-        >>::from(9u32))
-        {
-          ::core::result::Result::Ok(read_value) => read_value,
-          ::core::result::Result::Err(read_error) =>
-            return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-        }
-        .resolve_standard(),
-        "fixture value"
-      )?;
+          match charset.string_id(<::font_types::GlyphId as ::core::convert::From<
+            ::core::primitive::u32,
+          >>::from(9u32))
+          {
+            ::core::result::Result::Ok(read_value) => read_value,
+            ::core::result::Result::Err(read_error) => {
+              return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+            }
+          }
+          .resolve_standard(),
+          "fixture value",
+        )?;
         supplement_name
       },
       b"parenleft"

@@ -1,6 +1,6 @@
-pub use console_core_paths::{NonZeroRect, Rect, Size, Transform};
 use console_core_never::Never;
 use console_core_paths::Point;
+pub use console_core_paths::{NonZeroRect, FloatRectangle, Size, Transform};
 use console_core_scalable_vector_graphics_values::{Align, AspectRatio};
 use float_cmp::ApproxEqUlps;
 
@@ -89,23 +89,27 @@ impl ViewBox {
     let Ok(vr_height) = vr.height();
     let sy = height / vr_height;
 
-    let (sx_2, sy_2) = match ::core::primitive::bool::then_some(self.aspect.align == Align::None, ()) {
-      ::core::option::Option::Some(()) => (sx, sy),
-      ::core::option::Option::None => {
-        let s = match ::core::primitive::bool::then_some(self.aspect.slice, ()) {
-          ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(sx < sy, ()) {
-            ::core::option::Option::Some(()) => sy,
-            ::core::option::Option::None => sx,
-          },
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(sx > sy, ()) {
-            ::core::option::Option::Some(()) => sy,
-            ::core::option::Option::None => sx,
-          },
-        };
+    let (sx_2, sy_2) =
+      match ::core::primitive::bool::then_some(self.aspect.align == Align::None, ()) {
+        ::core::option::Option::Some(()) => (sx, sy),
+        ::core::option::Option::None => {
+          let s = match ::core::primitive::bool::then_some(self.aspect.slice, ()) {
+            ::core::option::Option::Some(()) => {
+              match ::core::primitive::bool::then_some(sx < sy, ()) {
+                ::core::option::Option::Some(()) => sy,
+                ::core::option::Option::None => sx,
+              }
+            }
+            ::core::option::Option::None => match ::core::primitive::bool::then_some(sx > sy, ())
+            {
+              ::core::option::Option::Some(()) => sy,
+              ::core::option::Option::None => sx,
+            },
+          };
 
-        (s, s)
-      }
-    };
+          (s, s)
+        }
+      };
 
     let x = -({
       let Ok(explicit_value) = vr.x();
@@ -128,7 +132,8 @@ impl ViewBox {
         explicit_value
       }) * sy_2;
 
-    let Ok(Point { x: tx, y: ty }) = aligned_pos(self.aspect.align, Point { x, y }, Point { x: w, y: h });
+    let Ok(Point { x: tx, y: ty }) =
+      aligned_pos(self.aspect.align, Point { x, y }, Point { x: w, y: h });
 
     let Ok(transform) = Transform::from_row(sx_2, 0.0, 0.0, sy_2, tx, ty);
 
@@ -142,8 +147,8 @@ pub(crate) struct BBox {
   maximum: Point,
 }
 
-impl From<Rect> for BBox {
-  fn from(rect: Rect) -> Self {
+impl From<FloatRectangle> for BBox {
+  fn from(rect: FloatRectangle) -> Self {
     let Ok(left) = rect.left();
     let Ok(top) = rect.top();
     let Ok(right) = rect.right();
@@ -151,7 +156,10 @@ impl From<Rect> for BBox {
 
     Self {
       minimum: Point { x: left, y: top },
-      maximum: Point { x: right, y: bottom },
+      maximum: Point {
+        x: right,
+        y: bottom,
+      },
     }
   }
 }
@@ -167,8 +175,14 @@ impl From<NonZeroRect> for BBox {
 impl Default for BBox {
   fn default() -> Self {
     Self {
-      minimum: Point { x: f32::MAX, y: f32::MAX },
-      maximum: Point { x: f32::MIN, y: f32::MIN },
+      minimum: Point {
+        x: f32::MAX,
+        y: f32::MAX,
+      },
+      maximum: Point {
+        x: f32::MIN,
+        y: f32::MIN,
+      },
     }
   }
 }
@@ -178,11 +192,18 @@ impl BBox {
     let max = f32::MAX.to_bits();
     let min = f32::MIN.to_bits();
 
-    Ok(match ::core::primitive::bool::then_some(self.minimum.x.to_bits() == max && self.minimum.y.to_bits() == max
-      && self.maximum.x.to_bits() == min && self.maximum.y.to_bits() == min, ()) {
-      ::core::option::Option::Some(()) => crate::IsDefaultAnswer::Yes,
-      ::core::option::Option::None => crate::IsDefaultAnswer::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        self.minimum.x.to_bits() == max
+          && self.minimum.y.to_bits() == max
+          && self.maximum.x.to_bits() == min
+          && self.maximum.y.to_bits() == min,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => crate::IsDefaultAnswer::Yes,
+        ::core::option::Option::None => crate::IsDefaultAnswer::No,
+      },
+    )
   }
 
   pub fn expand(&self, region: impl Into<Self>) -> Result<Self, Never> {
@@ -200,28 +221,37 @@ impl BBox {
     })
   }
 
-  pub fn to_rect(self) -> Result<Option<Rect>, Never> {
+  pub fn to_rect(self) -> Result<Option<FloatRectangle>, Never> {
     match self.is_default() {
       Ok(crate::IsDefaultAnswer::Yes) => Ok(None),
-      Ok(crate::IsDefaultAnswer::No) => {
-        Rect::from_ltrb(self.minimum.x, self.minimum.y, self.maximum.x, self.maximum.y)
-      }
+      Ok(crate::IsDefaultAnswer::No) => FloatRectangle::from_ltrb(
+        self.minimum.x,
+        self.minimum.y,
+        self.maximum.x,
+        self.maximum.y,
+      ),
     }
   }
 
   pub fn to_non_zero_rect(self) -> Result<Option<NonZeroRect>, Never> {
     match self.is_default() {
       Ok(crate::IsDefaultAnswer::Yes) => Ok(None),
-      Ok(crate::IsDefaultAnswer::No) => {
-        NonZeroRect::from_ltrb(self.minimum.x, self.minimum.y, self.maximum.x, self.maximum.y)
-      }
+      Ok(crate::IsDefaultAnswer::No) => NonZeroRect::from_ltrb(
+        self.minimum.x,
+        self.minimum.y,
+        self.maximum.x,
+        self.maximum.y,
+      ),
     }
   }
 }
 
 pub(crate) fn aligned_pos(align: Align, origin: Point, spare: Point) -> Result<Point, Never> {
   let Point { x, y } = origin;
-  let Point { x: width, y: height } = spare;
+  let Point {
+    x: width,
+    y: height,
+  } = spare;
   let (aligned_x, aligned_y) = match align {
     Align::None | Align::XMinYMin => (x, y),
     Align::XMidYMin => (x + width / 2.0, y),
@@ -234,5 +264,8 @@ pub(crate) fn aligned_pos(align: Align, origin: Point, spare: Point) -> Result<P
     Align::XMaxYMax => (x + width, y + height),
   };
 
-  Ok(Point { x: aligned_x, y: aligned_y })
+  Ok(Point {
+    x: aligned_x,
+    y: aligned_y,
+  })
 }

@@ -175,7 +175,8 @@ impl TryFrom<Dav1dTxfmMode> for Rav1dTxfmMode {
 
 pub type Dav1dFilterMode = u8;
 pub const DAV1D_N_SWITCHABLE_FILTERS: ::console_core_api_compatibility::NativeSize = 3;
-pub const DAV1D_N_FILTERS: ::console_core_api_compatibility::NativeSize = Rav1dFilterMode::N_FILTERS;
+pub const DAV1D_N_FILTERS: ::console_core_api_compatibility::NativeSize =
+  Rav1dFilterMode::N_FILTERS;
 pub const DAV1D_FILTER_SWITCHABLE: Dav1dFilterMode = 4;
 pub const DAV1D_FILTER_BILINEAR: Dav1dFilterMode = 3;
 pub const DAV1D_FILTER_8TAP_SHARP: Dav1dFilterMode = 2;
@@ -616,9 +617,13 @@ impl Sub for Rav1dPixelLayout {
     )
   )]
   fn sub(self, rhs: Self) -> Self::Output {
-    let difference = self.ordinal().checked_sub(rhs.ordinal()).expect("pixel layout subtraction requires an ordered pair");
+    let difference = self
+      .ordinal()
+      .checked_sub(rhs.ordinal())
+      .expect("pixel layout subtraction requires an ordered pair");
 
-    Self::try_from(u32::from(difference)).expect("the distance between two layout codes fits the layout table")
+    Self::try_from(u32::from(difference))
+      .expect("the distance between two layout codes fits the layout table")
   }
 }
 
@@ -1655,14 +1660,22 @@ impl TryFrom<Dav1dSequenceHeader> for Rav1dSequenceHeader {
   type Error = Rav1dError;
 
   fn try_from(value: Dav1dSequenceHeader) -> Rav1dResult<Self> {
-    let profile = Rav1dProfile::try_from(value.profile).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let layout = Rav1dPixelLayout::try_from(value.layout).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let pri = Rav1dColorPrimaries::try_from(value.pri).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let trc = Rav1dTransferCharacteristics::try_from(value.trc).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let mtrx = Rav1dMatrixCoefficients::try_from(value.mtrx).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let chr = Rav1dChromaSamplePosition::try_from(value.chr).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let screen_content_tools = Rav1dAdaptiveBoolean::try_from(value.screen_content_tools).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let force_integer_mv = Rav1dAdaptiveBoolean::try_from(value.force_integer_mv).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let profile =
+      Rav1dProfile::try_from(value.profile).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let layout =
+      Rav1dPixelLayout::try_from(value.layout).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let pri =
+      Rav1dColorPrimaries::try_from(value.pri).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let trc = Rav1dTransferCharacteristics::try_from(value.trc)
+      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let mtrx = Rav1dMatrixCoefficients::try_from(value.mtrx)
+      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let chr = Rav1dChromaSamplePosition::try_from(value.chr)
+      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let screen_content_tools = Rav1dAdaptiveBoolean::try_from(value.screen_content_tools)
+      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let force_integer_mv = Rav1dAdaptiveBoolean::try_from(value.force_integer_mv)
+      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
 
     Ok(Self {
       profile,
@@ -1676,7 +1689,9 @@ impl TryFrom<Dav1dSequenceHeader> for Rav1dSequenceHeader {
       hbd: value.hbd,
       color_range: value.color_range,
       num_operating_points: value.num_operating_points,
-      operating_points: value.operating_points.map(Rav1dSequenceHeaderOperatingPoint::from),
+      operating_points: value
+        .operating_points
+        .map(Rav1dSequenceHeaderOperatingPoint::from),
       still_picture: value.still_picture,
       reduced_still_picture_header: value.reduced_still_picture_header,
       timing_info_present: value.timing_info_present,
@@ -1717,7 +1732,9 @@ impl TryFrom<Dav1dSequenceHeader> for Rav1dSequenceHeader {
       color_description_present: value.color_description_present,
       separate_uv_delta_q: value.separate_uv_delta_q,
       film_grain_present: value.film_grain_present,
-      operating_parameter_info: value.operating_parameter_info.map(Rav1dSequenceHeaderOperatingParameterInfo::from),
+      operating_parameter_info: value
+        .operating_parameter_info
+        .map(Rav1dSequenceHeaderOperatingParameterInfo::from),
     })
   }
 }
@@ -1736,7 +1753,9 @@ impl From<Rav1dSequenceHeader> for Dav1dSequenceHeader {
       hbd: value.hbd,
       color_range: value.color_range,
       num_operating_points: value.num_operating_points,
-      operating_points: value.operating_points.map(Dav1dSequenceHeaderOperatingPoint::from),
+      operating_points: value
+        .operating_points
+        .map(Dav1dSequenceHeaderOperatingPoint::from),
       still_picture: value.still_picture,
       reduced_still_picture_header: value.reduced_still_picture_header,
       timing_info_present: value.timing_info_present,
@@ -1777,7 +1796,9 @@ impl From<Rav1dSequenceHeader> for Dav1dSequenceHeader {
       color_description_present: value.color_description_present,
       separate_uv_delta_q: value.separate_uv_delta_q,
       film_grain_present: value.film_grain_present,
-      operating_parameter_info: value.operating_parameter_info.map(Dav1dSequenceHeaderOperatingParameterInfo::from),
+      operating_parameter_info: value
+        .operating_parameter_info
+        .map(Dav1dSequenceHeaderOperatingParameterInfo::from),
     }
   }
 }
@@ -2865,7 +2886,10 @@ impl TryFrom<Dav1dFrameHeaderRestoration> for Rav1dFrameHeaderRestoration {
     let blue = blue_result?;
     let red = red_result?;
 
-    Ok(Self { r#type: [luma, blue, red], unit_size: value.unit_size })
+    Ok(Self {
+      r#type: [luma, blue, red],
+      unit_size: value.unit_size,
+    })
   }
 }
 
@@ -3019,15 +3043,18 @@ impl TryFrom<Dav1dFrameHeader> for Rav1dFrameHeader {
   type Error = Rav1dError;
 
   fn try_from(value: Dav1dFrameHeader) -> Rav1dResult<Self> {
-    let frame_type = Rav1dFrameType::try_from(value.frame_type).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let subpel_filter_mode = Rav1dFilterMode::try_from(value.subpel_filter_mode).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let txfm_mode = Rav1dTxfmMode::try_from(value.txfm_mode).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let frame_type =
+      Rav1dFrameType::try_from(value.frame_type).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let subpel_filter_mode = Rav1dFilterMode::try_from(value.subpel_filter_mode)
+      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let txfm_mode =
+      Rav1dTxfmMode::try_from(value.txfm_mode).map_err(|_invalid_code| Rav1dError::EINVAL)?;
     let restoration = Rav1dFrameHeaderRestoration::try_from(value.restoration)?;
     let mut gmv = std::array::from_fn(|_index| Rav1dWarpedMotionParams::default());
 
     for (destination, packed) in gmv.iter_mut().zip(value.gmv) {
-      let motion =
-        Rav1dWarpedMotionParams::try_from(packed).map_err(|_invalid_motion| Rav1dError::EINVAL)?;
+      let motion = Rav1dWarpedMotionParams::try_from(packed)
+        .map_err(|_invalid_motion| Rav1dError::EINVAL)?;
       *destination = motion;
     }
 
@@ -3058,7 +3085,9 @@ impl TryFrom<Dav1dFrameHeader> for Rav1dFrameHeader {
       frame_size_override: value.frame_size_override != 0,
       primary_ref_frame: value.primary_ref_frame,
       buffer_removal_time_present: value.buffer_removal_time_present,
-      operating_points: value.operating_points.map(Rav1dFrameHeaderOperatingPoint::from),
+      operating_points: value
+        .operating_points
+        .map(Rav1dFrameHeaderOperatingPoint::from),
       refresh_frame_flags: value.refresh_frame_flags,
       allow_intrabc: value.allow_intrabc != 0,
       frame_ref_short_signaling: value.frame_ref_short_signaling,
@@ -3113,7 +3142,9 @@ impl From<Rav1dFrameHeader> for Dav1dFrameHeader {
       frame_size_override: u8::from(value.frame_size_override),
       primary_ref_frame: value.primary_ref_frame,
       buffer_removal_time_present: value.buffer_removal_time_present,
-      operating_points: value.operating_points.map(Dav1dFrameHeaderOperatingPoint::from),
+      operating_points: value
+        .operating_points
+        .map(Dav1dFrameHeaderOperatingPoint::from),
       refresh_frame_flags: value.refresh_frame_flags,
       render_width: value.size.render_width,
       render_height: value.size.render_height,
@@ -3154,7 +3185,11 @@ mod tests {
   #[test]
   fn frame_header_round_trip_checks_frame_and_motion_tags() -> Rav1dResult {
     let mut frame = Rav1dFrameHeader {
-      size: Rav1dFrameSize { width: [144, 160], height: 96, ..Default::default() },
+      size: Rav1dFrameSize {
+        width: [144, 160],
+        height: 96,
+        ..Default::default()
+      },
       frame_type: Rav1dFrameType::Inter,
       allow_screen_content_tools: true,
       subpel_filter_mode: Rav1dFilterMode::Sharp8Tap,
@@ -3181,9 +3216,15 @@ mod tests {
 
     let [wire_motion, ..] = &mut wire.gmv;
     wire_motion.r#type = u32::MAX;
-    assert!(matches!(Rav1dFrameHeader::try_from(wire.clone()), Err(Rav1dError::EINVAL)));
+    assert!(matches!(
+      Rav1dFrameHeader::try_from(wire.clone()),
+      Err(Rav1dError::EINVAL)
+    ));
     wire.frame_type = u32::MAX;
-    assert!(matches!(Rav1dFrameHeader::try_from(wire), Err(Rav1dError::EINVAL)));
+    assert!(matches!(
+      Rav1dFrameHeader::try_from(wire),
+      Err(Rav1dError::EINVAL)
+    ));
 
     Ok(())
   }
@@ -3246,7 +3287,10 @@ mod tests {
     assert_eq!(packet.country_code_extension_byte, 2);
     assert_eq!(packet.payload.as_ref(), &payload);
     assert_eq!(wire.country_code, packet.country_code);
-    assert_eq!(wire.country_code_extension_byte, packet.country_code_extension_byte);
+    assert_eq!(
+      wire.country_code_extension_byte,
+      packet.country_code_extension_byte
+    );
 
     #[cfg(feature = "c-ffi")]
     {

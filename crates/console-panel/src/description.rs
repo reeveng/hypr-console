@@ -145,10 +145,12 @@ pub fn reachable(spot: &Spot, room: (i32, i32)) -> Result<Reachable, Never> {
     Scrolls::No => spot.big.1 > 0 && spot.at.1 >= 0 && bottom <= room.1,
   };
 
-  Ok(match ::core::primitive::bool::then_some(across && down, ()) {
-    ::core::option::Option::Some(()) => Reachable::Yes,
-    ::core::option::Option::None => Reachable::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(across && down, ()) {
+      ::core::option::Option::Some(()) => Reachable::Yes,
+      ::core::option::Option::None => Reachable::No,
+    },
+  )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

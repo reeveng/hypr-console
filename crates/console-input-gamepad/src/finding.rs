@@ -32,29 +32,38 @@ pub struct DeviceInfo {
 
 impl DeviceInfo {
   fn has_key(&self, key: KeyCode) -> Result<Has, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.keys.contains(&key.0), ()) {
-      ::core::option::Option::Some(()) => Has::Yes,
-      ::core::option::Option::None => Has::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.keys.contains(&key.0), ()) {
+        ::core::option::Option::Some(()) => Has::Yes,
+        ::core::option::Option::None => Has::No,
+      },
+    )
   }
 
   fn has_axis(&self, axis: AbsoluteAxisCode) -> Result<Has, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.axes.contains(&axis.0), ()) {
-      ::core::option::Option::Some(()) => Has::Yes,
-      ::core::option::Option::None => Has::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.axes.contains(&axis.0), ()) {
+        ::core::option::Option::Some(()) => Has::Yes,
+        ::core::option::Option::None => Has::No,
+      },
+    )
   }
 
   fn origin(&self) -> Result<Made, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.phys.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Made::Virtual,
-      ::core::option::Option::None => Made::Plugged,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.phys.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Made::Virtual,
+        ::core::option::Option::None => Made::Plugged,
+      },
+    )
   }
 
   fn matches(&self, identity: Identity) -> Result<Has, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self.vendor == identity.vendor && self.product == identity.product, ()) {
+      match ::core::primitive::bool::then_some(
+        self.vendor == identity.vendor && self.product == identity.product,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Has::Yes,
         ::core::option::Option::None => Has::No,
       },
@@ -108,7 +117,10 @@ pub fn gamepad(among: &[DeviceInfo]) -> Result<Option<&DeviceInfo>, Never> {
     let made = says.origin()?;
     let wearing = says.matches(identity)?;
 
-    match ::core::primitive::bool::then_some(sticks && made == Made::Virtual && wearing == Has::Yes, ()) {
+    match ::core::primitive::bool::then_some(
+      sticks && made == Made::Virtual && wearing == Has::Yes,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(Some(says)),
       ::core::option::Option::None => {}
     }
@@ -128,7 +140,10 @@ pub fn keyboard(among: &[DeviceInfo]) -> Result<Option<&DeviceInfo>, Never> {
     let made = says.origin()?;
     let wearing = says.matches(identity)?;
 
-    match ::core::primitive::bool::then_some(keys && made == Made::Virtual && wearing == Has::Yes, ()) {
+    match ::core::primitive::bool::then_some(
+      keys && made == Made::Virtual && wearing == Has::Yes,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(Some(says)),
       ::core::option::Option::None => {}
     }
@@ -163,7 +178,10 @@ pub fn touchpad(among: &[DeviceInfo]) -> Result<Option<&DeviceInfo>, Never> {
     let across = says.has_axis(AbsoluteAxisCode::ABS_X)?;
     let touch = touched == Has::Yes && across == Has::Yes;
 
-    match ::core::primitive::bool::then_some(touch && says.name.to_lowercase().contains("touchpad"), ()) {
+    match ::core::primitive::bool::then_some(
+      touch && says.name.to_lowercase().contains("touchpad"),
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(Some(says)),
       ::core::option::Option::None => {}
     }

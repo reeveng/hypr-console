@@ -18,13 +18,17 @@ the archive's SHA-256 digest with the immutable release metadata.
 
 ## Set up update checks
 
-Install `console-update`, its launcher entry, and the check service and timer
-from a verified release for the initial switch. Enable the timer to check
-hourly and show a notification for each new stable tag.
+The Legion Go starts the update timer at boot. It checks hourly and shows a
+popup for each new stable tag when the Console desktop is running. The popup
+stays until dismissed. Checks that run away from the Console desktop leave
+the notification for a later check.
+
+After installing the updater from a verified release, start the timer
+immediately with these commands.
 
 ```sh
 sudo systemctl daemon-reload
-sudo systemctl enable --now console-update.timer
+sudo systemctl start console-update.timer
 ```
 
 Open **Console Updates** from the launcher and choose **Install** when ready.

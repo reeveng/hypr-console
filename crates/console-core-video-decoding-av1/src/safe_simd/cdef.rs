@@ -5,7 +5,6 @@
 
 #![deny(unsafe_code)]
 
-
 #[cfg(target_arch = "x86_64")]
 use archmage::{Desktop64, Server64, arcane, rite};
 #[cfg(target_arch = "x86_64")]
@@ -21,20 +20,27 @@ use crate::include::common::bitdepth::BitDepth;
 #[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
 use crate::include::dav1d::picture::PicOffset;
 #[cfg(target_arch = "x86_64")]
-use crate::src::cdef::{CdefClip, CdefDispatch, CdefFilter, CdefStencil, cdef_padding, cdef_stencil};
+use crate::src::cdef::{
+  CdefClip, CdefDispatch, CdefFilter, CdefStencil, cdef_padding, cdef_stencil,
+};
 #[cfg(target_arch = "x86_64")]
 use crate::src::error::{Rav1dError, Rav1dError::EINVAL, Rav1dResult};
+#[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
+use crate::src::strided::Strided as _;
 #[cfg(target_arch = "x86_64")]
 use console_core_geometry::Size;
 #[cfg(target_arch = "x86_64")]
 use console_core_number_conversion::{fixed_index, fixed_offset, index, wrapped};
-#[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
-use crate::src::strided::Strided as _;
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
 #[must_use]
-fn constrain_128(_t: Desktop64, diff: __m128i, threshold: __m128i, shift: __m128i) -> Result<__m128i, console_core_never::Never> {
+fn constrain_128(
+  _t: Desktop64,
+  diff: __m128i,
+  threshold: __m128i,
+  shift: __m128i,
+) -> Result<__m128i, console_core_never::Never> {
   let zero = _mm_setzero_si128();
   let adiff = _mm_abs_epi16(diff);
   let shifted = _mm_sra_epi16(adiff, shift);
@@ -49,7 +55,12 @@ fn constrain_128(_t: Desktop64, diff: __m128i, threshold: __m128i, shift: __m128
 #[cfg(target_arch = "x86_64")]
 #[rite]
 #[must_use]
-fn constrain_avx512(_t: Server64, diff: __m512i, threshold: __m512i, shift: __m128i) -> Result<__m512i, console_core_never::Never> {
+fn constrain_avx512(
+  _t: Server64,
+  diff: __m512i,
+  threshold: __m512i,
+  shift: __m128i,
+) -> Result<__m512i, console_core_never::Never> {
   let zero = _mm512_setzero_si512();
   let adiff = _mm512_abs_epi16(diff);
   let shifted = _mm512_sra_epi16(adiff, shift);
@@ -86,7 +97,11 @@ impl<T> CdefOutput<'_, T> {
     let start = self.origin.wrapping_add_signed(displacement);
     let Ok(offset) = index(start);
     let Ok(width) = index(self.width);
-    self.pixels.get_mut(offset..).and_then(|tail| tail.get_mut(..width)).ok_or(EINVAL)
+    self
+      .pixels
+      .get_mut(offset..)
+      .and_then(|tail| tail.get_mut(..width))
+      .ok_or(EINVAL)
   }
 }
 
@@ -95,7 +110,10 @@ impl<T> CdefOutput<'_, T> {
 fn cdef_load8(pixels: &[u16; 144], column: i32) -> Rav1dResult<&[u16; 8]> {
   let position = u16::try_from(column).map_err(|_outside_padding| EINVAL)?;
   let Ok(offset) = index(position);
-  pixels.get(offset..).and_then(<[_]>::first_chunk).ok_or(EINVAL)
+  pixels
+    .get(offset..)
+    .and_then(<[_]>::first_chunk)
+    .ok_or(EINVAL)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -123,11 +141,7 @@ fn cdef_load4(_token: Server64, pixels: &[u16; 144], column: i32) -> Rav1dResult
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn cdef_store8(
-  _token: Desktop64,
-  destination: &mut [u8],
-  vector: __m128i,
-) -> Rav1dResult {
+fn cdef_store8(_token: Desktop64, destination: &mut [u8], vector: __m128i) -> Rav1dResult {
   let packed = _mm_packus_epi16(vector, _mm_setzero_si128());
 
   match destination {
@@ -158,11 +172,7 @@ fn cdef_store8(
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn cdef_store16(
-  _token: Desktop64,
-  destination: &mut [u16],
-  vector: __m128i,
-) -> Rav1dResult {
+fn cdef_store16(_token: Desktop64, destination: &mut [u16], vector: __m128i) -> Rav1dResult {
   let mut result = [0_u16; 8];
   archmage::intrinsics::x86_64::_mm_storeu_si128(&mut result, vector);
   let selected = result.get(..destination.len()).ok_or(EINVAL)?;
@@ -182,10 +192,18 @@ fn cdef_filter_sse8(token: Desktop64, block: &CdefX86Block<'_>) -> Rav1dResult {
   let Ok(width) = index(block.extent.width);
   let Ok(height) = index(block.extent.height);
   crate::include::dav1d::picture::with_pixel_guard_mut::<BitDepth8, _>(
-    &block.destination, width, height, |pixels, first, pitch| {
+    &block.destination,
+    width,
+    height,
+    |pixels, first, pitch| {
       let Ok(origin) = fixed_index(first);
       let Ok(stride) = fixed_offset(pitch);
-      let mut output = CdefOutput { pixels, origin, stride, width: block.extent.width };
+      let mut output = CdefOutput {
+        pixels,
+        origin,
+        stride,
+        width: block.extent.width,
+      };
 
       for row in 0..block.extent.height {
         let center = i32::from(row).wrapping_mul(12).wrapping_add(26);
@@ -207,10 +225,18 @@ fn cdef_filter_zmm8(token: Server64, block: &CdefX86Block<'_>) -> Rav1dResult {
   let Ok(width) = index(block.extent.width);
   let Ok(height) = index(block.extent.height);
   crate::include::dav1d::picture::with_pixel_guard_mut::<BitDepth8, _>(
-    &block.destination, width, height, |pixels, first, pitch| {
+    &block.destination,
+    width,
+    height,
+    |pixels, first, pitch| {
       let Ok(origin) = fixed_index(first);
       let Ok(stride) = fixed_offset(pitch);
-      let mut output = CdefOutput { pixels, origin, stride, width: block.extent.width };
+      let mut output = CdefOutput {
+        pixels,
+        origin,
+        stride,
+        width: block.extent.width,
+      };
       let base = token.v3();
 
       for row in (0..block.extent.height).step_by(4) {
@@ -244,7 +270,10 @@ fn cdef_filter_sse16(token: Desktop64, block: &CdefX86Block<'_>) -> Rav1dResult 
   let zero = _mm_setzero_si128();
   let maximum = _mm_set1_epi16(block.maximum);
   crate::include::dav1d::picture::with_pixel_guard_mut::<BitDepth16, _>(
-    &block.destination, width, height, |bytes, first, pitch| {
+    &block.destination,
+    width,
+    height,
+    |bytes, first, pitch| {
       let pixels = zerocopy::FromBytes::mut_from_bytes(bytes).map_err(|_unaligned| EINVAL)?;
       let Ok(origin) = fixed_index(first);
       let Ok(stride) = fixed_offset(pitch);
@@ -271,7 +300,6 @@ fn cdef_filter_sse16(token: Desktop64, block: &CdefX86Block<'_>) -> Rav1dResult 
   )
 }
 
-
 #[cfg(target_arch = "x86_64")]
 #[rite]
 fn cdef_filter_sse_row(
@@ -296,7 +324,10 @@ fn cdef_filter_sse_row(
       let Ok(first_delta) = constrain_128(token, _mm_sub_epi16(first, pixels), thresh, shift);
       let Ok(second_delta) = constrain_128(token, _mm_sub_epi16(second, pixels), thresh, shift);
       let Ok(weight) = wrapped::<_, i16>(tap.weight);
-      let boosted = _mm_mullo_epi16(_mm_set1_epi16(weight), _mm_add_epi16(first_delta, second_delta));
+      let boosted = _mm_mullo_epi16(
+        _mm_set1_epi16(weight),
+        _mm_add_epi16(first_delta, second_delta),
+      );
       sum = _mm_add_epi16(sum, boosted);
 
       match block.stencil.clip {
@@ -340,10 +371,15 @@ fn cdef_filter_zmm_rows(
     for tap in group.taps {
       let first = cdef_load4(token, block.pixels, center.wrapping_add(tap.distance))?;
       let second = cdef_load4(token, block.pixels, center.wrapping_sub(tap.distance))?;
-      let Ok(first_delta) = constrain_avx512(token, _mm512_sub_epi16(first, pixels), thresh, shift);
-      let Ok(second_delta) = constrain_avx512(token, _mm512_sub_epi16(second, pixels), thresh, shift);
+      let Ok(first_delta) =
+        constrain_avx512(token, _mm512_sub_epi16(first, pixels), thresh, shift);
+      let Ok(second_delta) =
+        constrain_avx512(token, _mm512_sub_epi16(second, pixels), thresh, shift);
       let Ok(weight) = wrapped::<_, i16>(tap.weight);
-      let boosted = _mm512_mullo_epi16(_mm512_set1_epi16(weight), _mm512_add_epi16(first_delta, second_delta));
+      let boosted = _mm512_mullo_epi16(
+        _mm512_set1_epi16(weight),
+        _mm512_add_epi16(first_delta, second_delta),
+      );
       sum = _mm512_add_epi16(sum, boosted);
 
       match block.stencil.clip {
@@ -356,7 +392,11 @@ fn cdef_filter_zmm_rows(
     }
   }
 
-  let negative = _mm512_mask_blend_epi16(_mm512_cmpgt_epi16_mask(zero, sum), zero, _mm512_set1_epi16(-1));
+  let negative = _mm512_mask_blend_epi16(
+    _mm512_cmpgt_epi16_mask(zero, sum),
+    zero,
+    _mm512_set1_epi16(-1),
+  );
   let rounded = _mm512_add_epi16(_mm512_add_epi16(sum, negative), _mm512_set1_epi16(8));
   let result = _mm512_add_epi16(pixels, _mm512_srai_epi16::<4>(rounded));
 
@@ -454,7 +494,9 @@ fn cdef_find_direction(
   let Ok(line_5) = cdef_widen_direction_lines(offset_2);
   let Ok(line_6) = cdef_widen_direction_lines(vertical_sums);
   let Ok(line_7) = cdef_widen_direction_lines(offset_3);
-  let Ok(costs) = cdef_line_costs([line_0, line_1, line_2, line_3, line_4, line_5, line_6, line_7]);
+  let Ok(costs) = cdef_line_costs([
+    line_0, line_1, line_2, line_3, line_4, line_5, line_6, line_7,
+  ]);
 
   cdef_best_direction(costs, variance)
 }
@@ -540,7 +582,12 @@ mod tests_avx512 {
 
   #[arcane]
   #[must_use]
-  fn run_constrain_128(t: Desktop64, diff: &[i16; 8], threshold: i16, shift: i32) -> Result<[i16; 8], console_core_never::Never> {
+  fn run_constrain_128(
+    t: Desktop64,
+    diff: &[i16; 8],
+    threshold: i16,
+    shift: i32,
+  ) -> Result<[i16; 8], console_core_never::Never> {
     let diff_v = loadu_128!(diff, [i16; 8]);
     let thr_v = _mm_set1_epi16(threshold);
     let shift_v = _mm_cvtsi32_si128(shift);
@@ -687,22 +734,21 @@ mod tests_avx512 {
 }
 
 #[cfg(target_arch = "wasm32")]
-use crate::include::common::intops::iclip;
-#[cfg(target_arch = "wasm32")]
 use crate::include::common::bitdepth::LeftPixelRow2px;
+#[cfg(target_arch = "wasm32")]
+use crate::include::common::intops::iclip;
 #[cfg(target_arch = "wasm32")]
 use crate::src::cdef::{CdefBottom, CdefEdgeFlags, CdefTop};
 #[cfg(target_arch = "wasm32")]
-use crate::src::safe_simd::pixel_access::Flex;
-#[cfg(target_arch = "wasm32")]
 use crate::src::pic_or_buf::PicOrBuf;
 #[cfg(target_arch = "wasm32")]
-use crate::src::with_offset::WithOffset;
+use crate::src::safe_simd::pixel_access::Flex;
 #[cfg(target_arch = "wasm32")]
 use crate::src::tables::dav1d_cdef_directions;
 #[cfg(target_arch = "wasm32")]
+use crate::src::with_offset::WithOffset;
+#[cfg(target_arch = "wasm32")]
 use core::cmp;
-
 
 #[cfg(target_arch = "wasm32")]
 pub(super) const TMP_STRIDE: usize = 12;
@@ -1320,7 +1366,10 @@ pub(super) fn padding_8bpc(
   {
     use crate::include::common::bitdepth::BitDepth8;
 
-    let Ok(stride) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BitDepth8>() { ::core::result::Result::Ok(stride) => stride });
+    let Ok(stride) =
+      ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BitDepth8>() {
+        ::core::result::Result::Ok(stride) => stride,
+      });
 
     let very_large = 0xC000u16;
     tmp.fill(very_large);
@@ -1378,7 +1427,11 @@ pub(super) fn padding_8bpc(
           let Ok(numeric_value) = console_core_number_conversion::wrapped_offset(y);
           numeric_value
         })
-        .wrapping_mul(match ::console_core_number_conversion::wrapped_offset(stride) { ::core::result::Result::Ok(native_position___) => native_position___ }))
+        .wrapping_mul(
+          match ::console_core_number_conversion::wrapped_offset(stride) {
+            ::core::result::Result::Ok(native_position___) => native_position___,
+          },
+        ))
       .slice::<BitDepth8>(slice_w);
 
       for x in 0..slice_w {
@@ -1396,13 +1449,15 @@ pub(super) fn padding_8bpc(
       ::core::option::Option::Some(()) => {
         let have_left = edges.contains(CdefEdgeFlags::HAVE_LEFT);
 
-        let ::core::result::Result::Ok(left_ext) =
-          ::console_core_number_conversion::fixed_index(match ::core::primitive::bool::then_some(have_left, ()) {
+        let ::core::result::Result::Ok(left_ext) = ::console_core_number_conversion::fixed_index(
+          match ::core::primitive::bool::then_some(have_left, ()) {
             ::core::option::Option::Some(()) => 2usize,
             ::core::option::Option::None => 0,
-          });
+          },
+        );
         let ::core::result::Result::Ok(x_end) = ::console_core_number_conversion::fixed_index(
-          match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ()) {
+          match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ())
+          {
             ::core::option::Option::Some(()) => w.wrapping_add(4),
             ::core::option::Option::None => w.wrapping_add(2),
           },
@@ -1439,7 +1494,11 @@ pub(super) fn padding_8bpc(
                     let Ok(numeric_value) = console_core_number_conversion::wrapped_offset(dy);
                     numeric_value
                   })
-                  .wrapping_mul(match ::console_core_number_conversion::wrapped_offset(stride) { ::core::result::Result::Ok(native_position___) => native_position___ }),
+                  .wrapping_mul(
+                    match ::console_core_number_conversion::wrapped_offset(stride) {
+                      ::core::result::Result::Ok(native_position___) => native_position___,
+                    },
+                  ),
                 ),
             );
           let slice = top.data.slice_as::<_, u8>((
@@ -1468,14 +1527,19 @@ pub(super) fn padding_8bpc(
 
     match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_BOTTOM), ()) {
       ::core::option::Option::Some(()) => {
-        let x_start = match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_LEFT), ()) {
+        let x_start = match ::core::primitive::bool::then_some(
+          edges.contains(CdefEdgeFlags::HAVE_LEFT),
+          (),
+        ) {
           ::core::option::Option::Some(()) => 0usize,
           ::core::option::Option::None => 2,
         };
-        let x_end = match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ()) {
-          ::core::option::Option::Some(()) => w.wrapping_add(4),
-          ::core::option::Option::None => w.wrapping_add(2),
-        };
+        let x_end =
+          match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ())
+          {
+            ::core::option::Option::Some(()) => w.wrapping_add(4),
+            ::core::option::Option::None => w.wrapping_add(2),
+          };
 
         for dy in 0..2usize {
           let ::core::result::Result::Ok(row_offset) =
@@ -1492,7 +1556,11 @@ pub(super) fn padding_8bpc(
                 let Ok(numeric_value) = console_core_number_conversion::wrapped_offset(dy);
                 numeric_value
               })
-              .wrapping_mul(match ::console_core_number_conversion::wrapped_offset(stride) { ::core::result::Result::Ok(native_position___) => native_position___ }),
+              .wrapping_mul(
+                match ::console_core_number_conversion::wrapped_offset(stride) {
+                  ::core::result::Result::Ok(native_position___) => native_position___,
+                },
+              ),
             ),
           };
 
@@ -1626,15 +1694,21 @@ pub(super) fn padding_16bpc(
 
     match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_TOP), ()) {
       ::core::option::Option::Some(()) => {
-        let Ok(pixel_stride_2) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BitDepth16>() { ::core::result::Result::Ok(pixel_stride_2) => pixel_stride_2 });
+        let Ok(pixel_stride_2) = ::console_core_number_conversion::fixed_offset(match dst
+          .pixel_stride::<BitDepth16>(
+        ) {
+          ::core::result::Result::Ok(pixel_stride_2) => pixel_stride_2,
+        });
         let have_left = edges.contains(CdefEdgeFlags::HAVE_LEFT);
-        let ::core::result::Result::Ok(left_ext) =
-          ::console_core_number_conversion::fixed_index(match ::core::primitive::bool::then_some(have_left, ()) {
+        let ::core::result::Result::Ok(left_ext) = ::console_core_number_conversion::fixed_index(
+          match ::core::primitive::bool::then_some(have_left, ()) {
             ::core::option::Option::Some(()) => 2usize,
             ::core::option::Option::None => 0,
-          });
+          },
+        );
         let ::core::result::Result::Ok(x_end) = ::console_core_number_conversion::fixed_index(
-          match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ()) {
+          match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ())
+          {
             ::core::option::Option::Some(()) => w.wrapping_add(4),
             ::core::option::Option::None => w.wrapping_add(2),
           },
@@ -1671,7 +1745,11 @@ pub(super) fn padding_16bpc(
                     let Ok(numeric_value) = console_core_number_conversion::wrapped_offset(dy);
                     numeric_value
                   })
-                  .wrapping_mul(match ::console_core_number_conversion::wrapped_offset(pixel_stride_2) { ::core::result::Result::Ok(native_position___) => native_position___ }),
+                  .wrapping_mul(
+                    match ::console_core_number_conversion::wrapped_offset(pixel_stride_2) {
+                      ::core::result::Result::Ok(native_position___) => native_position___,
+                    },
+                  ),
                 ),
             );
           let slice = top.data.slice_as::<_, u16>((
@@ -1697,15 +1775,24 @@ pub(super) fn padding_16bpc(
 
     match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_BOTTOM), ()) {
       ::core::option::Option::Some(()) => {
-        let Ok(pixel_stride_3) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BitDepth16>() { ::core::result::Result::Ok(pixel_stride_3) => pixel_stride_3 });
-        let x_start = match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_LEFT), ()) {
+        let Ok(pixel_stride_3) = ::console_core_number_conversion::fixed_offset(match dst
+          .pixel_stride::<BitDepth16>(
+        ) {
+          ::core::result::Result::Ok(pixel_stride_3) => pixel_stride_3,
+        });
+        let x_start = match ::core::primitive::bool::then_some(
+          edges.contains(CdefEdgeFlags::HAVE_LEFT),
+          (),
+        ) {
           ::core::option::Option::Some(()) => 0usize,
           ::core::option::Option::None => 2,
         };
-        let x_end = match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ()) {
-          ::core::option::Option::Some(()) => w.wrapping_add(4),
-          ::core::option::Option::None => w.wrapping_add(2),
-        };
+        let x_end =
+          match ::core::primitive::bool::then_some(edges.contains(CdefEdgeFlags::HAVE_RIGHT), ())
+          {
+            ::core::option::Option::Some(()) => w.wrapping_add(4),
+            ::core::option::Option::None => w.wrapping_add(2),
+          };
 
         for dy in 0..2usize {
           let ::core::result::Result::Ok(row_offset) =
@@ -1722,7 +1809,11 @@ pub(super) fn padding_16bpc(
                 let Ok(numeric_value) = console_core_number_conversion::wrapped_offset(dy);
                 numeric_value
               })
-              .wrapping_mul(match ::console_core_number_conversion::wrapped_offset(pixel_stride_3) { ::core::result::Result::Ok(native_position___) => native_position___ }),
+              .wrapping_mul(
+                match ::console_core_number_conversion::wrapped_offset(pixel_stride_3) {
+                  ::core::result::Result::Ok(native_position___) => native_position___,
+                },
+              ),
             ),
           };
 
@@ -2428,7 +2519,10 @@ pub(crate) fn cdef_filter_dispatch<BD: BitDepth>(
   let Ok(maximum) = wrapped::<_, i16>(request.bitdepth.into_c());
   let block = CdefX86Block {
     pixels: zerocopy::transmute_ref!(&padding),
-    stencil: { let checked_value = cdef_stencil(request)?; checked_value },
+    stencil: {
+      let checked_value = cdef_stencil(request)?;
+      checked_value
+    },
     extent,
     destination: request.destination,
     maximum,

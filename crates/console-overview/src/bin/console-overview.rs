@@ -174,7 +174,10 @@ struct SocketName(String);
 impl SocketName {
   fn for_instance(instance: &str) -> Result<Option<Self>, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(instance.is_empty() || instance.contains(['/', '\0']), ()) {
+      match ::core::primitive::bool::then_some(
+        instance.is_empty() || instance.contains(['/', '\0']),
+        (),
+      ) {
         ::core::option::Option::Some(()) => None,
         ::core::option::Option::None => Some(Self(format!("{OVERVIEW}-{instance}.sock"))),
       },
@@ -209,17 +212,19 @@ fn listen() -> Result<Option<UnixDatagram>, Never> {
 
   match std::fs::remove_file(&at) {
     Ok(()) => {}
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => {
-        eprintln!(
-          "console-overview: could not prepare {}: {fault}",
-          at.display()
-        );
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => {
+          eprintln!(
+            "console-overview: could not prepare {}: {fault}",
+            at.display()
+          );
 
-        return Ok(None);
+          return Ok(None);
+        }
       }
-    },
+    }
   }
 
   let bound = UnixDatagram::bind(&at).and_then(|told| {
@@ -259,10 +264,12 @@ fn heard(told: Option<&UnixDatagram>) -> Result<Command, Never> {
 
   for _message in 0..DATAGRAMS_PER_TURN {
     match told_3.recv(&mut buffer) {
-      Ok(got) => match ::core::primitive::bool::then_some(buffer.get(..got) == Some(SHOW.as_bytes()), ()) {
-        ::core::option::Option::Some(()) => asked = Command::Show,
-        ::core::option::Option::None => {}
-      },
+      Ok(got) => {
+        match ::core::primitive::bool::then_some(buffer.get(..got) == Some(SHOW.as_bytes()), ()) {
+          ::core::option::Option::Some(()) => asked = Command::Show,
+          ::core::option::Option::None => {}
+        }
+      }
       Err(fault) => match fault.kind() {
         std::io::ErrorKind::WouldBlock => break,
         std::io::ErrorKind::Interrupted => continue,

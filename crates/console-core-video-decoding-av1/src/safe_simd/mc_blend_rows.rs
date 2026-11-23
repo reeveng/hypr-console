@@ -49,7 +49,10 @@ impl BlendSize {
       .map_err(|_layout| BlendLayoutError::Source)
   }
 
-  pub(in crate::src::safe_simd) fn destination_rows<'a, Pixel: FromBytes + IntoBytes + KnownLayout + 'a>(
+  pub(in crate::src::safe_simd) fn destination_rows<
+    'a,
+    Pixel: FromBytes + IntoBytes + KnownLayout + 'a,
+  >(
     self,
     bytes: &'a mut [u8],
     byte_stride: u64,
@@ -87,7 +90,10 @@ impl BlendSize {
   }
 
   #[inline]
-  pub(in crate::src::safe_simd) fn blend_rows<'a, Pixel: FromBytes + IntoBytes + KnownLayout + 'a>(
+  pub(in crate::src::safe_simd) fn blend_rows<
+    'a,
+    Pixel: FromBytes + IntoBytes + KnownLayout + 'a,
+  >(
     self,
     [primary, secondary]: [&'a [i16]; 2],
     destination: &'a mut [u8],
@@ -96,9 +102,12 @@ impl BlendSize {
     let first_rows = self.input_rows(primary)?;
     let second_rows = self.input_rows(secondary)?;
     let destination_rows = self.destination_rows::<Pixel>(destination, stride)?;
-    Ok(destination_rows.zip(first_rows).zip(second_rows).map(
-      |((dst, first), second)| BlendRow { dst, first, second },
-    ))
+    Ok(
+      destination_rows
+        .zip(first_rows)
+        .zip(second_rows)
+        .map(|((dst, first), second)| BlendRow { dst, first, second }),
+    )
   }
 }
 

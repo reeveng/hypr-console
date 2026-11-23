@@ -106,7 +106,9 @@ pub(super) fn merge_decoded<T: Copy + Ord>(colors: &mut [T], cached: &[T]) -> Ra
       None => Some(*pixel),
     };
     let next_cached = from_cache.peek().copied();
-    let selected = match decoded.filter(|value| next_cached.is_none_or(|cached_value| cached_value > *value)) {
+    let selected = match decoded
+      .filter(|value| next_cached.is_none_or(|cached_value| cached_value > *value))
+    {
       Some(value) => value,
       None => {
         let checked_value = fresh.checked_sub(1).ok_or(EINVAL)?;
@@ -150,19 +152,41 @@ mod tests {
   #[test]
   fn palette_rejects_truncated_neighbors_and_impossible_record() {
     let mut storage = [0u8; 16];
-    assert_eq!(merge_neighbors(
-      NeighborColors { left: &[1], left_count: 2, above: &[], above_count: 0 },
-      &mut storage,
-    ), Err(EINVAL));
-    assert_eq!(merge_neighbors(
-      NeighborColors { left: &[], left_count: 0, above: &[2], above_count: 2 },
-      &mut storage,
-    ), Err(EINVAL));
+    assert_eq!(
+      merge_neighbors(
+        NeighborColors {
+          left: &[1],
+          left_count: 2,
+          above: &[],
+          above_count: 0
+        },
+        &mut storage,
+      ),
+      Err(EINVAL)
+    );
+    assert_eq!(
+      merge_neighbors(
+        NeighborColors {
+          left: &[],
+          left_count: 0,
+          above: &[2],
+          above_count: 2
+        },
+        &mut storage,
+      ),
+      Err(EINVAL)
+    );
     let mut colors = [1, 2];
     assert_eq!(merge_decoded(&mut colors, &[1, 2, 3]), Err(EINVAL));
     assert_eq!(colors, [1, 2]);
-    assert_eq!(record_index(PalettePosition { x: -1, y: 0 }, 32), Err(EINVAL));
-    assert_eq!(record_index(PalettePosition { x: 32, y: 0 }, 32), Err(EINVAL));
+    assert_eq!(
+      record_index(PalettePosition { x: -1, y: 0 }, 32),
+      Err(EINVAL)
+    );
+    assert_eq!(
+      record_index(PalettePosition { x: 32, y: 0 }, 32),
+      Err(EINVAL)
+    );
     assert_eq!(record_index(PalettePosition { x: 0, y: 0 }, 3), Err(EINVAL));
     assert_eq!(record_index(PalettePosition { x: 0, y: 0 }, 0), Err(EINVAL));
     assert_eq!(
@@ -185,7 +209,10 @@ mod tests {
 
     records.try_resize(1)?;
 
-    assert_eq!(records.checked_index_mut::<BitDepth8>(0).map(|_record| ()), Ok(()));
+    assert_eq!(
+      records.checked_index_mut::<BitDepth8>(0).map(|_record| ()),
+      Ok(())
+    );
     assert!(matches!(
       records.checked_index_mut::<BitDepth8>(1),
       Err(EINVAL)
@@ -197,7 +224,10 @@ mod tests {
 
     records.try_resize(2)?;
 
-    assert_eq!(records.checked_index_mut::<BitDepth16>(0).map(|_record| ()), Ok(()));
+    assert_eq!(
+      records.checked_index_mut::<BitDepth16>(0).map(|_record| ()),
+      Ok(())
+    );
     assert!(matches!(
       records.checked_index_mut::<BitDepth16>(1),
       Err(EINVAL)
@@ -231,7 +261,15 @@ mod tests {
     let mut tile = Rav1dTileStateContext { cdf, msac };
     let Ok(dispatch) = Rav1dFrameContextBdFn::new::<BitDepth8>();
     assert_eq!(
-      (dispatch.read_pal_y)(&mut task, &frame, &mut tile, PaletteRead { size_context: 0, position: Point { x: 0, y: 0 } }),
+      (dispatch.read_pal_y)(
+        &mut task,
+        &frame,
+        &mut tile,
+        PaletteRead {
+          size_context: 0,
+          position: Point { x: 0, y: 0 }
+        }
+      ),
       Ok(2)
     );
     let scratch = task.scratch.inter_intra_mut()?;
@@ -239,16 +277,40 @@ mod tests {
     assert_eq!(luma.get(..2), Some([0, 1].as_slice()));
 
     assert_eq!(
-      (dispatch.read_pal_y)(&mut task, &frame, &mut tile, PaletteRead { size_context: 7, position: Point { x: 0, y: 0 } }),
+      (dispatch.read_pal_y)(
+        &mut task,
+        &frame,
+        &mut tile,
+        PaletteRead {
+          size_context: 7,
+          position: Point { x: 0, y: 0 }
+        }
+      ),
       Err(EINVAL)
     );
     assert_eq!(
-      (dispatch.read_pal_uv)(&mut task, &frame, &mut tile, PaletteRead { size_context: 0, position: Point { x: 32, y: 0 } }),
+      (dispatch.read_pal_uv)(
+        &mut task,
+        &frame,
+        &mut tile,
+        PaletteRead {
+          size_context: 0,
+          position: Point { x: 32, y: 0 }
+        }
+      ),
       Err(EINVAL)
     );
     task.frame_thread.pass = 1;
     assert_eq!(
-      (dispatch.read_pal_y)(&mut task, &frame, &mut tile, PaletteRead { size_context: 0, position: Point { x: 0, y: 0 } }),
+      (dispatch.read_pal_y)(
+        &mut task,
+        &frame,
+        &mut tile,
+        PaletteRead {
+          size_context: 0,
+          position: Point { x: 0, y: 0 }
+        }
+      ),
       Err(EINVAL)
     );
     ::core::result::Result::Ok(())
@@ -256,8 +318,7 @@ mod tests {
 
   #[cfg(feature = "bitdepth_8")]
   #[test]
-  fn public_decoder_lossless_palette_and_truncated_tile()
-  -> crate::src::managed::Result<()> {
+  fn public_decoder_lossless_palette_and_truncated_tile() -> crate::src::managed::Result<()> {
     use crate::src::managed::{Decoder, Error, Planes, Settings};
 
     let packet = [
@@ -290,7 +351,9 @@ mod tests {
       let Ok(row_number) = fixed_index(y);
       let expected: [u8; 16] = core::array::from_fn(|x| {
         let Ok(column) = fixed_index(x);
-        let pattern = column.wrapping_mul(7).wrapping_add(row_number.wrapping_mul(13))
+        let pattern = column
+          .wrapping_mul(7)
+          .wrapping_add(row_number.wrapping_mul(13))
           ^ column.wrapping_mul(row_number).wrapping_shr(1);
 
         match pattern.wrapping_rem(5).cmp(&2) {

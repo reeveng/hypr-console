@@ -79,14 +79,14 @@ pub struct Claim {
 
 enum Selection {
   Found,
-  Missing,
+  Absent,
 }
 
 impl From<bool> for Selection {
   fn from(found: bool) -> Self {
     match bool::then_some(found, ()) {
       Some(()) => Self::Found,
-      None => Self::Missing,
+      None => Self::Absent,
     }
   }
 }
@@ -117,7 +117,7 @@ impl Claim {
     }
 
     match Selection::from(!found.is_empty()) {
-      Selection::Missing => return Err(ClaimError::NothingToTake),
+      Selection::Absent => return Err(ClaimError::NothingToTake),
       Selection::Found => {}
     }
 

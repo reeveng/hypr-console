@@ -51,7 +51,10 @@ pub fn sources(text: &str) -> Result<Vec<String>, Never> {
   for event in Parser::new(text) {
     match event {
       Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
-        source = match ::core::primitive::bool::then_some(info.split_whitespace().next() == Some("mermaid"), ()) {
+        source = match ::core::primitive::bool::then_some(
+          info.split_whitespace().next() == Some("mermaid"),
+          (),
+        ) {
           ::core::option::Option::Some(()) => Some(String::new()),
           ::core::option::Option::None => None,
         };

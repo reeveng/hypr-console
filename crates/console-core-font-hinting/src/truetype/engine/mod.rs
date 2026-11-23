@@ -15,8 +15,8 @@ mod round;
 mod stack;
 mod storage;
 
-use console_core_never::Never;
 use crate::GlyphKind;
+use console_core_never::Never;
 
 use read_fonts::{
   tables::glyf::bytecode::Instruction,
@@ -67,7 +67,8 @@ pub struct EngineInputs<'a, 'f, 'p> {
 
 impl<'a> Engine<'a> {
   pub fn new(inputs: EngineInputs<'a, '_, '_>) -> Result<Self, Never> {
-    let point_count = match ::core::primitive::bool::then_some(inputs.glyph.points.is_empty(), ()) {
+    let point_count = match ::core::primitive::bool::then_some(inputs.glyph.points.is_empty(), ())
+    {
       ::core::option::Option::Some(()) => None,
       ::core::option::Option::None => {
         let Ok(count) =

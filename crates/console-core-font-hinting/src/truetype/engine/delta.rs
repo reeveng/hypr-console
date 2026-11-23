@@ -29,10 +29,12 @@ impl Engine<'_> {
     let bias = u32::wrapping_add(
       match ::core::primitive::bool::then_some(opcode == Opcode::DELTAP2, ()) {
         ::core::option::Option::Some(()) => 16,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(opcode == Opcode::DELTAP3, ()) {
-          ::core::option::Option::Some(()) => 32,
-          ::core::option::Option::None => 0,
-        },
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(opcode == Opcode::DELTAP3, ()) {
+            ::core::option::Option::Some(()) => 32,
+            ::core::option::Option::None => 0,
+          }
+        }
       },
       {
         let Ok(value) = console_core_number_conversion::wrapped::<_, u32>(gs.delta_base);
@@ -47,11 +49,14 @@ impl Engine<'_> {
       let point_ix = self.value_stack.pop_index()?;
       let mut b = self.value_stack.pop()?;
 
-      match ::core::primitive::bool::then_some(point_ix
-        >= ({
-          let Ok(value) = console_core_number_conversion::fitted::<_, u64>(point_count);
-          value
-        }), ()) {
+      match ::core::primitive::bool::then_some(
+        point_ix
+          >= ({
+            let Ok(value) = console_core_number_conversion::fitted::<_, u64>(point_count);
+            value
+          }),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -128,10 +133,12 @@ impl Engine<'_> {
     let bias = u32::wrapping_add(
       match ::core::primitive::bool::then_some(opcode == Opcode::DELTAC2, ()) {
         ::core::option::Option::Some(()) => 16,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(opcode == Opcode::DELTAC3, ()) {
-          ::core::option::Option::Some(()) => 32,
-          ::core::option::Option::None => 0,
-        },
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(opcode == Opcode::DELTAC3, ()) {
+            ::core::option::Option::Some(()) => 32,
+            ::core::option::Option::None => 0,
+          }
+        }
       },
       {
         let Ok(value) = console_core_number_conversion::wrapped::<_, u32>(gs.delta_base);

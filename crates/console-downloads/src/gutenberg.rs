@@ -61,19 +61,21 @@ fn book(entry: Entry) -> Result<Option<Found>, Never> {
     Some(Err(_not_a_number)) => return Ok(None),
   };
 
-  Ok(match ::core::primitive::bool::then_some(entry.title.is_empty(), ()) {
-    ::core::option::Option::None => Some(Found {
-      id: number.to_string(),
-      title: entry.title,
-      url: format!("{BOOK_PAGE}{number}"),
-      by: entry.by,
-      seconds: 0,
-      views: 0,
-      live: LiveStatus::NotLive,
-      picture: format!("{COVERS}{number}/pg{number}.cover.medium.jpg"),
-    }),
-    ::core::option::Option::Some(()) => None,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(entry.title.is_empty(), ()) {
+      ::core::option::Option::None => Some(Found {
+        id: number.to_string(),
+        title: entry.title,
+        url: format!("{BOOK_PAGE}{number}"),
+        by: entry.by,
+        seconds: 0,
+        views: 0,
+        live: LiveStatus::NotLive,
+        picture: format!("{COVERS}{number}/pg{number}.cover.medium.jpg"),
+      }),
+      ::core::option::Option::Some(()) => None,
+    },
+  )
 }
 
 pub fn publication(page: &str) -> Result<String, Never> {

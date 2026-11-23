@@ -135,10 +135,12 @@ fn drawn(at: &Path, filter: &str) -> Result<Option<Vec<u8>>, PictureError> {
     .output()
     .map_err(|fault| PictureError::Query("ffmpeg", fault))?;
 
-  Ok(match ::core::primitive::bool::then_some(said.status.success(), ()) {
-    ::core::option::Option::Some(()) => Some(said.stdout),
-    ::core::option::Option::None => None,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.status.success(), ()) {
+      ::core::option::Option::Some(()) => Some(said.stdout),
+      ::core::option::Option::None => None,
+    },
+  )
 }
 
 fn pixels(at: &Path, drawn: (Size<u32>, Vec<u8>)) -> Result<Option<Pixels>, PictureError> {

@@ -337,12 +337,14 @@ pub fn holds(one: &KeyBinding, held: &[console_compositor::BoundKey]) -> Result<
       ::core::option::Option::Some(()) => {
         current = current.saturating_add(1);
       }
-      ::core::option::Option::None => match ::core::primitive::bool::then_some({ there.about == one.about }, ()) {
-        ::core::option::Option::Some(()) => {
-          outdated = true;
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some({ there.about == one.about }, ()) {
+          ::core::option::Option::Some(()) => {
+            outdated = true;
+          }
+          ::core::option::Option::None => {}
         }
-        ::core::option::Option::None => {}
-      },
+      }
     }
   }
 

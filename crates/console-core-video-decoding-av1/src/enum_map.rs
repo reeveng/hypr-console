@@ -81,7 +81,10 @@ where
 
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "each EnumKey implementation maps its closed set of variants to the contiguous slots of this exact array")
+    expect(
+      explicit014_no_index_slice,
+      reason = "each EnumKey implementation maps its closed set of variants to the contiguous slots of this exact array"
+    )
   )]
   fn index(&self, index: K) -> &Self::Output {
     let Ok(slot) = console_core_number_conversion::index(index.ordinal());
@@ -95,7 +98,10 @@ where
 {
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "the mutable DSP table uses the same closed enum keys and array length as its immutable lookup")
+    expect(
+      explicit014_no_index_slice,
+      reason = "the mutable DSP table uses the same closed enum keys and array length as its immutable lookup"
+    )
   )]
   fn index_mut(&mut self, index: K) -> &mut Self::Output {
     let Ok(slot) = console_core_number_conversion::index(index.ordinal());

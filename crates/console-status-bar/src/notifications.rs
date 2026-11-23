@@ -30,7 +30,10 @@ pub struct Waiting {
 
 impl Waiting {
   pub fn of(held: &[Notification], do_not_disturb: DoNotDisturb) -> Result<Self, Never> {
-    let wrong = match ::core::primitive::bool::then_some(held.iter().any(|one| one.wrong() == Ok(Error::Yes)), ()) {
+    let wrong = match ::core::primitive::bool::then_some(
+      held.iter().any(|one| one.wrong() == Ok(Error::Yes)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Error::Yes,
       ::core::option::Option::None => Error::No,
     };

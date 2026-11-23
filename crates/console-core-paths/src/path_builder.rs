@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index};
 
-use crate::{Path, Point, Rect};
+use crate::{Path, Point, FloatRectangle};
 
 use crate::path::PathVerb;
 use crate::path_geometry;
@@ -99,7 +99,7 @@ impl PathBuilder {
     })
   }
 
-  pub fn from_rect(rect: Rect) -> Result<Path, Never> {
+  pub fn from_rect(rect: FloatRectangle) -> Result<Path, Never> {
     let Ok(left) = rect.left();
     let Ok(right) = rect.right();
     let Ok(top) = rect.top();
@@ -154,7 +154,7 @@ impl PathBuilder {
     Ok(finish)
   }
 
-  pub fn from_oval(oval: Rect) -> core::result::Result<Option<Path>, console_core_never::Never> {
+  pub fn from_oval(oval: FloatRectangle) -> core::result::Result<Option<Path>, console_core_never::Never> {
     let Ok(mut b) = PathBuilder::new();
     let Ok(()) = b.push_oval(oval);
     let Ok(finish) = b.finish();
@@ -359,7 +359,7 @@ impl PathBuilder {
     })
   }
 
-  pub fn push_rect(&mut self, rect: Rect) -> core::result::Result<(), console_core_never::Never> {
+  pub fn push_rect(&mut self, rect: FloatRectangle) -> core::result::Result<(), console_core_never::Never> {
     let Ok(left) = rect.left();
     let Ok(top) = rect.top();
     let Ok(()) = crate::PathBuilder::move_to_pt(&mut *self, crate::Point { x: left, y: top });
@@ -395,7 +395,7 @@ impl PathBuilder {
     Ok(())
   }
 
-  pub fn push_oval(&mut self, oval: Rect) -> Result<(), Never> {
+  pub fn push_oval(&mut self, oval: FloatRectangle) -> Result<(), Never> {
     let Ok(left) = oval.left();
     let Ok(right) = oval.right();
     let Ok(top) = oval.top();
@@ -448,7 +448,7 @@ impl PathBuilder {
     y: f32,
     r: f32,
   ) -> core::result::Result<(), console_core_never::Never> {
-    let Ok(rect) = Rect::from_xywh(x - r, y - r, r + r, r + r);
+    let Ok(rect) = FloatRectangle::from_xywh(x - r, y - r, r + r, r + r);
 
     match rect {
       Some(r_2) => {
@@ -576,7 +576,7 @@ impl PathBuilder {
       ::core::option::Option::None => {}
     }
 
-    let Ok(rect) = Rect::from_points(&self.points);
+    let Ok(rect) = FloatRectangle::from_points(&self.points);
     let bounds = match rect {
       Some(value) => value,
       None => return Ok(None),

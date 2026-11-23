@@ -148,22 +148,25 @@ impl From<SurfaceError> for Cannot {
 }
 
 fn main() -> ExitCode {
-  match ::core::primitive::bool::then_some({
+  match ::core::primitive::bool::then_some(
+    {
       std::env::args_os()
-      .nth(1)
-      .is_some_and(|arg| arg == focus::FLAG)
-  }, ()) {
-      ::core::option::Option::Some(()) => {
-        return match focus::Layer::Popups.take() {
-          Ok(()) => ExitCode::SUCCESS,
-          Err(why) => {
-            eprintln!("console-notify: focus: {why}");
+        .nth(1)
+        .is_some_and(|arg| arg == focus::FLAG)
+    },
+    (),
+  ) {
+    ::core::option::Option::Some(()) => {
+      return match focus::Layer::Popups.take() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(why) => {
+          eprintln!("console-notify: focus: {why}");
 
-            ExitCode::FAILURE
-          }
-        };
-      },
-      ::core::option::Option::None => {},
+          ExitCode::FAILURE
+        }
+      };
+    }
+    ::core::option::Option::None => {}
   }
 
   match answering() {
@@ -284,10 +287,12 @@ fn relay_bus(
 fn wake(latch: &mut File) -> io::Result<()> {
   match latch.write_all(&[1]) {
     Ok(()) => Ok(()),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::WouldBlock, ()) {
-      ::core::option::Option::Some(()) => Ok(()),
-      ::core::option::Option::None => Err(fault),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::WouldBlock, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => Err(fault),
+      }
+    }
   }
 }
 
@@ -410,7 +415,9 @@ fn turned<'a>(
     Some(region) => {
       let Ok(outline) = region.panel.focus_outline(asked.wearing.text);
 
-      stack.shapes.extend(outline.map(console_core_shapes::Shape::Line));
+      stack
+        .shapes
+        .extend(outline.map(console_core_shapes::Shape::Line));
     }
     None => {}
   }
@@ -449,22 +456,25 @@ fn turned<'a>(
     Err(fault) => return Ok(Step::Halt(Err(Cannot::Compositor(fault)))),
   }
 
-  let focus_request = asked.focus_requests.and_then(|socket| match focus::heard(socket) {
-    Ok(request) => request,
-    Err(fault) => {
-      console_core_logging::debug!("console-notify: focus request could not be read: {fault}");
+  let focus_request = asked
+    .focus_requests
+    .and_then(|socket| match focus::heard(socket) {
+      Ok(request) => request,
+      Err(fault) => {
+        console_core_logging::debug!("console-notify: focus request could not be read: {fault}");
 
-      None
-    }
-  });
+        None
+      }
+    });
   let Ok(owns_keyboard) = running.surface.keyboard_focus();
   let Ok(()) = running.selection.observe(owns_keyboard, Instant::now());
 
-  match ::core::primitive::bool::then_some({ focus_request == Some(focus::Request::Release) }, ()) {
-      ::core::option::Option::Some(()) => {
-        running.selection = Selection::Idle;
-      },
-      ::core::option::Option::None => {},
+  match ::core::primitive::bool::then_some({ focus_request == Some(focus::Request::Release) }, ())
+  {
+    ::core::option::Option::Some(()) => {
+      running.selection = Selection::Idle;
+    }
+    ::core::option::Option::None => {}
   }
 
   let Ok(keys) = running.surface.keyboard_events();
@@ -473,10 +483,10 @@ fn turned<'a>(
     let Ok(activated) = running.selection.pressed(key, &actions);
 
     match activated {
-        Some(id) => {
-          let Ok(()) = dismissed(id, &mut running.holding, asked.saying);
-        },
-        ::core::option::Option::None => {},
+      Some(id) => {
+        let Ok(()) = dismissed(id, &mut running.holding, asked.saying);
+      }
+      ::core::option::Option::None => {}
     }
   }
 
@@ -489,18 +499,18 @@ fn turned<'a>(
   );
 
   match ::core::primitive::bool::then_some({ focus_request == Some(focus::Request::Take) }, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(()) = running.selection.enter(&actions, Instant::now());
-        let Ok(focused_target) = running.selection.target();
+    ::core::option::Option::Some(()) => {
+      let Ok(()) = running.selection.enter(&actions, Instant::now());
+      let Ok(focused_target) = running.selection.target();
 
-        match focused_target {
-            Some(_) => {
-              let _peer_may_be_absent = focus::Layer::Popups.release_peer();
-            },
-            None => {},
+      match focused_target {
+        Some(_) => {
+          let _peer_may_be_absent = focus::Layer::Popups.release_peer();
         }
-      },
-      ::core::option::Option::None => {},
+        None => {}
+      }
+    }
+    ::core::option::Option::None => {}
   }
 
   Ok(Step::Again(running))

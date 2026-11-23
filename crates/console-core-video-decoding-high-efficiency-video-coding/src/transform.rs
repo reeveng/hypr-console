@@ -240,7 +240,10 @@ mod tests {
     })
   }
 
-  fn coefficients(block: TestBlock, next: &mut impl FnMut() -> u64) -> Result<[i32; 1024], Never> {
+  fn coefficients(
+    block: TestBlock,
+    next: &mut impl FnMut() -> u64,
+  ) -> Result<[i32; 1024], Never> {
     let mut c = [0i32; 1024];
 
     for y in 0..=block.bounds.y {
@@ -281,7 +284,14 @@ mod tests {
           y: next().wrapping_rem(side.max(1)),
         };
         let Ok(density) = read(&[2u64, 8, 50, 100], case.wrapping_rem(4));
-        let Ok(input) = coefficients(TestBlock { side, bounds: nonzero, density }, &mut next);
+        let Ok(input) = coefficients(
+          TestBlock {
+            side,
+            bounds: nonzero,
+            density,
+          },
+          &mut next,
+        );
 
         for shift in [12, 10] {
           let mut a = input;

@@ -167,10 +167,13 @@ fn describe(path: &str, device: &Device) -> Result<DeviceInfo, Never> {
 fn drain(device: &mut Device) -> Result<Vec<InputEvent>, Closed> {
   match device.read_events() {
     Ok(arrived) => Ok(arrived),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::WouldBlock, ()) {
-      ::core::option::Option::Some(()) => Ok(Vec::new()),
-      ::core::option::Option::None => Err(Closed),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::WouldBlock, ())
+      {
+        ::core::option::Option::Some(()) => Ok(Vec::new()),
+        ::core::option::Option::None => Err(Closed),
+      }
+    }
   }
 }
 

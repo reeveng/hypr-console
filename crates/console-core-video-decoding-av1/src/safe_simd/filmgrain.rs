@@ -37,16 +37,31 @@ fn apply_byte_noise(_token: Desktop64, input: ByteNoise<'_>) -> Result<__m256i, 
 }
 
 #[arcane]
-pub(crate) fn apply_grain32(token: Desktop64, input: GrainByteBlock<'_, 32>) -> Result<(), Never> {
+pub(crate) fn apply_grain32(
+  token: Desktop64,
+  input: GrainByteBlock<'_, 32>,
+) -> Result<(), Never> {
   let [first_source, second_source]: &[[u8; 16]; 2] = zerocopy::transmute_ref!(input.source);
   let [first_grain, second_grain]: &[[i8; 16]; 2] = zerocopy::transmute_ref!(input.grain);
   let [first_scaling, second_scaling]: &[[i16; 16]; 2] = zerocopy::transmute_ref!(&input.scaling);
-  let Ok(first) = apply_byte_noise(token, ByteNoise {
-    source: first_source, samples: first_grain, scaling: first_scaling, shift: input.shift,
-  });
-  let Ok(second) = apply_byte_noise(token, ByteNoise {
-    source: second_source, samples: second_grain, scaling: second_scaling, shift: input.shift,
-  });
+  let Ok(first) = apply_byte_noise(
+    token,
+    ByteNoise {
+      source: first_source,
+      samples: first_grain,
+      scaling: first_scaling,
+      shift: input.shift,
+    },
+  );
+  let Ok(second) = apply_byte_noise(
+    token,
+    ByteNoise {
+      source: second_source,
+      samples: second_grain,
+      scaling: second_scaling,
+      shift: input.shift,
+    },
+  );
   let packed = _mm256_permute4x64_epi64::<0xD8>(_mm256_packus_epi16(first, second));
   let minimum = _mm256_set1_epi8(input.minimum.cast_signed());
   let maximum = _mm256_set1_epi8(input.maximum.cast_signed());
@@ -56,10 +71,19 @@ pub(crate) fn apply_grain32(token: Desktop64, input: GrainByteBlock<'_, 32>) -> 
 }
 
 #[arcane]
-pub(crate) fn apply_grain16(token: Desktop64, input: GrainByteBlock<'_, 16>) -> Result<(), Never> {
-  let Ok(added) = apply_byte_noise(token, ByteNoise {
-    source: input.source, samples: input.grain, scaling: &input.scaling, shift: input.shift,
-  });
+pub(crate) fn apply_grain16(
+  token: Desktop64,
+  input: GrainByteBlock<'_, 16>,
+) -> Result<(), Never> {
+  let Ok(added) = apply_byte_noise(
+    token,
+    ByteNoise {
+      source: input.source,
+      samples: input.grain,
+      scaling: &input.scaling,
+      shift: input.shift,
+    },
+  );
   let low = _mm256_castsi256_si128(added);
   let high = _mm256_extracti128_si256::<1>(added);
   let packed = _mm_packus_epi16(low, high);
@@ -79,7 +103,10 @@ pub(crate) struct GrainWordBlock<'a> {
 }
 
 #[arcane]
-pub(crate) fn apply_grain_words(_token: Desktop64, input: GrainWordBlock<'_>) -> Result<(), Never> {
+pub(crate) fn apply_grain_words(
+  _token: Desktop64,
+  input: GrainWordBlock<'_>,
+) -> Result<(), Never> {
   let pixels = simd::_mm256_loadu_si256(input.source);
   let noise = simd::_mm256_loadu_si256(&input.noise);
   let result = _mm256_add_epi16(pixels, noise);

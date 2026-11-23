@@ -28,7 +28,12 @@ pub(super) struct Sampling {
 
 impl Sampling {
   pub(super) fn checked_size(self) -> Rav1dResult<Size<u64>> {
-    match (self.size.width, self.size.height, self.phase.x, self.phase.y) {
+    match (
+      self.size.width,
+      self.size.height,
+      self.phase.x,
+      self.phase.y,
+    ) {
       (1..=128, 1..=128, 0..=15, 0..=15) => Ok(Size {
         width: u64::from(self.size.width.cast_unsigned()),
         height: u64::from(self.size.height.cast_unsigned()),
@@ -67,13 +72,22 @@ fn read_guard<BD: BitDepth>(
   }
 
   let above = i64::try_from(vertical.before).map_err(|_too_many_rows| Rav1dError::EINVAL)?;
-  let top_shift = above.wrapping_neg().checked_mul(stride).ok_or(Rav1dError::EINVAL)?;
+  let top_shift = above
+    .wrapping_neg()
+    .checked_mul(stride)
+    .ok_or(Rav1dError::EINVAL)?;
   let top_left = origin
     .checked_add_signed(top_shift)
     .and_then(|start| start.checked_sub(horizontal.before))
     .ok_or(Rav1dError::EINVAL)?;
-  let rows = size.height.wrapping_add(vertical.before).wrapping_add(vertical.after);
-  let width = size.width.wrapping_add(horizontal.before).wrapping_add(horizontal.after);
+  let rows = size
+    .height
+    .wrapping_add(vertical.before)
+    .wrapping_add(vertical.after);
+  let width = size
+    .width
+    .wrapping_add(horizontal.before)
+    .wrapping_add(horizontal.after);
   let separation = rows
     .wrapping_sub(1)
     .checked_mul(stride.unsigned_abs())
@@ -105,9 +119,15 @@ fn read_guard<BD: BitDepth>(
   let Ok(range) = indices(start..end);
   let guard = src.data.dm().slice_as::<_, BD::Pixel>(range);
   guard.probe_declare_rows(
-    match index(first_byte) { Ok(byte_index) => byte_index },
-    match index(visible_bytes) { Ok(byte_count) => byte_count },
-    match index(rows) { Ok(row_count) => row_count },
+    match index(first_byte) {
+      Ok(byte_index) => byte_index,
+    },
+    match index(visible_bytes) {
+      Ok(byte_count) => byte_count,
+    },
+    match index(rows) {
+      Ok(row_count) => row_count,
+    },
     match checked_offset(byte_stride) {
       Ok(row_offset) => row_offset,
       Err(_unrepresentable_offset) => return Err(Rav1dError::EINVAL),
@@ -122,7 +142,14 @@ fn read_guard<BD: BitDepth>(
 pub(super) fn warp_guard<BD: BitDepth>(
   src: PicOffset<'_>,
 ) -> Rav1dResult<(SourceGuard<'_, BD>, u64)> {
-  read_guard::<BD>(src, Size { width: 8, height: 8 }, [WARP_PADDING, WARP_PADDING])
+  read_guard::<BD>(
+    src,
+    Size {
+      width: 8,
+      height: 8,
+    },
+    [WARP_PADDING, WARP_PADDING],
+  )
 }
 
 #[inline]
@@ -133,8 +160,14 @@ pub(super) fn filter_guard<BD: BitDepth>(
   sampling: Sampling,
 ) -> Rav1dResult<(SourceGuard<'_, BD>, u64)> {
   let padding = |phase| match (phase, filter) {
-    (0, _) => AxisPadding { before: 0, after: 0 },
-    (_, Filter2d::Bilinear) => AxisPadding { before: 0, after: 1 },
+    (0, _) => AxisPadding {
+      before: 0,
+      after: 0,
+    },
+    (_, Filter2d::Bilinear) => AxisPadding {
+      before: 0,
+      after: 1,
+    },
     _ => WARP_PADDING,
   };
   let size = sampling.checked_size()?;
@@ -161,7 +194,10 @@ mod tests {
       let Ok(picture) = Rav1dPictureDataComponent::from_parts(inner, pitch);
       let origin = 1040_u64;
       let Ok(offset) = console_core_number_conversion::index(origin);
-      let source = WithOffset { data: &picture, offset };
+      let source = WithOffset {
+        data: &picture,
+        offset,
+      };
       let (guard, base) = warp_guard::<BitDepth8>(source)?;
       let start = origin.checked_sub(base).ok_or(Rav1dError::EINVAL)?;
       let Ok(length) = console_core_number_conversion::fixed_index(guard.len());
@@ -202,8 +238,8 @@ mod tests {
     let Ok(avx2) = crate::src::cpu::summon_avx2();
 
     let token = match avx2 {
-        Some(matched_token) => matched_token,
-        ::core::option::Option::None => return Ok(()),
+      Some(matched_token) => matched_token,
+      ::core::option::Option::None => return Ok(()),
     };
 
     let mut tested = 0_u32;
@@ -215,14 +251,17 @@ mod tests {
         _ => 2,
       };
       let max = 1_u16.wrapping_shl(bits).wrapping_sub(1);
-      let pixels: Vec<u16> = (0_u16..2048).map(|index| {
-        index.wrapping_mul(73).wrapping_add(index.wrapping_div(7)) & max
-      }).collect();
+      let pixels: Vec<u16> = (0_u16..2048)
+        .map(|index| index.wrapping_mul(73).wrapping_add(index.wrapping_div(7)) & max)
+        .collect();
       let bytes: Vec<u8> = match bits {
-        8 => pixels.into_iter().map(|pixel| {
-          let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(pixel);
-          byte
-        }).collect(),
+        8 => pixels
+          .into_iter()
+          .map(|pixel| {
+            let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(pixel);
+            byte
+          })
+          .collect(),
         _ => pixels.as_bytes().to_vec(),
       };
 
@@ -233,15 +272,22 @@ mod tests {
           pitch,
         );
         let Ok(origin) = index(1040_u32);
-        let source = WithOffset { data: &picture, offset: origin };
+        let source = WithOffset {
+          data: &picture,
+          offset: origin,
+        };
 
         for coefficients in [[0; 4], [64, -64, 32, -32]] {
-          let phases = [-1024, 0, 1024].into_iter().flat_map(|x| {
-            [-1024, 0, 1024].into_iter().map(move |y| Point { x, y })
-          });
+          let phases = [-1024, 0, 1024]
+            .into_iter()
+            .flat_map(|x| [-1024, 0, 1024].into_iter().map(move |y| Point { x, y }));
 
           for phase in phases {
-            let sample = WarpFixture { coefficients, phase, stride: pitch };
+            let sample = WarpFixture {
+              coefficients,
+              phase,
+              stride: pitch,
+            };
             let (pixels_2, predictors) = match bits {
               8 => check_warp(token, source, sample, BitDepth8::new(()))?,
               _ => check_warp(token, source, sample, BitDepth16::new(max))?,
@@ -259,9 +305,15 @@ mod tests {
 
       let Ok(digest) = hash.md5();
       let expected = match bits {
-        8 => [200, 0, 157, 32, 249, 150, 123, 29, 99, 31, 58, 18, 109, 201, 211, 197],
-        10 => [178, 50, 115, 82, 11, 194, 168, 51, 69, 185, 83, 114, 170, 207, 86, 246],
-        12 => [14, 64, 32, 218, 243, 215, 53, 83, 166, 89, 79, 118, 243, 71, 103, 76],
+        8 => [
+          200, 0, 157, 32, 249, 150, 123, 29, 99, 31, 58, 18, 109, 201, 211, 197,
+        ],
+        10 => [
+          178, 50, 115, 82, 11, 194, 168, 51, 69, 185, 83, 114, 170, 207, 86, 246,
+        ],
+        12 => [
+          14, 64, 32, 218, 243, 215, 53, 83, 166, 89, 79, 118, 243, 71, 103, 76,
+        ],
         _ => return Err(Rav1dError::EINVAL),
       };
       assert_eq!(digest, expected);
@@ -294,18 +346,28 @@ mod tests {
     let mut put = [[0_u8; 128]; 2];
     let mut prep = [[0_i16; 64]; 2];
     let Ok(pixel_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
-    let sampling = kernels::WarpSampling { coefficients: sample.coefficients, phase: sample.phase };
-    let output_stride = i64::try_from(pixel_size.wrapping_mul(8)).map_err(|_| Rav1dError::EINVAL)?;
+    let sampling = kernels::WarpSampling {
+      coefficients: sample.coefficients,
+      phase: sample.phase,
+    };
+    let output_stride =
+      i64::try_from(pixel_size.wrapping_mul(8)).map_err(|_| Rav1dError::EINVAL)?;
 
-    for ((bytes, first), (pixels, predictors)) in [(tight.as_bytes(), base), (full.as_bytes(), origin)]
-      .into_iter().zip(put.iter_mut().zip(&mut prep))
+    for ((bytes, first), (pixels, predictors)) in
+      [(tight.as_bytes(), base), (full.as_bytes(), origin)]
+        .into_iter()
+        .zip(put.iter_mut().zip(&mut prep))
     {
       let reference = kernels::PixelSource {
         samples: bytes,
         origin: first.wrapping_mul(pixel_size),
         stride_bytes: sample.stride,
       };
-      let output = kernels::PixelDestination { bytes: pixels, origin: 0, stride: output_stride };
+      let output = kernels::PixelDestination {
+        bytes: pixels,
+        origin: 0,
+        stride: output_stride,
+      };
       kernels::warp_put(token, reference, sampling, output, depth)?;
       kernels::warp_prep(token, reference, sampling, predictors, 8, depth)?;
     }
@@ -317,7 +379,10 @@ mod tests {
 
     let mut scalar_pixels = [BD::Pixel::from(0_u8); 64];
     let scalar_plane = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut scalar_pixels, 8);
-    let scalar_picture = WithOffset { data: &scalar_plane, offset: 0 };
+    let scalar_picture = WithOffset {
+      data: &scalar_plane,
+      offset: 0,
+    };
     let mut scalar_predictors = [0_i16; 64];
     crate::src::mc::warp_affine_8x8_rust(scalar_picture, source, sampling, depth)?;
     crate::src::mc::warp_affine_8x8t_rust(&mut scalar_predictors, 8, source, sampling, depth)?;
@@ -336,22 +401,36 @@ mod tests {
     let Ok(avx2) = crate::src::cpu::summon_avx2();
 
     let token = match avx2 {
-        Some(matched_token) => matched_token,
-        ::core::option::Option::None => return,
+      Some(matched_token) => matched_token,
+      ::core::option::Option::None => return,
     };
 
     let storage = [17_u8; 240];
-    let reference = kernels::PixelSource { samples: &storage, origin: 51, stride_bytes: 16 };
+    let reference = kernels::PixelSource {
+      samples: &storage,
+      origin: 51,
+      stride_bytes: 16,
+    };
     let sampling = kernels::WarpSampling {
       coefficients: [0, 0, 0, 4096],
       phase: Point { x: 0, y: 128_000 },
     };
     let mut pixels = [31_u8; 64];
     let mut predictors = [42_i16; 64];
-    let output = kernels::PixelDestination { bytes: &mut pixels, origin: 0, stride: 8 };
+    let output = kernels::PixelDestination {
+      bytes: &mut pixels,
+      origin: 0,
+      stride: 8,
+    };
     let depth = BitDepth8::new(());
-    assert_eq!(kernels::warp_put(token, reference, sampling, output, depth), Err(Rav1dError::EINVAL));
-    assert_eq!(kernels::warp_prep(token, reference, sampling, &mut predictors, 8, depth), Err(Rav1dError::EINVAL));
+    assert_eq!(
+      kernels::warp_put(token, reference, sampling, output, depth),
+      Err(Rav1dError::EINVAL)
+    );
+    assert_eq!(
+      kernels::warp_prep(token, reference, sampling, &mut predictors, 8, depth),
+      Err(Rav1dError::EINVAL)
+    );
     assert_eq!(pixels, [31; 64]);
     assert_eq!(predictors, [42; 64]);
   }
@@ -362,8 +441,8 @@ mod tests {
     let Ok(avx2) = crate::src::cpu::summon_avx2();
 
     let _available = match avx2 {
-        Some(matched_available) => matched_available,
-        ::core::option::Option::None => return,
+      Some(matched_available) => matched_available,
+      ::core::option::Option::None => return,
     };
 
     let tested = std::cell::Cell::new([false, false]);
@@ -373,8 +452,8 @@ mod tests {
         let Ok(avx2_2) = crate::src::cpu::summon_avx2();
 
         let token = match avx2_2 {
-            Some(matched_token) => matched_token,
-            ::core::option::Option::None => return,
+          Some(matched_token) => matched_token,
+          ::core::option::Option::None => return,
         };
 
         let Ok(available) = crate::src::cpu::summon_avx512();
@@ -415,14 +494,25 @@ mod tests {
     let Ok(stride) = index(FIXTURE_PIXEL_STRIDE);
     let picture = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut pixels, stride);
     let Ok(offset) = index(776_u32);
-    let source = WithOffset { data: &picture, offset };
+    let source = WithOffset {
+      data: &picture,
+      offset,
+    };
     let mut buffers = FilterFixtureOutputs {
       pixels: [Aligned([0; 32_768]), Aligned([0; 32_768])],
       predictors: [[0; 16_384]; 2],
     };
     let mut tested = 0_u32;
 
-    for (width, height) in [(2, 2), (4, 4), (8, 16), (16, 8), (32, 32), (64, 4), (128, 128)] {
+    for (width, height) in [
+      (2, 2),
+      (4, 4),
+      (8, 16),
+      (16, 8),
+      (32, 32),
+      (64, 4),
+      (128, 128),
+    ] {
       let size = Size { width, height };
 
       for filter in [
@@ -440,7 +530,14 @@ mod tests {
         let phases = (0..16).flat_map(|x| (0..16).map(move |y| Point { x, y }));
 
         for phase in phases {
-          check_filter_case(token, filter, Sampling { size, phase }, source, depth, &mut buffers)?;
+          check_filter_case(
+            token,
+            filter,
+            Sampling { size, phase },
+            source,
+            depth,
+            &mut buffers,
+          )?;
           tested = tested.wrapping_add(1);
         }
       }
@@ -479,19 +576,49 @@ mod tests {
     tight_predictors.fill(0);
     full_predictors.fill(0);
     let (tight, base) = filter_guard::<BD>(source, filter, sampling)?;
-    let view = PixelWindow { bytes: tight.as_bytes(), base };
-    run_filter_case(token, filter, sampling, view, tight_output, tight_predictors, depth)?;
+    let view = PixelWindow {
+      bytes: tight.as_bytes(),
+      base,
+    };
+    run_filter_case(
+      token,
+      filter,
+      sampling,
+      view,
+      tight_output,
+      tight_predictors,
+      depth,
+    )?;
     let (full, origin) = match source.full_guard::<BD>() {
       (guard, position) => {
         let Ok(relative) = fixed_index(position);
         (guard, relative)
       }
     };
-    let comparison = PixelWindow { bytes: full.as_bytes(), base: origin };
-    run_filter_case(token, filter, sampling, comparison, full_output, full_predictors, depth)?;
+    let comparison = PixelWindow {
+      bytes: full.as_bytes(),
+      base: origin,
+    };
+    run_filter_case(
+      token,
+      filter,
+      sampling,
+      comparison,
+      full_output,
+      full_predictors,
+      depth,
+    )?;
     let filter_code = filter.ordinal();
-    assert_eq!(tight_output, full_output, "put {filter_code} {:?} {:?}", sampling.size, sampling.phase);
-    assert_eq!(tight_predictors, full_predictors, "prep {filter_code} {:?} {:?}", sampling.size, sampling.phase);
+    assert_eq!(
+      tight_output, full_output,
+      "put {filter_code} {:?} {:?}",
+      sampling.size, sampling.phase
+    );
+    assert_eq!(
+      tight_predictors, full_predictors,
+      "prep {filter_code} {:?} {:?}",
+      sampling.size, sampling.phase
+    );
     Ok(())
   }
 
@@ -509,45 +636,145 @@ mod tests {
     prep: &mut [i16],
     depth: BD,
   ) -> Rav1dResult {
-    use crate::include::common::bitdepth::BPC;
     use super::super as kernels;
+    use crate::include::common::bitdepth::BPC;
     let Sampling { size, phase } = sampling;
     let dst_pitch = i64::from(size.width);
     let Ok((horizontal, vertical)) = filter.hv();
 
     match (BD::BPC, filter) {
       (BPC::BPC8, Filter2d::Bilinear) => {
-        let input = kernels::PixelSource { samples: source.bytes, origin: source.base, stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE) };
+        let input = kernels::PixelSource {
+          samples: source.bytes,
+          origin: source.base,
+          stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE),
+        };
         let stride = i64::from(size.width);
-        kernels::put_bilin_8bpc_dispatch_inner(token, kernels::BilinearRequest { destination: put, stride, source: input, sampling })?;
-        kernels::prep_bilin_8bpc_dispatch_inner(token, kernels::BilinearRequest { destination: prep, stride, source: input, sampling })
+        kernels::put_bilin_8bpc_dispatch_inner(
+          token,
+          kernels::BilinearRequest {
+            destination: put,
+            stride,
+            source: input,
+            sampling,
+          },
+        )?;
+        kernels::prep_bilin_8bpc_dispatch_inner(
+          token,
+          kernels::BilinearRequest {
+            destination: prep,
+            stride,
+            source: input,
+            sampling,
+          },
+        )
       }
       (BPC::BPC8, _) => {
-        kernels::put_8tap_8bpc_dispatch_inner(token, put, dst_pitch, kernels::PixelSource { samples: source.bytes, origin: source.base, stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE) }, size, phase, Point { x: horizontal, y: vertical })?;
-        kernels::prep_8tap_8bpc_dispatch_inner(token, prep, kernels::PixelSource { samples: source.bytes, origin: source.base, stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE) }, size, phase, Point { x: horizontal, y: vertical })
+        kernels::put_8tap_8bpc_dispatch_inner(
+          token,
+          put,
+          dst_pitch,
+          kernels::PixelSource {
+            samples: source.bytes,
+            origin: source.base,
+            stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE),
+          },
+          size,
+          phase,
+          Point {
+            x: horizontal,
+            y: vertical,
+          },
+        )?;
+        kernels::prep_8tap_8bpc_dispatch_inner(
+          token,
+          prep,
+          kernels::PixelSource {
+            samples: source.bytes,
+            origin: source.base,
+            stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE),
+          },
+          size,
+          phase,
+          Point {
+            x: horizontal,
+            y: vertical,
+          },
+        )
       }
       (BPC::BPC16, filter_2) => {
         let pixel_input = <[u16] as zerocopy::FromBytes>::ref_from_bytes(source.bytes)
           .map_err(|_| Rav1dError::EINVAL)?;
-        let pixels = <[u16] as zerocopy::FromBytes>::mut_from_bytes(put)
-          .map_err(|_| Rav1dError::EINVAL)?;
+        let pixels =
+          <[u16] as zerocopy::FromBytes>::mut_from_bytes(put).map_err(|_| Rav1dError::EINVAL)?;
         let max = depth.into_c();
 
         match filter_2 {
           Filter2d::Bilinear => {
-            let input_plane = kernels::PixelSource { samples: pixel_input, origin: source.base, stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE).wrapping_mul(2) };
+            let input_plane = kernels::PixelSource {
+              samples: pixel_input,
+              origin: source.base,
+              stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE).wrapping_mul(2),
+            };
             let stride = i64::from(size.width);
-            let picture = kernels::BilinearRequest { destination: pixels, stride, source: input_plane, sampling };
+            let picture = kernels::BilinearRequest {
+              destination: pixels,
+              stride,
+              source: input_plane,
+              sampling,
+            };
             kernels::put_bilin_16bpc_dispatch_inner(token, picture, max)?;
-            let prediction = kernels::BilinearRequest { destination: prep, stride, source: input_plane, sampling };
+            let prediction = kernels::BilinearRequest {
+              destination: prep,
+              stride,
+              source: input_plane,
+              sampling,
+            };
             kernels::prep_word_bilinear_dispatch(token, prediction)
           }
-          Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-          | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-          | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap => {
+          Filter2d::Regular8Tap
+          | Filter2d::RegularSmooth8Tap
+          | Filter2d::RegularSharp8Tap
+          | Filter2d::SharpRegular8Tap
+          | Filter2d::SharpSmooth8Tap
+          | Filter2d::Sharp8Tap
+          | Filter2d::SmoothRegular8Tap
+          | Filter2d::Smooth8Tap
+          | Filter2d::SmoothSharp8Tap => {
             let dst_bytes = i64::from(size.width).wrapping_mul(2);
-            kernels::put_8tap_16bpc_dispatch_inner(token, pixels, dst_bytes, kernels::PixelSource { samples: pixel_input, origin: source.base, stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE).wrapping_mul(2) }, size, phase, max, Point { x: horizontal, y: vertical })?;
-            kernels::prep_8tap_16bpc_dispatch_inner(token, prep, kernels::PixelSource { samples: pixel_input, origin: source.base, stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE).wrapping_mul(2) }, size, phase, max, Point { x: horizontal, y: vertical })
+            kernels::put_8tap_16bpc_dispatch_inner(
+              token,
+              pixels,
+              dst_bytes,
+              kernels::PixelSource {
+                samples: pixel_input,
+                origin: source.base,
+                stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE).wrapping_mul(2),
+              },
+              size,
+              phase,
+              max,
+              Point {
+                x: horizontal,
+                y: vertical,
+              },
+            )?;
+            kernels::prep_8tap_16bpc_dispatch_inner(
+              token,
+              prep,
+              kernels::PixelSource {
+                samples: pixel_input,
+                origin: source.base,
+                stride_bytes: i64::from(FIXTURE_PIXEL_STRIDE).wrapping_mul(2),
+              },
+              size,
+              phase,
+              max,
+              Point {
+                x: horizontal,
+                y: vertical,
+              },
+            )
           }
         }
       }

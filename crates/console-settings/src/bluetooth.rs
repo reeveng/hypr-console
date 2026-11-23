@@ -84,7 +84,9 @@ pub fn asked() -> Result<Vec<u8>, Never> {
   };
 
   match &answer.fault {
-    Some(refused) => console_core_logging::warn!("console-settings: bluez would not say what it knows: {refused}"),
+    Some(refused) => console_core_logging::warn!(
+      "console-settings: bluez would not say what it knows: {refused}"
+    ),
     None => {}
   }
 

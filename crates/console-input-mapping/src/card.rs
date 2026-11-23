@@ -126,7 +126,10 @@ fn wrote_initial(writing: &FileWrite) -> Result<(), Unmapped> {
   ) {
     Ok(()) => Ok(()),
     Err(Unwritten::Moving(at, fault)) => {
-      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::AlreadyExists, ()) {
+      match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::AlreadyExists,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ok(()),
         ::core::option::Option::None => Err(Unmapped::Writing(Unwritten::Moving(at, fault))),
       }

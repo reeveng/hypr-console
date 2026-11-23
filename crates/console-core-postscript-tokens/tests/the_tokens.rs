@@ -11,7 +11,7 @@ fn names(program: &[u8]) -> Result<Vec<(NameKind, Vec<u8>)>, ScanError> {
 
   for _object in program {
     match scanner.remaining() {
-      Ok(Remaining::Nothing) => return Ok(found),
+      Ok(Remaining::Absent) => return Ok(found),
       Ok(Remaining::Objects) => {}
     }
 
@@ -53,7 +53,7 @@ fn a_cmap_is_read_as_the_objects_it_is_written_in() -> Result<(), Failure> {
 
   for _object in program {
     match scanner.remaining() {
-      Ok(Remaining::Nothing) => break,
+      Ok(Remaining::Absent) => break,
       Ok(Remaining::Objects) => {}
     }
 
@@ -118,7 +118,7 @@ fn an_array_is_scanned_the_way_its_program_was() -> Result<(), Failure> {
   assert_eq!(text.decode(), Ok(b"x]z".to_vec()));
   assert!(matches!(inside.parse_object(), Ok(Object::Array(_))));
   assert_eq!(inside.parse_number(), Ok(Number::Integer(4)));
-  assert_eq!(inside.remaining(), Ok(Remaining::Nothing));
+  assert_eq!(inside.remaining(), Ok(Remaining::Absent));
   assert_eq!(scanner.parse_number(), Ok(Number::Integer(5)));
 
   Ok(())
@@ -133,7 +133,7 @@ fn comments_and_dictionary_marks_are_stepped_over() -> Result<(), Failure> {
   let name = scanner.parse_name()?;
 
   assert_eq!(name.as_str(), Ok("Name"));
-  assert_eq!(scanner.remaining(), Ok(Remaining::Nothing));
+  assert_eq!(scanner.remaining(), Ok(Remaining::Absent));
 
   Ok(())
 }

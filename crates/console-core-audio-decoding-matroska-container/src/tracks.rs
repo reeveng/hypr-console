@@ -14,25 +14,25 @@ use console_core_number_conversion::{fitted, toward_zero_u64};
 
 use crate::codecs::codec_id_to_type;
 use crate::extra::{flac_extra_data, vorbis_extra_data};
-use crate::fault::{Fault, Invalid};
+use crate::fault::{DecodeError, Invalid};
 use crate::segment::{AudioElement, InfoElement, TrackElement};
 
 const NANOSECONDS: u32 = 1_000_000_000;
 
-pub(crate) fn time_base(info: &InfoElement) -> Result<TimeBase, Fault> {
+pub(crate) fn time_base(info: &InfoElement) -> Result<TimeBase, DecodeError> {
   let scale = u32::try_from(info.timestamp_scale)
-    .map_err(|_too_wide| Fault::Invalid(Invalid::TimestampScale))?;
+    .map_err(|_too_wide| DecodeError::Invalid(Invalid::TimestampScale))?;
 
   match scale {
-    0 => Err(Fault::Invalid(Invalid::TimestampScale)),
-    numerator => TimeBase::new(numerator, NANOSECONDS).map_err(Fault::from),
+    0 => Err(DecodeError::Invalid(Invalid::TimestampScale)),
+    numerator => TimeBase::new(numerator, NANOSECONDS).map_err(DecodeError::from),
   }
 }
 
 pub(crate) fn default_durations(
   elements: &[TrackElement],
   info: &InfoElement,
-) -> Result<HashMap<u32, u64>, Fault> {
+) -> Result<HashMap<u32, u64>, DecodeError> {
   let mut durations = HashMap::new();
 
   for element in elements {
@@ -56,22 +56,22 @@ pub(crate) fn build_tracks(
   elements: Vec<TrackElement>,
   info: &InfoElement,
   time_base: TimeBase,
-) -> Result<Vec<Track>, Fault> {
+) -> Result<Vec<Track>, DecodeError> {
   elements
     .into_iter()
     .map(|element| build_track(element, info, time_base))
     .collect()
 }
 
-fn track_id(element: &TrackElement) -> Result<u32, Fault> {
-  u32::try_from(element.number).map_err(|_too_wide| Fault::Invalid(Invalid::TrackNumber))
+fn track_id(element: &TrackElement) -> Result<u32, DecodeError> {
+  u32::try_from(element.number).map_err(|_too_wide| DecodeError::Invalid(Invalid::TrackNumber))
 }
 
 fn build_track(
   element: TrackElement,
   info: &InfoElement,
   time_base: TimeBase,
-) -> Result<Track, Fault> {
+) -> Result<Track, DecodeError> {
   let id = track_id(&element)?;
   let Ok(codec) = codec_id_to_type(&element);
   let Ok(mut parameters) = CodecParameters::new();
@@ -124,7 +124,7 @@ fn describe_audio(
   element: &TrackElement,
   audio: &AudioElement,
   codec: Option<CodecType>,
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   let Ok(format) = sample_format(audio.bit_depth);
   let Ok(channel_layout) = layout(audio.channels);
 
@@ -163,7 +163,7 @@ fn describe_codec(
   parameters: &mut CodecParameters,
   element: &TrackElement,
   codec: CodecType,
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   let Ok(_configured_for_codec) = parameters.for_codec(codec);
 
   match &element.codec_private {

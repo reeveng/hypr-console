@@ -18,7 +18,6 @@
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
-
 #[cfg(target_arch = "x86_64")]
 use crate::src::safe_simd::pixel_access::{loadu_128, storeu_128};
 #[cfg(target_arch = "x86_64")]
@@ -29,22 +28,21 @@ use core::arch::x86_64::*;
 use crate::include::common::bitdepth::BitDepth;
 #[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
 use crate::include::common::bitdepth::{BitDepth8, BitDepth16};
-#[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
-use crate::src::loopfilter::{FilterLevels, FilterWindow, filter_slice};
 #[cfg(test)]
 use crate::include::common::intops::iclip;
 use crate::include::dav1d::picture::PicOffset;
 use crate::src::align::Align16;
 use crate::src::lf_mask::Av1FilterLUT;
 use crate::src::loopfilter::{FilterDispatch, HV, YUV};
-
+#[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
+use crate::src::loopfilter::{FilterLevels, FilterWindow, filter_slice};
 
 use crate::src::with_offset::WithOffset;
-use std::sync::atomic::AtomicU8;
-use std::sync::atomic::Ordering::Relaxed;
 use console_core_api_compatibility::NativeOffset;
 use std::cmp;
 use std::ffi::c_int;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering::Relaxed;
 
 #[cfg(test)]
 #[inline(always)]
@@ -88,7 +86,7 @@ fn filter_8bpc_edge(
 ) -> Rav1dResult {
   #[cfg(target_arch = "x86_64")]
   {
-    let selected = match (_bitdepth_max, edge.window.along, edge.window.across) {
+    let selected = match (_bitdepth_max, edge.window.along, edge.window.tap_stride) {
       (255, 1, across) => Some((HV::V, across)),
       (255, along, 1) => Some((HV::H, along)),
       _ => None,
@@ -96,12 +94,15 @@ fn filter_8bpc_edge(
 
     match selected {
       Some((direction, pixel_stride)) => {
-        let window = PackedWindow { anchor: edge.window.base, stride: pixel_stride };
-
-
+        let window = PackedWindow {
+          anchor: edge.window.base,
+          stride: pixel_stride,
+        };
 
         let filtered = match (direction, edge.width) {
-          (_, 4) => loop_filter_4_8bpc_narrow_simd(token, pixels, window, edge.level.limits, direction),
+          (_, 4) => {
+            loop_filter_4_8bpc_narrow_simd(token, pixels, window, edge.level.limits, direction)
+          }
           (HV::V, 6) => loop_filter_4_8bpc_wd6_simd_v(token, pixels, window, edge.level.limits),
           (HV::H, 6) => loop_filter_4_8bpc_wd6_simd_h(token, pixels, window, edge.level.limits),
           (HV::V, 8) => loop_filter_4_8bpc_wd8_simd_v(token, pixels, window, edge.level.limits),
@@ -190,7 +191,11 @@ fn filter_width6_lanes(
   [p2_v, p1_v, p0_v, q0_v, q1_v, q2_v]: [__m128i; 6],
   limits: FilterLevels,
 ) -> Result<[__m128i; 4], console_core_never::Never> {
-  let FilterLevels { edge, interior, variance } = limits;
+  let FilterLevels {
+    edge,
+    interior,
+    variance,
+  } = limits;
   let [e, i, h] = [edge, interior, variance].map(i32::from);
   let i_v = _mm_set1_epi32(i);
   let e_v = _mm_set1_epi32(e);
@@ -325,10 +330,16 @@ fn loop_filter_4_8bpc_wd6_simd_v(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let [p2_v, p1_v, p0_v, q0_v, q1_v, q2_v] =
-    load_filter_rows(buf, window, PackedPosition { rows: -3, columns: 0 }, _mm_setzero_si128(), |samples| {
-      _mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(samples)))
-    })?;
+  let [p2_v, p1_v, p0_v, q0_v, q1_v, q2_v] = load_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -3,
+      columns: 0,
+    },
+    _mm_setzero_si128(),
+    |samples| _mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(samples))),
+  )?;
   let Ok(output) = filter_width6_lanes(_token, [p2_v, p1_v, p0_v, q0_v, q1_v, q2_v], limits);
 
   let pack = |v: __m128i| {
@@ -337,8 +348,16 @@ fn loop_filter_4_8bpc_wd6_simd_v(
     _mm_cvtsi128_si32(bytes).to_le_bytes()
   };
 
-
-  store_filter_rows(buf, window, PackedPosition { rows: -2, columns: 0 }, output, pack)
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -2,
+      columns: 0,
+    },
+    output,
+    pack,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -348,7 +367,11 @@ fn filter_width8_lanes(
   [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v]: [__m128i; 8],
   limits: FilterLevels,
 ) -> Result<[__m128i; 6], console_core_never::Never> {
-  let FilterLevels { edge, interior, variance } = limits;
+  let FilterLevels {
+    edge,
+    interior,
+    variance,
+  } = limits;
   let [e, i, h] = [edge, interior, variance].map(i32::from);
   let i_v = _mm_set1_epi32(i);
   let e_v = _mm_set1_epi32(e);
@@ -494,11 +517,21 @@ fn loop_filter_4_8bpc_wd8_simd_v(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v] =
-    load_filter_rows(buf, window, PackedPosition { rows: -4, columns: 0 }, _mm_setzero_si128(), |samples| {
-      _mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(samples)))
-    })?;
-  let Ok(output) = filter_width8_lanes(_token, [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v], limits);
+  let [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v] = load_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -4,
+      columns: 0,
+    },
+    _mm_setzero_si128(),
+    |samples| _mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(samples))),
+  )?;
+  let Ok(output) = filter_width8_lanes(
+    _token,
+    [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v],
+    limits,
+  );
 
   let pack = |v: __m128i| {
     let shorts = _mm_packus_epi32(v, v);
@@ -506,8 +539,16 @@ fn loop_filter_4_8bpc_wd8_simd_v(
     _mm_cvtsi128_si32(bytes).to_le_bytes()
   };
 
-
-  store_filter_rows(buf, window, PackedPosition { rows: -3, columns: 0 }, output, pack)
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -3,
+      columns: 0,
+    },
+    output,
+    pack,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -517,7 +558,11 @@ fn filter_width8_lanes_avx2(
   [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v]: [__m256i; 8],
   limits: FilterLevels,
 ) -> Result<[__m256i; 6], console_core_never::Never> {
-  let FilterLevels { edge, interior, variance } = limits;
+  let FilterLevels {
+    edge,
+    interior,
+    variance,
+  } = limits;
   let [e, i, h] = [edge, interior, variance].map(i32::from);
   let i_v = _mm256_set1_epi32(i);
   let e_v = _mm256_set1_epi32(e);
@@ -669,11 +714,21 @@ fn loop_filter_4_8bpc_wd8_simd_v_x8(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v] =
-    load_filter_rows(buf, window, PackedPosition { rows: -4, columns: 0 }, _mm256_setzero_si256(), |samples| {
-      _mm256_cvtepu8_epi32(_mm_set_epi64x(0, i64::from_le_bytes(samples)))
-    })?;
-  let Ok(output) = filter_width8_lanes_avx2(_token, [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v], limits);
+  let [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v] = load_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -4,
+      columns: 0,
+    },
+    _mm256_setzero_si256(),
+    |samples| _mm256_cvtepu8_epi32(_mm_set_epi64x(0, i64::from_le_bytes(samples))),
+  )?;
+  let Ok(output) = filter_width8_lanes_avx2(
+    _token,
+    [p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v],
+    limits,
+  );
 
   let pack = |v: __m256i| {
     let shorts = _mm256_packus_epi32(v, v);
@@ -683,8 +738,16 @@ fn loop_filter_4_8bpc_wd8_simd_v_x8(
     _mm_cvtsi128_si64(_mm256_castsi256_si128(ordered)).to_le_bytes()
   };
 
-
-  store_filter_rows(buf, window, PackedPosition { rows: -3, columns: 0 }, output, pack)
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -3,
+      columns: 0,
+    },
+    output,
+    pack,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -695,11 +758,36 @@ fn loop_filter_4_8bpc_wd16_simd_v_x8(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let [p6_v, p5_v, p4_v, p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v, q4_v, q5_v, q6_v] =
-    load_filter_rows(buf, window, PackedPosition { rows: -7, columns: 0 }, _mm256_setzero_si256(), |samples| {
-      _mm256_cvtepu8_epi32(_mm_set_epi64x(0, i64::from_le_bytes(samples)))
-    })?;
-  let FilterLevels { edge, interior, variance } = limits;
+  let [
+    p6_v,
+    p5_v,
+    p4_v,
+    p3_v,
+    p2_v,
+    p1_v,
+    p0_v,
+    q0_v,
+    q1_v,
+    q2_v,
+    q3_v,
+    q4_v,
+    q5_v,
+    q6_v,
+  ] = load_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -7,
+      columns: 0,
+    },
+    _mm256_setzero_si256(),
+    |samples| _mm256_cvtepu8_epi32(_mm_set_epi64x(0, i64::from_le_bytes(samples))),
+  )?;
+  let FilterLevels {
+    edge,
+    interior,
+    variance,
+  } = limits;
   let [e, i, h] = [edge, interior, variance].map(i32::from);
 
   let i_v = _mm256_set1_epi32(i);
@@ -992,8 +1080,20 @@ fn loop_filter_4_8bpc_wd16_simd_v_x8(
     _mm_cvtsi128_si64(_mm256_castsi256_si128(ordered)).to_le_bytes()
   };
 
-  let output = [final_m6, final_m5, final_m4, final_m3, final_m2, final_m1, final_0, final_1, final_2, final_3, final_4, final_5];
-  store_filter_rows(buf, window, PackedPosition { rows: -6, columns: 0 }, output, pack)
+  let output = [
+    final_m6, final_m5, final_m4, final_m3, final_m2, final_m1, final_0, final_1, final_2,
+    final_3, final_4, final_5,
+  ];
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -6,
+      columns: 0,
+    },
+    output,
+    pack,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1004,11 +1104,36 @@ fn loop_filter_4_8bpc_wd16_simd_v_x16(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let [p6_v, p5_v, p4_v, p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v, q4_v, q5_v, q6_v] =
-    load_filter_rows(buf, window, PackedPosition { rows: -7, columns: 0 }, _mm512_setzero_si512(), |samples: [u8; 16]| {
-      _mm512_cvtepu8_epi32(loadu_128!(&samples))
-    })?;
-  let FilterLevels { edge, interior, variance } = limits;
+  let [
+    p6_v,
+    p5_v,
+    p4_v,
+    p3_v,
+    p2_v,
+    p1_v,
+    p0_v,
+    q0_v,
+    q1_v,
+    q2_v,
+    q3_v,
+    q4_v,
+    q5_v,
+    q6_v,
+  ] = load_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -7,
+      columns: 0,
+    },
+    _mm512_setzero_si512(),
+    |samples: [u8; 16]| _mm512_cvtepu8_epi32(loadu_128!(&samples)),
+  )?;
+  let FilterLevels {
+    edge,
+    interior,
+    variance,
+  } = limits;
   let [e, i, h] = [edge, interior, variance].map(i32::from);
 
   let i_v = _mm512_set1_epi32(i);
@@ -1278,18 +1403,49 @@ fn loop_filter_4_8bpc_wd16_simd_v_x16(
     bytes
   };
 
-  let output = [final_m6, final_m5, final_m4, final_m3, final_m2, final_m1, final_0, final_1, final_2, final_3, final_4, final_5];
-  store_filter_rows(buf, window, PackedPosition { rows: -6, columns: 0 }, output, pack)
+  let output = [
+    final_m6, final_m5, final_m4, final_m3, final_m2, final_m1, final_0, final_1, final_2,
+    final_3, final_4, final_5,
+  ];
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -6,
+      columns: 0,
+    },
+    output,
+    pack,
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
 fn filter_width16_lanes(
   _token: Desktop64,
-  [p6_v, p5_v, p4_v, p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v, q4_v, q5_v, q6_v]: [__m128i; 14],
+  [
+    p6_v,
+    p5_v,
+    p4_v,
+    p3_v,
+    p2_v,
+    p1_v,
+    p0_v,
+    q0_v,
+    q1_v,
+    q2_v,
+    q3_v,
+    q4_v,
+    q5_v,
+    q6_v,
+  ]: [__m128i; 14],
   limits: FilterLevels,
 ) -> Result<[__m128i; 12], console_core_never::Never> {
-  let FilterLevels { edge, interior, variance } = limits;
+  let FilterLevels {
+    edge,
+    interior,
+    variance,
+  } = limits;
   let [e, i, h] = [edge, interior, variance].map(i32::from);
   let i_v = _mm_set1_epi32(i);
   let e_v = _mm_set1_epi32(e);
@@ -1567,7 +1723,10 @@ fn filter_width16_lanes(
   let final_4 = blendv(q4_v, sel_4, fm_mask);
   let final_5 = blendv(q5_v, sel_5, fm_mask);
 
-  Ok([final_m6, final_m5, final_m4, final_m3, final_m2, final_m1, final_0, final_1, final_2, final_3, final_4, final_5])
+  Ok([
+    final_m6, final_m5, final_m4, final_m3, final_m2, final_m1, final_0, final_1, final_2,
+    final_3, final_4, final_5,
+  ])
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1578,11 +1737,38 @@ fn loop_filter_4_8bpc_wd16_simd_v(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let [p6_v, p5_v, p4_v, p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v, q4_v, q5_v, q6_v] =
-    load_filter_rows(buf, window, PackedPosition { rows: -7, columns: 0 }, _mm_setzero_si128(), |samples| {
-      _mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(samples)))
-    })?;
-  let Ok(output) = filter_width16_lanes(_token, [p6_v, p5_v, p4_v, p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v, q4_v, q5_v, q6_v], limits);
+  let [
+    p6_v,
+    p5_v,
+    p4_v,
+    p3_v,
+    p2_v,
+    p1_v,
+    p0_v,
+    q0_v,
+    q1_v,
+    q2_v,
+    q3_v,
+    q4_v,
+    q5_v,
+    q6_v,
+  ] = load_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -7,
+      columns: 0,
+    },
+    _mm_setzero_si128(),
+    |samples| _mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(samples))),
+  )?;
+  let Ok(output) = filter_width16_lanes(
+    _token,
+    [
+      p6_v, p5_v, p4_v, p3_v, p2_v, p1_v, p0_v, q0_v, q1_v, q2_v, q3_v, q4_v, q5_v, q6_v,
+    ],
+    limits,
+  );
 
   let pack = |v: __m128i| {
     let shorts = _mm_packus_epi32(v, v);
@@ -1590,10 +1776,17 @@ fn loop_filter_4_8bpc_wd16_simd_v(
     _mm_cvtsi128_si32(bytes).to_le_bytes()
   };
 
-
-  store_filter_rows(buf, window, PackedPosition { rows: -6, columns: 0 }, output, pack)
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: -6,
+      columns: 0,
+    },
+    output,
+    pack,
+  )
 }
-
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
@@ -1601,7 +1794,9 @@ fn unpack_filter4(
   _token: Desktop64,
   bytes: [u8; 4],
 ) -> Result<__m128i, console_core_never::Never> {
-  Ok(_mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(bytes))))
+  Ok(_mm_cvtepu8_epi32(_mm_cvtsi32_si128(i32::from_le_bytes(
+    bytes,
+  ))))
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1662,20 +1857,38 @@ fn loop_filter_4_8bpc_wd6_simd_h(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let input = PackedPosition { rows: 0, columns: -3 };
-  let rows = load_filter_rows(buf, window, input, [_mm_setzero_si128(); 2], |[a, b, c, d, e, f]| {
-    let Ok(lo) = unpack_filter4(token, [a, b, c, d]);
-    let Ok(hi) = unpack_filter4(token, [e, f, 0, 0]);
-    [lo, hi]
-  })?;
+  let input = PackedPosition {
+    rows: 0,
+    columns: -3,
+  };
+  let rows = load_filter_rows(
+    buf,
+    window,
+    input,
+    [_mm_setzero_si128(); 2],
+    |[a, b, c, d, e, f]| {
+      let Ok(lo) = unpack_filter4(token, [a, b, c, d]);
+      let Ok(hi) = unpack_filter4(token, [e, f, 0, 0]);
+      [lo, hi]
+    },
+  )?;
   let Ok([[p2, p1, p0, q0], [q1, q2, _, _]]) = transpose_filter_groups(token, rows);
   let Ok(columns) = filter_width6_lanes(token, [p2, p1, p0, q0, q1, q2], limits);
   let Ok(output) = transpose_filter_lanes(token, columns);
 
-  store_filter_rows(buf, window, PackedPosition { rows: 0, columns: -2 }, output, |samples| {
-    let Ok(bytes) = pack_filter4(token, samples);
-    bytes
-  })
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: 0,
+      columns: -2,
+    },
+    output,
+    |samples| {
+      let Ok(bytes) = pack_filter4(token, samples);
+      bytes
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1686,7 +1899,10 @@ fn loop_filter_4_8bpc_wd8_simd_h(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let input = PackedPosition { rows: 0, columns: -4 };
+  let input = PackedPosition {
+    rows: 0,
+    columns: -4,
+  };
   let rows = load_filter_rows(buf, window, input, [_mm_setzero_si128(); 2], |bytes| {
     let Ok(vectors) = unpack_horizontal_filter8(token, bytes);
     vectors
@@ -1701,10 +1917,19 @@ fn loop_filter_4_8bpc_wd8_simd_h(
   let [hi0, hi1, hi2, hi3] = high;
   let output = [[lo0, hi0], [lo1, hi1], [lo2, hi2], [lo3, hi3]];
 
-  store_filter_rows(buf, window, PackedPosition { rows: 0, columns: -3 }, output, |vectors| {
-    let Ok(bytes) = pack_horizontal_filter6(token, vectors);
-    bytes
-  })
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: 0,
+      columns: -3,
+    },
+    output,
+    |vectors| {
+      let Ok(bytes) = pack_horizontal_filter6(token, vectors);
+      bytes
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1715,7 +1940,10 @@ fn loop_filter_4_8bpc_wd8_simd_h_x8(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let input = PackedPosition { rows: 0, columns: -4 };
+  let input = PackedPosition {
+    rows: 0,
+    columns: -4,
+  };
   let [r0, r1, r2, r3, r4, r5, r6, r7] =
     load_filter_rows(buf, window, input, [_mm_setzero_si128(); 2], |bytes| {
       let Ok(vectors) = unpack_horizontal_filter8(token, bytes);
@@ -1725,11 +1953,19 @@ fn loop_filter_4_8bpc_wd8_simd_h_x8(
     transpose_filter_groups(token, [r0, r1, r2, r3]);
   let Ok([[p3_hi, p2_hi, p1_hi, p0_hi], [q0_hi, q1_hi, q2_hi, q3_hi]]) =
     transpose_filter_groups(token, [r4, r5, r6, r7]);
-  let combine = |[lo, hi]: [__m128i; 2]| _mm256_inserti128_si256::<1>(_mm256_castsi128_si256(lo), hi);
+  let combine =
+    |[lo, hi]: [__m128i; 2]| _mm256_inserti128_si256::<1>(_mm256_castsi128_si256(lo), hi);
   let columns = [
-    [p3_lo, p3_hi], [p2_lo, p2_hi], [p1_lo, p1_hi], [p0_lo, p0_hi],
-    [q0_lo, q0_hi], [q1_lo, q1_hi], [q2_lo, q2_hi], [q3_lo, q3_hi],
-  ].map(combine);
+    [p3_lo, p3_hi],
+    [p2_lo, p2_hi],
+    [p1_lo, p1_hi],
+    [p0_lo, p0_hi],
+    [q0_lo, q0_hi],
+    [q1_lo, q1_hi],
+    [q2_lo, q2_hi],
+    [q3_lo, q3_hi],
+  ]
+  .map(combine);
   let Ok([p2, p1, p0, q0, q1, q2]) = filter_width8_lanes_avx2(token, columns, limits);
   let zero = _mm256_setzero_si256();
   let split_lower = |vector: __m256i| _mm256_castsi256_si128(vector);
@@ -1741,14 +1977,29 @@ fn loop_filter_4_8bpc_wd8_simd_h_x8(
   let Ok([lo4, lo5, lo6, lo7]) = transpose_filter_lanes(token, low.map(split_upper));
   let Ok([hi4, hi5, hi6, hi7]) = transpose_filter_lanes(token, high.map(split_upper));
   let output = [
-    [lo0, hi0], [lo1, hi1], [lo2, hi2], [lo3, hi3],
-    [lo4, hi4], [lo5, hi5], [lo6, hi6], [lo7, hi7],
+    [lo0, hi0],
+    [lo1, hi1],
+    [lo2, hi2],
+    [lo3, hi3],
+    [lo4, hi4],
+    [lo5, hi5],
+    [lo6, hi6],
+    [lo7, hi7],
   ];
 
-  store_filter_rows(buf, window, PackedPosition { rows: 0, columns: -3 }, output, |vectors| {
-    let Ok(bytes) = pack_horizontal_filter6(token, vectors);
-    bytes
-  })
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: 0,
+      columns: -3,
+    },
+    output,
+    |vectors| {
+      let Ok(bytes) = pack_horizontal_filter6(token, vectors);
+      bytes
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1759,16 +2010,31 @@ fn loop_filter_4_8bpc_wd16_simd_h(
   window: PackedWindow,
   limits: FilterLevels,
 ) -> Rav1dResult {
-  let input = PackedPosition { rows: 0, columns: -7 };
-  let rows = load_filter_rows(buf, window, input, [_mm_setzero_si128(); 4], |samples: [u8; 14]| {
-    let [a, b, c, d, e, f, g, h, i, j, k, l, m, n] = samples;
-    [[a, b, c, d], [e, f, g, h], [i, j, k, l], [m, n, 0, 0]].map(|bytes| {
-      let Ok(vector) = unpack_filter4(token, bytes);
-      vector
-    })
-  })?;
-  let Ok([[p6, p5, p4, p3], [p2, p1, p0, q0], [q1, q2, q3, q4], [q5, q6, _, _]]) =
-    transpose_filter_groups(token, rows);
+  let input = PackedPosition {
+    rows: 0,
+    columns: -7,
+  };
+  let rows = load_filter_rows(
+    buf,
+    window,
+    input,
+    [_mm_setzero_si128(); 4],
+    |samples: [u8; 14]| {
+      let [a, b, c, d, e, f, g, h, i, j, k, l, m, n] = samples;
+      [[a, b, c, d], [e, f, g, h], [i, j, k, l], [m, n, 0, 0]].map(|bytes| {
+        let Ok(vector) = unpack_filter4(token, bytes);
+        vector
+      })
+    },
+  )?;
+  let Ok(
+    [
+      [p6, p5, p4, p3],
+      [p2, p1, p0, q0],
+      [q1, q2, q3, q4],
+      [q5, q6, _, _],
+    ],
+  ) = transpose_filter_groups(token, rows);
   let columns = [p6, p5, p4, p3, p2, p1, p0, q0, q1, q2, q3, q4, q5, q6];
   let Ok([a, b, c, d, e, f, g, h, i, j, k, l]) = filter_width16_lanes(token, columns, limits);
   let Ok([a0, a1, a2, a3]) = transpose_filter_lanes(token, [a, b, c, d]);
@@ -1776,16 +2042,24 @@ fn loop_filter_4_8bpc_wd16_simd_h(
   let Ok([c0, c1, c2, c3]) = transpose_filter_lanes(token, [i, j, k, l]);
   let output = [[a0, b0, c0], [a1, b1, c1], [a2, b2, c2], [a3, b3, c3]];
 
-  store_filter_rows(buf, window, PackedPosition { rows: 0, columns: -6 }, output, |[lo, mid, hi]| {
-    let Ok([left_0, left_1, left_2, left_3]) = pack_filter4(token, lo);
-    let Ok([center_0, center_1, center_2, center_3]) = pack_filter4(token, mid);
-    let Ok([right_0, right_1, right_2, right_3]) = pack_filter4(token, hi);
-    [
-      left_0, left_1, left_2, left_3,
-      center_0, center_1, center_2, center_3,
-      right_0, right_1, right_2, right_3,
-    ]
-  })
+  store_filter_rows(
+    buf,
+    window,
+    PackedPosition {
+      rows: 0,
+      columns: -6,
+    },
+    output,
+    |[lo, mid, hi]| {
+      let Ok([left_0, left_1, left_2, left_3]) = pack_filter4(token, lo);
+      let Ok([center_0, center_1, center_2, center_3]) = pack_filter4(token, mid);
+      let Ok([right_0, right_1, right_2, right_3]) = pack_filter4(token, hi);
+      [
+        left_0, left_1, left_2, left_3, center_0, center_1, center_2, center_3, right_0, right_1,
+        right_2, right_3,
+      ]
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1830,7 +2104,8 @@ fn filter_narrow_lanes(
   };
   let m_p1p0 = not_gt(abs_p1p0, i_v);
   let m_q1q0 = not_gt(abs_q1q0, i_v);
-  let edge_difference = _mm_add_epi32(_mm_slli_epi32::<1>(abs_p0q0), _mm_srli_epi32::<1>(abs_p1q1));
+  let edge_difference =
+    _mm_add_epi32(_mm_slli_epi32::<1>(abs_p0q0), _mm_srli_epi32::<1>(abs_p1q1));
   let m_val = not_gt(edge_difference, e_v);
   let fm_mask = _mm_and_si128(_mm_and_si128(m_p1p0, m_q1q0), m_val);
 
@@ -2068,9 +2343,16 @@ struct FilterLevelLookup<'a> {
 impl FilterLevelLookup<'_> {
   #[inline]
   fn raw_level(&self, block: u64) -> Result<u8, console_core_never::Never> {
-    let position = block.checked_mul(4).and_then(|start| start.checked_add(self.layout.component));
+    let position = block
+      .checked_mul(4)
+      .and_then(|start| start.checked_add(self.layout.component));
     let value = position
-      .and_then(|offset| match console_core_number_conversion::checked_index(offset) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None })
+      .and_then(
+        |offset| match console_core_number_conversion::checked_index(offset) {
+          ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_),
+          ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+        },
+      )
       .and_then(|offset| self.cells.get(offset))
       .map_or(0, |cached| cached.load(Relaxed));
 
@@ -2098,7 +2380,10 @@ impl FilterLevelLookup<'_> {
     }
 
     Ok(match FilterLevels::from_cache(self.lut, level) {
-      Ok(limits) => Some(FilterLevel { number: level, limits }),
+      Ok(limits) => Some(FilterLevel {
+        number: level,
+        limits,
+      }),
       Err(problem) => {
         console_core_logging::debug!("Invalid AV1 loop-filter level {level}: {problem:?}");
         None
@@ -2106,7 +2391,6 @@ impl FilterLevelLookup<'_> {
     })
   }
 }
-
 
 #[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
 struct FilterTile<'a> {
@@ -2147,10 +2431,17 @@ impl<'a> FilterRegion<'a> {
       HV::H => (tile.pixel_stride, 1, cache_stride, 1),
       HV::V => (1, tile.pixel_stride, 1, cache_stride),
     };
-    let window = FilterWindow { base: tile.pixel_base, along, across };
+    let window = FilterWindow {
+      base: tile.pixel_base,
+      along,
+      tap_stride: across,
+    };
     let lookup = FilterLevelLookup {
       cells: tile.levels,
-      layout: LevelCacheLayout { component: tile.level_component, lookback },
+      layout: LevelCacheLayout {
+        component: tile.level_component,
+        lookback,
+      },
       lut: tile.lut,
     };
     let [narrow, medium, wide] = tile.masks;
@@ -2159,7 +2450,13 @@ impl<'a> FilterRegion<'a> {
       YUV::UV => narrow | medium,
     };
 
-    Ok(Self { tile, window, lookup, level_step, active })
+    Ok(Self {
+      tile,
+      window,
+      lookup,
+      level_step,
+      active,
+    })
   }
 
   #[inline]
@@ -2174,7 +2471,8 @@ impl<'a> FilterRegion<'a> {
       _ => {}
     }
 
-    let block = u64::from(ordinal).checked_mul(self.level_step)
+    let block = u64::from(ordinal)
+      .checked_mul(self.level_step)
       .and_then(|offset| self.tile.level_base.checked_add(offset))
       .ok_or(Rav1dError::ERANGE)?;
     let Ok(strength) = self.lookup.at(block);
@@ -2182,12 +2480,26 @@ impl<'a> FilterRegion<'a> {
       Some(level) => level,
       None => return Ok(None),
     };
-    let offset = i64::from(ordinal).wrapping_mul(4).checked_mul(self.window.along).ok_or(Rav1dError::ERANGE)?;
-    let base = self.window.base.checked_add_signed(offset).ok_or(Rav1dError::EINVAL)?;
-    let window = FilterWindow { base, ..self.window };
+    let offset = i64::from(ordinal)
+      .wrapping_mul(4)
+      .checked_mul(self.window.along)
+      .ok_or(Rav1dError::ERANGE)?;
+    let base = self
+      .window
+      .base
+      .checked_add_signed(offset)
+      .ok_or(Rav1dError::EINVAL)?;
+    let window = FilterWindow {
+      base,
+      ..self.window
+    };
     let Ok(width) = crate::src::loopfilter::lf_group_width(self.tile.plane, self.tile.masks, bit);
 
-    Ok(Some(FilterEdge { window, level, width }))
+    Ok(Some(FilterEdge {
+      window,
+      level,
+      width,
+    }))
   }
 }
 
@@ -2217,13 +2529,14 @@ fn filter_tile_16bpc(
 
     match filter_slice(pixels, edge.window, edge.level.limits, edge.width, depth) {
       Ok(()) => {}
-      Err(problem) => console_core_logging::debug!("Invalid AV1 high-bit-depth loop filter region: {problem:?}"),
+      Err(problem) => {
+        console_core_logging::debug!("Invalid AV1 high-bit-depth loop filter region: {problem:?}")
+      }
     }
   }
 
   Ok(())
 }
-
 
 #[cfg(target_arch = "x86_64")]
 #[derive(Clone, Copy)]
@@ -2283,7 +2596,10 @@ impl FilterRegion<'_> {
   fn same_edge(&self, ordinal: u32, expected: FilterEdge) -> Rav1dResult<EdgeMatch> {
     let edge = self.edge(ordinal)?;
     Ok(match edge {
-      Some(next) => match (next.width == expected.width, next.level.number == expected.level.number) {
+      Some(next) => match (
+        next.width == expected.width,
+        next.level.number == expected.level.number,
+      ) {
         (true, true) => EdgeMatch::Same,
         (false, _) | (_, false) => EdgeMatch::Different,
       },
@@ -2325,12 +2641,18 @@ fn filter_8bpc_batch(
   ordinal: u32,
   edge: FilterEdge,
 ) -> Rav1dResult<FilterBatch> {
-  let FilterLevels { edge: edge_limit, interior, variance } = edge.level.limits;
+  let FilterLevels {
+    edge: edge_limit,
+    interior,
+    variance,
+  } = edge.level.limits;
   let bytes = [edge_limit, interior, variance];
 
-
   let wide = region.four_edge_token(ordinal, edge)?;
-  let window = PackedWindow { anchor: edge.window.base, stride: region.tile.pixel_stride };
+  let window = PackedWindow {
+    anchor: edge.window.base,
+    stride: region.tile.pixel_stride,
+  };
 
   match wide {
     Some(server) => {
@@ -2353,10 +2675,18 @@ fn filter_8bpc_batch(
   }
 
   match filter {
-    PairedFilter::NarrowVertical => loop_filter_4_8bpc_narrow_simd_v_x8(token, pixels, window, edge.level.limits)?,
-    PairedFilter::MediumVertical => loop_filter_4_8bpc_wd8_simd_v_x8(token, pixels, window, edge.level.limits)?,
-    PairedFilter::MediumHorizontal => loop_filter_4_8bpc_wd8_simd_h_x8(token, pixels, window, edge.level.limits)?,
-    PairedFilter::WideVertical => loop_filter_4_8bpc_wd16_simd_v_x8(token, pixels, window, edge.level.limits)?,
+    PairedFilter::NarrowVertical => {
+      loop_filter_4_8bpc_narrow_simd_v_x8(token, pixels, window, edge.level.limits)?
+    }
+    PairedFilter::MediumVertical => {
+      loop_filter_4_8bpc_wd8_simd_v_x8(token, pixels, window, edge.level.limits)?
+    }
+    PairedFilter::MediumHorizontal => {
+      loop_filter_4_8bpc_wd8_simd_h_x8(token, pixels, window, edge.level.limits)?
+    }
+    PairedFilter::WideVertical => {
+      loop_filter_4_8bpc_wd16_simd_v_x8(token, pixels, window, edge.level.limits)?
+    }
     PairedFilter::WideHorizontal => packed16::apply_h(token, pixels, window, bytes)?,
     PairedFilter::ChromaVertical => packed6::apply::<false>(token, pixels, window, bytes)?,
     PairedFilter::ChromaHorizontal => packed6::apply::<true>(token, pixels, window, bytes)?,
@@ -2411,7 +2741,9 @@ fn filter_tile_8bpc(
           first_unfiltered = ordinal.wrapping_add(4);
           continue;
         }
-        Err(problem) => console_core_logging::debug!("Invalid AV1 SIMD loop-filter batch: {problem:?}"),
+        Err(problem) => {
+          console_core_logging::debug!("Invalid AV1 SIMD loop-filter batch: {problem:?}")
+        }
       },
       _ => {}
     }
@@ -2426,7 +2758,9 @@ fn filter_tile_8bpc(
 
     match filtered {
       Ok(()) => {}
-      Err(problem) => console_core_logging::debug!("Invalid AV1 8-bit loop filter region: {problem:?}"),
+      Err(problem) => {
+        console_core_logging::debug!("Invalid AV1 8-bit loop filter region: {problem:?}")
+      }
     }
   }
 
@@ -2453,24 +2787,31 @@ impl FilterSpan {
     let (before, after) = match self.direction {
       HV::H => (
         Some(taps.before),
-        last_lane.checked_mul(self.stride).and_then(|rows| rows.checked_add(taps.after)),
+        last_lane
+          .checked_mul(self.stride)
+          .and_then(|rows| rows.checked_add(taps.after)),
       ),
       HV::V => (
         taps.before.checked_mul(self.stride),
-        taps.after.checked_mul(self.stride).and_then(|columns| columns.checked_add(last_lane)),
+        taps
+          .after
+          .checked_mul(self.stride)
+          .and_then(|columns| columns.checked_add(last_lane)),
       ),
     };
     Ok(FilterReach {
-      before: { let checked_value = before.ok_or(Rav1dError::ERANGE)?; checked_value },
-      after: { let checked_value_2 = after.ok_or(Rav1dError::ERANGE)?; checked_value_2 },
+      before: {
+        let checked_value = before.ok_or(Rav1dError::ERANGE)?;
+        checked_value
+      },
+      after: {
+        let checked_value_2 = after.ok_or(Rav1dError::ERANGE)?;
+        checked_value_2
+      },
     })
   }
 
-  fn validate(
-    &self,
-    remaining: core::ops::Range<u64>,
-    plane: YUV,
-  ) -> Rav1dResult {
+  fn validate(&self, remaining: core::ops::Range<u64>, plane: YUV) -> Rav1dResult {
     let [before, after] = match (plane, self.direction) {
       (YUV::Y, HV::V) => [7, 7],
       (YUV::Y, HV::H) => [7, 9],
@@ -2478,9 +2819,15 @@ impl FilterSpan {
       (YUV::UV, HV::H) => [3, 5],
     };
     let reach = self.relative_reach(FilterReach { before, after })?;
-    let end = remaining.start.checked_add(reach.after).ok_or(Rav1dError::ERANGE)?;
+    let end = remaining
+      .start
+      .checked_add(reach.after)
+      .ok_or(Rav1dError::ERANGE)?;
 
-    match ::core::primitive::bool::then_some(remaining.start >= reach.before && end <= remaining.end, ()) {
+    match ::core::primitive::bool::then_some(
+      remaining.start >= reach.before && end <= remaining.end,
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(()),
       ::core::option::Option::None => Err(Rav1dError::EINVAL),
     }
@@ -2500,22 +2847,42 @@ fn apply_filter_tile<BD: BitDepth>(
   let Ok(available) = console_core_number_conversion::fixed_index(dst.data.pixel_len::<BD>());
   let Ok(first) = console_core_number_conversion::fixed_index(dst.offset);
   let stride = u64::try_from(tile.pixel_stride).map_err(|_| Rav1dError::EINVAL)?;
-  let span = FilterSpan { direction: tile.direction, stride, groups };
+  let span = FilterSpan {
+    direction: tile.direction,
+    stride,
+    groups,
+  };
   span.validate(first..available, tile.plane)?;
 
-  match ::core::primitive::bool::then_some(matches!(dst.data.guard_mode(), Ok(crate::include::dav1d::picture::PictureGuardMode::SeparateRows)), ()) {
+  match ::core::primitive::bool::then_some(
+    matches!(
+      dst.data.guard_mode(),
+      Ok(crate::include::dav1d::picture::PictureGuardMode::SeparateRows)
+    ),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
-      let window = CompactFilterWindow::for_run(tile.direction, tile.plane, tile.masks, groups, (first, stride))?;
+      let window = CompactFilterWindow::for_run(
+        tile.direction,
+        tile.plane,
+        tile.masks,
+        groups,
+        (first, stride),
+      )?;
       let Ok(width) = console_core_number_conversion::index(window.width);
       let Ok(height) = console_core_number_conversion::index(window.height);
       let Ok(origin) = console_core_number_conversion::index(window.origin);
-      let compact_origin = WithOffset { data: dst.data, offset: origin };
-      let (mut compact, byte_pitch) = match compact_origin.compact_read_per_row::<BD>(width, height) {
-        (bytes, native_pitch) => {
-          let Ok(pitch) = console_core_number_conversion::fixed_index(native_pitch);
-          (bytes, pitch)
-        }
+      let compact_origin = WithOffset {
+        data: dst.data,
+        offset: origin,
       };
+      let (mut compact, byte_pitch) =
+        match compact_origin.compact_read_per_row::<BD>(width, height) {
+          (bytes, native_pitch) => {
+            let Ok(pitch) = console_core_number_conversion::fixed_index(native_pitch);
+            (bytes, pitch)
+          }
+        };
       let Ok(mut pristine) = take_compact_scratch();
       pristine.clear();
       pristine.extend_from_slice(&compact);
@@ -2524,11 +2891,19 @@ fn apply_filter_tile<BD: BitDepth>(
         crate::include::common::bitdepth::BPC::BPC16 => byte_pitch.wrapping_div(2),
       };
       let pitch = i64::try_from(pixel_pitch).map_err(|_width| Rav1dError::ERANGE);
-      let result = match (zerocopy::FromBytes::mut_from_bytes(compact.as_mut_slice()), pitch) {
+      let result = match (
+        zerocopy::FromBytes::mut_from_bytes(compact.as_mut_slice()),
+        pitch,
+      ) {
         (Ok(pixels), Ok(stride_in_pixels)) => {
-          let local_tile = FilterTile { pixel_base: window.base, pixel_stride: stride_in_pixels, ..tile };
+          let local_tile = FilterTile {
+            pixel_base: window.base,
+            pixel_stride: stride_in_pixels,
+            ..tile
+          };
           let Ok(()) = apply(pixels, local_tile);
-          compact_origin.compact_write_back_per_row_diff::<BD>(width, height, &compact, &pristine);
+          compact_origin
+            .compact_write_back_per_row_diff::<BD>(width, height, &compact, &pristine);
           Ok(())
         }
         (Err(_layout), _) => Err(Rav1dError::EINVAL),
@@ -2542,13 +2917,19 @@ fn apply_filter_tile<BD: BitDepth>(
     ::core::option::Option::None => {
       let Ok(radius) = lf_run_reach(tile.plane, tile.masks);
       let taps = u64::from(radius);
-      let reach = span.relative_reach(FilterReach { before: taps, after: taps })?;
+      let reach = span.relative_reach(FilterReach {
+        before: taps,
+        after: taps,
+      })?;
       let start = first.checked_sub(reach.before).ok_or(Rav1dError::EINVAL)?;
       let checked_value = first.checked_add(reach.after).ok_or(Rav1dError::ERANGE)?;
       let end = checked_value.min(available);
       let Ok(range) = console_core_number_conversion::indices(start..end);
       let mut guard = dst.data.slice_mut::<BD, _>(range);
-      let local_tile = FilterTile { pixel_base: reach.before, ..tile };
+      let local_tile = FilterTile {
+        pixel_base: reach.before,
+        ..tile
+      };
       let Ok(()) = apply(&mut guard, local_tile);
       Ok(())
     }
@@ -2591,19 +2972,31 @@ fn prepare_loop_filter<'a>(
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the existing dispatcher reports whether it filtered the edge or selected the scalar fallback")
+  expect(
+    explicit002_infallible_result,
+    reason = "the existing dispatcher reports whether it filtered the edge or selected the scalar fallback"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit024_no_swappable_params",
-  expect(explicit024_no_swappable_params, reason = "the existing dispatcher accepts the original positional stride and filter fields")
+  expect(
+    explicit024_no_swappable_params,
+    reason = "the existing dispatcher accepts the original positional stride and filter fields"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the existing dispatcher receives native picture and level strides")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the existing dispatcher receives native picture and level strides"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit075_bounded_complexity",
-  expect(explicit075_bounded_complexity, reason = "the existing architecture dispatch signature keeps its caller-visible fields")
+  expect(
+    explicit075_bounded_complexity,
+    reason = "the existing architecture dispatch signature keeps its caller-visible fields"
+  )
 )]
 pub fn loopfilter_sb_dispatch<BD: BitDepth>(
   dst: PicOffset,
@@ -2820,16 +3213,38 @@ mod tests {
       let Ok(sample) = console_core_number_conversion::wrapped::<_, u8>(position);
       96u8.wrapping_add(sample.wrapping_mul(7).wrapping_rem(5))
     });
-    let levels = FilterLevels { edge: 48, interior: 15, variance: 3 };
+    let levels = FilterLevels {
+      edge: 48,
+      interior: 15,
+      variance: 3,
+    };
     let depth = BitDepth8::new(());
-    let spans = [(1, 16), (1, -16), (-1, 16), (-1, -16), (16, 1), (16, -1), (-16, 1), (-16, -1)];
+    let spans = [
+      (1, 16),
+      (1, -16),
+      (-1, 16),
+      (-1, -16),
+      (16, 1),
+      (16, -1),
+      (-16, 1),
+      (-16, -1),
+    ];
 
     for (along, across) in spans {
       for width in [4i32, 6, 8, 16] {
         let mut expected = source;
         let mut checked = source;
-        let window = FilterWindow { base: 127, along, across };
-        let fixture = crate::src::loopfilter::ScalarFilterFixture { window, lanes: 4, limits: levels, width };
+        let window = FilterWindow {
+          base: 127,
+          along,
+          tap_stride: across,
+        };
+        let fixture = crate::src::loopfilter::ScalarFilterFixture {
+          window,
+          lanes: 4,
+          limits: levels,
+          width,
+        };
         crate::src::loopfilter::loop_filter_scalar_for_test(&mut expected, fixture)?;
         filter_slice(&mut checked, window, levels, width, depth)?;
         assert_eq!(checked, expected);
@@ -2837,8 +3252,15 @@ mod tests {
     }
 
     let mut short = source;
-    let window = FilterWindow { base: 0, along: 16, across: 1 };
-    assert_eq!(filter_slice(&mut short, window, levels, 16, depth), Err(Rav1dError::EINVAL));
+    let window = FilterWindow {
+      base: 0,
+      along: 16,
+      tap_stride: 1,
+    };
+    assert_eq!(
+      filter_slice(&mut short, window, levels, 16, depth),
+      Err(Rav1dError::EINVAL)
+    );
     assert_eq!(short, source);
 
     Ok(())
@@ -2897,20 +3319,32 @@ struct PackedPosition {
 impl PackedWindow {
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "The caller presents an existing slice position and native pixel stride at this boundary")
+    expect(
+      explicit051_no_machine_width,
+      reason = "The caller presents an existing slice position and native pixel stride at this boundary"
+    )
   )]
   fn from_native(anchor: usize, stride: isize) -> Result<Self, console_core_never::Never> {
     let Ok(anchor_fixed) = console_core_number_conversion::fixed_index(anchor);
     let Ok(stride_fixed) = console_core_number_conversion::fixed_offset(stride);
 
-    Ok(Self { anchor: anchor_fixed, stride: stride_fixed })
+    Ok(Self {
+      anchor: anchor_fixed,
+      stride: stride_fixed,
+    })
   }
 
   fn position(self, point: PackedPosition) -> Rav1dResult<u64> {
-    let delta = self.stride.checked_mul(point.rows).ok_or(Rav1dError::ERANGE)?;
+    let delta = self
+      .stride
+      .checked_mul(point.rows)
+      .ok_or(Rav1dError::ERANGE)?;
     let offset = delta.checked_add(point.columns).ok_or(Rav1dError::ERANGE)?;
 
-    self.anchor.checked_add_signed(offset).ok_or(Rav1dError::EINVAL)
+    self
+      .anchor
+      .checked_add_signed(offset)
+      .ok_or(Rav1dError::EINVAL)
   }
 }
 
@@ -2918,20 +3352,31 @@ impl PackedWindow {
 fn packed_pixels<const N: usize>(pixels: &[u8], offset: u64) -> Rav1dResult<&[u8; N]> {
   let Ok(index) = console_core_number_conversion::index(offset);
 
-  pixels.get(index..).and_then(<[u8]>::first_chunk::<N>).ok_or(Rav1dError::EINVAL)
+  pixels
+    .get(index..)
+    .and_then(<[u8]>::first_chunk::<N>)
+    .ok_or(Rav1dError::EINVAL)
 }
 
 #[cfg(target_arch = "x86_64")]
-fn packed_pixels_mut<const N: usize>(pixels: &mut [u8], offset: u64) -> Rav1dResult<&mut [u8; N]> {
+fn packed_pixels_mut<const N: usize>(
+  pixels: &mut [u8],
+  offset: u64,
+) -> Rav1dResult<&mut [u8; N]> {
   let Ok(index) = console_core_number_conversion::index(offset);
 
-  pixels.get_mut(index..).and_then(<[u8]>::first_chunk_mut::<N>).ok_or(Rav1dError::EINVAL)
+  pixels
+    .get_mut(index..)
+    .and_then(<[u8]>::first_chunk_mut::<N>)
+    .ok_or(Rav1dError::EINVAL)
 }
-
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn transpose_packed_rows(_token: Desktop64, rows: [__m128i; 8]) -> Result<[__m128i; 8], console_core_never::Never> {
+fn transpose_packed_rows(
+  _token: Desktop64,
+  rows: [__m128i; 8],
+) -> Result<[__m128i; 8], console_core_never::Never> {
   let [r0, r1, r2, r3, r4, r5, r6, r7] = rows;
   let a0 = _mm_unpacklo_epi16(r0, r1);
   let a1 = _mm_unpackhi_epi16(r0, r1);
@@ -2951,10 +3396,14 @@ fn transpose_packed_rows(_token: Desktop64, rows: [__m128i; 8]) -> Result<[__m12
   let b7 = _mm_unpackhi_epi32(a5, a7);
 
   Ok([
-    _mm_unpacklo_epi64(b0, b4), _mm_unpackhi_epi64(b0, b4),
-    _mm_unpacklo_epi64(b1, b5), _mm_unpackhi_epi64(b1, b5),
-    _mm_unpacklo_epi64(b2, b6), _mm_unpackhi_epi64(b2, b6),
-    _mm_unpacklo_epi64(b3, b7), _mm_unpackhi_epi64(b3, b7),
+    _mm_unpacklo_epi64(b0, b4),
+    _mm_unpackhi_epi64(b0, b4),
+    _mm_unpacklo_epi64(b1, b5),
+    _mm_unpackhi_epi64(b1, b5),
+    _mm_unpacklo_epi64(b2, b6),
+    _mm_unpackhi_epi64(b2, b6),
+    _mm_unpacklo_epi64(b3, b7),
+    _mm_unpackhi_epi64(b3, b7),
   ])
 }
 

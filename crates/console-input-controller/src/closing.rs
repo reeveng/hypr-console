@@ -36,10 +36,12 @@ pub fn goes_to(
   closed: &str,
 ) -> Result<Option<i64>, Never> {
   let front_3 = match (was_on, front) {
-    (Some(was_on_2), Some(front_2)) => match ::core::primitive::bool::then_some(was_on_2 == front_2 && front_2 > 0, ()) {
-      ::core::option::Option::Some(()) => front_2,
-      ::core::option::Option::None => return Ok(None),
-    },
+    (Some(was_on_2), Some(front_2)) => {
+      match ::core::primitive::bool::then_some(was_on_2 == front_2 && front_2 > 0, ()) {
+        ::core::option::Option::Some(()) => front_2,
+        ::core::option::Option::None => return Ok(None),
+      }
+    }
     (None, _) | (_, None) => return Ok(None),
   };
 
@@ -52,10 +54,12 @@ pub fn goes_to(
   let before = others.iter().copied().filter(|id| *id < front_3).max();
   let after = others.iter().copied().filter(|id| *id > front_3).min();
 
-  Ok(match ::core::primitive::bool::then_some(others.contains(&front_3), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => before.or(after),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(others.contains(&front_3), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => before.or(after),
+    },
+  )
 }
 
 #[cfg(test)]

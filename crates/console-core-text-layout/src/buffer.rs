@@ -135,13 +135,19 @@ impl LayoutRun<'_> {
         .map_or_else(
           || {
             self.glyphs.last().map_or(0.0, |glyph| {
-              match ::core::primitive::bool::then_some(glyph.level.direction() == Ok(unicode_bidi::Direction::RightToLeft), ()) {
+              match ::core::primitive::bool::then_some(
+                glyph.level.direction() == Ok(unicode_bidi::Direction::RightToLeft),
+                (),
+              ) {
                 ::core::option::Option::Some(()) => glyph.x,
                 ::core::option::Option::None => glyph.x + glyph.w,
               }
             })
           },
-          |glyph| match ::core::primitive::bool::then_some(glyph.level.direction() == Ok(unicode_bidi::Direction::RightToLeft), ()) {
+          |glyph| match ::core::primitive::bool::then_some(
+            glyph.level.direction() == Ok(unicode_bidi::Direction::RightToLeft),
+            (),
+          ) {
             ::core::option::Option::Some(()) => glyph.x + glyph.w - glyph_offset,
             ::core::option::Option::None => glyph.x + glyph_offset,
           },
@@ -504,12 +510,15 @@ impl<'b> Iterator for LayoutRunIter<'b> {
         let line_y = line_top + centering_offset + layout_line.max_ascent;
 
         match self.height_opt {
-          Some(height) => match ::core::primitive::bool::then_some(line_y - layout_line.max_ascent > height, ()) {
-            ::core::option::Option::Some(()) => {
-              return None;
+          Some(height) => {
+            match ::core::primitive::bool::then_some(line_y - layout_line.max_ascent > height, ())
+            {
+              ::core::option::Option::Some(()) => {
+                return None;
+              }
+              ::core::option::Option::None => {}
             }
-            ::core::option::Option::None => {}
-          },
+          }
           None => {}
         }
 

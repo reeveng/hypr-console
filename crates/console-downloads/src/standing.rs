@@ -86,10 +86,12 @@ impl Standing {
       .tabs
       .iter()
       .enumerate()
-      .map(|(at, was)| match ::core::primitive::bool::then_some(at == tab_2, ()) {
-        ::core::option::Option::Some(()) => held.clone(),
-        ::core::option::Option::None => was.clone(),
-      })
+      .map(
+        |(at, was)| match ::core::primitive::bool::then_some(at == tab_2, ()) {
+          ::core::option::Option::Some(()) => held.clone(),
+          ::core::option::Option::None => was.clone(),
+        },
+      )
       .collect();
 
     Ok(Standing { tabs })
@@ -136,7 +138,7 @@ pub enum DownloadsEffect {
   ForgetTyping,
   Search { tab: u32, kind: Kind, query: Search },
   Cancel { tab: u32, id: SearchId },
-  Keep(Looked),
+  Retain(Looked),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,18 +285,18 @@ fn turning(
       let Ok(held) = state.at(*tab);
 
       let query = {
-          let optional_query = held.asking.as_ref().filter(|query| query.id == *id);
+        let optional_query = held.asking.as_ref().filter(|query| query.id == *id);
 
-          match optional_query {
-              Some(matched_query) => matched_query,
-              ::core::option::Option::None => return Transition::without_effects(state.clone()),
-          }
+        match optional_query {
+          Some(matched_query) => matched_query,
+          ::core::option::Option::None => return Transition::without_effects(state.clone()),
+        }
       };
 
       let (looked, keep) = match result {
         Ok(looked) => (
           looked.clone(),
-          Some(Effect::Custom(DownloadsEffect::Keep(looked.clone()))),
+          Some(Effect::Custom(DownloadsEffect::Retain(looked.clone()))),
         ),
         Err(fault) => (
           Looked {

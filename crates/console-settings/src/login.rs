@@ -156,14 +156,16 @@ fn pressed(
     ButtonPress::Down => moved(drawing, Direction::Down),
     ButtonPress::Left => moved(drawing, Direction::Left),
     ButtonPress::Right => moved(drawing, Direction::Right),
-    ButtonPress::Back => match ::core::primitive::bool::then_some(drawing.greeting.pattern.path.is_empty(), ()) {
-      ::core::option::Option::Some(()) => stopped(drawing, effects),
-      ::core::option::Option::None => {
-        let Ok(undone) = drawing.greeting.pattern.undone();
+    ButtonPress::Back => {
+      match ::core::primitive::bool::then_some(drawing.greeting.pattern.path.is_empty(), ()) {
+        ::core::option::Option::Some(()) => stopped(drawing, effects),
+        ::core::option::Option::None => {
+          let Ok(undone) = drawing.greeting.pattern.undone();
 
-        with_pattern(drawing, undone)
+          with_pattern(drawing, undone)
+        }
       }
-    },
+    }
     ButtonPress::Choose => {
       let Ok(clicked) = drawing.greeting.pattern.click();
 
@@ -201,17 +203,19 @@ fn submitted(drawing: Drawing, secret: Secret, effects: &mut Effects) -> Result<
   match (letters.chars().count() < fewest, drawing.step.clone()) {
     (true, step) => cleared(drawing, step, SHORT),
     (false, Step::Choosing) => cleared(drawing, Step::Confirming(secret), AGAIN),
-    (false, Step::Confirming(first)) => match ::core::primitive::bool::then_some(first == secret, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(()) = effects.offer_all([
-          Effect::Custom(LoginPatternEffect::Save(secret)),
-          Effect::Stop(Exit::Success),
-        ]);
+    (false, Step::Confirming(first)) => {
+      match ::core::primitive::bool::then_some(first == secret, ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(()) = effects.offer_all([
+            Effect::Custom(LoginPatternEffect::Save(secret)),
+            Effect::Stop(Exit::Success),
+          ]);
 
-        Ok(drawing)
+          Ok(drawing)
+        }
+        ::core::option::Option::None => cleared(drawing, Step::Choosing, APART),
       }
-      ::core::option::Option::None => cleared(drawing, Step::Choosing, APART),
-    },
+    }
   }
 }
 

@@ -26,14 +26,20 @@ use core::any::Any;
 #[derive(Clone)]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "cloned fonts share their parsed tables, immutable source, and once-initialized shaping data across threads")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "cloned fonts share their parsed tables, immutable source, and once-initialized shaping data across threads"
+  )
 )]
 pub struct Font(Arc<FontRepr>);
 
 impl Font {
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "initialize the single parsed font representation shared by its cloneable handles")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "initialize the single parsed font representation shared by its cloneable handles"
+    )
   )]
   pub fn new(source: impl Into<FontSource>, index: u32) -> Result<Self, ReadError> {
     let source_2 =
@@ -42,7 +48,11 @@ impl Font {
       Ok(tables) => Some(FontKindRepr::Sfnt(tables, index)),
       Err(_unreadable_sfnt_directory) => match &source_2 {
         FontSource::Blob(blob) => match FontFormat::new(blob) {
-          Some(FontFormat::Type1) => (match Type1Font::new(blob) { Ok(value) => Some(value), Err(_invalid_type1_font) => None }).map(FontKindRepr::Type1),
+          Some(FontFormat::Type1) => (match Type1Font::new(blob) {
+            Ok(value) => Some(value),
+            Err(_invalid_type1_font) => None,
+          })
+          .map(FontKindRepr::Type1),
           Some(FontFormat::Sfnt(_) | FontFormat::Cff(_)) | None => None,
         },
         FontSource::TableFunction(_) => None,
@@ -60,7 +70,10 @@ impl Font {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Font::source` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Font::source` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn source(&self) -> &FontSource {
     &self.0.source
@@ -69,7 +82,10 @@ impl Font {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Font::kind` method returns `FontKind` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Font::kind` method returns `FontKind` directly in the existing parser interface"
+    )
   )]
   pub fn kind(&self) -> FontKind<'_> {
     match &self.0.kind {
@@ -81,7 +97,10 @@ impl Font {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Font::tables` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Font::tables` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn tables(&self) -> &FontTables {
     match &self.0.kind {

@@ -119,8 +119,11 @@ impl<'a> Decoder<'a> {
 
   pub fn bytes(&mut self) -> Result<Vec<u8>, ParseError> {
     let count = u64::decode(self)?;
-    let split = match ::console_core_number_conversion::checked_index(count) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }
-      .and_then(|size| self.rest.split_at_checked(size));
+    let split = match ::console_core_number_conversion::checked_index(count) {
+      ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_),
+      ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+    }
+    .and_then(|size| self.rest.split_at_checked(size));
 
     match split {
       Some((bytes, tail)) => {
@@ -129,7 +132,6 @@ impl<'a> Decoder<'a> {
         Ok(bytes.to_vec())
       }
       None => {
-
         self.rest = &[];
 
         Err(ParseError::Truncated)

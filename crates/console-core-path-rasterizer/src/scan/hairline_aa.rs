@@ -15,7 +15,7 @@ use crate::fixed_point::{
 };
 use crate::geom::{IntRectExt, PixelPosition, ScreenIntRect};
 use crate::math::LENGTH_U32_ONE;
-use crate::{IntRect, LengthU32, LineCap, Path, Point, Rect};
+use crate::{IntRect, LengthU32, LineCap, Path, Point, FloatRectangle};
 
 #[derive(Copy, Clone)]
 struct SubpixelSpan {
@@ -29,7 +29,7 @@ struct SubpixelRect {
 }
 
 impl SubpixelRect {
-  fn from_rect(rect: &Rect) -> Result<Self, Never> {
+  fn from_rect(rect: &FloatRectangle) -> Result<Self, Never> {
     let Ok(left) = rect.left();
     let Ok(top) = rect.top();
     let Ok(right) = rect.right();
@@ -101,7 +101,7 @@ enum SubpixelBands {
 }
 
 pub fn fill_rect(
-  rect: &Rect,
+  rect: &FloatRectangle,
   clip: &ScreenIntRect,
   blitter: &mut dyn Blitter,
 ) -> Result<(), Never> {
@@ -360,7 +360,7 @@ fn anti_hair_line_rgn(
   clip: Option<&ScreenIntRect>,
   blitter: &mut dyn Blitter,
 ) -> Result<(), Never> {
-  let Ok(rect) = Rect::from_ltrb(-32767.0, -32767.0, 32767.0, 32767.0);
+  let Ok(rect) = FloatRectangle::from_ltrb(-32767.0, -32767.0, 32767.0, 32767.0);
   let fixed_bounds = match rect {
     Some(bounds) => bounds,
     None => return Ok(()),

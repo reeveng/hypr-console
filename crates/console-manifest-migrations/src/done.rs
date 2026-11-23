@@ -86,10 +86,12 @@ pub fn moment(marker: &str) -> Result<Option<Moment>, Never> {
 pub fn already(at: &Path) -> Result<Applied, Undone> {
   let entries = match std::fs::read_dir(at) {
     Ok(entries) => entries,
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => return Ok(Applied::Never),
-      ::core::option::Option::None => return Err(Undone::Listing(at.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => return Ok(Applied::Never),
+        ::core::option::Option::None => return Err(Undone::Listing(at.to_path_buf(), fault)),
+      }
+    }
   };
 
   Ok(Applied::Before(

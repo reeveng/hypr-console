@@ -3,7 +3,7 @@ use console_core_paths::StrictNum;
 use std::fmt::Display;
 use std::io::Write;
 
-use console_core_extensible_markup_writer::{Fault as XmlFault, XmlWriter};
+use console_core_extensible_markup_writer::{Error as XmlFault, XmlWriter};
 use console_core_scalable_vector_graphics_values::{FontFamily, parse_font_families};
 
 use crate::parser::{AId, EId};
@@ -102,9 +102,9 @@ pub(crate) fn convert(tree: &Tree, opt: &WriteOptions) -> Result<String, XmlFaul
   xml.write_attribute("xmlns", "http://www.w3.org/2000/svg")?;
 
   match {
-      let Ok(explicit_value) = has_xlink(&tree.root);
-      explicit_value
-    } {
+    let Ok(explicit_value) = has_xlink(&tree.root);
+    explicit_value
+  } {
     crate::HasXlinkAnswer::Yes => {
       xml.write_attribute("xmlns:xlink", "http://www.w3.org/1999/xlink")?;
     }
@@ -127,7 +127,10 @@ pub(crate) fn convert(tree: &Tree, opt: &WriteOptions) -> Result<String, XmlFaul
   xml.end_document()
 }
 
-fn write_color_matrix_values(kind: &filter::ColorMatrixKind, xml: &mut XmlWriter) -> Result<(), XmlFault> {
+fn write_color_matrix_values(
+  kind: &filter::ColorMatrixKind,
+  xml: &mut XmlWriter,
+) -> Result<(), XmlFault> {
   match kind {
     filter::ColorMatrixKind::Matrix(values) => {
       xml.write_svg_attribute(AId::Type, "matrix")?;
@@ -190,7 +193,10 @@ fn write_filter_image_reference(
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "Filter image definitions are nested only within the parser conversion limit")
+  expect(
+    explicit049_no_recursion,
+    reason = "Filter image definitions are nested only within the parser conversion limit"
+  )
 )]
 fn write_filter_image_target<'a>(
   image: &'a filter::Image,
@@ -625,7 +631,11 @@ fn write_text_chunk(
   Ok(())
 }
 
-fn write_text_path_start(path: &TextPath, opt: &WriteOptions, xml: &mut XmlWriter) -> Result<(), XmlFault> {
+fn write_text_path_start(
+  path: &TextPath,
+  opt: &WriteOptions,
+  xml: &mut XmlWriter,
+) -> Result<(), XmlFault> {
   xml.start_svg_element(EId::TextPath)?;
   let prefix = match opt.id_prefix.as_deref() {
     Some(prefix) => prefix,
@@ -636,14 +646,20 @@ fn write_text_path_start(path: &TextPath, opt: &WriteOptions, xml: &mut XmlWrite
 
   match path.start_offset.0.classify() {
     core::num::FpCategory::Zero => Ok(()),
-    core::num::FpCategory::Nan | core::num::FpCategory::Infinite
-    | core::num::FpCategory::Subnormal | core::num::FpCategory::Normal => {
+    core::num::FpCategory::Nan
+    | core::num::FpCategory::Infinite
+    | core::num::FpCategory::Subnormal
+    | core::num::FpCategory::Normal => {
       xml.write_svg_attribute(AId::StartOffset, &path.start_offset.0)
     }
   }
 }
 
-fn write_channel(xml: &mut XmlWriter, attribute: AId, channel: filter::ColorChannel) -> Result<(), XmlFault> {
+fn write_channel(
+  xml: &mut XmlWriter,
+  attribute: AId,
+  channel: filter::ColorChannel,
+) -> Result<(), XmlFault> {
   let value = match channel {
     filter::ColorChannel::R => "R",
     filter::ColorChannel::G => "G",
@@ -692,7 +708,14 @@ fn write_defs(
   }
 
   for path in text_paths {
-    write_path(&path, ElementDestination::Drawing, Transform::default(), None, opt, xml)?;
+    write_path(
+      &path,
+      ElementDestination::Drawing,
+      Transform::default(),
+      None,
+      opt,
+      xml,
+    )?;
   }
 
   write_filters(tree, opt, xml)?;
@@ -795,17 +818,22 @@ fn text_path_definitions(
 ) -> Result<impl Iterator<Item = Path> + '_, console_core_never::Never> {
   let Ok(nodes) = TreeNodes::new(root, TreeWalk::TextPathDefinitions);
 
-  Ok(nodes.filter_map(|node| match node {
-    Node::Text(text) => Some(text.chunks.iter()),
-    Node::Group(_) | Node::Image(_) | Node::Path(_) => None,
-  }).flatten().filter_map(|chunk| match &chunk.text_flow {
-    TextFlow::Path(path) => {
-      let Ok(definition) = text_path_definition(path);
+  Ok(
+    nodes
+      .filter_map(|node| match node {
+        Node::Text(text) => Some(text.chunks.iter()),
+        Node::Group(_) | Node::Image(_) | Node::Path(_) => None,
+      })
+      .flatten()
+      .filter_map(|chunk| match &chunk.text_flow {
+        TextFlow::Path(path) => {
+          let Ok(definition) = text_path_definition(path);
 
-      definition
-    }
-    TextFlow::Linear => None,
-  }))
+          definition
+        }
+        TextFlow::Linear => None,
+      }),
+  )
 }
 
 #[cfg_attr(
@@ -964,36 +992,45 @@ fn write_element(
           TextRendering::OptimizeLegibility => {}
         }
 
-        match ::core::primitive::bool::then_some(text.rotate.iter().any(|r| {
-          !::core::matches!(
-            ::core::primitive::f32::classify(*r),
-            ::core::num::FpCategory::Zero
-          )
-        }), ()) {
+        match ::core::primitive::bool::then_some(
+          text.rotate.iter().any(|r| {
+            !::core::matches!(
+              ::core::primitive::f32::classify(*r),
+              ::core::num::FpCategory::Zero
+            )
+          }),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             xml.write_numbers(AId::Rotate, &text.rotate)?;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some(text.dx.iter().any(|dx| {
-          !::core::matches!(
-            ::core::primitive::f32::classify(*dx),
-            ::core::num::FpCategory::Zero
-          )
-        }), ()) {
+        match ::core::primitive::bool::then_some(
+          text.dx.iter().any(|dx| {
+            !::core::matches!(
+              ::core::primitive::f32::classify(*dx),
+              ::core::num::FpCategory::Zero
+            )
+          }),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             xml.write_numbers(AId::Dx, &text.dx)?;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some(text.dy.iter().any(|dy| {
-          !::core::matches!(
-            ::core::primitive::f32::classify(*dy),
-            ::core::num::FpCategory::Zero
-          )
-        }), ()) {
+        match ::core::primitive::bool::then_some(
+          text.dy.iter().any(|dy| {
+            !::core::matches!(
+              ::core::primitive::f32::classify(*dy),
+              ::core::num::FpCategory::Zero
+            )
+          }),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             xml.write_numbers(AId::Dy, &text.dy)?;
           }
@@ -1120,12 +1157,16 @@ fn write_group_element(
 
   xml.write_transform(AId::Transform, g.transform, opt)?;
 
-  match ::core::primitive::bool::then_some(g.blend_mode != BlendMode::Normal || g.isolation == crate::IsolateAnswer::Yes, ()) {
+  match ::core::primitive::bool::then_some(
+    g.blend_mode != BlendMode::Normal || g.isolation == crate::IsolateAnswer::Yes,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
-      let isolation = match ::core::primitive::bool::then_some(g.isolation == crate::IsolateAnswer::Yes, ()) {
-        ::core::option::Option::Some(()) => "isolate",
-        ::core::option::Option::None => "auto",
-      };
+      let isolation =
+        match ::core::primitive::bool::then_some(g.isolation == crate::IsolateAnswer::Yes, ()) {
+          ::core::option::Option::Some(()) => "isolate",
+          ::core::option::Option::None => "auto",
+        };
       xml.write_attribute_fmt(
         {
           let Ok(explicit_value) = AId::Style.to_str();
@@ -1221,7 +1262,6 @@ impl XmlWriterExt for XmlWriter {
 
   #[inline(never)]
   fn write_id_attribute(&mut self, id: &str, opt: &WriteOptions) -> Result<(), XmlFault> {
-
     match opt.id_prefix {
       Some(ref prefix) => {
         let full_id = format!("{}{}", prefix, id);
@@ -1425,7 +1465,10 @@ impl XmlWriterExt for XmlWriter {
     let Ok(parent_x) = parent_rect.x();
     let Ok(filter_x) = fe.rect().and_then(|rect| rect.x());
 
-    match ::core::primitive::bool::then_some(parent_x.partial_cmp(&filter_x) != Some(core::cmp::Ordering::Equal), ()) {
+    match ::core::primitive::bool::then_some(
+      parent_x.partial_cmp(&filter_x) != Some(core::cmp::Ordering::Equal),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(rect) = fe.rect();
         self.write_svg_attribute(
@@ -1442,7 +1485,10 @@ impl XmlWriterExt for XmlWriter {
     let Ok(parent_y) = parent_rect.y();
     let Ok(filter_y) = fe.rect().and_then(|rect| rect.y());
 
-    match ::core::primitive::bool::then_some(parent_y.partial_cmp(&filter_y) != Some(core::cmp::Ordering::Equal), ()) {
+    match ::core::primitive::bool::then_some(
+      parent_y.partial_cmp(&filter_y) != Some(core::cmp::Ordering::Equal),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(rect) = fe.rect();
         self.write_svg_attribute(
@@ -1460,9 +1506,11 @@ impl XmlWriterExt for XmlWriter {
     let Ok(rect) = fe.rect();
     let Ok(rect_width) = rect.width();
 
-    match ::core::primitive::bool::then_some(<::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&width, &rect_width)
-      != ::core::option::Option::Some(::core::cmp::Ordering::Equal), ())
-    {
+    match ::core::primitive::bool::then_some(
+      <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&width, &rect_width)
+        != ::core::option::Option::Some(::core::cmp::Ordering::Equal),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(fe_rect) = fe.rect();
         self.write_svg_attribute(
@@ -1480,9 +1528,11 @@ impl XmlWriterExt for XmlWriter {
     let Ok(fe_rect) = fe.rect();
     let Ok(rect_height) = fe_rect.height();
 
-    match ::core::primitive::bool::then_some(<::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&height, &rect_height)
-      != ::core::option::Option::Some(::core::cmp::Ordering::Equal), ())
-    {
+    match ::core::primitive::bool::then_some(
+      <::core::primitive::f32 as ::core::cmp::PartialOrd>::partial_cmp(&height, &rect_height)
+        != ::core::option::Option::Some(::core::cmp::Ordering::Equal),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         self.write_svg_attribute(
           AId::Height,
@@ -1576,9 +1626,13 @@ impl XmlWriterExt for XmlWriter {
       }
     };
 
-    let encoded = base64::display::Base64Display::new(data, &base64::engine::general_purpose::STANDARD);
+    let encoded =
+      base64::display::Base64Display::new(data, &base64::engine::general_purpose::STANDARD);
 
-    self.write_attribute_fmt("xlink:href", format_args!("data:image/{mime};base64, {encoded}"))
+    self.write_attribute_fmt(
+      "xlink:href",
+      format_args!("data:image/{mime};base64, {encoded}"),
+    )
   }
 }
 
@@ -1586,8 +1640,14 @@ fn node_xlink(node: &Node) -> Result<crate::HasXlinkAnswer, Never> {
   let linked = match node {
     Node::Image(_) => true,
     Node::Path(_) => false,
-    Node::Text(text) => text.chunks.iter().any(|chunk| matches!(chunk.text_flow, TextFlow::Path(_))),
-    Node::Group(group) => group.filters.iter().flat_map(|filter| &filter.primitives)
+    Node::Text(text) => text
+      .chunks
+      .iter()
+      .any(|chunk| matches!(chunk.text_flow, TextFlow::Path(_))),
+    Node::Group(group) => group
+      .filters
+      .iter()
+      .flat_map(|filter| &filter.primitives)
       .any(|primitive| matches!(primitive.kind, filter::Kind::Image(_))),
   };
 
@@ -1815,9 +1875,11 @@ fn write_stroke(
         DefaultValue::Default => {}
       }
 
-      match ::core::primitive::bool::then_some(::core::primitive::f32::to_bits(stroke_2.width.get())
-        != ::core::primitive::f32::to_bits(1.0), ())
-      {
+      match ::core::primitive::bool::then_some(
+        ::core::primitive::f32::to_bits(stroke_2.width.get())
+          != ::core::primitive::f32::to_bits(1.0),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           xml.write_svg_attribute(AId::StrokeWidth, &stroke_2.width.get())?;
         }
@@ -2003,7 +2065,6 @@ fn write_span(
           AttributeQuote::Double => format!("'{}'", s),
         }
       }
-
     },
   };
 
@@ -2055,20 +2116,26 @@ fn write_span(
 
   xml.write_visibility(span.visibility)?;
 
-  match ::core::primitive::bool::then_some(!::core::matches!(
-    ::core::primitive::f32::classify(span.letter_spacing.0),
-    ::core::num::FpCategory::Zero
-  ), ()) {
+  match ::core::primitive::bool::then_some(
+    !::core::matches!(
+      ::core::primitive::f32::classify(span.letter_spacing.0),
+      ::core::num::FpCategory::Zero
+    ),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       xml.write_svg_attribute(AId::LetterSpacing, &span.letter_spacing.0)?;
     }
     ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some(!::core::matches!(
-    ::core::primitive::f32::classify(span.word_spacing.0),
-    ::core::num::FpCategory::Zero
-  ), ()) {
+  match ::core::primitive::bool::then_some(
+    !::core::matches!(
+      ::core::primitive::f32::classify(span.word_spacing.0),
+      ::core::num::FpCategory::Zero
+    ),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       xml.write_svg_attribute(AId::WordSpacing, &span.word_spacing.0)?;
     }
@@ -2082,7 +2149,10 @@ fn write_span(
     None => {}
   }
 
-  match ::core::primitive::bool::then_some(span.length_adjust == LengthAdjust::SpacingAndGlyphs, ()) {
+  match ::core::primitive::bool::then_some(
+    span.length_adjust == LengthAdjust::SpacingAndGlyphs,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       xml.write_svg_attribute(AId::LengthAdjust, "spacingAndGlyphs")?;
     }

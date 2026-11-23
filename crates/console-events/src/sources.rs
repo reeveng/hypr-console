@@ -198,14 +198,16 @@ pub fn hold(event_group: &EventGroup, say: SyncSender<Change>) -> Result<Subscri
       Subscribed::Yes
     }
     EventGroup::Units => Subscribed::No,
-    EventGroup::Path(folder) => match ::core::primitive::bool::then_some(folder.is_absolute(), ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(()) = crate::watching::watch(folder.clone(), say);
+    EventGroup::Path(folder) => {
+      match ::core::primitive::bool::then_some(folder.is_absolute(), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(()) = crate::watching::watch(folder.clone(), say);
 
-        Subscribed::Yes
+          Subscribed::Yes
+        }
+        ::core::option::Option::None => Subscribed::No,
       }
-      ::core::option::Option::None => Subscribed::No,
-    },
+    }
   })
 }
 

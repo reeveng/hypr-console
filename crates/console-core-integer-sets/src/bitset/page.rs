@@ -227,7 +227,11 @@ impl Page {
 
   pub(super) fn intersects(&self, other: &Self) -> Result<Overlap, Never> {
     Ok(Overlap::from(
-      self.words.iter().zip(&other.words).any(|(mine, theirs)| *mine & *theirs != 0),
+      self
+        .words
+        .iter()
+        .zip(&other.words)
+        .any(|(mine, theirs)| *mine & *theirs != 0),
     ))
   }
 

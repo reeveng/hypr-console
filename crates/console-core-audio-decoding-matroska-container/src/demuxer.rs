@@ -17,7 +17,7 @@ use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
 
 use crate::ebml::{ElementHeader, Walker};
-use crate::fault::Fault;
+use crate::fault::DecodeError;
 use crate::ids;
 use crate::lacing::{Frame, extract_frames};
 use crate::scan::{ClusterIndex, ClusterState, open};
@@ -55,7 +55,7 @@ impl MkvReader {
     Ok(())
   }
 
-  fn read_cluster_timestamp(&mut self, header: &ElementHeader) -> Result<(), Fault> {
+  fn read_cluster_timestamp(&mut self, header: &ElementHeader) -> Result<(), DecodeError> {
     match self.current_cluster.as_mut() {
       Some(cluster) => {
         let data = self.walker.read_payload(header)?;
@@ -70,7 +70,7 @@ impl MkvReader {
     }
   }
 
-  fn read_simple_block(&mut self, header: &ElementHeader) -> Result<(), Fault> {
+  fn read_simple_block(&mut self, header: &ElementHeader) -> Result<(), DecodeError> {
     let Ok(timestamp) = self.cluster_timestamp();
 
     match timestamp {
@@ -86,7 +86,7 @@ impl MkvReader {
     }
   }
 
-  fn read_block_group(&mut self, header: &ElementHeader) -> Result<(), Fault> {
+  fn read_block_group(&mut self, header: &ElementHeader) -> Result<(), DecodeError> {
     let Ok(timestamp) = self.cluster_timestamp();
 
     match timestamp {
@@ -108,7 +108,7 @@ impl MkvReader {
     }
   }
 
-  fn read_tags(&mut self, header: &ElementHeader) -> Result<(), Fault> {
+  fn read_tags(&mut self, header: &ElementHeader) -> Result<(), DecodeError> {
     let data = self.walker.read_payload(header)?;
     let revision = read_tags(&data)?;
 
@@ -118,10 +118,10 @@ impl MkvReader {
     Ok(())
   }
 
-  fn next_element(&mut self) -> Result<(), Fault> {
+  fn next_element(&mut self) -> Result<(), DecodeError> {
     let Ok(()) = self.leave_finished_cluster();
     let header = self.walker.read_header()?;
-    let header_2 = header.ok_or(Fault::EndOfStream)?;
+    let header_2 = header.ok_or(DecodeError::EndOfStream)?;
 
     match header_2.id {
       ids::CLUSTER => {
@@ -145,7 +145,7 @@ impl MkvReader {
     }
   }
 
-  fn next_frame(&mut self) -> Result<Frame, Fault> {
+  fn next_frame(&mut self) -> Result<Frame, DecodeError> {
     iterate(self, |reader| {
       Ok(match reader.frames.pop_front() {
         Some(frame) => Step::Halt(Ok(frame)),
@@ -155,7 +155,7 @@ impl MkvReader {
         },
       })
     })
-    .map_err(Fault::from)
+    .map_err(DecodeError::from)
     .and_then(std::convert::identity)
   }
 
@@ -172,7 +172,7 @@ impl MkvReader {
     Ok(self.frames.front().map(|frame| frame.timestamp))
   }
 
-  fn seek_track_by_ts_forward(&mut self, track_id: u32, ts: u64) -> Result<SeekedTo, Fault> {
+  fn seek_track_by_ts_forward(&mut self, track_id: u32, ts: u64) -> Result<SeekedTo, DecodeError> {
     let found = iterate(self, |reader| {
       let Ok(landed) = reader.drop_frames_before(track_id, ts);
 
@@ -184,7 +184,7 @@ impl MkvReader {
         },
       })
     })
-    .map_err(Fault::from)?;
+    .map_err(DecodeError::from)?;
     let actual_ts = found?;
 
     Ok(SeekedTo {
@@ -194,7 +194,7 @@ impl MkvReader {
     })
   }
 
-  fn seek_track_by_ts(&mut self, track_id: u32, ts: u64) -> Result<SeekedTo, Fault> {
+  fn seek_track_by_ts(&mut self, track_id: u32, ts: u64) -> Result<SeekedTo, DecodeError> {
     match self.clusters.as_slice() {
       [] => self.seek_track_by_ts_forward(track_id, ts),
       [_, ..] => {
@@ -203,7 +203,7 @@ impl MkvReader {
           .iter()
           .take_while(|cluster| cluster.timestamp <= ts)
           .last();
-        let cluster_2 = cluster.ok_or(Fault::Seek(SeekErrorKind::OutOfRange))?;
+        let cluster_2 = cluster.ok_or(DecodeError::Seek(SeekErrorKind::OutOfRange))?;
         let (timestamp, position) = (cluster_2.timestamp, cluster_2.position);
 
         self.walker.seek(position)?;

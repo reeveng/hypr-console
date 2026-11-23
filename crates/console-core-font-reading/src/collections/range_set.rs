@@ -20,7 +20,10 @@ pub struct RangeSet<T> {
 pub trait OrdAdjacency {
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `OrdAdjacency::are_adjacent` trait method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `OrdAdjacency::are_adjacent` trait method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   fn are_adjacent(self, rhs: Self) -> bool;
 }
@@ -32,11 +35,17 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeSet::is_empty` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeSet::is_empty` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `RangeSet::is_empty` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `RangeSet::is_empty` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_empty(&self) -> bool {
     self.ranges.is_empty()
@@ -44,7 +53,10 @@ where
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeSet::insert` method is called through its existing unit-returning signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeSet::insert` method is called through its existing unit-returning signature"
+    )
   )]
   pub fn insert(&mut self, range: RangeInclusive<T>) {
     match ::core::primitive::bool::then_some(range.end() < range.start(), ()) {
@@ -111,7 +123,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeSet::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeSet::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&'_ self) -> impl Iterator<Item = RangeInclusive<T>> + '_ {
     self.ranges.iter().map(|(a, b)| *a..=*b)
@@ -120,7 +135,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeSet::intersection` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeSet::intersection` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn intersection<'a>(
     &'a self,
@@ -136,17 +154,29 @@ where
   }
 
   #[must_use]
-  fn next_range(&self, start: T) -> core::result::Result<Option<(T, T)>, console_core_never::Never> {
-      let (next_start, next_end) = match self.ranges.range(start..).next() { Some(explicit_value) => explicit_value, None => return Ok(None) };
+  fn next_range(
+    &self,
+    start: T,
+  ) -> core::result::Result<Option<(T, T)>, console_core_never::Never> {
+    let (next_start, next_end) = match self.ranges.range(start..).next() {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
 
-      Ok(Some((*next_start, *next_end)))
+    Ok(Some((*next_start, *next_end)))
   }
 
   #[must_use]
-  fn prev_range(&self, start: T) -> core::result::Result<Option<(T, T)>, console_core_never::Never> {
-      let (next_start, next_end) = match self.ranges.range(..start).next_back() { Some(explicit_value) => explicit_value, None => return Ok(None) };
+  fn prev_range(
+    &self,
+    start: T,
+  ) -> core::result::Result<Option<(T, T)>, console_core_never::Never> {
+    let (next_start, next_end) = match self.ranges.range(..start).next_back() {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
 
-      Ok(Some((*next_start, *next_end)))
+    Ok(Some((*next_start, *next_end)))
   }
 }
 
@@ -231,21 +261,28 @@ where
   B: Iterator<Item = RangeInclusive<T>>,
   T: Ord,
 {
-  fn step_iterators(&mut self, a: &RangeInclusive<T>, b: &RangeInclusive<T>) -> core::result::Result<(), console_core_never::Never> { {
-    match ::core::primitive::bool::then_some(a.end() <= b.end(), ()) {
-      ::core::option::Option::Some(()) => {
-        self.it_a.next();
+  fn step_iterators(
+    &mut self,
+    a: &RangeInclusive<T>,
+    b: &RangeInclusive<T>,
+  ) -> core::result::Result<(), console_core_never::Never> {
+    {
+      match ::core::primitive::bool::then_some(a.end() <= b.end(), ()) {
+        ::core::option::Option::Some(()) => {
+          self.it_a.next();
+        }
+        ::core::option::Option::None => {}
       }
-      ::core::option::Option::None => {}
-    }
 
-    match ::core::primitive::bool::then_some(a.end() >= b.end(), ()) {
-      ::core::option::Option::Some(()) => {
-        self.it_b.next();
+      match ::core::primitive::bool::then_some(a.end() >= b.end(), ()) {
+        ::core::option::Option::Some(()) => {
+          self.it_b.next();
+        }
+        ::core::option::Option::None => {}
       }
-      ::core::option::Option::None => {}
-    }
-  }; Ok(()) }
+    };
+    Ok(())
+  }
 }
 
 impl OrdAdjacency for u32 {
@@ -275,10 +312,14 @@ fn range_intersection<T: Ord + Copy>(
   a: &RangeInclusive<T>,
   b: &RangeInclusive<T>,
 ) -> ::core::result::Result<Option<RangeInclusive<T>>, ::console_core_never::Never> {
-  ::core::result::Result::Ok(match ::core::primitive::bool::then_some(a.start() <= b.end() && b.start() <= a.end(), ()) {
-    ::core::option::Option::Some(()) => Some(*max(a.start(), b.start())..=*min(a.end(), b.end())),
-    ::core::option::Option::None => None,
-  })
+  ::core::result::Result::Ok(
+    match ::core::primitive::bool::then_some(a.start() <= b.end() && b.start() <= a.end(), ()) {
+      ::core::option::Option::Some(()) => {
+        Some(*max(a.start(), b.start())..=*min(a.end(), b.end()))
+      }
+      ::core::option::Option::None => None,
+    },
+  )
 }
 
 enum MergeDecision {
@@ -291,23 +332,39 @@ enum Containment {
   Outside,
 }
 
-fn ranges_overlap_or_adjacent<T>(a_start: T, a_end: T, b_start: T, b_end: T) -> Result<MergeDecision, console_core_never::Never>
+fn ranges_overlap_or_adjacent<T>(
+  a_start: T,
+  a_end: T,
+  b_start: T,
+  b_end: T,
+) -> Result<MergeDecision, console_core_never::Never>
 where
   T: Ord + OrdAdjacency,
 {
-  Ok(match crate::Presence::from((a_start <= b_end && b_start <= a_end)
-    || a_end.are_adjacent(b_start)
-    || b_end.are_adjacent(a_start)) {
-    crate::Presence::Present => MergeDecision::Merge,
-    crate::Presence::Absent => MergeDecision::KeepSeparate,
-  })
+  Ok(
+    match crate::Presence::from(
+      (a_start <= b_end && b_start <= a_end)
+        || a_end.are_adjacent(b_start)
+        || b_end.are_adjacent(a_start),
+    ) {
+      crate::Presence::Present => MergeDecision::Merge,
+      crate::Presence::Absent => MergeDecision::KeepSeparate,
+    },
+  )
 }
 
-fn range_is_subset<T: Ord>(a_start: T, a_end: T, b_start: T, b_end: T) -> Result<Containment, console_core_never::Never> {
-  Ok(match crate::Presence::from(a_start >= b_start && a_end <= b_end) {
-    crate::Presence::Present => Containment::Subset,
-    crate::Presence::Absent => Containment::Outside,
-  })
+fn range_is_subset<T: Ord>(
+  a_start: T,
+  a_end: T,
+  b_start: T,
+  b_end: T,
+) -> Result<Containment, console_core_never::Never> {
+  Ok(
+    match crate::Presence::from(a_start >= b_start && a_end <= b_end) {
+      crate::Presence::Present => Containment::Subset,
+      crate::Presence::Absent => Containment::Outside,
+    },
+  )
 }
 
 #[cfg(test)]

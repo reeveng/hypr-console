@@ -189,10 +189,12 @@ pub fn status(
 ) -> Result<Standing, Never> {
   let there = match std::fs::symlink_metadata(on) {
     Ok(_there) => Standing::Left,
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Standing::Gone,
-      ::core::option::Option::None => Standing::Invalid,
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Standing::Gone,
+        ::core::option::Option::None => Standing::Invalid,
+      }
+    }
   };
 
   match there {
@@ -245,12 +247,14 @@ impl<'a> AtticEntry<'a> {
       Err(_relative) => on,
     };
 
-    match ::core::primitive::bool::then_some(relative.file_name().is_some()
-      && relative
-        .components()
-        .all(|part| matches!(part, Component::Normal(_)))
-      && !relative.as_os_str().as_encoded_bytes().contains(&0), ())
-    {
+    match ::core::primitive::bool::then_some(
+      relative.file_name().is_some()
+        && relative
+          .components()
+          .all(|part| matches!(part, Component::Normal(_)))
+        && !relative.as_os_str().as_encoded_bytes().contains(&0),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Self(relative)),
       ::core::option::Option::None => Err(Unapplied::Pruning(
         on.to_path_buf(),
@@ -313,10 +317,14 @@ pub fn pending(root: &Path, now: &Manifest, user: User<'_>) -> Result<Pending, U
 
       answered.extend(on_purpose);
     }
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return Err(Unapplied::Read(under.join(sweeping::ON_PURPOSE), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => {
+          return Err(Unapplied::Read(under.join(sweeping::ON_PURPOSE), fault));
+        }
+      }
+    }
   }
 
   let Ok(left) = leftovers(&recorded, now, &answered);

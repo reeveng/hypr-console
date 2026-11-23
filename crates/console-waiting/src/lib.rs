@@ -348,10 +348,12 @@ mod tests {
     let Ok(found) = until_some(patience, || {
       asks.set(asks.get().saturating_add(1));
 
-      Ok(match ::core::primitive::bool::then_some(asks.get() >= 2, ()) {
-        ::core::option::Option::Some(()) => Some("here"),
-        ::core::option::Option::None => None,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(asks.get() >= 2, ()) {
+          ::core::option::Option::Some(()) => Some("here"),
+          ::core::option::Option::None => None,
+        },
+      )
     });
 
     assert_eq!(found, Some("here"));
@@ -391,10 +393,12 @@ mod tests {
     let Ok(found) = until_some_handed_on(&mut clock, patience, &mut said, |written| {
       written.push('.');
 
-      Ok(match ::core::primitive::bool::then_some(written.len() >= 2, ()) {
-        ::core::option::Option::Some(()) => Some(written.clone()),
-        ::core::option::Option::None => None,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(written.len() >= 2, ()) {
+          ::core::option::Option::Some(()) => Some(written.clone()),
+          ::core::option::Option::None => None,
+        },
+      )
     });
 
     assert_eq!(found.as_deref(), Some(".."));

@@ -33,20 +33,22 @@ fn mapped_fallback(
   fonts: &[(Script, &'static [&'static str])],
 ) -> Result<&'static [&'static str], console_core_never::Never> {
   {
-    Ok(match ::core::primitive::bool::then_some(unified.contains(&script), ()) {
-      ::core::option::Option::Some(()) => han(locale),
-      ::core::option::Option::None => match (
-        script == Script::Hangul,
-        script == Script::Hiragana || script == Script::Katakana,
-      ) {
-        (true, _) => han("ko"),
-        (false, true) => han("ja"),
-        (false, false) => match fonts.iter().find(|(named, _fonts)| *named == script) {
-          Some((_named, fonts_2)) => fonts_2,
-          None => &[],
+    Ok(
+      match ::core::primitive::bool::then_some(unified.contains(&script), ()) {
+        ::core::option::Option::Some(()) => han(locale),
+        ::core::option::Option::None => match (
+          script == Script::Hangul,
+          script == Script::Hiragana || script == Script::Katakana,
+        ) {
+          (true, _) => han("ko"),
+          (false, true) => han("ja"),
+          (false, false) => match fonts.iter().find(|(named, _fonts)| *named == script) {
+            Some((_named, fonts_2)) => fonts_2,
+            None => &[],
+          },
         },
       },
-    })
+    )
   }
 }
 
@@ -123,7 +125,10 @@ impl Fallbacks {
     self.lists.reserve(scripts.len());
 
     for &script in scripts {
-      match ::core::primitive::bool::then_some(self.script_fallback_ranges.contains_key(&script), ()) {
+      match ::core::primitive::bool::then_some(
+        self.script_fallback_ranges.contains_key(&script),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => {
           let names = fallbacks.script_fallback(script, &self.locale);
@@ -342,9 +347,10 @@ impl<'a> FontFallbackIter<'a> {
       let Ok(db_face) = db.face(id);
 
       Ok(
-        match ::core::primitive::bool::then_some(db_face
-          .is_some_and(|face| face.families.iter().any(|(name, _)| name == family_name)), ())
-        {
+        match ::core::primitive::bool::then_some(
+          db_face.is_some_and(|face| face.families.iter().any(|(name, _)| name == family_name)),
+          (),
+        ) {
           ::core::option::Option::Some(()) => crate::Presence::Present,
           ::core::option::Option::None => crate::Presence::Absent,
         },

@@ -2,9 +2,9 @@
 
 use crate::src::c_box::CBox;
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
-use console_core_number_conversion::fixed_index;
 #[cfg(feature = "c-ffi")]
 use console_core_number_conversion::checked_index;
+use console_core_number_conversion::fixed_index;
 use core::ops::Range;
 #[cfg(feature = "c-ffi")]
 use std::marker::PhantomData;
@@ -254,10 +254,7 @@ impl<T: ?Sized> CArc<T> {
 impl<T: ?Sized> From<Arc<Pin<CBox<T>>>> for CArc<T> {
   fn from(owner: Arc<Pin<CBox<T>>>) -> Self {
     let stable_ref = StableRef(NonNull::from((*owner).as_ref().get_ref()));
-    Self {
-      owner,
-      stable_ref,
-    }
+    Self { owner, stable_ref }
   }
 }
 
@@ -316,7 +313,9 @@ impl<T> RawArc<T> {
       reason = "C and Rust independently own references to the same picture buffer or metadata during the borrow"
     )
   )]
-  pub(crate) unsafe fn borrow_clone(&self) -> core::result::Result<Arc<T>, console_core_never::Never> {
+  pub(crate) unsafe fn borrow_clone(
+    &self,
+  ) -> core::result::Result<Arc<T>, console_core_never::Never> {
     let raw = self.0.cast::<T>().as_ptr();
 
     // SAFETY: The C owner holds the token, and from_raw consumes only the count added here.
@@ -507,12 +506,17 @@ where
     use crate::src::error::Rav1dError::ENOMEM;
 
     let length = checked_index(size).map_err(|_outside_address_space| ENOMEM)?;
-    let elements = length.min(const {
-      match isize::MAX.cast_unsigned().checked_div(core::mem::size_of::<T>()) {
-        Some(allocation_limit) => allocation_limit,
-        None => usize::MAX,
-      }
-    });
+    let elements = length.min(
+      const {
+        match isize::MAX
+          .cast_unsigned()
+          .checked_div(core::mem::size_of::<T>())
+        {
+          Some(allocation_limit) => allocation_limit,
+          None => usize::MAX,
+        }
+      },
+    );
 
     match length.cmp(&elements) {
       core::cmp::Ordering::Greater => return Err(ENOMEM),
@@ -520,7 +524,9 @@ where
     }
 
     let mut data = Vec::new();
-    data.try_reserve_exact(elements).map_err(|_allocation_failure| ENOMEM)?;
+    data
+      .try_reserve_exact(elements)
+      .map_err(|_allocation_failure| ENOMEM)?;
     data.resize_with(elements, T::default);
     let Ok(c_box) = CBox::from_box(data.into_boxed_slice());
 

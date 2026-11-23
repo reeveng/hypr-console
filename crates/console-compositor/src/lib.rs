@@ -78,9 +78,9 @@ use std::process::Command;
 use console_core_never::Never;
 use console_core_number_conversion::{Float, toward_zero_u32};
 use console_core_screen_orientation::Transform;
+use console_core_size::Size;
 use console_core_text_encodings::decode;
 use console_core_words::Words;
-use console_core_size::Size;
 
 mod answer;
 pub mod events;
@@ -750,25 +750,30 @@ const COMPLAINED: &str = "error";
 fn result_of(output: &std::process::Output) -> Result<DispatchResult, Never> {
   let Ok(printed) = decode(&output.stdout);
 
-  Ok(match ::core::primitive::bool::then_some(output.status.success(), ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(result) = parse_dispatch_result(&printed.text);
+  Ok(
+    match ::core::primitive::bool::then_some(output.status.success(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(result) = parse_dispatch_result(&printed.text);
 
-      result
-    }
-    ::core::option::Option::None => {
-      let Ok(complaint) = decode(&output.stderr);
+        result
+      }
+      ::core::option::Option::None => {
+        let Ok(complaint) = decode(&output.stderr);
 
-      DispatchResult::Failure(format!("{}{}", printed.text.trim(), complaint.text.trim()))
-    }
-  })
+        DispatchResult::Failure(format!("{}{}", printed.text.trim(), complaint.text.trim()))
+      }
+    },
+  )
 }
 
 fn parse_dispatch_result(printed: &str) -> Result<DispatchResult, Never> {
   let read = printed.to_lowercase();
 
   Ok(
-    match ::core::primitive::bool::then_some(!read.contains(COMPLAINED) && !read.contains(BY_THE_PARSER), ()) {
+    match ::core::primitive::bool::then_some(
+      !read.contains(COMPLAINED) && !read.contains(BY_THE_PARSER),
+      (),
+    ) {
       ::core::option::Option::Some(()) => DispatchResult::Success,
       ::core::option::Option::None => DispatchResult::Failure(printed.trim().to_string()),
     },

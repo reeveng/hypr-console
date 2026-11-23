@@ -51,7 +51,7 @@ impl std::fmt::Display for PastTheEnd {
 impl std::error::Error for PastTheEnd {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Reach {
+enum Reachability {
   Within,
   Past,
 }
@@ -62,7 +62,7 @@ pub struct Booleans<'a> {
   value: u64,
   count: u32,
   range: u32,
-  reach: Reach,
+  reach: Reachability,
 }
 
 impl<'a> Booleans<'a> {
@@ -73,7 +73,7 @@ impl<'a> Booleans<'a> {
       value: 0,
       count: 0,
       range: 254,
-      reach: Reach::Within,
+      reach: Reachability::Within,
     };
     let Ok(()) = booleans.loaded();
 
@@ -110,7 +110,7 @@ impl<'a> Booleans<'a> {
       }
       None => {
         self.value = self.value.wrapping_shl(WINDOW);
-        self.reach = Reach::Past;
+        self.reach = Reachability::Past;
       }
     }
 
@@ -173,8 +173,8 @@ impl<'a> Booleans<'a> {
 
   pub fn within(&self) -> Result<(), PastTheEnd> {
     match self.reach {
-      Reach::Within => Ok(()),
-      Reach::Past => Err(PastTheEnd),
+      Reachability::Within => Ok(()),
+      Reachability::Past => Err(PastTheEnd),
     }
   }
 }

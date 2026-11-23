@@ -27,19 +27,24 @@ use crate::src::safe_simd::pixel_access::{
   loadu_64, loadu_128, loadu_256, loadu_512, storeu_128, storeu_256, storeu_512,
 };
 
-use crate::include::common::bitdepth::{AsPrimitive, BitDepth};
 use crate::include::common::bitdepth::BitDepth8;
 use crate::include::common::bitdepth::BitDepth16;
+use crate::include::common::bitdepth::{AsPrimitive, BitDepth};
 use crate::include::common::intops::iclip;
 use crate::include::dav1d::picture::PicOffset;
 use crate::src::align::aligned_inner;
-#[cfg(all(test, target_arch = "x86_64"))]
-use crate::src::{align::AlignedVec64, disjoint_mut::DisjointMut};
 use crate::src::error::{Rav1dError, Rav1dResult};
-use crate::src::looprestoration::{RESTORATION_INTERIOR, RestorationDeltas, RestorationMoments, RestorationPixels, RestorationRow, restoration_rows, restoration_rows_mut, REST_UNIT_STRIDE, LooprestorationParams, RestorationDispatch, RestorationKernel, RestorationPadding, RestorationRequest, BoxRadius, SgrSelection, SgrStencil, SGR_STRIDE, padding};
+use crate::src::looprestoration::{
+  BoxRadius, LooprestorationParams, REST_UNIT_STRIDE, RESTORATION_INTERIOR, RestorationDeltas,
+  RestorationDispatch, RestorationKernel, RestorationMoments, RestorationPadding,
+  RestorationPixels, RestorationRequest, RestorationRow, SGR_STRIDE, SgrSelection, SgrStencil,
+  padding, restoration_rows, restoration_rows_mut,
+};
 #[cfg(all(test, target_arch = "x86_64"))]
 use crate::src::looprestoration::{LrEdgeFlags, RestorationInteriorRow};
 use crate::src::tables::dav1d_sgr_x_by_x;
+#[cfg(all(test, target_arch = "x86_64"))]
+use crate::src::{align::AlignedVec64, disjoint_mut::DisjointMut};
 
 #[cfg(target_arch = "x86_64")]
 #[inline]
@@ -110,10 +115,21 @@ fn wiener_inputs<T, const COLUMNS: usize>(
 ) -> Result<[&[T]; 7], RowLayoutError> {
   let Ok(row) = index(window.row);
   let Ok(width) = index(window.width);
-  let neighbors = source.get(row..).and_then(<[_]>::first_chunk::<7>).ok_or(RowLayoutError::Bounds)?;
+  let neighbors = source
+    .get(row..)
+    .and_then(<[_]>::first_chunk::<7>)
+    .ok_or(RowLayoutError::Bounds)?;
 
   match neighbors.each_ref().map(|samples| samples.get(..width)) {
-    [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f), Some(g)] => Ok([a, b, c, d, e, f, g]),
+    [
+      Some(a),
+      Some(b),
+      Some(c),
+      Some(d),
+      Some(e),
+      Some(f),
+      Some(g),
+    ] => Ok([a, b, c, d, e, f, g]),
     _incomplete => Err(RowLayoutError::Bounds),
   }
 }
@@ -129,7 +145,9 @@ fn wiener_filter7_8bpc_avx2_inner(
   let destination = request.picture;
   let maximum_width = u64::from(RESTORATION_INTERIOR);
 
-  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height)).then_some(()) {
+  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height))
+    .then_some(())
+  {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(RowLayoutError::Bounds),
   }
@@ -264,85 +282,95 @@ fn wiener_filter7_8bpc_avx2_inner(
 
   let Ok(intermediate_2) = restoration_rows(&hor);
   let mut intermediate_rows = intermediate_2;
-  destination.checked_for_rows_mut_with_context::<BitDepth8, _>(extent, &mut intermediate_rows, |row, output, scratch_rows| {
-    let mut inputs = wiener_inputs(scratch_rows, WienerInputWindow { row, width: extent.width })?;
+  destination.checked_for_rows_mut_with_context::<BitDepth8, _>(
+    extent,
+    &mut intermediate_rows,
+    |row, output, scratch_rows| {
+      let mut inputs = wiener_inputs(
+        scratch_rows,
+        WienerInputWindow {
+          row,
+          width: extent.width,
+        },
+      )?;
 
+      let (blocks_8, tail_8) = output.as_chunks_mut::<8>();
+      let Ok(columns_8) = wiener_row_blocks::<_, 8>(&mut inputs);
 
-    let (blocks_8, tail_8) = output.as_chunks_mut::<8>();
-    let Ok(columns_8) = wiener_row_blocks::<_, 8>(&mut inputs);
+      for (
+        target,
+        [
+          input_0,
+          input_1,
+          input_2,
+          input_3,
+          input_4,
+          input_5,
+          input_6,
+        ],
+      ) in blocks_8.iter_mut().zip(columns_8)
+      {
+        let r0 = loadu_128!(input_0);
+        let r1 = loadu_128!(input_1);
+        let r2 = loadu_128!(input_2);
+        let r3 = loadu_128!(input_3);
+        let r4 = loadu_128!(input_4);
+        let r5 = loadu_128!(input_5);
+        let r6 = loadu_128!(input_6);
 
-    for (
-      target,
-      [
-        input_0,
-        input_1,
-        input_2,
-        input_3,
-        input_4,
-        input_5,
-        input_6,
-      ],
-    ) in blocks_8.iter_mut().zip(columns_8)
-    {
-      let r0 = loadu_128!(input_0);
-      let r1 = loadu_128!(input_1);
-      let r2 = loadu_128!(input_2);
-      let r3 = loadu_128!(input_3);
-      let r4 = loadu_128!(input_4);
-      let r5 = loadu_128!(input_5);
-      let r6 = loadu_128!(input_6);
+        let r0_lo = _mm256_cvtepu16_epi32(r0);
+        let r1_lo = _mm256_cvtepu16_epi32(r1);
+        let r2_lo = _mm256_cvtepu16_epi32(r2);
+        let r3_lo = _mm256_cvtepu16_epi32(r3);
+        let r4_lo = _mm256_cvtepu16_epi32(r4);
+        let r5_lo = _mm256_cvtepu16_epi32(r5);
+        let r6_lo = _mm256_cvtepu16_epi32(r6);
 
-      let r0_lo = _mm256_cvtepu16_epi32(r0);
-      let r1_lo = _mm256_cvtepu16_epi32(r1);
-      let r2_lo = _mm256_cvtepu16_epi32(r2);
-      let r3_lo = _mm256_cvtepu16_epi32(r3);
-      let r4_lo = _mm256_cvtepu16_epi32(r4);
-      let r5_lo = _mm256_cvtepu16_epi32(r5);
-      let r6_lo = _mm256_cvtepu16_epi32(r6);
+        let mut sum = v_round_offset;
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r0_lo, vf0));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r1_lo, vf1));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r2_lo, vf2));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r3_lo, vf3));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r4_lo, vf4));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r5_lo, vf5));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r6_lo, vf6));
 
-      let mut sum = v_round_offset;
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r0_lo, vf0));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r1_lo, vf1));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r2_lo, vf2));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r3_lo, vf3));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r4_lo, vf4));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r5_lo, vf5));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r6_lo, vf6));
+        sum = _mm256_add_epi32(sum, v_rounding);
+        sum = _mm256_srai_epi32::<11>(sum);
 
-      sum = _mm256_add_epi32(sum, v_rounding);
-      sum = _mm256_srai_epi32::<11>(sum);
-
-      let sum16 = _mm256_packus_epi32(sum, sum);
-      let sum16_lo = _mm256_castsi256_si128(sum16);
-      let sum16_hi = _mm256_extracti128_si256(sum16, 1);
-      let sum16_combined = _mm_unpacklo_epi64(sum16_lo, sum16_hi);
-      let sum8 = _mm_packus_epi16(sum16_combined, sum16_combined);
-      let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(target, sum8);
-    }
-
-    let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
-
-    for (pixel, samples) in tail_8.iter_mut().zip(single_pixels) {
-      let mut sum = i32::wrapping_neg(round_offset);
-
-      for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
-        sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        let sum16 = _mm256_packus_epi32(sum, sum);
+        let sum16_lo = _mm256_castsi256_si128(sum16);
+        let sum16_hi = _mm256_extracti128_si256(sum16, 1);
+        let sum16_combined = _mm_unpacklo_epi64(sum16_lo, sum16_hi);
+        let sum8 = _mm_packus_epi16(sum16_combined, sum16_combined);
+        let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(target, sum8);
       }
 
-      *pixel = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(iclip(
-        ::core::primitive::i32::wrapping_shr(
-          i32::wrapping_add(sum, rounding_off_v),
-          ::core::primitive::i32::unsigned_abs(round_bits_v),
-        ),
-        0,
-        255,
-      )) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
-    }
+      let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
 
-    Ok(())
-  })
+      for (pixel, samples) in tail_8.iter_mut().zip(single_pixels) {
+        let mut sum = i32::wrapping_neg(round_offset);
+
+        for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
+          sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        }
+
+        *pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(iclip(
+            ::core::primitive::i32::wrapping_shr(
+              i32::wrapping_add(sum, rounding_off_v),
+              ::core::primitive::i32::unsigned_abs(round_bits_v),
+            ),
+            0,
+            255,
+          )) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+      }
+
+      Ok(())
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -356,7 +384,9 @@ fn wiener_filter7_8bpc_avx512_inner(
   let destination = request.picture;
   let maximum_width = u64::from(RESTORATION_INTERIOR);
 
-  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height)).then_some(()) {
+  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height))
+    .then_some(())
+  {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(RowLayoutError::Bounds),
   }
@@ -486,137 +516,147 @@ fn wiener_filter7_8bpc_avx512_inner(
 
   let Ok(intermediate_2) = restoration_rows(&hor);
   let mut intermediate_rows = intermediate_2;
-  destination.checked_for_rows_mut_with_context::<BitDepth8, _>(extent, &mut intermediate_rows, |row, output, scratch_rows| {
-    let mut inputs = wiener_inputs(scratch_rows, WienerInputWindow { row, width: extent.width })?;
+  destination.checked_for_rows_mut_with_context::<BitDepth8, _>(
+    extent,
+    &mut intermediate_rows,
+    |row, output, scratch_rows| {
+      let mut inputs = wiener_inputs(
+        scratch_rows,
+        WienerInputWindow {
+          row,
+          width: extent.width,
+        },
+      )?;
 
+      let (blocks_16, tail_16) = output.as_chunks_mut::<16>();
+      let Ok(columns_16) = wiener_row_blocks::<_, 16>(&mut inputs);
 
-    let (blocks_16, tail_16) = output.as_chunks_mut::<16>();
-    let Ok(columns_16) = wiener_row_blocks::<_, 16>(&mut inputs);
+      for (
+        target,
+        [
+          input_0,
+          input_1,
+          input_2,
+          input_3,
+          input_4,
+          input_5,
+          input_6,
+        ],
+      ) in blocks_16.iter_mut().zip(columns_16)
+      {
+        let r0 = _mm512_cvtepu16_epi32(loadu_256!(input_0));
+        let r1 = _mm512_cvtepu16_epi32(loadu_256!(input_1));
+        let r2 = _mm512_cvtepu16_epi32(loadu_256!(input_2));
+        let r3 = _mm512_cvtepu16_epi32(loadu_256!(input_3));
+        let r4 = _mm512_cvtepu16_epi32(loadu_256!(input_4));
+        let r5 = _mm512_cvtepu16_epi32(loadu_256!(input_5));
+        let r6 = _mm512_cvtepu16_epi32(loadu_256!(input_6));
 
-    for (
-      target,
-      [
-        input_0,
-        input_1,
-        input_2,
-        input_3,
-        input_4,
-        input_5,
-        input_6,
-      ],
-    ) in blocks_16.iter_mut().zip(columns_16)
-    {
-      let r0 = _mm512_cvtepu16_epi32(loadu_256!(input_0));
-      let r1 = _mm512_cvtepu16_epi32(loadu_256!(input_1));
-      let r2 = _mm512_cvtepu16_epi32(loadu_256!(input_2));
-      let r3 = _mm512_cvtepu16_epi32(loadu_256!(input_3));
-      let r4 = _mm512_cvtepu16_epi32(loadu_256!(input_4));
-      let r5 = _mm512_cvtepu16_epi32(loadu_256!(input_5));
-      let r6 = _mm512_cvtepu16_epi32(loadu_256!(input_6));
+        let mut sum = v_round_offset;
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r0, vf0));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r1, vf1));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r2, vf2));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r3, vf3));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r4, vf4));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r5, vf5));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r6, vf6));
 
-      let mut sum = v_round_offset;
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r0, vf0));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r1, vf1));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r2, vf2));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r3, vf3));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r4, vf4));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r5, vf5));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r6, vf6));
+        sum = _mm512_add_epi32(sum, v_rounding);
+        sum = _mm512_srai_epi32::<11>(sum);
 
-      sum = _mm512_add_epi32(sum, v_rounding);
-      sum = _mm512_srai_epi32::<11>(sum);
+        let clamped = _mm512_max_epi32(sum, zero_512);
+        let result_u8: __m128i = _mm512_cvtusepi32_epi8(clamped);
 
-      let clamped = _mm512_max_epi32(sum, zero_512);
-      let result_u8: __m128i = _mm512_cvtusepi32_epi8(clamped);
-
-      storeu_128!(target, result_u8);
-    }
-
-    let (blocks_8, tail_8) = tail_16.as_chunks_mut::<8>();
-    let Ok(columns_8) = wiener_row_blocks::<_, 8>(&mut inputs);
-
-    for (
-      target,
-      [
-        input_0,
-        input_1,
-        input_2,
-        input_3,
-        input_4,
-        input_5,
-        input_6,
-      ],
-    ) in blocks_8.iter_mut().zip(columns_8)
-    {
-      let r0 = loadu_128!(input_0);
-      let r1 = loadu_128!(input_1);
-      let r2 = loadu_128!(input_2);
-      let r3 = loadu_128!(input_3);
-      let r4 = loadu_128!(input_4);
-      let r5 = loadu_128!(input_5);
-      let r6 = loadu_128!(input_6);
-
-      let [
-        vf0_256,
-        vf1_256,
-        vf2_256,
-        vf3_256,
-        vf4_256,
-        vf5_256,
-        vf6_256,
-        _,
-      ] = vertical_filter.map(|coefficient| _mm256_set1_epi32(i32::from(coefficient)));
-
-      let r0_lo = _mm256_cvtepu16_epi32(r0);
-      let r1_lo = _mm256_cvtepu16_epi32(r1);
-      let r2_lo = _mm256_cvtepu16_epi32(r2);
-      let r3_lo = _mm256_cvtepu16_epi32(r3);
-      let r4_lo = _mm256_cvtepu16_epi32(r4);
-      let r5_lo = _mm256_cvtepu16_epi32(r5);
-      let r6_lo = _mm256_cvtepu16_epi32(r6);
-
-      let mut sum = _mm256_set1_epi32(i32::wrapping_neg(round_offset));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r0_lo, vf0_256));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r1_lo, vf1_256));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r2_lo, vf2_256));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r3_lo, vf3_256));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r4_lo, vf4_256));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r5_lo, vf5_256));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r6_lo, vf6_256));
-      sum = _mm256_add_epi32(sum, _mm256_set1_epi32(rounding_off_v));
-      sum = _mm256_srai_epi32::<11>(sum);
-
-      let sum16 = _mm256_packus_epi32(sum, sum);
-      let sum16_lo = _mm256_castsi256_si128(sum16);
-      let sum16_hi = _mm256_extracti128_si256(sum16, 1);
-      let sum16_combined = _mm_unpacklo_epi64(sum16_lo, sum16_hi);
-      let sum8 = _mm_packus_epi16(sum16_combined, sum16_combined);
-      let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(target, sum8);
-    }
-
-    let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
-
-    for (pixel, samples) in tail_8.iter_mut().zip(single_pixels) {
-      let mut sum = i32::wrapping_neg(round_offset);
-
-      for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
-        sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        storeu_128!(target, result_u8);
       }
 
-      *pixel = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(iclip(
-        ::core::primitive::i32::wrapping_shr(
-          i32::wrapping_add(sum, rounding_off_v),
-          ::core::primitive::i32::unsigned_abs(round_bits_v),
-        ),
-        0,
-        255,
-      )) {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
-    }
+      let (blocks_8, tail_8) = tail_16.as_chunks_mut::<8>();
+      let Ok(columns_8) = wiener_row_blocks::<_, 8>(&mut inputs);
 
-    Ok(())
-  })
+      for (
+        target,
+        [
+          input_0,
+          input_1,
+          input_2,
+          input_3,
+          input_4,
+          input_5,
+          input_6,
+        ],
+      ) in blocks_8.iter_mut().zip(columns_8)
+      {
+        let r0 = loadu_128!(input_0);
+        let r1 = loadu_128!(input_1);
+        let r2 = loadu_128!(input_2);
+        let r3 = loadu_128!(input_3);
+        let r4 = loadu_128!(input_4);
+        let r5 = loadu_128!(input_5);
+        let r6 = loadu_128!(input_6);
+
+        let [
+          vf0_256,
+          vf1_256,
+          vf2_256,
+          vf3_256,
+          vf4_256,
+          vf5_256,
+          vf6_256,
+          _,
+        ] = vertical_filter.map(|coefficient| _mm256_set1_epi32(i32::from(coefficient)));
+
+        let r0_lo = _mm256_cvtepu16_epi32(r0);
+        let r1_lo = _mm256_cvtepu16_epi32(r1);
+        let r2_lo = _mm256_cvtepu16_epi32(r2);
+        let r3_lo = _mm256_cvtepu16_epi32(r3);
+        let r4_lo = _mm256_cvtepu16_epi32(r4);
+        let r5_lo = _mm256_cvtepu16_epi32(r5);
+        let r6_lo = _mm256_cvtepu16_epi32(r6);
+
+        let mut sum = _mm256_set1_epi32(i32::wrapping_neg(round_offset));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r0_lo, vf0_256));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r1_lo, vf1_256));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r2_lo, vf2_256));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r3_lo, vf3_256));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r4_lo, vf4_256));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r5_lo, vf5_256));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r6_lo, vf6_256));
+        sum = _mm256_add_epi32(sum, _mm256_set1_epi32(rounding_off_v));
+        sum = _mm256_srai_epi32::<11>(sum);
+
+        let sum16 = _mm256_packus_epi32(sum, sum);
+        let sum16_lo = _mm256_castsi256_si128(sum16);
+        let sum16_hi = _mm256_extracti128_si256(sum16, 1);
+        let sum16_combined = _mm_unpacklo_epi64(sum16_lo, sum16_hi);
+        let sum8 = _mm_packus_epi16(sum16_combined, sum16_combined);
+        let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(target, sum8);
+      }
+
+      let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
+
+      for (pixel, samples) in tail_8.iter_mut().zip(single_pixels) {
+        let mut sum = i32::wrapping_neg(round_offset);
+
+        for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
+          sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        }
+
+        *pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(iclip(
+            ::core::primitive::i32::wrapping_shr(
+              i32::wrapping_add(sum, rounding_off_v),
+              ::core::primitive::i32::unsigned_abs(round_bits_v),
+            ),
+            0,
+            255,
+          )) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+      }
+
+      Ok(())
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -631,7 +671,9 @@ fn wiener_filter7_16bpc_avx512_inner(
   let destination = request.picture;
   let maximum_width = u64::from(RESTORATION_INTERIOR);
 
-  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height)).then_some(()) {
+  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height))
+    .then_some(())
+  {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(RowLayoutError::Bounds),
   }
@@ -768,79 +810,88 @@ fn wiener_filter7_16bpc_avx512_inner(
 
   let Ok(intermediate_2) = restoration_rows(&hor);
   let mut intermediate_rows = intermediate_2;
-  destination.checked_for_rows_mut_with_context::<BitDepth16, _>(extent, &mut intermediate_rows, |row, output, scratch_rows| {
-    let mut inputs = wiener_inputs(scratch_rows, WienerInputWindow { row, width: extent.width })?;
+  destination.checked_for_rows_mut_with_context::<BitDepth16, _>(
+    extent,
+    &mut intermediate_rows,
+    |row, output, scratch_rows| {
+      let mut inputs = wiener_inputs(
+        scratch_rows,
+        WienerInputWindow {
+          row,
+          width: extent.width,
+        },
+      )?;
 
+      let (blocks_16, tail_16) = output.as_chunks_mut::<16>();
+      let Ok(columns_16) = wiener_row_blocks::<_, 16>(&mut inputs);
 
-    let (blocks_16, tail_16) = output.as_chunks_mut::<16>();
-    let Ok(columns_16) = wiener_row_blocks::<_, 16>(&mut inputs);
+      for (
+        target,
+        [
+          input_0,
+          input_1,
+          input_2,
+          input_3,
+          input_4,
+          input_5,
+          input_6,
+        ],
+      ) in blocks_16.iter_mut().zip(columns_16)
+      {
+        let r0 = loadu_512!(input_0);
+        let r1 = loadu_512!(input_1);
+        let r2 = loadu_512!(input_2);
+        let r3 = loadu_512!(input_3);
+        let r4 = loadu_512!(input_4);
+        let r5 = loadu_512!(input_5);
+        let r6 = loadu_512!(input_6);
 
-    for (
-      target,
-      [
-        input_0,
-        input_1,
-        input_2,
-        input_3,
-        input_4,
-        input_5,
-        input_6,
-      ],
-    ) in blocks_16.iter_mut().zip(columns_16)
-    {
-      let r0 = loadu_512!(input_0);
-      let r1 = loadu_512!(input_1);
-      let r2 = loadu_512!(input_2);
-      let r3 = loadu_512!(input_3);
-      let r4 = loadu_512!(input_4);
-      let r5 = loadu_512!(input_5);
-      let r6 = loadu_512!(input_6);
+        let mut sum = v_round_offset;
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r0, vf0));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r1, vf1));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r2, vf2));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r3, vf3));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r4, vf4));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r5, vf5));
+        sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r6, vf6));
 
-      let mut sum = v_round_offset;
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r0, vf0));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r1, vf1));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r2, vf2));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r3, vf3));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r4, vf4));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r5, vf5));
-      sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(r6, vf6));
+        sum = _mm512_add_epi32(sum, v_rounding);
+        let shifted = match ::core::primitive::bool::then_some(bitdepth == 12, ()) {
+          ::core::option::Option::Some(()) => _mm512_srai_epi32::<9>(sum),
+          ::core::option::Option::None => _mm512_srai_epi32::<11>(sum),
+        };
 
-      sum = _mm512_add_epi32(sum, v_rounding);
-      let shifted = match ::core::primitive::bool::then_some(bitdepth == 12, ()) {
-        ::core::option::Option::Some(()) => _mm512_srai_epi32::<9>(sum),
-        ::core::option::Option::None => _mm512_srai_epi32::<11>(sum),
-      };
+        let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero_512), max_512);
+        let result_u16: __m256i = _mm512_cvtusepi32_epi16(clamped);
 
-      let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero_512), max_512);
-      let result_u16: __m256i = _mm512_cvtusepi32_epi16(clamped);
-
-      storeu_256!(target, result_u16);
-    }
-
-    let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
-
-    for (pixel, samples) in tail_16.iter_mut().zip(single_pixels) {
-      let mut sum = i32::wrapping_neg(round_offset);
-
-      for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
-        sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        storeu_256!(target, result_u16);
       }
 
-      *pixel =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(iclip(
-          i32::wrapping_shr(
-            i32::wrapping_add(sum, rounding_off_v),
-            i32::cast_unsigned(round_bits_v),
-          ),
-          0,
-          bitdepth_max,
-        )) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
-    }
+      let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
 
-    Ok(())
-  })
+      for (pixel, samples) in tail_16.iter_mut().zip(single_pixels) {
+        let mut sum = i32::wrapping_neg(round_offset);
+
+        for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
+          sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        }
+
+        *pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(iclip(
+            i32::wrapping_shr(
+              i32::wrapping_add(sum, rounding_off_v),
+              i32::cast_unsigned(round_bits_v),
+            ),
+            0,
+            bitdepth_max,
+          )) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+      }
+
+      Ok(())
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -855,7 +906,9 @@ fn wiener_filter7_16bpc_avx2_inner(
   let destination = request.picture;
   let maximum_width = u64::from(RESTORATION_INTERIOR);
 
-  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height)).then_some(()) {
+  match ((1..=maximum_width).contains(&extent.width) && (1..=64).contains(&extent.height))
+    .then_some(())
+  {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(RowLayoutError::Bounds),
   }
@@ -994,82 +1047,91 @@ fn wiener_filter7_16bpc_avx2_inner(
 
   let Ok(intermediate_2) = restoration_rows(&hor);
   let mut intermediate_rows = intermediate_2;
-  destination.checked_for_rows_mut_with_context::<BitDepth16, _>(extent, &mut intermediate_rows, |row, output, scratch_rows| {
-    let mut inputs = wiener_inputs(scratch_rows, WienerInputWindow { row, width: extent.width })?;
+  destination.checked_for_rows_mut_with_context::<BitDepth16, _>(
+    extent,
+    &mut intermediate_rows,
+    |row, output, scratch_rows| {
+      let mut inputs = wiener_inputs(
+        scratch_rows,
+        WienerInputWindow {
+          row,
+          width: extent.width,
+        },
+      )?;
 
+      let (blocks_8, tail_8) = output.as_chunks_mut::<8>();
+      let Ok(columns_8) = wiener_row_blocks::<_, 8>(&mut inputs);
 
-    let (blocks_8, tail_8) = output.as_chunks_mut::<8>();
-    let Ok(columns_8) = wiener_row_blocks::<_, 8>(&mut inputs);
+      for (
+        target,
+        [
+          input_0,
+          input_1,
+          input_2,
+          input_3,
+          input_4,
+          input_5,
+          input_6,
+        ],
+      ) in blocks_8.iter_mut().zip(columns_8)
+      {
+        let r0 = loadu_256!(input_0);
+        let r1 = loadu_256!(input_1);
+        let r2 = loadu_256!(input_2);
+        let r3 = loadu_256!(input_3);
+        let r4 = loadu_256!(input_4);
+        let r5 = loadu_256!(input_5);
+        let r6 = loadu_256!(input_6);
 
-    for (
-      target,
-      [
-        input_0,
-        input_1,
-        input_2,
-        input_3,
-        input_4,
-        input_5,
-        input_6,
-      ],
-    ) in blocks_8.iter_mut().zip(columns_8)
-    {
-      let r0 = loadu_256!(input_0);
-      let r1 = loadu_256!(input_1);
-      let r2 = loadu_256!(input_2);
-      let r3 = loadu_256!(input_3);
-      let r4 = loadu_256!(input_4);
-      let r5 = loadu_256!(input_5);
-      let r6 = loadu_256!(input_6);
+        let mut sum = v_round_offset;
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r0, vf0));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r1, vf1));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r2, vf2));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r3, vf3));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r4, vf4));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r5, vf5));
+        sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r6, vf6));
 
-      let mut sum = v_round_offset;
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r0, vf0));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r1, vf1));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r2, vf2));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r3, vf3));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r4, vf4));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r5, vf5));
-      sum = _mm256_add_epi32(sum, _mm256_mullo_epi32(r6, vf6));
+        sum = _mm256_add_epi32(sum, v_rounding);
+        let shifted = match ::core::primitive::bool::then_some(bitdepth == 12, ()) {
+          ::core::option::Option::Some(()) => _mm256_srai_epi32::<9>(sum),
+          ::core::option::Option::None => _mm256_srai_epi32::<11>(sum),
+        };
 
-      sum = _mm256_add_epi32(sum, v_rounding);
-      let shifted = match ::core::primitive::bool::then_some(bitdepth == 12, ()) {
-        ::core::option::Option::Some(()) => _mm256_srai_epi32::<9>(sum),
-        ::core::option::Option::None => _mm256_srai_epi32::<11>(sum),
-      };
+        let clamped = _mm256_min_epi32(_mm256_max_epi32(shifted, v_zero), v_max);
+        let packed = _mm256_packus_epi32(clamped, clamped);
+        let lo = _mm256_castsi256_si128(packed);
+        let hi = _mm256_extracti128_si256(packed, 1);
+        let combined = _mm_unpacklo_epi64(lo, hi);
 
-      let clamped = _mm256_min_epi32(_mm256_max_epi32(shifted, v_zero), v_max);
-      let packed = _mm256_packus_epi32(clamped, clamped);
-      let lo = _mm256_castsi256_si128(packed);
-      let hi = _mm256_extracti128_si256(packed, 1);
-      let combined = _mm_unpacklo_epi64(lo, hi);
-
-      storeu_128!(target, combined);
-    }
-
-    let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
-
-    for (pixel, samples) in tail_8.iter_mut().zip(single_pixels) {
-      let mut sum = i32::wrapping_neg(round_offset);
-
-      for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
-        sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        storeu_128!(target, combined);
       }
 
-      *pixel =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(iclip(
-          i32::wrapping_shr(
-            i32::wrapping_add(sum, rounding_off_v),
-            i32::cast_unsigned(round_bits_v),
-          ),
-          0,
-          bitdepth_max,
-        )) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
-    }
+      let Ok(single_pixels) = wiener_row_blocks::<_, 1>(&mut inputs);
 
-    Ok(())
-  })
+      for (pixel, samples) in tail_8.iter_mut().zip(single_pixels) {
+        let mut sum = i32::wrapping_neg(round_offset);
+
+        for ([sample], coefficient) in samples.into_iter().zip(vertical_filter) {
+          sum = sum.wrapping_add(i32::from(*sample).wrapping_mul(i32::from(*coefficient)));
+        }
+
+        *pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(iclip(
+            i32::wrapping_shr(
+              i32::wrapping_add(sum, rounding_off_v),
+              i32::cast_unsigned(round_bits_v),
+            ),
+            0,
+            bitdepth_max,
+          )) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+      }
+
+      Ok(())
+    },
+  )
 }
 
 #[inline]
@@ -1093,10 +1155,10 @@ impl PaddedBox {
     let width = size.width.try_into().map_err(|_wide| Rav1dError::EINVAL)?;
     let height = size.height.try_into().map_err(|_tall| Rav1dError::EINVAL)?;
 
-    match ::core::primitive::bool::then_some(width >= 5
-      && width <= REST_UNIT_STRIDE
-      && (5..=70).contains(&height), ())
-    {
+    match ::core::primitive::bool::then_some(
+      width >= 5 && width <= REST_UNIT_STRIDE && (5..=70).contains(&height),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Self {
         width,
         rows: height.wrapping_sub(4),
@@ -1259,7 +1321,12 @@ where
     let Ok(()) = moments.push(i32::from(pixel));
   }
 
-  for ((old, next), (sum, squares)) in source.old.iter().zip(source.incoming).zip(output.sums.iter_mut().zip(output.squares)) {
+  for ((old, next), (sum, squares)) in source
+    .old
+    .iter()
+    .zip(source.incoming)
+    .zip(output.sums.iter_mut().zip(output.squares))
+  {
     let &new_pixel = next.get(position).ok_or(Rav1dError::EINVAL)?;
     let &old_pixel = old.get(position).ok_or(Rav1dError::EINVAL)?;
     let Ok(()) = moments.push(i32::from(new_pixel));
@@ -1307,7 +1374,9 @@ where
   let Ok(target_end) = index(rows.wrapping_add(1));
   let initial = pixels.get(start..initial_end).ok_or(Rav1dError::EINVAL)?;
   let old = pixels.get(start..last).ok_or(Rav1dError::EINVAL)?;
-  let incoming = pixels.get(initial_end..incoming_end).ok_or(Rav1dError::EINVAL)?;
+  let incoming = pixels
+    .get(initial_end..incoming_end)
+    .ok_or(Rav1dError::EINVAL)?;
   let samples = ColumnRead {
     initial,
     old,
@@ -1354,13 +1423,19 @@ struct BoxVector<'a, Pixel, Sum, Square, const LANES: usize, const TAPS: usize> 
 #[cfg(target_arch = "x86_64")]
 fn box_view<T, const N: usize>(values: &[T], column: u64) -> Rav1dResult<&[T; N]> {
   let Ok(position) = index(column);
-  values.get(position..).and_then(<[_]>::first_chunk).ok_or(Rav1dError::EINVAL)
+  values
+    .get(position..)
+    .and_then(<[_]>::first_chunk)
+    .ok_or(Rav1dError::EINVAL)
 }
 
 #[cfg(target_arch = "x86_64")]
 fn box_view_mut<T, const N: usize>(values: &mut [T], column: u64) -> Rav1dResult<&mut [T; N]> {
   let Ok(position) = index(column);
-  values.get_mut(position..).and_then(<[_]>::first_chunk_mut).ok_or(Rav1dError::EINVAL)
+  values
+    .get_mut(position..)
+    .and_then(<[_]>::first_chunk_mut)
+    .ok_or(Rav1dError::EINVAL)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1401,7 +1476,13 @@ where
 }
 
 #[cfg(target_arch = "x86_64")]
-fn vertical_box_pass<Pixel: Copy, Sum: TryFrom<i32>, Square: From<i32>, const LANES: usize, const TAPS: usize>(
+fn vertical_box_pass<
+  Pixel: Copy,
+  Sum: TryFrom<i32>,
+  Square: From<i32>,
+  const LANES: usize,
+  const TAPS: usize,
+>(
   pass: VerticalBox<'_, Pixel, Sum, Square>,
   mut vector: impl FnMut(BoxVector<'_, Pixel, Sum, Square, LANES, TAPS>) -> Rav1dResult,
 ) -> Rav1dResult
@@ -1433,10 +1514,20 @@ where
       let column = first.wrapping_add(block.wrapping_mul(lanes));
       let sums = box_view_mut(sum, column)?;
       let squares_2 = box_view_mut(squared, column)?;
-      vector(BoxVector { pixels: input, sums, squares: squares_2, column })?;
+      vector(BoxVector {
+        pixels: input,
+        sums,
+        squares: squares_2,
+        column,
+      })?;
     }
 
-    fill_box_tail(VerticalTail { pixels: input, sums: sum, squares: squared, columns: tail_start..last })?;
+    fill_box_tail(VerticalTail {
+      pixels: input,
+      sums: sum,
+      squares: squared,
+      columns: tail_start..last,
+    })?;
   }
 
   Ok(())
@@ -1699,11 +1790,7 @@ struct SgrProjection<'a, Pixel> {
 
 #[cfg(target_arch = "x86_64")]
 impl<'a, Pixel> SgrProjection<'a, Pixel> {
-  fn new(
-    pixels: &'a mut [Pixel],
-    size: Size<u64>,
-    origin: (u64, i64),
-  ) -> Rav1dResult<Self> {
+  fn new(pixels: &'a mut [Pixel], size: Size<u64>, origin: (u64, i64)) -> Rav1dResult<Self> {
     let (first, step) = origin;
     let residual_stride = i64::from(RESTORATION_INTERIOR);
     let picture = RowLayout::new(size, first, step).map_err(|_layout| Rav1dError::EINVAL)?;
@@ -1877,7 +1964,8 @@ struct SgrStage<'a, Pixel, Residual> {
 fn check_sgr_extent(extent: Size<u64>) -> Rav1dResult {
   let maximum = u64::from(RESTORATION_INTERIOR);
 
-  match ((1..=maximum).contains(&extent.width) && (1..=64).contains(&extent.height)).then_some(()) {
+  match ((1..=maximum).contains(&extent.width) && (1..=64).contains(&extent.height)).then_some(())
+  {
     Some(()) => Ok(()),
     None => Err(Rav1dError::EINVAL),
   }
@@ -1928,19 +2016,39 @@ where
 
   for logical in 0..height {
     let Ok(row) = index(logical.wrapping_mul(stride).wrapping_add(1));
-    let square_row = squares.get_mut(row).and_then(|row_2| row_2.get_mut(2..right)).ok_or(Rav1dError::EINVAL)?;
-    let sum_row = sums.get_mut(row).and_then(|row_3| row_3.get_mut(2..right)).ok_or(Rav1dError::EINVAL)?;
+    let square_row = squares
+      .get_mut(row)
+      .and_then(|row_2| row_2.get_mut(2..right))
+      .ok_or(Rav1dError::EINVAL)?;
+    let sum_row = sums
+      .get_mut(row)
+      .and_then(|row_3| row_3.get_mut(2..right))
+      .ok_or(Rav1dError::EINVAL)?;
 
     for (output_square, output_sum) in square_row.iter_mut().zip(sum_row) {
-      let a = i64::from(*output_square).wrapping_add(square_round).wrapping_shr(square_shift);
+      let a = i64::from(*output_square)
+        .wrapping_add(square_round)
+        .wrapping_shr(square_shift);
       let Ok(scaled) = console_core_number_conversion::wrapped::<_, i32>(a);
       let raw = i32::from(*output_sum);
       let b = raw.wrapping_add(sum_round).wrapping_shr(depth_shift);
-      let variance = scaled.wrapping_mul(samples).wrapping_sub(b.wrapping_mul(b)).max(0).cast_unsigned();
-      let z = variance.wrapping_mul(request.shape.strength).wrapping_add(::core::primitive::u32::wrapping_shl(1, 19_u32)).wrapping_shr(20);
+      let variance = scaled
+        .wrapping_mul(samples)
+        .wrapping_sub(b.wrapping_mul(b))
+        .max(0)
+        .cast_unsigned();
+      let z = variance
+        .wrapping_mul(request.shape.strength)
+        .wrapping_add(::core::primitive::u32::wrapping_shl(1, 19_u32))
+        .wrapping_shr(20);
       let weight = sgr_factor(z)?;
-      let product = weight.wrapping_mul(raw.cast_unsigned()).wrapping_mul(reciprocal);
-      let intercept = product.wrapping_add(::core::primitive::u32::wrapping_shl(1, 11_u32)).wrapping_shr(12).cast_signed();
+      let product = weight
+        .wrapping_mul(raw.cast_unsigned())
+        .wrapping_mul(reciprocal);
+      let intercept = product
+        .wrapping_add(::core::primitive::u32::wrapping_shl(1, 11_u32))
+        .wrapping_shr(12)
+        .cast_signed();
       let model_weight = Sum::try_from(weight).map_err(|_excess| Rav1dError::EINVAL)?;
       let model_intercept = Square::try_from(intercept).map_err(|_excess| Rav1dError::EINVAL)?;
       *output_sum = model_weight;
@@ -1962,8 +2070,14 @@ fn sgr_coefficient(plane: SgrCoefficientPlane<'_>, coordinate: u64) -> Rav1dResu
   let Ok(position) = index(coordinate);
 
   match plane {
-    SgrCoefficientPlane::Narrow(samples) => samples.get(position).copied().map(i32::from).ok_or(Rav1dError::EINVAL),
-    SgrCoefficientPlane::Wide(samples) => samples.get(position).copied().ok_or(Rav1dError::EINVAL),
+    SgrCoefficientPlane::Narrow(samples) => samples
+      .get(position)
+      .copied()
+      .map(i32::from)
+      .ok_or(Rav1dError::EINVAL),
+    SgrCoefficientPlane::Wide(samples) => {
+      samples.get(position).copied().ok_or(Rav1dError::EINVAL)
+    }
     SgrCoefficientPlane::Extended(samples) => {
       let &sample = samples.get(position).ok_or(Rav1dError::EINVAL)?;
       i32::try_from(sample).map_err(|_excess| Rav1dError::EINVAL)
@@ -2023,11 +2137,23 @@ fn sgr_write_rows<BD: BitDepth>(
     let center = line.wrapping_add(2).wrapping_mul(stride).wrapping_add(3);
     let Ok(pixel_start) = index(center.wrapping_add(stride));
     let Ok(target_start) = index(line.wrapping_mul(destination_stride));
-    let samples = output.source.get(pixel_start..).and_then(|row| row.get(..width)).ok_or(Rav1dError::EINVAL)?;
-    let destination = output.destination.get_mut(target_start..).and_then(|row| row.get_mut(..width)).ok_or(Rav1dError::EINVAL)?;
+    let samples = output
+      .source
+      .get(pixel_start..)
+      .and_then(|row| row.get(..width))
+      .ok_or(Rav1dError::EINVAL)?;
+    let destination = output
+      .destination
+      .get_mut(target_start..)
+      .and_then(|row| row.get_mut(..width))
+      .ok_or(Rav1dError::EINVAL)?;
     render(SgrOutputRow {
-      destination, source: samples, center, weights: output.weights,
-      intercepts: output.intercepts, stencil,
+      destination,
+      source: samples,
+      center,
+      weights: output.weights,
+      intercepts: output.intercepts,
+      stencil,
     })?;
   }
 
@@ -2041,7 +2167,10 @@ fn scalar_sgr_output<BD: BitDepth>(row: SgrOutputRow<'_, BD>) -> Rav1dResult {
     let position = row.center.wrapping_add(column);
     let intercept = scalar_sgr_stencil(row.intercepts, position, row.stencil)?;
     let weight = scalar_sgr_stencil(row.weights, position, row.stencil)?;
-    let result = intercept.wrapping_sub(weight.wrapping_mul(pixel.as_::<i32>())).wrapping_add(rounding).wrapping_shr(shift);
+    let result = intercept
+      .wrapping_sub(weight.wrapping_mul(pixel.as_::<i32>()))
+      .wrapping_add(rounding)
+      .wrapping_shr(shift);
     *output = result.as_::<BD::Coef>();
   }
 
@@ -2050,7 +2179,11 @@ fn scalar_sgr_output<BD: BitDepth>(row: SgrOutputRow<'_, BD>) -> Rav1dResult {
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn sgr_load_avx2(_token: Desktop64, plane: SgrCoefficientPlane<'_>, position: u64) -> Rav1dResult<__m256i> {
+fn sgr_load_avx2(
+  _token: Desktop64,
+  plane: SgrCoefficientPlane<'_>,
+  position: u64,
+) -> Rav1dResult<__m256i> {
   Ok(match plane {
     SgrCoefficientPlane::Narrow(data) => {
       let chunk = box_view(data, position)?;
@@ -2091,7 +2224,10 @@ fn sgr_weighted_avx2(
       sum = _mm256_add_epi32(sum, value);
     }
 
-    result = _mm256_add_epi32(result, _mm256_mullo_epi32(sum, _mm256_set1_epi32(group.weight)));
+    result = _mm256_add_epi32(
+      result,
+      _mm256_mullo_epi32(sum, _mm256_set1_epi32(group.weight)),
+    );
   }
 
   Ok(result)
@@ -2125,13 +2261,20 @@ fn sgr_output_avx2<BD: BitDepth>(token: Desktop64, row: SgrOutputRow<'_, BD>) ->
   let Ok(total) = fixed_index(blocks.len());
   let center = row.center.wrapping_add(total.wrapping_mul(8));
   scalar_sgr_output::<BD>(SgrOutputRow {
-    source: source_tail, destination: target_tail, center, ..row
+    source: source_tail,
+    destination: target_tail,
+    center,
+    ..row
   })
 }
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn sgr_load_avx512(_token: Server64, plane: SgrCoefficientPlane<'_>, position: u64) -> Rav1dResult<__m512i> {
+fn sgr_load_avx512(
+  _token: Server64,
+  plane: SgrCoefficientPlane<'_>,
+  position: u64,
+) -> Rav1dResult<__m512i> {
   Ok(match plane {
     SgrCoefficientPlane::Narrow(data) => {
       let chunk = box_view(data, position)?;
@@ -2172,7 +2315,10 @@ fn sgr_weighted_avx512(
       sum = _mm512_add_epi32(sum, value);
     }
 
-    result = _mm512_add_epi32(result, _mm512_mullo_epi32(sum, _mm512_set1_epi32(group.weight)));
+    result = _mm512_add_epi32(
+      result,
+      _mm512_mullo_epi32(sum, _mm512_set1_epi32(group.weight)),
+    );
   }
 
   Ok(result)
@@ -2206,7 +2352,10 @@ fn sgr_output_avx512<BD: BitDepth>(token: Server64, row: SgrOutputRow<'_, BD>) -
   let Ok(total) = fixed_index(blocks.len());
   let center = row.center.wrapping_add(total.wrapping_mul(16));
   scalar_sgr_output::<BD>(SgrOutputRow {
-    source: source_tail, destination: target_tail, center, ..row
+    source: source_tail,
+    destination: target_tail,
+    center,
+    ..row
   })
 }
 
@@ -2226,12 +2375,19 @@ fn render_sgr_model<BD: BitDepth>(
     #[cfg(test)]
     SgrComputation::Scalar => sgr_write_rows(model, scalar_sgr_output::<BD>),
     SgrComputation::Avx2(token) => sgr_write_rows(model, |row| sgr_output_avx2::<BD>(token, row)),
-    SgrComputation::Avx512(token) => sgr_write_rows(model, |row| sgr_output_avx512::<BD>(token, row)),
+    SgrComputation::Avx512(token) => {
+      sgr_write_rows(model, |row| sgr_output_avx512::<BD>(token, row))
+    }
   }
 }
 
 fn compute_sgr8(computation: SgrComputation, stage: SgrStage<'_, u8, i16>) -> Rav1dResult {
-  let shape = SgrShape { extent: stage.extent, radius: stage.radius, strength: stage.strength, bitdepth_shift: 0 };
+  let shape = SgrShape {
+    extent: stage.extent,
+    radius: stage.radius,
+    strength: stage.strength,
+    bitdepth_shift: 0,
+  };
   let Ok(padded) = shape.padded();
   let bounds = PaddedBox::new(padded)?;
   let mut squares: RestorationMoments<_> = [0_i32; _];
@@ -2240,23 +2396,53 @@ fn compute_sgr8(computation: SgrComputation, stage: SgrStage<'_, u8, i16>) -> Ra
   match computation {
     #[cfg(test)]
     SgrComputation::Scalar => {
-      let pass = VerticalBox { input: stage.padded, sums: &mut sums, squares: &mut squares, extent: padded };
-      let addition = MomentAddition { sum: i16::wrapping_add, squares: i32::wrapping_add };
+      let pass = VerticalBox {
+        input: stage.padded,
+        sums: &mut sums,
+        squares: &mut squares,
+        extent: padded,
+      };
+      let addition = MomentAddition {
+        sum: i16::wrapping_add,
+        squares: i32::wrapping_add,
+      };
       let computed = match shape.radius {
         BoxRadius::One => scalar_boxsum::<_, _, _, 3>(pass, bounds, addition),
         BoxRadius::Two => scalar_boxsum::<_, _, _, 5>(pass, bounds, addition),
       };
       computed?;
     }
-    SgrComputation::Avx2(token) => sgr_moments_avx2(token, stage.padded, &mut squares, &mut sums, (bounds, padded, shape.radius))?,
-    SgrComputation::Avx512(token) => sgr_moments_avx512(token, stage.padded, &mut squares, &mut sums, (bounds, padded, shape.radius))?,
+    SgrComputation::Avx2(token) => sgr_moments_avx2(
+      token,
+      stage.padded,
+      &mut squares,
+      &mut sums,
+      (bounds, padded, shape.radius),
+    )?,
+    SgrComputation::Avx512(token) => sgr_moments_avx512(
+      token,
+      stage.padded,
+      &mut squares,
+      &mut sums,
+      (bounds, padded, shape.radius),
+    )?,
   }
 
-  fit_sgr_model(SgrModelPass { squares: &mut squares, sums: &mut sums, shape })?;
-  render_sgr_model::<BitDepth8>(computation, SgrModelOutput {
-    destination: stage.residual, source: stage.padded,
-    weights: SgrCoefficientPlane::Narrow(&sums), intercepts: SgrCoefficientPlane::Wide(&squares), shape,
-  })
+  fit_sgr_model(SgrModelPass {
+    squares: &mut squares,
+    sums: &mut sums,
+    shape,
+  })?;
+  render_sgr_model::<BitDepth8>(
+    computation,
+    SgrModelOutput {
+      destination: stage.residual,
+      source: stage.padded,
+      weights: SgrCoefficientPlane::Narrow(&sums),
+      intercepts: SgrCoefficientPlane::Wide(&squares),
+      shape,
+    },
+  )
 }
 
 fn compute_sgr16(computation: SgrComputation, stage: SgrStage<'_, u16, i32>) -> Rav1dResult {
@@ -2264,7 +2450,12 @@ fn compute_sgr16(computation: SgrComputation, stage: SgrStage<'_, u16, i32>) -> 
     1023 => 2,
     _twelve_bits => 4,
   };
-  let shape = SgrShape { extent: stage.extent, radius: stage.radius, strength: stage.strength, bitdepth_shift };
+  let shape = SgrShape {
+    extent: stage.extent,
+    radius: stage.radius,
+    strength: stage.strength,
+    bitdepth_shift,
+  };
   let Ok(padded) = shape.padded();
   let mut squares: RestorationMoments<_> = [0_i64; _];
   let mut sums: RestorationMoments<_> = [0_i32; _];
@@ -2279,11 +2470,25 @@ fn compute_sgr16(computation: SgrComputation, stage: SgrStage<'_, u16, i32>) -> 
 
   match moment_backend {
     Some(token) => {
-      sgr_moments16_avx512(token, stage.padded, &mut squares, &mut sums, (bounds, padded, shape.radius))?;
+      sgr_moments16_avx512(
+        token,
+        stage.padded,
+        &mut squares,
+        &mut sums,
+        (bounds, padded, shape.radius),
+      )?;
     }
     None => {
-      let pass = VerticalBox { input: stage.padded, sums: &mut sums, squares: &mut squares, extent: padded };
-      let addition = MomentAddition { sum: i32::wrapping_add, squares: i64::wrapping_add };
+      let pass = VerticalBox {
+        input: stage.padded,
+        sums: &mut sums,
+        squares: &mut squares,
+        extent: padded,
+      };
+      let addition = MomentAddition {
+        sum: i32::wrapping_add,
+        squares: i64::wrapping_add,
+      };
       let computed = match shape.radius {
         BoxRadius::One => scalar_boxsum::<_, _, _, 3>(pass, bounds, addition),
         BoxRadius::Two => scalar_boxsum::<_, _, _, 5>(pass, bounds, addition),
@@ -2293,13 +2498,22 @@ fn compute_sgr16(computation: SgrComputation, stage: SgrStage<'_, u16, i32>) -> 
     }
   }
 
-  fit_sgr_model(SgrModelPass { squares: &mut squares, sums: &mut sums, shape })?;
-  render_sgr_model::<BitDepth16>(computation, SgrModelOutput {
-    destination: stage.residual, source: stage.padded,
-    weights: SgrCoefficientPlane::Wide(&sums), intercepts: SgrCoefficientPlane::Extended(&squares), shape,
-  })
+  fit_sgr_model(SgrModelPass {
+    squares: &mut squares,
+    sums: &mut sums,
+    shape,
+  })?;
+  render_sgr_model::<BitDepth16>(
+    computation,
+    SgrModelOutput {
+      destination: stage.residual,
+      source: stage.padded,
+      weights: SgrCoefficientPlane::Wide(&sums),
+      intercepts: SgrCoefficientPlane::Extended(&squares),
+      shape,
+    },
+  )
 }
-
 
 #[arcane]
 fn sgr_moments_avx2(
@@ -2311,15 +2525,27 @@ fn sgr_moments_avx2(
 ) -> Rav1dResult {
   match radius {
     BoxRadius::One => {
-      boxsum_v_avx2::<3>(token, VerticalBox {
-        input, squares, sums, extent,
-      })?;
+      boxsum_v_avx2::<3>(
+        token,
+        VerticalBox {
+          input,
+          squares,
+          sums,
+          extent,
+        },
+      )?;
       boxsum3_h_avx2(token, squares, sums, bounds)
     }
     BoxRadius::Two => {
-      boxsum_v_avx2::<5>(token, VerticalBox {
-        input, squares, sums, extent,
-      })?;
+      boxsum_v_avx2::<5>(
+        token,
+        VerticalBox {
+          input,
+          squares,
+          sums,
+          extent,
+        },
+      )?;
       boxsum5_h_avx2(token, squares, sums, bounds)
     }
   }
@@ -2335,15 +2561,27 @@ fn sgr_moments_avx512(
 ) -> Rav1dResult {
   match radius {
     BoxRadius::One => {
-      boxsum_v_avx512::<3>(token, VerticalBox {
-        input, squares, sums, extent,
-      })?;
+      boxsum_v_avx512::<3>(
+        token,
+        VerticalBox {
+          input,
+          squares,
+          sums,
+          extent,
+        },
+      )?;
       boxsum3_h_avx512(token, squares, sums, bounds)
     }
     BoxRadius::Two => {
-      boxsum_v_avx512::<5>(token, VerticalBox {
-        input, squares, sums, extent,
-      })?;
+      boxsum_v_avx512::<5>(
+        token,
+        VerticalBox {
+          input,
+          squares,
+          sums,
+          extent,
+        },
+      )?;
       boxsum5_h_avx512(token, squares, sums, bounds)
     }
   }
@@ -2359,15 +2597,27 @@ fn sgr_moments16_avx512(
 ) -> Rav1dResult {
   match radius {
     BoxRadius::One => {
-      boxsum_v_16bpc_avx512::<3>(token, VerticalBox {
-        input, squares, sums, extent,
-      })?;
+      boxsum_v_16bpc_avx512::<3>(
+        token,
+        VerticalBox {
+          input,
+          squares,
+          sums,
+          extent,
+        },
+      )?;
       boxsum3_h_16bpc_avx512(token, squares, sums, bounds)
     }
     BoxRadius::Two => {
-      boxsum_v_16bpc_avx512::<5>(token, VerticalBox {
-        input, squares, sums, extent,
-      })?;
+      boxsum_v_16bpc_avx512::<5>(
+        token,
+        VerticalBox {
+          input,
+          squares,
+          sums,
+          extent,
+        },
+      )?;
       boxsum5_h_16bpc_avx512(token, squares, sums, bounds)
     }
   }
@@ -2402,22 +2652,45 @@ fn sgr_8bpc(
     SgrSelection::FiveByFive | SgrSelection::Mixed => (BoxRadius::Two, sgr.s0, i32::from(sgr.w0)),
     SgrSelection::ThreeByThree => (BoxRadius::One, sgr.s1, i32::from(sgr.w1)),
   };
-  filter_sgr_stage_8(backend, SgrStage {
-    padded: &pixels, residual: &mut first, extent, radius, strength, maximum,
-  })?;
+  filter_sgr_stage_8(
+    backend,
+    SgrStage {
+      padded: &pixels,
+      residual: &mut first,
+      extent,
+      radius,
+      strength,
+      maximum,
+    },
+  )?;
 
   match selection {
     SgrSelection::FiveByFive | SgrSelection::ThreeByThree => apply_sgr8::<false>(
-      backend.avx2, &destination, extent, [&first, &first], [weight, 0],
+      backend.avx2,
+      &destination,
+      extent,
+      [&first, &first],
+      [weight, 0],
     ),
     SgrSelection::Mixed => {
       let mut second: RestorationDeltas<_> = [0_i16; _];
-      filter_sgr_stage_8(backend, SgrStage {
-        padded: &pixels, residual: &mut second, extent, radius: BoxRadius::One,
-        strength: sgr.s1, maximum,
-      })?;
+      filter_sgr_stage_8(
+        backend,
+        SgrStage {
+          padded: &pixels,
+          residual: &mut second,
+          extent,
+          radius: BoxRadius::One,
+          strength: sgr.s1,
+          maximum,
+        },
+      )?;
       apply_sgr8::<true>(
-        backend.avx2, &destination, extent, [&first, &second], [weight, i32::from(sgr.w1)],
+        backend.avx2,
+        &destination,
+        extent,
+        [&first, &second],
+        [weight, i32::from(sgr.w1)],
       )
     }
   }
@@ -2519,7 +2792,10 @@ fn apply_sgr16<const MIXED: bool>(
     width,
     height,
     |bytes, offset, stride| {
-      match ::core::primitive::bool::then_some(offset.wrapping_rem(2) == 0 && stride.wrapping_rem(2) == 0, ()) {
+      match ::core::primitive::bool::then_some(
+        offset.wrapping_rem(2) == 0 && stride.wrapping_rem(2) == 0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => return Err(Rav1dError::EINVAL),
       }
@@ -2621,22 +2897,47 @@ fn sgr_16bpc(
     SgrSelection::FiveByFive | SgrSelection::Mixed => (BoxRadius::Two, sgr.s0, i32::from(sgr.w0)),
     SgrSelection::ThreeByThree => (BoxRadius::One, sgr.s1, i32::from(sgr.w1)),
   };
-  filter_sgr_stage_16(backend, SgrStage {
-    padded: &pixels, residual: &mut first, extent, radius, strength, maximum,
-  })?;
+  filter_sgr_stage_16(
+    backend,
+    SgrStage {
+      padded: &pixels,
+      residual: &mut first,
+      extent,
+      radius,
+      strength,
+      maximum,
+    },
+  )?;
 
   match selection {
     SgrSelection::FiveByFive | SgrSelection::ThreeByThree => apply_sgr16::<false>(
-      backend.avx2, &destination, extent, [&first, &first], [weight, 0], maximum,
+      backend.avx2,
+      &destination,
+      extent,
+      [&first, &first],
+      [weight, 0],
+      maximum,
     ),
     SgrSelection::Mixed => {
       let mut second: RestorationDeltas<_> = [0_i32; _];
-      filter_sgr_stage_16(backend, SgrStage {
-        padded: &pixels, residual: &mut second, extent, radius: BoxRadius::One,
-        strength: sgr.s1, maximum,
-      })?;
+      filter_sgr_stage_16(
+        backend,
+        SgrStage {
+          padded: &pixels,
+          residual: &mut second,
+          extent,
+          radius: BoxRadius::One,
+          strength: sgr.s1,
+          maximum,
+        },
+      )?;
       apply_sgr16::<true>(
-        backend.avx2, &destination, extent, [&first, &second], [weight, i32::from(sgr.w1)], maximum,
+        backend.avx2,
+        &destination,
+        extent,
+        [&first, &second],
+        [weight, i32::from(sgr.w1)],
+        maximum,
       )
     }
   }
@@ -2656,9 +2957,19 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
     None => return Ok(RestorationDispatch::Fallback),
   };
 
-  let RestorationPadding { picture, backup, lines, offset, size, edges } = request.padding;
+  let RestorationPadding {
+    picture,
+    backup,
+    lines,
+    offset,
+    size,
+    edges,
+  } = request.padding;
   let params = request.parameters;
-  let backend = SgrBackend { avx2: token, avx512 };
+  let backend = SgrBackend {
+    avx2: token,
+    avx512,
+  };
 
   let dispatched = match BD::BPC {
     BPC::BPC8 => {
@@ -2667,7 +2978,14 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
 
       match request.kernel {
         RestorationKernel::Wiener => {
-          let padded = RestorationPadding { picture, backup: left, lines, offset, size, edges };
+          let padded = RestorationPadding {
+            picture,
+            backup: left,
+            lines,
+            offset,
+            size,
+            edges,
+          };
           let filtered = match avx512 {
             Some(proof) => wiener_filter7_8bpc_avx512_inner(proof, padded, params),
             None => wiener_filter7_8bpc_avx2_inner(token, padded, params),
@@ -2675,7 +2993,14 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
           RestorationDispatch::from(filtered)
         }
         RestorationKernel::SelfGuided(selection) => {
-          let padded = RestorationPadding { picture, backup: left, lines, offset, size, edges };
+          let padded = RestorationPadding {
+            picture,
+            backup: left,
+            lines,
+            offset,
+            size,
+            edges,
+          };
           RestorationDispatch::from(sgr_8bpc(backend, padded, selection, params))
         }
       }
@@ -2687,7 +3012,14 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
 
       match request.kernel {
         RestorationKernel::Wiener => {
-          let padded = RestorationPadding { picture, backup: left, lines, offset, size, edges };
+          let padded = RestorationPadding {
+            picture,
+            backup: left,
+            lines,
+            offset,
+            size,
+            edges,
+          };
           let filtered = match avx512 {
             Some(proof) => wiener_filter7_16bpc_avx512_inner(proof, padded, params, maximum),
             None => wiener_filter7_16bpc_avx2_inner(token, padded, params, maximum),
@@ -2695,7 +3027,14 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
           RestorationDispatch::from(filtered)
         }
         RestorationKernel::SelfGuided(selection) => {
-          let padded = RestorationPadding { picture, backup: left, lines, offset, size, edges };
+          let padded = RestorationPadding {
+            picture,
+            backup: left,
+            lines,
+            offset,
+            size,
+            edges,
+          };
           RestorationDispatch::from(sgr_16bpc(backend, padded, selection, params, maximum))
         }
       }
@@ -2729,18 +3068,32 @@ mod tests {
       *prefix = [1, 2, 3, 4, 5, 6, 7];
 
       match ::core::primitive::bool::then_some(five_taps, ()) {
-        ::core::option::Option::Some(()) => area.horizontal::<_, 5>(storage.as_flattened_mut(), |row_2, out| {
-          let Ok(()) = scalar_boxsum_row::<_, 5>(row_2, out, i32::wrapping_add);
-        }),
-        ::core::option::Option::None => area.horizontal::<_, 3>(storage.as_flattened_mut(), |row_3, out| {
-          let Ok(()) = scalar_boxsum_row::<_, 3>(row_3, out, i32::wrapping_add);
-        }),
+        ::core::option::Option::Some(()) => {
+          area.horizontal::<_, 5>(storage.as_flattened_mut(), |row_2, out| {
+            let Ok(()) = scalar_boxsum_row::<_, 5>(row_2, out, i32::wrapping_add);
+          })
+        }
+        ::core::option::Option::None => {
+          area.horizontal::<_, 3>(storage.as_flattened_mut(), |row_3, out| {
+            let Ok(()) = scalar_boxsum_row::<_, 3>(row_3, out, i32::wrapping_add);
+          })
+        }
       }?;
 
       let [first, filtered, last] = storage;
-      assert!(first.iter().chain(&last).all(|&sample| sample == UNTOUCHED_SCRATCH));
+      assert!(
+        first
+          .iter()
+          .chain(&last)
+          .all(|&sample| sample == UNTOUCHED_SCRATCH)
+      );
       assert_eq!(filtered.first_chunk::<7>(), Some(&expected));
-      assert!(filtered.iter().skip(7).all(|&sample| sample == UNTOUCHED_SCRATCH));
+      assert!(
+        filtered
+          .iter()
+          .skip(7)
+          .all(|&sample| sample == UNTOUCHED_SCRATCH)
+      );
     }
 
     Ok(())
@@ -2770,9 +3123,20 @@ mod tests {
       value.wrapping_rem(4096)
     });
 
-    let versions = [Some(SgrComputation::Avx2(token)), avx512.map(SgrComputation::Avx512)];
+    let versions = [
+      Some(SgrComputation::Avx2(token)),
+      avx512.map(SgrComputation::Avx512),
+    ];
 
-    for (width, height) in [(7, 4), (15, 5), (16, 6), (31, 5), (32, 6), (33, 7), (384, 64)] {
+    for (width, height) in [
+      (7, 4),
+      (15, 5),
+      (16, 6),
+      (31, 5),
+      (32, 6),
+      (33, 7),
+      (384, 64),
+    ] {
       let extent = Size { width, height };
 
       for (radius, strength) in [(BoxRadius::One, 255), (BoxRadius::Two, 140)] {
@@ -2781,20 +3145,52 @@ mod tests {
         let mut scalar16: RestorationDeltas<_> = [0_i32; _];
         let mut vector16 = scalar16;
 
-        compute_sgr8(SgrComputation::Scalar, SgrStage {
-          padded: &source8, residual: &mut scalar8, extent, radius, strength, maximum: 255,
-        })?;
-        compute_sgr16(SgrComputation::Scalar, SgrStage {
-          padded: &source16, residual: &mut scalar16, extent, radius, strength, maximum: 4095,
-        })?;
+        compute_sgr8(
+          SgrComputation::Scalar,
+          SgrStage {
+            padded: &source8,
+            residual: &mut scalar8,
+            extent,
+            radius,
+            strength,
+            maximum: 255,
+          },
+        )?;
+        compute_sgr16(
+          SgrComputation::Scalar,
+          SgrStage {
+            padded: &source16,
+            residual: &mut scalar16,
+            extent,
+            radius,
+            strength,
+            maximum: 4095,
+          },
+        )?;
 
         for version in versions.into_iter().flatten() {
-          compute_sgr8(version, SgrStage {
-            padded: &source8, residual: &mut vector8, extent, radius, strength, maximum: 255,
-          })?;
-          compute_sgr16(version, SgrStage {
-            padded: &source16, residual: &mut vector16, extent, radius, strength, maximum: 4095,
-          })?;
+          compute_sgr8(
+            version,
+            SgrStage {
+              padded: &source8,
+              residual: &mut vector8,
+              extent,
+              radius,
+              strength,
+              maximum: 255,
+            },
+          )?;
+          compute_sgr16(
+            version,
+            SgrStage {
+              padded: &source16,
+              residual: &mut vector16,
+              extent,
+              radius,
+              strength,
+              maximum: 4095,
+            },
+          )?;
           assert_eq!(scalar8, vector8, "eight-bit {width}x{height}");
           assert_eq!(scalar16, vector16, "twelve-bit {width}x{height}");
         }
@@ -2922,25 +3318,53 @@ mod tests {
           pixels.copy_from_slice(&original);
         }
 
-        let mut scalar = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut scalar_pixels, native_stride);
-        let mut vector = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut simd_pixels, native_stride);
+        let mut scalar =
+          Rav1dPictureDataComponent::wrap_buf::<BD>(&mut scalar_pixels, native_stride);
+        let mut vector =
+          Rav1dPictureDataComponent::wrap_buf::<BD>(&mut simd_pixels, native_stride);
         use crate::include::dav1d::picture::PictureThreadingCounts;
-        let Ok(scalar_policy) = PictureThreading::new(PictureThreadingCounts { workers: 1, tiles: 1 });
+        let Ok(scalar_policy) = PictureThreading::new(PictureThreadingCounts {
+          workers: 1,
+          tiles: 1,
+        });
         let Ok(workers) = console_core_number_conversion::fixed_index(threads);
-        let Ok(vector_policy) = PictureThreading::new(PictureThreadingCounts { workers, tiles: 4 });
+        let Ok(vector_policy) =
+          PictureThreading::new(PictureThreadingCounts { workers, tiles: 4 });
         let Ok(()) = scalar.set_threading_policy(scalar_policy);
         let Ok(()) = vector.set_threading_policy(vector_policy);
         let at = |data| WithOffset { data, offset: 0 };
         let Ok(scalar_width) = fixed_index(width);
         let Ok(scalar_height) = fixed_index(height);
-        wiener_rust::<BD>(RestorationPadding {
-          picture: at(&scalar), backup: &left, lines: &lpf, offset: 0,
-          size: Size { width: scalar_width, height: scalar_height }, edges: LrEdgeFlags::empty(),
-        }, &params, depth)?;
-        simd(RestorationPadding {
-          picture: at(&vector), backup: &left, lines: &lpf, offset: 0,
-          size: Size { width: scalar_width, height: scalar_height }, edges: LrEdgeFlags::empty(),
-        }, &params).map_err(|_simd| Rav1dError::EINVAL)?;
+        wiener_rust::<BD>(
+          RestorationPadding {
+            picture: at(&scalar),
+            backup: &left,
+            lines: &lpf,
+            offset: 0,
+            size: Size {
+              width: scalar_width,
+              height: scalar_height,
+            },
+            edges: LrEdgeFlags::empty(),
+          },
+          &params,
+          depth,
+        )?;
+        simd(
+          RestorationPadding {
+            picture: at(&vector),
+            backup: &left,
+            lines: &lpf,
+            offset: 0,
+            size: Size {
+              width: scalar_width,
+              height: scalar_height,
+            },
+            edges: LrEdgeFlags::empty(),
+          },
+          &params,
+        )
+        .map_err(|_simd| Rav1dError::EINVAL)?;
         assert!(
           *scalar.slice::<BD, _>(..) == *vector.slice::<BD, _>(..),
           "Wiener output differs at {width}x{height}, {threads} workers",
@@ -2960,29 +3384,25 @@ mod tests {
     let Ok(avx512) = summon_avx512();
     let sample_8 = |position: u32| {
       let Ok(sample) = console_core_number_conversion::wrapped::<_, u8>(
-        position.wrapping_mul(59).wrapping_rem(251)
+        position.wrapping_mul(59).wrapping_rem(251),
       );
       sample
     };
 
     match avx2 {
       Some(token) => {
-        check_wiener(
-          BitDepth8::new(()),
-          sample_8,
-          |request, params| wiener_filter7_8bpc_avx2_inner(token, request, params),
-        )?;
+        check_wiener(BitDepth8::new(()), sample_8, |request, params| {
+          wiener_filter7_8bpc_avx2_inner(token, request, params)
+        })?;
       }
       ::core::option::Option::None => {}
     }
 
     match avx512 {
       Some(token) => {
-        check_wiener(
-          BitDepth8::new(()),
-          sample_8,
-          |request, params| wiener_filter7_8bpc_avx512_inner(token, request, params),
-        )?;
+        check_wiener(BitDepth8::new(()), sample_8, |request, params| {
+          wiener_filter7_8bpc_avx512_inner(token, request, params)
+        })?;
       }
       ::core::option::Option::None => {}
     }
@@ -2990,29 +3410,25 @@ mod tests {
     for max in [1023u16, 4095] {
       let sample_16 = |position: u32| {
         let Ok(sample) = console_core_number_conversion::wrapped::<_, u16>(
-          position.wrapping_mul(197) & u32::from(max)
+          position.wrapping_mul(197) & u32::from(max),
         );
         sample
       };
 
       match avx2 {
         Some(token) => {
-          check_wiener(
-            BitDepth16::new(max),
-            sample_16,
-            |request, params| wiener_filter7_16bpc_avx2_inner(token, request, params, i32::from(max)),
-          )?;
+          check_wiener(BitDepth16::new(max), sample_16, |request, params| {
+            wiener_filter7_16bpc_avx2_inner(token, request, params, i32::from(max))
+          })?;
         }
         ::core::option::Option::None => {}
       }
 
       match avx512 {
         Some(token) => {
-          check_wiener(
-            BitDepth16::new(max),
-            sample_16,
-            |request, params| wiener_filter7_16bpc_avx512_inner(token, request, params, i32::from(max)),
-          )?;
+          check_wiener(BitDepth16::new(max), sample_16, |request, params| {
+            wiener_filter7_16bpc_avx512_inner(token, request, params, i32::from(max))
+          })?;
         }
         ::core::option::Option::None => {}
       }

@@ -392,7 +392,13 @@ impl Engine<'_> {
     }
 
     match (selector, self.graphics.target) {
-      (3, crate::Target::Smooth { linear_metrics: crate::LinearMetrics::Preserve, .. }) => {
+      (
+        3,
+        crate::Target::Smooth {
+          linear_metrics: crate::LinearMetrics::Preserve,
+          ..
+        },
+      ) => {
         return Ok(());
       }
       (_, _) => {}
@@ -441,14 +447,20 @@ impl Engine<'_> {
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((n & 0x200) != 0 && matches!(is_rotated, crate::Rotation::Rotated), ()) {
+        match ::core::primitive::bool::then_some(
+          (n & 0x200) != 0 && matches!(is_rotated, crate::Rotation::Rotated),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             *scan_control = DropoutControl::Enabled;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((n & 0x400) != 0 && matches!(is_stretched, crate::Stretch::Stretched), ()) {
+        match ::core::primitive::bool::then_some(
+          (n & 0x400) != 0 && matches!(is_stretched, crate::Stretch::Stretched),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             *scan_control = DropoutControl::Enabled;
           }
@@ -462,14 +474,20 @@ impl Engine<'_> {
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((n & 0x1000) != 0 && matches!(is_rotated, crate::Rotation::Rotated), ()) {
+        match ::core::primitive::bool::then_some(
+          (n & 0x1000) != 0 && matches!(is_rotated, crate::Rotation::Rotated),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             *scan_control = DropoutControl::Disabled;
           }
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some((n & 0x2000) != 0 && matches!(is_stretched, crate::Stretch::Stretched), ()) {
+        match ::core::primitive::bool::then_some(
+          (n & 0x2000) != 0 && matches!(is_stretched, crate::Stretch::Stretched),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             *scan_control = DropoutControl::Disabled;
           }
@@ -541,11 +559,13 @@ impl Engine<'_> {
   pub(super) fn op_sds(&mut self) -> OpResult {
     let n = self.value_stack.pop()?;
 
-    match ::core::primitive::bool::then_some({
-      let Ok(value) = console_core_number_conversion::wrapped::<_, u32>(n);
-      value
-    } > 6, ())
-    {
+    match ::core::primitive::bool::then_some(
+      {
+        let Ok(value) = console_core_number_conversion::wrapped::<_, u32>(n);
+        value
+      } > 6,
+      (),
+    ) {
       ::core::option::Option::Some(()) => Err(HintErrorKind::InvalidStackValue(n)),
       ::core::option::Option::None => {
         self.graphics.delta_shift = {

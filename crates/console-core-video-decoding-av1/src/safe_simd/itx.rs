@@ -63,13 +63,15 @@ enum AdstRowOrder {
 
 #[cfg(target_arch = "x86_64")]
 impl RectangularScale {
-  const fn for_transform(size: crate::src::levels::TxfmSize) -> Result<Self, console_core_never::Never> {
+  const fn for_transform(
+    size: crate::src::levels::TxfmSize,
+  ) -> Result<Self, console_core_never::Never> {
     use crate::src::levels::TxfmSize::*;
 
     Ok(match size {
       R4x8 | R8x4 | R8x16 | R16x8 | R16x32 | R32x16 | R32x64 | R64x32 => Self::Apply,
-      S4x4 | S8x8 | S16x16 | S32x32 | S64x64 | R4x16 | R16x4 | R8x32 | R32x8
-      | R16x64 | R64x16 => Self::Skip,
+      S4x4 | S8x8 | S16x16 | S32x32 | S64x64 | R4x16 | R16x4 | R8x32 | R32x8 | R16x64
+      | R64x16 => Self::Skip,
     })
   }
 }

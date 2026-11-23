@@ -134,10 +134,12 @@ fn under_there(stage: &mut Device) -> CheckResult {
       let Ok(bottom) = window_of(&open_2, &lower);
 
       Ok(match (top, bottom) {
-        (Some(top_2), Some(bottom_2)) => match ::core::primitive::bool::then_some(top_2.workspace == bottom_2.workspace, ()) {
-          ::core::option::Option::Some(()) => Ready::Yes,
-          ::core::option::Option::None => Ready::NotYet,
-        },
+        (Some(top_2), Some(bottom_2)) => {
+          match ::core::primitive::bool::then_some(top_2.workspace == bottom_2.workspace, ()) {
+            ::core::option::Option::Some(()) => Ready::Yes,
+            ::core::option::Option::None => Ready::NotYet,
+          }
+        }
         (None, _) | (_, None) => Ready::NotYet,
       })
     },

@@ -73,7 +73,7 @@ impl Pipe {
     let Ok(mut command) = Program::Chromium.command();
     let stderr = match diagnostics {
       Diagnostics::Show => Stdio::inherit(),
-      Diagnostics::Quiet => Stdio::null(),
+      Diagnostics::Disabled => Stdio::null(),
     };
     let mut profile_flag = OsString::from("--user-data-dir=");
     profile_flag.push(&profile);
@@ -241,7 +241,7 @@ impl Pipe {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Diagnostics {
-  Quiet,
+  Disabled,
   Show,
 }
 

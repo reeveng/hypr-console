@@ -537,29 +537,29 @@ impl ContourMeasure {
     let Ok(kind) = curve.kind();
 
     match curve {
-        Curve::Line([_, end]) => {
-          let Ok(()) = self.record_sample(
-            Sample {
-              curve,
-              range: SampleRange {
-                lower: 0,
-                upper: MAX_T_VALUE,
-              },
+      Curve::Line([_, end]) => {
+        let Ok(()) = self.record_sample(
+          Sample {
+            curve,
+            range: SampleRange {
+              lower: 0,
+              upper: MAX_T_VALUE,
             },
-            point_index,
-            kind,
-          );
+          },
+          point_index,
+          kind,
+        );
 
-          match ::core::primitive::bool::then_some(self.length.0 > previous.0, ()) {
-              ::core::option::Option::Some(()) => {
-                self.points.push(end);
-              },
-              ::core::option::Option::None => {},
+        match ::core::primitive::bool::then_some(self.length.0 > previous.0, ()) {
+          ::core::option::Option::Some(()) => {
+            self.points.push(end);
           }
+          ::core::option::Option::None => {}
+        }
 
-          return Ok(());
-        },
-        Curve::Quad(_) | Curve::Cubic(_) => {},
+        return Ok(());
+      }
+      Curve::Quad(_) | Curve::Cubic(_) => {}
     }
 
     let mut work = Vec::new();
@@ -626,15 +626,15 @@ impl ContourMeasure {
     self.length.0 += length.0;
 
     match ::core::primitive::bool::then_some(self.length.0 > before, ()) {
-        ::core::option::Option::Some(()) => {
-          self.segments.push(Segment {
-            distance: self.length,
-            point_index,
-            t_value: sample.range.upper,
-            kind,
-          });
-        },
-        ::core::option::Option::None => {},
+      ::core::option::Option::Some(()) => {
+        self.segments.push(Segment {
+          distance: self.length,
+          point_index,
+          t_value: sample.range.upper,
+          kind,
+        });
+      }
+      ::core::option::Option::None => {}
     }
 
     Ok(())

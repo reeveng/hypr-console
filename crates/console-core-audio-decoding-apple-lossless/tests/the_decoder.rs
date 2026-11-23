@@ -35,7 +35,7 @@ enum Coding {
   Uncompressed,
 }
 
-struct Config {
+struct Configuration {
   frame_length: u32,
   bit_depth: u8,
   channels: u8,
@@ -96,7 +96,7 @@ fn draws(seed: u64, count: u32) -> Result<Vec<u64>, Never> {
   )
 }
 
-fn cookie(config: Config) -> Result<Vec<u8>, Never> {
+fn cookie(config: Configuration) -> Result<Vec<u8>, Never> {
   let mut bytes = Vec::new();
 
   bytes.extend(config.frame_length.to_be_bytes());
@@ -240,7 +240,7 @@ fn an_uncompressed_mono_frame_comes_out_shifted_up_to_32_bits() -> Result<(), Fa
   fields.push((7, 3));
 
   let Ok(packet) = pack(&fields);
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 8,
     bit_depth: 16,
     channels: 1,
@@ -279,7 +279,7 @@ fn an_uncompressed_pair_is_interleaved() -> Result<(), Failed> {
   fields.push((7, 3));
 
   let Ok(packet) = pack(&fields);
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 4,
     bit_depth: 16,
     channels: 2,
@@ -329,7 +329,7 @@ fn a_surround_frame_puts_each_element_on_its_own_channels() -> Result<(), Failed
   fields.push((7, 3));
 
   let Ok(packet) = pack(&fields);
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 4,
     bit_depth: 16,
     channels: 6,
@@ -358,7 +358,7 @@ fn a_compressed_pair_decodes_the_same() -> Result<(), Failed> {
     seed: 1,
     residual_bytes: 400,
   });
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 64,
     bit_depth: 16,
     channels: 2,
@@ -382,7 +382,7 @@ fn a_compressed_mono_frame_with_the_first_order_pass_decodes_the_same() -> Resul
     seed: 2,
     residual_bytes: 400,
   });
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 64,
     bit_depth: 16,
     channels: 1,
@@ -406,7 +406,7 @@ fn a_compressed_pair_with_tail_bits_decodes_the_same() -> Result<(), Failed> {
     seed: 3,
     residual_bytes: 400,
   });
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 64,
     bit_depth: 24,
     channels: 2,
@@ -427,7 +427,7 @@ fn a_cookie_of_the_wrong_size_is_refused() {
 
 #[test]
 fn a_cookie_from_a_later_version_is_refused() {
-  let Ok(mut bytes) = cookie(Config {
+  let Ok(mut bytes) = cookie(Configuration {
     frame_length: 64,
     bit_depth: 16,
     channels: 2,
@@ -442,7 +442,7 @@ fn a_cookie_from_a_later_version_is_refused() {
 
 #[test]
 fn a_cookie_promising_an_enormous_frame_is_refused() {
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: u32::MAX,
     bit_depth: 16,
     channels: 2,
@@ -453,7 +453,7 @@ fn a_cookie_promising_an_enormous_frame_is_refused() {
 
 #[test]
 fn a_packet_that_stops_short_is_an_error() -> Result<(), Failed> {
-  let Ok(bytes) = cookie(Config {
+  let Ok(bytes) = cookie(Configuration {
     frame_length: 64,
     bit_depth: 16,
     channels: 2,

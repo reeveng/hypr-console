@@ -610,9 +610,7 @@ mod tests {
             let Ok(overflow) = square_overflow(room, pane.1, shape);
 
             over.extend(overflow.map(|(tall, cell)| {
-              format!(
-                "{standing:?} {size:?} {columns}x{rows}: {tall} tall in a cell of {cell}"
-              )
+              format!("{standing:?} {size:?} {columns}x{rows}: {tall} tall in a cell of {cell}")
             }));
           }
         }

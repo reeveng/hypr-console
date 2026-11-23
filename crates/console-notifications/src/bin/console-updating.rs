@@ -84,10 +84,12 @@ pub fn notification(step: Step) -> Result<Notification, Never> {
 }
 
 pub fn goes_on(step: Step) -> Result<Keeps, Never> {
-  Ok(match ::core::primitive::bool::then_some(step == Step::Start, ()) {
-    ::core::option::Option::Some(()) => Keeps::TheNumber,
-    ::core::option::Option::None => Keeps::None,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(step == Step::Start, ()) {
+      ::core::option::Option::Some(()) => Keeps::TheNumber,
+      ::core::option::Option::None => Keeps::None,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

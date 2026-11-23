@@ -1,7 +1,8 @@
 //! Offset arrays borrow their entries and resolve each target on demand.
 
 use crate::{
-  Emptiness, FontData, FontReadWithArgs, Offset, ReadArgs, ReadError, ResolveNullableOffset, ResolveOffset,
+  Emptiness, FontData, FontReadWithArgs, Offset, ReadArgs, ReadError, ResolveNullableOffset,
+  ResolveOffset,
 };
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
@@ -11,21 +12,21 @@ use font_types::{BigEndian, Nullable, Offset16, Scalar};
 pub struct ArrayOfOffsets<'a, T: ReadArgs, O: Scalar = Offset16> {
   offsets: &'a [BigEndian<O>],
   data: FontData<'a>,
-  args: T::Args,
+  args: T::Arguments,
 }
 
 #[derive(Clone)]
 pub struct ArrayOfNullableOffsets<'a, T: ReadArgs, O: Scalar = Offset16> {
   offsets: &'a [BigEndian<Nullable<O>>],
   data: FontData<'a>,
-  args: T::Args,
+  args: T::Arguments,
 }
 
 impl<'a, T: ReadArgs, O: Scalar> ArrayOfOffsets<'a, T, O> {
   pub(crate) fn new(
     offsets: &'a [BigEndian<O>],
     data: FontData<'a>,
-    args: T::Args,
+    args: T::Arguments,
   ) -> Result<Self, Never> {
     Ok(Self {
       offsets,
@@ -39,7 +40,7 @@ impl<'a, T, O> ArrayOfOffsets<'a, T, O>
 where
   O: Scalar + Offset,
   T: ReadArgs + FontReadWithArgs<'a>,
-  T::Args: Copy + 'static,
+  T::Arguments: Copy + 'static,
 {
   pub fn len(&self) -> Result<u64, Never> {
     fitted(self.offsets.len())
@@ -93,7 +94,7 @@ impl<'a, T: ReadArgs, O: Scalar> ArrayOfNullableOffsets<'a, T, O> {
   pub(crate) fn new(
     offsets: &'a [BigEndian<Nullable<O>>],
     data: FontData<'a>,
-    args: T::Args,
+    args: T::Arguments,
   ) -> Result<Self, Never> {
     Ok(Self {
       offsets,
@@ -107,7 +108,7 @@ impl<'a, T, O> ArrayOfNullableOffsets<'a, T, O>
 where
   O: Scalar + Offset,
   T: ReadArgs + FontReadWithArgs<'a>,
-  T::Args: Copy + 'static,
+  T::Arguments: Copy + 'static,
 {
   pub fn len(&self) -> Result<u64, Never> {
     fitted(self.offsets.len())
@@ -150,7 +151,7 @@ impl<'a, T, O> crate::traversal::SomeArray<'a> for ArrayOfOffsets<'a, T, O>
 where
   O: Scalar + Offset + Into<crate::traversal::OffsetType>,
   T: ReadArgs + FontReadWithArgs<'a> + crate::traversal::SomeTable<'a> + 'a,
-  T::Args: Copy + 'static,
+  T::Arguments: Copy + 'static,
 {
   fn type_name(&self) -> Result<&str, Never> {
     let full_name = std::any::type_name::<T>();
@@ -187,7 +188,7 @@ impl<'a, T, O> crate::traversal::SomeArray<'a> for ArrayOfNullableOffsets<'a, T,
 where
   O: Scalar + Offset + Into<crate::traversal::OffsetType> + Clone,
   T: ReadArgs + FontReadWithArgs<'a> + crate::traversal::SomeTable<'a> + 'a,
-  T::Args: Copy + 'static,
+  T::Arguments: Copy + 'static,
 {
   fn type_name(&self) -> Result<&str, Never> {
     let full_name = std::any::type_name::<T>();

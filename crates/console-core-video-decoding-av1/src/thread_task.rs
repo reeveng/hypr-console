@@ -14,12 +14,13 @@ use crate::src::decode::rav1d_decode_tile_sbrow;
 use crate::src::decode::rav1d_publish_tile_cdf;
 use crate::src::disjoint_mut::TryResizableWith;
 use crate::src::error::Rav1dError;
-use crate::src::error::Rav1dError::{EAGAIN, EGeneric, EINVAL};
 use crate::src::error::Rav1dError::ENOMEM;
+use crate::src::error::Rav1dError::{EAGAIN, EGeneric, EINVAL};
 use crate::src::error::Rav1dResult;
 use crate::src::fg_apply::rav1d_apply_grain_row;
 use crate::src::fg_apply::rav1d_prep_grain;
 use crate::src::filmgrain::FG_BLOCK_SIZE;
+use crate::src::internal::DelayedGrainStage;
 use crate::src::internal::Grain;
 use crate::src::internal::Rav1dBitDepthDSPContext;
 use crate::src::internal::Rav1dContext;
@@ -29,10 +30,9 @@ use crate::src::internal::Rav1dFrameData;
 use crate::src::internal::Rav1dState;
 use crate::src::internal::Rav1dTask;
 use crate::src::internal::Rav1dTaskContext;
-use crate::src::internal::{Rav1dTaskContextTaskThread, Rav1dTileState};
 use crate::src::internal::TaskThreadData;
-use crate::src::internal::DelayedGrainStage;
 use crate::src::internal::TaskType;
+use crate::src::internal::{Rav1dTaskContextTaskThread, Rav1dTileState};
 use crate::src::iter::wrapping_iter;
 use crate::src::relaxed_atomic::RelaxedAtomic;
 use atomig::Atom;
@@ -59,23 +59,26 @@ use std::thread;
 pub const FRAME_ERROR: u32 = u32::MAX - 1;
 pub const TILE_ERROR: i32 = i32::MAX - 1;
 
-pub(crate) fn advance_completed_frame(control: &TaskThreadData, count: u32) -> Result<(), console_core_never::Never> {
+pub(crate) fn advance_completed_frame(
+  control: &TaskThreadData,
+  count: u32,
+) -> Result<(), console_core_never::Never> {
   let first = control.first.load(Ordering::SeqCst);
 
   match first.wrapping_add(1).cmp(&count) {
     std::cmp::Ordering::Less => {
       let _previous_first = control.first.fetch_add(1, Ordering::SeqCst);
     }
-    std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => control.first.store(0, Ordering::SeqCst),
+    std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
+      control.first.store(0, Ordering::SeqCst)
+    }
   }
 
   let expected = NonZeroU32::new(first.wrapping_add(1));
-  let _reset_superseded_by_another_task = control.reset_task_cur.compare_exchange(
-    expected,
-    None,
-    Ordering::SeqCst,
-    Ordering::SeqCst,
-  );
+  let _reset_superseded_by_another_task =
+    control
+      .reset_task_cur
+      .compare_exchange(expected, None, Ordering::SeqCst, Ordering::SeqCst);
   let Ok(current) = control.cur.get();
 
   match (current > 0 && current < count).then_some(()) {
@@ -104,7 +107,8 @@ fn wait_for_frame_slot<'a>(
     !frame.task_thread.finished.load(Ordering::SeqCst) && !control.panicked.load(Ordering::SeqCst)
   });
 
-  match ::core::primitive::bool::then_some(frame.task_thread.finished.load(Ordering::SeqCst), ()) {
+  match ::core::primitive::bool::then_some(frame.task_thread.finished.load(Ordering::SeqCst), ())
+  {
     ::core::option::Option::Some(()) => Ok(scheduler_2),
     ::core::option::Option::None => Err(EGeneric),
   }
@@ -125,7 +129,11 @@ fn retire_delayed_output(
   frame_count: NonZeroU32,
 ) -> Rav1dResult {
   let Ok(index) = console_core_number_conversion::index(slot);
-  let delayed = state.frame_thread.out_delayed.get_mut(index).ok_or(EINVAL)?;
+  let delayed = state
+    .frame_thread
+    .out_delayed
+    .get_mut(index)
+    .ok_or(EINVAL)?;
   let mut result = frame.task_thread.retval.try_lock().ok_or(EAGAIN)?;
   let output = match (*result, &delayed.p.data) {
     (Some(error), _) => DelayedFrameOutput::Error(error),
@@ -140,7 +148,8 @@ fn retire_delayed_output(
       }
     }
   };
-  let had_pending_output = delayed.p.data.is_some() || frame.task_thread.error.load(Ordering::SeqCst) != 0;
+  let had_pending_output =
+    delayed.p.data.is_some() || frame.task_thread.error.load(Ordering::SeqCst) != 0;
 
   match ::core::primitive::bool::then_some(had_pending_output, ()) {
     ::core::option::Option::Some(()) => {
@@ -177,11 +186,18 @@ pub(crate) fn reserve_delayed_frame<'a>(
   let frame = decoder.fc.get(index).ok_or(EINVAL)?;
   let count = u32::try_from(decoder.fc.len()).map_err(|_too_many_frames| EINVAL)?;
   let frame_count = NonZeroU32::new(count).ok_or(EINVAL)?;
-  let following = next.wrapping_add(1).checked_rem(frame_count.get()).ok_or(EINVAL)?;
+  let following = next
+    .wrapping_add(1)
+    .checked_rem(frame_count.get())
+    .ok_or(EINVAL)?;
   let scheduler = wait_for_frame_slot(decoder, frame)?;
   retire_delayed_output(decoder, state, frame, next, frame_count)?;
   state.frame_thread.next = following;
-  Ok(FrameReservation { frame, index: next, scheduler })
+  Ok(FrameReservation {
+    frame,
+    index: next,
+    scheduler,
+  })
 }
 
 #[derive(PartialEq, Eq)]
@@ -195,7 +211,10 @@ struct ResetFramePosition {
   frame_count: u32,
 }
 
-fn clear_scan_positions(c: &Rav1dContext, start: u64) -> Result<ScanReset, console_core_never::Never> {
+fn clear_scan_positions(
+  c: &Rav1dContext,
+  start: u64,
+) -> Result<ScanReset, console_core_never::Never> {
   let Ok(frames) = wrapping_iter(c.fc.iter(), start);
 
   for frame in frames {
@@ -212,7 +231,9 @@ fn reset_task_cur(
   requested: Option<u32>,
 ) -> Result<ScanReset, console_core_never::Never> {
   let first = ttd.first.load(Ordering::SeqCst);
-  let pending = ttd.reset_task_cur.swap(None, Ordering::SeqCst)
+  let pending = ttd
+    .reset_task_cur
+    .swap(None, Ordering::SeqCst)
     .map(|encoded| encoded.get().wrapping_sub(1))
     .filter(|&frame| frame >= first);
   let Ok(current) = ttd.cur.get();
@@ -291,20 +312,32 @@ fn reset_task_cur_async(
     Some(index) => index,
     None => return Ok(()),
   };
-  let active = match ttd.reset_task_cur.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |previous| {
-    match previous {
-      Some(earlier) if earlier <= encoded => None,
-      Some(_) | None => Some(Some(encoded)),
-    }
-  }) {
-    Ok(_) => encoded,
-    Err(Some(earlier)) => earlier,
-    Err(None) => return Ok(()),
-  };
+  let active =
+    match ttd
+      .reset_task_cur
+      .fetch_update(
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+        |previous| match previous {
+          Some(earlier) if earlier <= encoded => None,
+          Some(_) | None => Some(Some(encoded)),
+        },
+      ) {
+      Ok(_) => encoded,
+      Err(Some(earlier)) => earlier,
+      Err(None) => return Ok(()),
+    };
 
-  match (active.get().wrapping_sub(1) == first && ttd.first.load(Ordering::SeqCst) != first).then_some(()) {
+  match (active.get().wrapping_sub(1) == first && ttd.first.load(Ordering::SeqCst) != first)
+    .then_some(())
+  {
     Some(()) => {
-      let _superseded = ttd.reset_task_cur.compare_exchange(Some(active), None, Ordering::SeqCst, Ordering::SeqCst);
+      let _superseded = ttd.reset_task_cur.compare_exchange(
+        Some(active),
+        None,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+      );
     }
     None => {}
   }
@@ -348,12 +381,19 @@ struct QueueOrder {
 
 impl From<&Rav1dTask> for QueueOrder {
   fn from(task: &Rav1dTask) -> Self {
-    Self { row: task.sby, kind: task.type_0, tile: task.tile_idx }
+    Self {
+      row: task.sby,
+      kind: task.type_0,
+      tile: task.tile_idx,
+    }
   }
 }
 
 impl QueueOrder {
-  fn compare_insertion(&self, existing: &Self) -> Result<cmp::Ordering, console_core_never::Never> {
+  fn compare_insertion(
+    &self,
+    existing: &Self,
+  ) -> Result<cmp::Ordering, console_core_never::Never> {
     let priority = match (self.kind, existing.kind) {
       (incoming, TaskType::TileEntropy) => match incoming.cmp(&TaskType::TileEntropy) {
         cmp::Ordering::Greater => cmp::Ordering::Greater,
@@ -365,7 +405,10 @@ impl QueueOrder {
 
     match priority {
       cmp::Ordering::Equal => {
-        assert!(matches!(self.kind, TaskType::TileEntropy | TaskType::TileReconstruction));
+        assert!(matches!(
+          self.kind,
+          TaskType::TileEntropy | TaskType::TileReconstruction
+        ));
         assert_eq!(self.kind, existing.kind);
         assert_ne!(self.tile, existing.tile);
         Ok(self.tile.cmp(&existing.tile))
@@ -411,7 +454,12 @@ fn stage_pending_tasks(
 }
 
 impl Rav1dTasks {
-  fn insert_tasks_between(&self, c: &Rav1dContext, insertion: TaskInsertion, wake: QueueWake) -> Rav1dResult {
+  fn insert_tasks_between(
+    &self,
+    c: &Rav1dContext,
+    insertion: TaskInsertion,
+    wake: QueueWake,
+  ) -> Rav1dResult {
     let ttd = &*c.task_thread;
 
     match c.flush.load(Ordering::SeqCst).then_some(()) {
@@ -419,7 +467,12 @@ impl Rav1dTasks {
       None => {}
     }
 
-    let TaskInsertion { first, last, previous, following } = insertion;
+    let TaskInsertion {
+      first,
+      last,
+      previous,
+      following,
+    } = insertion;
     let tasks = self.tasks.try_read().ok_or(EINVAL)?;
     let origin = queue_entry(&tasks, first)?;
     let tail = queue_entry(&tasks, last)?;
@@ -482,7 +535,12 @@ impl Rav1dTasks {
 
       match order {
         cmp::Ordering::Less | cmp::Ordering::Equal => {
-          let insertion = TaskInsertion { first, last, previous, following };
+          let insertion = TaskInsertion {
+            first,
+            last,
+            previous,
+            following,
+          };
           drop(tasks);
           return self.insert_tasks_between(c, insertion, wake);
         }
@@ -520,15 +578,25 @@ impl Rav1dTasks {
     Ok(())
   }
 
-  pub fn remove(&self, position: Rav1dTaskIndex, previous: Rav1dTaskIndex) -> Rav1dResult<Option<Rav1dTask>> {
+  pub fn remove(
+    &self,
+    position: Rav1dTaskIndex,
+    previous: Rav1dTaskIndex,
+  ) -> Rav1dResult<Option<Rav1dTask>> {
     let tasks = self.tasks.try_read().ok_or(EINVAL)?;
     let task = queue_entry(&tasks, position)?;
     let Ok(next) = task.next();
     let result = match previous {
-      Rav1dTaskIndex::None => self.head.compare_exchange(position, next, Ordering::SeqCst, Ordering::SeqCst),
+      Rav1dTaskIndex::None => {
+        self
+          .head
+          .compare_exchange(position, next, Ordering::SeqCst, Ordering::SeqCst)
+      }
       _ => {
         let predecessor = queue_entry(&tasks, previous)?;
-        predecessor.next.compare_exchange(position, next, Ordering::SeqCst, Ordering::SeqCst)
+        predecessor
+          .next
+          .compare_exchange(position, next, Ordering::SeqCst, Ordering::SeqCst)
       }
     };
 
@@ -574,8 +642,9 @@ impl Rav1dTasks {
           }
         };
         let head = self.head.load(Ordering::Relaxed);
-        let ready = stage_pending_tasks(&mut tasks, &mut pending, head)
-          .inspect_err(|_failed_to_stage| self.pending_tasks_merge.store(true, Ordering::SeqCst))?;
+        let ready = stage_pending_tasks(&mut tasks, &mut pending, head).inspect_err(
+          |_failed_to_stage| self.pending_tasks_merge.store(true, Ordering::SeqCst),
+        )?;
         drop(tasks);
 
         for position in ready {
@@ -591,7 +660,12 @@ impl Rav1dTasks {
 }
 
 impl Rav1dFrameContextTaskThread {
-  fn insert_task(&self, c: &Rav1dContext, task: Rav1dTask, wake: QueueWake) -> Rav1dResult<Rav1dTaskIndex> {
+  fn insert_task(
+    &self,
+    c: &Rav1dContext,
+    task: Rav1dTask,
+    wake: QueueWake,
+  ) -> Rav1dResult<Rav1dTaskIndex> {
     let index = self.tasks.push(task)?;
     self.tasks.insert_tasks(c, index, index, wake)?;
     Ok(index)
@@ -604,8 +678,6 @@ pub struct Rav1dTaskIndex(Option<NonZeroU32>);
 
 impl Rav1dTaskIndex {
   pub const None: Self = Self(None);
-
-
 }
 
 impl Add<u32> for Rav1dTaskIndex {
@@ -663,14 +735,20 @@ pub(crate) enum TileQueueStage {
 }
 
 impl TileQueueStage {
-  fn state_slot<T>(self, [reconstruction, entropy]: &[T; 2]) -> Result<&T, console_core_never::Never> {
+  fn state_slot<T>(
+    self,
+    [reconstruction, entropy]: &[T; 2],
+  ) -> Result<&T, console_core_never::Never> {
     Ok(match self {
       Self::Entropy => entropy,
       Self::Reconstruction => reconstruction,
     })
   }
 
-  fn picture_progress<T>(self, [entropy, reconstruction]: &[T; 2]) -> Result<&T, console_core_never::Never> {
+  fn picture_progress<T>(
+    self,
+    [entropy, reconstruction]: &[T; 2],
+  ) -> Result<&T, console_core_never::Never> {
     Ok(match self {
       Self::Entropy => entropy,
       Self::Reconstruction => reconstruction,
@@ -687,21 +765,35 @@ fn first_row_task(
   let sequence = data.seq_hdr()?;
   let task_type = match stage {
     TileQueueStage::Entropy => {
-      frame.frame_thread_progress.entropy.store(0, Ordering::Relaxed);
+      frame
+        .frame_thread_progress
+        .entropy
+        .store(0, Ordering::Relaxed);
       TaskType::EntropyProgress
     }
     TileQueueStage::Reconstruction => {
       let row_count = u32::try_from(data.sbh).map_err(|_invalid_height| EINVAL)?;
       let words = row_count.div_ceil(u32::BITS);
       let Ok(length) = console_core_number_conversion::index(words);
-      let mut picture_rows = frame.frame_thread_progress.frame.try_write().ok_or(EINVAL)?;
+      let mut picture_rows = frame
+        .frame_thread_progress
+        .frame
+        .try_write()
+        .ok_or(EINVAL)?;
       picture_rows.clear();
-      picture_rows.try_resize_with(length, Default::default).map_err(|_allocation| ENOMEM)?;
+      picture_rows
+        .try_resize_with(length, Default::default)
+        .map_err(|_allocation| ENOMEM)?;
 
       let mut copied_rows = frame.frame_thread_progress.copy_lpf.write();
       copied_rows.clear();
-      copied_rows.try_resize_with(length, Default::default).map_err(|_allocation| ENOMEM)?;
-      frame.frame_thread_progress.deblock.store(0, Ordering::SeqCst);
+      copied_rows
+        .try_resize_with(length, Default::default)
+        .map_err(|_allocation| ENOMEM)?;
+      frame
+        .frame_thread_progress
+        .deblock
+        .store(0, Ordering::SeqCst);
 
       let needs_deblock = header.loopfilter.level_y != [0; 2];
       let needs_copy = sequence.cdef != 0 || !data.lf.restore_planes.is_empty();
@@ -744,7 +836,9 @@ pub(crate) fn rav1d_task_create_tile_sbrow(
   {
     let mut pending = tasks.pending_tasks.lock();
     let new_tasks = tile_count.checked_add(1).ok_or(ENOMEM)?;
-    pending.try_reserve(new_tasks).map_err(|_allocation| ENOMEM)?;
+    pending
+      .try_reserve(new_tasks)
+      .map_err(|_allocation| ENOMEM)?;
     let Ok(stage_done) = stage.state_slot(&frame.task_thread.done);
     stage_done.store(0, Ordering::SeqCst);
     let row_task = first_row_task(frame, data, stage)?;
@@ -824,8 +918,8 @@ pub(crate) fn rav1d_task_delayed_fg(
     let mut delayed = ttd.delayed_fg.try_write().ok_or(EGeneric)?;
     let completed = mem::take(&mut *delayed);
 
-    let rows_finished = completed.stage == DelayedGrainStage::Apply
-      && !completed.row_failed.load(Ordering::SeqCst);
+    let rows_finished =
+      completed.stage == DelayedGrainStage::Apply && !completed.row_failed.load(Ordering::SeqCst);
 
     match rows_finished.then_some(()) {
       Some(()) => {}
@@ -915,7 +1009,9 @@ fn reference_tile_progress(
     }
     TileStage::Reconstruction => {
       let shift = u32::try_from(f.sb_shift).map_err(|_invalid_shift| EINVAL)?;
-      let row = task.sby.wrapping_sub(tile.tiling.row_start.wrapping_shr(shift));
+      let row = task
+        .sby
+        .wrapping_sub(tile.tiling.row_start.wrapping_shr(shift));
       let address = f.lowest_pixel_position(tile, row)?;
       let Ok(index) = console_core_number_conversion::index(address);
       (0, Some(f.lowest_pixel_mem.index(index)))
@@ -932,7 +1028,10 @@ fn reference_tile_progress(
       Some(rows) => {
         let Ok(index) = console_core_number_conversion::index(slot);
         let &[luma, chroma] = rows.get(index).ok_or(EINVAL)?;
-        let y = match luma { i32::MIN => i32::MIN, _ => luma.wrapping_add(8) };
+        let y = match luma {
+          i32::MIN => i32::MIN,
+          _ => luma.wrapping_add(8),
+        };
         let uv = match chroma {
           i32::MIN => i32::MIN,
           _ => chroma.wrapping_shl(chroma_shift).wrapping_add(8),
@@ -953,19 +1052,22 @@ fn reference_tile_progress(
     match lowest {
       Some(required) => {
         let [motion, picture] = reference.progress.as_deref().ok_or(EINVAL)?;
-        let producer = match stage { TileStage::Entropy => motion, TileStage::Reconstruction => picture };
+        let producer = match stage {
+          TileStage::Entropy => motion,
+          TileStage::Reconstruction => picture,
+        };
         let progress = producer.load(Ordering::SeqCst);
 
-        match {
-            ::core::primitive::bool::then_some(progress < required, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              return Ok(TileReadiness::Waiting);
-            },
-            ::core::option::Option::None => {},
+        match { ::core::primitive::bool::then_some(progress < required, ()) } {
+          ::core::option::Option::Some(()) => {
+            return Ok(TileReadiness::Waiting);
+          }
+          ::core::option::Option::None => {}
         }
 
-        let _previous_error = task_thread.error.fetch_or(i32::from(progress == FRAME_ERROR), Ordering::SeqCst);
+        let _previous_error = task_thread
+          .error
+          .fetch_or(i32::from(progress == FRAME_ERROR), Ordering::SeqCst);
       }
       None => {}
     }
@@ -992,15 +1094,14 @@ fn check_tile(
   let first = match stage {
     TileStage::Entropy => entropy,
     TileStage::Reconstruction => reconstruction,
-  }.load(Ordering::SeqCst);
+  }
+  .load(Ordering::SeqCst);
 
-  match {
-      ::core::primitive::bool::then_some(first < task.sby, ())
-  } {
-      ::core::option::Option::Some(()) => {
-        return Ok(TileReadiness::Waiting);
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some(first < task.sby, ()) } {
+    ::core::option::Option::Some(()) => {
+      return Ok(TileReadiness::Waiting);
+    }
+    ::core::option::Option::None => {}
   }
 
   let tile_error = i32::from(first == TILE_ERROR);
@@ -1010,13 +1111,11 @@ fn check_tile(
     (0, FramePipeline::Parallel, TileStage::Reconstruction) => {
       let second = entropy.load(Ordering::SeqCst);
 
-      match {
-          ::core::primitive::bool::then_some(second <= task.sby, ())
-      } {
-          ::core::option::Option::Some(()) => {
-            return Ok(TileReadiness::Waiting);
-          },
-          ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(second <= task.sby, ()) } {
+        ::core::option::Option::Some(()) => {
+          return Ok(TileReadiness::Waiting);
+        }
+        ::core::option::Option::None => {}
       }
 
       let producer_error = i32::from(second == TILE_ERROR);
@@ -1069,7 +1168,10 @@ impl<'a> ProgressBit<'a> {
     let position = u32::try_from(row).map_err(|_negative_row| EINVAL)?;
     let Ok(index) = console_core_number_conversion::index(position.wrapping_shr(5));
     let word = words.get(index).ok_or(EINVAL)?;
-    Ok(Self { word, mask: 1_u32.wrapping_shl(position & 31) })
+    Ok(Self {
+      word,
+      mask: 1_u32.wrapping_shl(position & 31),
+    })
   }
 
   fn load(self) -> Result<RowCompletion, console_core_never::Never> {
@@ -1102,14 +1204,19 @@ fn get_frame_progress(fc: &Rav1dFrameContext, f: &Rav1dFrameData) -> Rav1dResult
   let Ok(shift) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift.wrapping_add(7));
   let first_word = row_progress.wrapping_shr(shift);
   let Ok(skip_words) = console_core_number_conversion::index(first_word);
-  let first_incomplete = progress_map.iter().zip(0_u32..).skip(skip_words).find_map(|(entry, word)| {
-    let pending_bits = !entry.load(Ordering::SeqCst);
+  let first_incomplete =
+    progress_map
+      .iter()
+      .zip(0_u32..)
+      .skip(skip_words)
+      .find_map(|(entry, word)| {
+        let pending_bits = !entry.load(Ordering::SeqCst);
 
-    match pending_bits.trailing_zeros() {
-      32 => None,
-      pending => Some((word, pending)),
-    }
-  });
+        match pending_bits.trailing_zeros() {
+          32 => None,
+          pending => Some((word, pending)),
+        }
+      });
   let (word, bit) = match first_incomplete {
     Some(incomplete) => incomplete,
     None => {
@@ -1117,7 +1224,8 @@ fn get_frame_progress(fc: &Rav1dFrameContext, f: &Rav1dFrameData) -> Rav1dResult
       (word_count, 0)
     }
   };
-  let Ok(first_pending) = console_core_number_conversion::wrapped::<_, i32>(word.wrapping_shl(5) | bit);
+  let Ok(first_pending) =
+    console_core_number_conversion::wrapped::<_, i32>(word.wrapping_shl(5) | bit);
   Ok(first_pending.wrapping_sub(1))
 }
 
@@ -1147,18 +1255,16 @@ fn abort_frame(
 
     {
       {
-          match fc.data.try_read() {
-              Some(frame) => {
-                match frame.sr_cur.progress.as_deref() {
-                  Some([first, last]) => {
-                    first.store(FRAME_ERROR, Ordering::SeqCst);
-                    last.store(FRAME_ERROR, Ordering::SeqCst);
-                  }
-                  None => {}
-                }
-              },
-              ::core::option::Option::None => {},
-          };
+        match fc.data.try_read() {
+          Some(frame) => match frame.sr_cur.progress.as_deref() {
+            Some([first, last]) => {
+              first.store(FRAME_ERROR, Ordering::SeqCst);
+              last.store(FRAME_ERROR, Ordering::SeqCst);
+            }
+            None => {}
+          },
+          ::core::option::Option::None => {}
+        };
       }
     }
 
@@ -1184,7 +1290,10 @@ fn delayed_fg_task<'l, 'ttd: 'l>(
       DelayedGrainStage::Prepare => {
         let Ok(()) = ttd.delayed_fg_exec.set(0);
 
-        match ::core::primitive::bool::then_some(ttd.cond_signaled.load(Ordering::SeqCst) != 0, ()) {
+        match ::core::primitive::bool::then_some(
+          ttd.cond_signaled.load(Ordering::SeqCst) != 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             ttd.cond.notify_one();
           }
@@ -1196,9 +1305,19 @@ fn delayed_fg_task<'l, 'ttd: 'l>(
         let prepared = match dsp {
           Some(depth) => match &mut delayed_fg.grain {
             #[cfg(feature = "bitdepth_8")]
-            Grain::Bpc8(grain) => rav1d_prep_grain::<BitDepth8>(&depth.fg, &mut delayed_fg.out, &delayed_fg.in_0, grain),
+            Grain::Bpc8(grain) => rav1d_prep_grain::<BitDepth8>(
+              &depth.fg,
+              &mut delayed_fg.out,
+              &delayed_fg.in_0,
+              grain,
+            ),
             #[cfg(feature = "bitdepth_16")]
-            Grain::Bpc16(grain) => rav1d_prep_grain::<BitDepth16>(&depth.fg, &mut delayed_fg.out, &delayed_fg.in_0, grain),
+            Grain::Bpc16(grain) => rav1d_prep_grain::<BitDepth16>(
+              &depth.fg,
+              &mut delayed_fg.out,
+              &delayed_fg.in_0,
+              grain,
+            ),
           },
           None => Err(EINVAL),
         };
@@ -1240,22 +1359,24 @@ fn delayed_fg_task<'l, 'ttd: 'l>(
         ::core::option::Option::Some(()) => {
           ttd.cond.notify_one();
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(i32::wrapping_add(row, 1) >= progmax, ()) {
-          ::core::option::Option::Some(()) => {
-            *task_thread_lock = Some(ttd.lock.lock());
-            let Ok(()) = ttd.delayed_fg_exec.set(0);
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(i32::wrapping_add(row, 1) >= progmax, ()) {
+            ::core::option::Option::Some(()) => {
+              *task_thread_lock = Some(ttd.lock.lock());
+              let Ok(()) = ttd.delayed_fg_exec.set(0);
 
-            match ::core::primitive::bool::then_some(row >= progmax, ()) {
-              ::core::option::Option::Some(()) => {
-                break;
+              match ::core::primitive::bool::then_some(row >= progmax, ()) {
+                ::core::option::Option::Some(()) => {
+                  break;
+                }
+                ::core::option::Option::None => {}
               }
-              ::core::option::Option::None => {}
-            }
 
-            let _ = task_thread_lock.take();
+              let _ = task_thread_lock.take();
+            }
+            ::core::option::Option::None => {}
           }
-          ::core::option::Option::None => {}
-        },
+        }
       }
 
       let Ok(dsp) = Rav1dBitDepthDSPContext::get(delayed_fg.out.p.bpc);
@@ -1263,11 +1384,19 @@ fn delayed_fg_task<'l, 'ttd: 'l>(
         (Some(depth), Ok(position)) => match &delayed_fg.grain {
           #[cfg(feature = "bitdepth_8")]
           Grain::Bpc8(grain) => rav1d_apply_grain_row::<BitDepth8>(
-            &depth.fg, &delayed_fg.out, &delayed_fg.in_0, grain, position,
+            &depth.fg,
+            &delayed_fg.out,
+            &delayed_fg.in_0,
+            grain,
+            position,
           ),
           #[cfg(feature = "bitdepth_16")]
           Grain::Bpc16(grain) => rav1d_apply_grain_row::<BitDepth16>(
-            &depth.fg, &delayed_fg.out, &delayed_fg.in_0, grain, position,
+            &depth.fg,
+            &delayed_fg.out,
+            &delayed_fg.in_0,
+            grain,
+            position,
           ),
         },
         (None, _) | (Some(_), Err(_)) => Err(EINVAL),
@@ -1380,7 +1509,10 @@ pub(crate) fn rav1d_worker_task(
         return Ok(());
       }
     };
-    let failure_guard = WorkerPanicGuard { c, thread_data: worker };
+    let failure_guard = WorkerPanicGuard {
+      c,
+      thread_data: worker,
+    };
 
     match run_worker(c, worker) {
       Ok(()) => {}
@@ -1410,7 +1542,6 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
       worker.cond.notify_one();
 
       ttd.cond_signaled.store(0, Ordering::SeqCst);
-
 
       let task_thread_lock = unpoison(ttd.cond.wait(task_thread_lock));
 
@@ -1457,7 +1588,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
             'init_tasks: for fc in frames {
               let tasks = &fc.task_thread.tasks;
 
-              match ::core::primitive::bool::then_some(fc.task_thread.init_done.load(Ordering::SeqCst) != 0, ()) {
+              match ::core::primitive::bool::then_some(
+                fc.task_thread.init_done.load(Ordering::SeqCst) != 0,
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   continue 'init_tasks;
                 }
@@ -1476,7 +1610,7 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               let task_view = tasks.read(t_idx)?;
               let t = task_view.entry()?;
 
-              match ::core::primitive::bool::then_some(t.type_0 == TaskType::Init, ()) {
+              match ::core::primitive::bool::then_some(t.type_0 == TaskType::Initial, ()) {
                 ::core::option::Option::Some(()) => {
                   break 'found (fc, t_idx, Rav1dTaskIndex::None);
                 }
@@ -1536,20 +1670,21 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
           let tasks = &fc.task_thread.tasks;
           let _merge_outcome = tasks.merge_pending_frame(c)?;
           let Ok(mut prev_t) = tasks.cur_prev.get();
-          let mut t_idx = match ::core::primitive::bool::then_some(prev_t != Rav1dTaskIndex::None, ()) {
-            ::core::option::Option::Some(()) => {
-              let position = tasks.read(prev_t)?;
-              let entry = position.entry()?;
-              let Ok(next) = entry.next();
+          let mut t_idx =
+            match ::core::primitive::bool::then_some(prev_t != Rav1dTaskIndex::None, ()) {
+              ::core::option::Option::Some(()) => {
+                let position = tasks.read(prev_t)?;
+                let entry = position.entry()?;
+                let Ok(next) = entry.next();
 
-              next
-            }
-            ::core::option::Option::None => tasks.head.load(Ordering::SeqCst),
-          };
+                next
+              }
+              ::core::option::Option::None => tasks.head.load(Ordering::SeqCst),
+            };
 
           while t_idx != Rav1dTaskIndex::None {
             let task_view = tasks.read(t_idx)?;
-              let t = task_view.entry()?;
+            let t = task_view.entry()?;
 
             'next: {
               match ::core::primitive::bool::then_some(t.type_0 == TaskType::InitCdf, ()) {
@@ -1564,7 +1699,8 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                   let f = fc.data.read();
 
                   let Ok(pipeline) = tile_pipeline(c);
-                  let Ok(readiness) = check_tile_or_record_error(&f, &fc.task_thread, &t, pipeline);
+                  let Ok(readiness) =
+                    check_tile_or_record_error(&f, &fc.task_thread, &t, pipeline);
 
                   match readiness {
                     TileReadiness::Ready => break 'found (fc, t_idx, prev_t),
@@ -1648,7 +1784,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                         .fetch_or(i32::from(p2 == TILE_ERROR), Ordering::SeqCst);
                     }
 
-                    match ::core::primitive::bool::then_some(i32::wrapping_add(t.sby, 1) < f.sbh, ()) {
+                    match ::core::primitive::bool::then_some(
+                      i32::wrapping_add(t.sby, 1) < f.sbh,
+                      (),
+                    ) {
                       ::core::option::Option::Some(()) => {
                         let next_t = Rav1dTask {
                           sby: i32::wrapping_add(t.sby, 1),
@@ -1692,45 +1831,50 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                         }
 
                         drop(task_view);
-                        let _queued = fc.task_thread.insert_task(c, next_t, QueueWake::KeepParked)?;
+                        let _queued =
+                          fc.task_thread
+                            .insert_task(c, next_t, QueueWake::KeepParked)?;
                       }
                       ::core::option::Option::None => {}
                     }
 
                     break 'found (fc, t_idx, prev_t);
                   }
-                  ::core::option::Option::None => match ::core::primitive::bool::then_some(t.type_0 == TaskType::Cdef, ()) {
-                    ::core::option::Option::Some(()) => {
-                      let copied = fc.frame_thread_progress.copy_lpf.try_read().ok_or(EINVAL)?;
-                      let previous = ProgressBit::at(&copied, t.sby.wrapping_sub(1))?;
-                      let Ok(completion) = previous.load();
+                  ::core::option::Option::None => {
+                    match ::core::primitive::bool::then_some(t.type_0 == TaskType::Cdef, ()) {
+                      ::core::option::Option::Some(()) => {
+                        let copied =
+                          fc.frame_thread_progress.copy_lpf.try_read().ok_or(EINVAL)?;
+                        let previous = ProgressBit::at(&copied, t.sby.wrapping_sub(1))?;
+                        let Ok(completion) = previous.load();
 
-                      match completion {
-                        RowCompletion::Complete => break 'found (fc, t_idx, prev_t),
-                        RowCompletion::Pending => {}
+                        match completion {
+                          RowCompletion::Complete => break 'found (fc, t_idx, prev_t),
+                          RowCompletion::Pending => {}
+                        }
+                      }
+                      ::core::option::Option::None => {
+                        match ::core::primitive::bool::then_some(t.deblock_progress == 0, ()) {
+                          ::core::option::Option::Some(()) => {
+                            return Err(EINVAL);
+                          }
+                          ::core::option::Option::None => {}
+                        }
+
+                        let p1_2 = fc.frame_thread_progress.deblock.load(Ordering::SeqCst);
+
+                        match ::core::primitive::bool::then_some(p1_2 >= t.deblock_progress, ()) {
+                          ::core::option::Option::Some(()) => {
+                            fc.task_thread
+                              .error
+                              .fetch_or(i32::from(p1_2 == TILE_ERROR), Ordering::SeqCst);
+                            break 'found (fc, t_idx, prev_t);
+                          }
+                          ::core::option::Option::None => {}
+                        }
                       }
                     }
-                    ::core::option::Option::None => {
-                      match ::core::primitive::bool::then_some(t.deblock_progress == 0, ()) {
-                        ::core::option::Option::Some(()) => {
-                          return Err(EINVAL);
-                        }
-                        ::core::option::Option::None => {}
-                      }
-
-                      let p1_2 = fc.frame_thread_progress.deblock.load(Ordering::SeqCst);
-
-                      match ::core::primitive::bool::then_some(p1_2 >= t.deblock_progress, ()) {
-                        ::core::option::Option::Some(()) => {
-                          fc.task_thread
-                            .error
-                            .fetch_or(i32::from(p1_2 == TILE_ERROR), Ordering::SeqCst);
-                          break 'found (fc, t_idx, prev_t);
-                        }
-                        ::core::option::Option::None => {}
-                      }
-                    }
-                  },
+                  }
                 },
               }
             }
@@ -1757,7 +1901,7 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
         }
 
         let held = task_thread_lock.take().ok_or(EINVAL)?;
-          let Ok(guard) = park(c, worker, ttd, held);
+        let Ok(guard) = park(c, worker, ttd, held);
         task_thread_lock = Some(guard);
         continue 'outer;
       };
@@ -1771,9 +1915,11 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
         }
       };
 
-      match ::core::primitive::bool::then_some(t.type_0 > TaskType::InitCdf
-        && fc.task_thread.tasks.head.load(Ordering::SeqCst) == Rav1dTaskIndex::None, ())
-      {
+      match ::core::primitive::bool::then_some(
+        t.type_0 > TaskType::InitCdf
+          && fc.task_thread.tasks.head.load(Ordering::SeqCst) == Rav1dTaskIndex::None,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(()) = ttd.cur.update(|cur| u32::wrapping_add(cur, 1));
         }
@@ -1796,7 +1942,7 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
 
         'fallthrough: loop {
           match task_type {
-            TaskType::Init => {
+            TaskType::Initial => {
               match ::core::primitive::bool::then_some(!(c.fc.len() > 1), ()) {
                 ::core::option::Option::Some(()) => {
                   return Err(EINVAL);
@@ -1870,7 +2016,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               let mut res_0 = Err(EINVAL);
               let mut f = fc.data.try_write().ok_or(EINVAL)?;
 
-              match ::core::primitive::bool::then_some(fc.task_thread.error.load(Ordering::SeqCst) == 0, ()) {
+              match ::core::primitive::bool::then_some(
+                fc.task_thread.error.load(Ordering::SeqCst) == 0,
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   let in_cdf = fc.in_cdf()?;
                   res_0 = rav1d_decode_frame_init_cdf(c, fc, &mut f, &in_cdf);
@@ -1880,11 +2029,14 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
 
               let frame_hdr = &***f.frame_hdr.as_ref().ok_or(EINVAL)?;
 
-              match ::core::primitive::bool::then_some(frame_hdr.refresh_context != 0
-                && !({
-                  let Ok(explicit_value) = fc.task_thread.update_set.get();
-                  explicit_value
-                }), ()) {
+              match ::core::primitive::bool::then_some(
+                frame_hdr.refresh_context != 0
+                  && !({
+                    let Ok(explicit_value) = fc.task_thread.update_set.get();
+                    explicit_value
+                  }),
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   let Ok(f_progress) = f.out_cdf.progress();
                   let checked_value = f_progress.ok_or(EINVAL)?;
@@ -1946,15 +2098,20 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                         let Ok(stage_progress) = stage.picture_progress(progress);
                         stage_progress.store(FRAME_ERROR, Ordering::SeqCst);
 
-                        match ::core::primitive::bool::then_some(stage == TileQueueStage::Reconstruction
-                          && (*match &fc.task_thread.done {
-                            [_, element_2, ..] => element_2,
-                          })
-                          .load(Ordering::SeqCst)
-                            != 0, ())
-                        {
+                        match ::core::primitive::bool::then_some(
+                          stage == TileQueueStage::Reconstruction
+                            && (*match &fc.task_thread.done {
+                              [_, element_2, ..] => element_2,
+                            })
+                            .load(Ordering::SeqCst)
+                              != 0,
+                          (),
+                        ) {
                           ::core::option::Option::Some(()) => {
-                            match ::core::primitive::bool::then_some(fc.task_thread.task_counter.load(Ordering::SeqCst) != 0, ()) {
+                            match ::core::primitive::bool::then_some(
+                              fc.task_thread.task_counter.load(Ordering::SeqCst) != 0,
+                              (),
+                            ) {
                               ::core::option::Option::Some(()) => {
                                 return Err(EINVAL);
                               }
@@ -1966,11 +2123,7 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                             fc.task_thread.cond.notify_one();
                           }
                           ::core::option::Option::None => {
-                            drop(
-                              task_thread_lock
-                                .take()
-                                .ok_or(EINVAL)?,
-                            );
+                            drop(task_thread_lock.take().ok_or(EINVAL)?);
                           }
                         }
                       }
@@ -2009,7 +2162,8 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               let Ok(sb_shift) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
               tc.b.y = i32::wrapping_shl(sby, sb_shift);
               let uses_2pass = i32::from(c.fc.len() > 1);
-              tc.frame_thread.pass = match ::core::primitive::bool::then_some(uses_2pass == 0, ()) {
+              tc.frame_thread.pass = match ::core::primitive::bool::then_some(uses_2pass == 0, ())
+              {
                 ::core::option::Option::Some(()) => {
                   let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(0);
                   numeric_value
@@ -2040,12 +2194,14 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
 
               fc.task_thread.error.fetch_or(error_0, Ordering::SeqCst);
 
-              match ::core::primitive::bool::then_some(i32::wrapping_shl(i32::wrapping_add(sby, 1), {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
-                numeric_value
-              }) < ts.tiling.row_end, ())
-              {
+              match ::core::primitive::bool::then_some(
+                i32::wrapping_shl(i32::wrapping_add(sby, 1), {
+                  let Ok(numeric_value) =
+                    console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
+                  numeric_value
+                }) < ts.tiling.row_end,
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   {
                     let numeric_amount = 1;
@@ -2056,7 +2212,8 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                   t.deps_skip = <crate::src::relaxed_atomic::RelaxedAtomic<::core::primitive::i32> as ::core::convert::From<::core::primitive::i32>>::from(0);
 
                   let Ok(pipeline) = tile_pipeline(c);
-                  let Ok(readiness) = check_tile_or_record_error(&f, &fc.task_thread, &t, pipeline);
+                  let Ok(readiness) =
+                    check_tile_or_record_error(&f, &fc.task_thread, &t, pipeline);
 
                   match readiness {
                     TileReadiness::Ready => {
@@ -2069,9 +2226,18 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                       .store(progress, Ordering::SeqCst);
                       let Ok(length) =
                         console_core_number_conversion::wrapped::<_, u32>(c.fc.len());
-                      let Ok(()) = reset_task_cur_async(ttd, ResetFramePosition { slot: t.frame_idx, frame_count: length });
+                      let Ok(()) = reset_task_cur_async(
+                        ttd,
+                        ResetFramePosition {
+                          slot: t.frame_idx,
+                          frame_count: length,
+                        },
+                      );
 
-                      match ::core::primitive::bool::then_some(ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0, ()) {
+                      match ::core::primitive::bool::then_some(
+                        ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0,
+                        (),
+                      ) {
                         ::core::option::Option::Some(()) => {
                           ttd.cond.notify_one();
                         }
@@ -2097,14 +2263,16 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                   error_0 = fc.task_thread.error.load(Ordering::SeqCst);
                   let frame_hdr = &***f.frame_hdr.as_ref().ok_or(EINVAL)?;
 
-                  match ::core::primitive::bool::then_some(frame_hdr.refresh_context != 0
-                    && tc.frame_thread.pass <= 1
-                    && ({
-                      let Ok(explicit_value) = fc.task_thread.update_set.get();
-                      explicit_value
-                    })
-                    && u32::from(frame_hdr.tiling.update) == t.tile_idx, ())
-                  {
+                  match ::core::primitive::bool::then_some(
+                    frame_hdr.refresh_context != 0
+                      && tc.frame_thread.pass <= 1
+                      && ({
+                        let Ok(explicit_value) = fc.task_thread.update_set.get();
+                        explicit_value
+                      })
+                      && u32::from(frame_hdr.tiling.update) == t.tile_idx,
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       match ::core::primitive::bool::then_some(error_0 == 0, ()) {
                         ::core::option::Option::Some(()) => {
@@ -2146,22 +2314,24 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                     ::core::option::Option::None => {}
                   }
 
-                  match ::core::primitive::bool::then_some(i32::wrapping_sub(
-                    fc.task_thread.task_counter.fetch_sub(1, Ordering::SeqCst),
-                    1,
-                  ) == 0
-                    && (*match &fc.task_thread.done {
-                      [element_2, ..] => element_2,
-                    })
-                    .load(Ordering::SeqCst)
-                      != 0
-                    && (uses_2pass == 0
-                      || (*match &fc.task_thread.done {
-                        [_, element_2, ..] => element_2,
+                  match ::core::primitive::bool::then_some(
+                    i32::wrapping_sub(
+                      fc.task_thread.task_counter.fetch_sub(1, Ordering::SeqCst),
+                      1,
+                    ) == 0
+                      && (*match &fc.task_thread.done {
+                        [element_2, ..] => element_2,
                       })
                       .load(Ordering::SeqCst)
-                        != 0), ())
-                  {
+                        != 0
+                      && (uses_2pass == 0
+                        || (*match &fc.task_thread.done {
+                          [_, element_2, ..] => element_2,
+                        })
+                        .load(Ordering::SeqCst)
+                          != 0),
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       error_0 = fc.task_thread.error.load(Ordering::SeqCst);
                       drop(f);
@@ -2170,10 +2340,12 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                         fc,
                         match ::core::primitive::bool::then_some(error_0 == 1, ()) {
                           ::core::option::Option::Some(()) => Err(EINVAL),
-                          ::core::option::Option::None => match ::core::primitive::bool::then_some(error_0 != 0, ()) {
-                            ::core::option::Option::Some(()) => Err(ENOMEM),
-                            ::core::option::Option::None => Ok(()),
-                          },
+                          ::core::option::Option::None => {
+                            match ::core::primitive::bool::then_some(error_0 != 0, ()) {
+                              ::core::option::Option::Some(()) => Err(ENOMEM),
+                              ::core::option::Option::None => Ok(()),
+                            }
+                          }
                         },
                       );
                       fc.task_thread.cond.notify_one();
@@ -2181,14 +2353,20 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                     ::core::option::Option::None => {}
                   }
 
-                  match ::core::primitive::bool::then_some(!(fc.task_thread.task_counter.load(Ordering::SeqCst) >= 0), ()) {
+                  match ::core::primitive::bool::then_some(
+                    !(fc.task_thread.task_counter.load(Ordering::SeqCst) >= 0),
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       return Err(EINVAL);
                     }
                     ::core::option::Option::None => {}
                   }
 
-                  match ::core::primitive::bool::then_some(ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0, ()) {
+                  match ::core::primitive::bool::then_some(
+                    ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0,
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       ttd.cond.notify_one();
                     }
@@ -2203,7 +2381,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               {
                 let f = fc.data.try_read().ok_or(EINVAL)?;
 
-                match ::core::primitive::bool::then_some(fc.task_thread.error.load(Ordering::SeqCst) == 0, ()) {
+                match ::core::primitive::bool::then_some(
+                  fc.task_thread.error.load(Ordering::SeqCst) == 0,
+                  (),
+                ) {
                   ::core::option::Option::Some(()) => {
                     let Ok(bd_fn) = f.bd_fn();
 
@@ -2218,18 +2399,20 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                 }
               }
 
-              match ::core::primitive::bool::then_some(({
-                let Ok(explicit_value) = ensure_progress(
-                  ttd,
-                  fc,
-                  &t,
-                  TaskType::DeblockRows,
-                  &fc.frame_thread_progress.deblock,
-                  &mut task_thread_lock,
-                );
-                explicit_value
-              }) != 0, ())
-              {
+              match ::core::primitive::bool::then_some(
+                ({
+                  let Ok(explicit_value) = ensure_progress(
+                    ttd,
+                    fc,
+                    &t,
+                    TaskType::DeblockRows,
+                    &fc.frame_thread_progress.deblock,
+                    &mut task_thread_lock,
+                  );
+                  explicit_value
+                }) != 0,
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   continue 'outer;
                 }
@@ -2242,7 +2425,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
             TaskType::DeblockRows => {
               let f = fc.data.try_read().ok_or(EINVAL)?;
 
-              match ::core::primitive::bool::then_some(fc.task_thread.error.load(Ordering::SeqCst) == 0, ()) {
+              match ::core::primitive::bool::then_some(
+                fc.task_thread.error.load(Ordering::SeqCst) == 0,
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   let Ok(bd_fn) = f.bd_fn();
 
@@ -2259,7 +2445,8 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               let seq_hdr = &***f.seq_hdr.as_ref().ok_or(EINVAL)?;
               let frame_hdr = &***f.frame_hdr.as_ref().ok_or(EINVAL)?;
 
-              match ::core::primitive::bool::then_some(frame_hdr.loopfilter.level_y != [0; 2], ()) {
+              match ::core::primitive::bool::then_some(frame_hdr.loopfilter.level_y != [0; 2], ())
+              {
                 ::core::option::Option::Some(()) => {
                   drop(f);
                   error_0 = fc.task_thread.error.load(Ordering::SeqCst);
@@ -2271,16 +2458,28 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                     Ordering::SeqCst,
                   );
                   let Ok(length) = console_core_number_conversion::wrapped::<_, u32>(c.fc.len());
-                  let Ok(()) = reset_task_cur_async(ttd, ResetFramePosition { slot: t.frame_idx, frame_count: length });
+                  let Ok(()) = reset_task_cur_async(
+                    ttd,
+                    ResetFramePosition {
+                      slot: t.frame_idx,
+                      frame_count: length,
+                    },
+                  );
 
-                  match ::core::primitive::bool::then_some(ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0, ()) {
+                  match ::core::primitive::bool::then_some(
+                    ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0,
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       ttd.cond.notify_one();
                     }
                     ::core::option::Option::None => {}
                   }
                 }
-                ::core::option::Option::None => match ::core::primitive::bool::then_some(seq_hdr.cdef != 0 || !f.lf.restore_planes.is_empty(), ()) {
+                ::core::option::Option::None => match ::core::primitive::bool::then_some(
+                  seq_hdr.cdef != 0 || !f.lf.restore_planes.is_empty(),
+                  (),
+                ) {
                   ::core::option::Option::Some(()) => {
                     drop(f);
                     let copy_lpf = fc.frame_thread_progress.copy_lpf.try_read().ok_or(EINVAL)?;
@@ -2333,14 +2532,18 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
 
               match ::core::primitive::bool::then_some(seq_hdr.cdef != 0, ()) {
                 ::core::option::Option::Some(()) => {
-                  match ::core::primitive::bool::then_some(fc.task_thread.error.load(Ordering::SeqCst) == 0, ()) {
+                  match ::core::primitive::bool::then_some(
+                    fc.task_thread.error.load(Ordering::SeqCst) == 0,
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       let Ok(bd_fn) = f.bd_fn();
 
                       match (bd_fn.filter_sbrow_cdef)(c, &f, &mut tc, sby) {
                         Ok(()) => {}
                         Err(_invalid_cdef_window) => {
-                          let _previous_error = fc.task_thread.error.fetch_or(1, Ordering::SeqCst);
+                          let _previous_error =
+                            fc.task_thread.error.fetch_or(1, Ordering::SeqCst);
                           next_stage = TaskType::ReconstructionProgress;
                         }
                       }
@@ -2350,9 +2553,18 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
 
                   drop(f);
                   let Ok(length) = console_core_number_conversion::wrapped::<_, u32>(c.fc.len());
-                  let Ok(()) = reset_task_cur_async(ttd, ResetFramePosition { slot: t.frame_idx, frame_count: length });
+                  let Ok(()) = reset_task_cur_async(
+                    ttd,
+                    ResetFramePosition {
+                      slot: t.frame_idx,
+                      frame_count: length,
+                    },
+                  );
 
-                  match ::core::primitive::bool::then_some(ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0, ()) {
+                  match ::core::primitive::bool::then_some(
+                    ttd.cond_signaled.fetch_or(1, Ordering::SeqCst) == 0,
+                    (),
+                  ) {
                     ::core::option::Option::Some(()) => {
                       ttd.cond.notify_one();
                     }
@@ -2369,12 +2581,18 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               let f = fc.data.try_read().ok_or(EINVAL)?;
               let frame_hdr = &***f.frame_hdr.as_ref().ok_or(EINVAL)?;
 
-              match ::core::primitive::bool::then_some((match frame_hdr.size.width {
-                [element, ..] => element,
-              }) != (match frame_hdr.size.width {
-                [_, element, ..] => element,
-              }), ()) {
-                ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(fc.task_thread.error.load(Ordering::SeqCst) == 0, ()) {
+              match ::core::primitive::bool::then_some(
+                (match frame_hdr.size.width {
+                  [element, ..] => element,
+                }) != (match frame_hdr.size.width {
+                  [_, element, ..] => element,
+                }),
+                (),
+              ) {
+                ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(
+                  fc.task_thread.error.load(Ordering::SeqCst) == 0,
+                  (),
+                ) {
                   ::core::option::Option::Some(()) => {
                     let Ok(bd_fn) = f.bd_fn();
 
@@ -2396,9 +2614,11 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
             TaskType::LoopRestoration => {
               let f = fc.data.try_read().ok_or(EINVAL)?;
 
-              match ::core::primitive::bool::then_some(fc.task_thread.error.load(Ordering::SeqCst) == 0
-                && !f.lf.restore_planes.is_empty(), ())
-              {
+              match ::core::primitive::bool::then_some(
+                fc.task_thread.error.load(Ordering::SeqCst) == 0
+                  && !f.lf.restore_planes.is_empty(),
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   let Ok(bd_fn) = f.bd_fn();
 
@@ -2430,18 +2650,19 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
         match ::core::primitive::bool::then_some(t.type_0 == TaskType::EntropyProgress, ()) {
           ::core::option::Option::Some(()) => {
             error_0 = fc.task_thread.error.load(Ordering::SeqCst);
-            let y: c_uint = match ::core::primitive::bool::then_some(i32::wrapping_add(sby, 1) == sbh, ()) {
-              ::core::option::Option::Some(()) => u32::MAX,
-              ::core::option::Option::None => ({
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_add(sby, 1));
-                numeric_value
-              })
-              .wrapping_mul({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sbsz);
-                numeric_value
-              }),
-            };
+            let y: c_uint =
+              match ::core::primitive::bool::then_some(i32::wrapping_add(sby, 1) == sbh, ()) {
+                ::core::option::Option::Some(()) => u32::MAX,
+                ::core::option::Option::None => ({
+                  let Ok(numeric_value) =
+                    console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_add(sby, 1));
+                  numeric_value
+                })
+                .wrapping_mul({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sbsz);
+                  numeric_value
+                }),
+              };
 
             let progress = &**f.sr_cur.progress.as_ref().ok_or(EINVAL)?;
 
@@ -2487,7 +2708,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               1,
             );
 
-            match ::core::primitive::bool::then_some(i32::wrapping_add(sby, 1) < sbh && num_tasks != 0, ()) {
+            match ::core::primitive::bool::then_some(
+              i32::wrapping_add(sby, 1) < sbh && num_tasks != 0,
+              (),
+            ) {
               ::core::option::Option::Some(()) => {
                 let Ok(_) = reset_task_cur(c, ttd, Some(t.frame_idx));
                 continue 'outer;
@@ -2495,18 +2719,20 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               ::core::option::Option::None => {}
             }
 
-            match ::core::primitive::bool::then_some(num_tasks == 0
-              && (*match &fc.task_thread.done {
-                [element_2, ..] => element_2,
-              })
-              .load(Ordering::SeqCst)
-                != 0
-              && (*match &fc.task_thread.done {
-                [_, element_2, ..] => element_2,
-              })
-              .load(Ordering::SeqCst)
-                != 0, ())
-            {
+            match ::core::primitive::bool::then_some(
+              num_tasks == 0
+                && (*match &fc.task_thread.done {
+                  [element_2, ..] => element_2,
+                })
+                .load(Ordering::SeqCst)
+                  != 0
+                && (*match &fc.task_thread.done {
+                  [_, element_2, ..] => element_2,
+                })
+                .load(Ordering::SeqCst)
+                  != 0,
+              (),
+            ) {
               ::core::option::Option::Some(()) => {
                 error_0 = fc.task_thread.error.load(Ordering::SeqCst);
                 let _ = rav1d_decode_frame_exit(
@@ -2514,10 +2740,12 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
                   fc,
                   match ::core::primitive::bool::then_some(error_0 == 1, ()) {
                     ::core::option::Option::Some(()) => Err(EINVAL),
-                    ::core::option::Option::None => match ::core::primitive::bool::then_some(error_0 != 0, ()) {
-                      ::core::option::Option::Some(()) => Err(ENOMEM),
-                      ::core::option::Option::None => Ok(()),
-                    },
+                    ::core::option::Option::None => {
+                      match ::core::primitive::bool::then_some(error_0 != 0, ()) {
+                        ::core::option::Option::Some(()) => Err(ENOMEM),
+                        ::core::option::Option::None => Ok(()),
+                      }
+                    }
                   },
                 );
                 fc.task_thread.cond.notify_one();
@@ -2542,35 +2770,38 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
           let frame_progress = get_frame_progress(fc, &f)?;
           sby = frame_progress;
           error_0 = fc.task_thread.error.load(Ordering::SeqCst);
-          let y_0: c_uint = match ::core::primitive::bool::then_some(i32::wrapping_add(sby, 1) == sbh, ()) {
-            ::core::option::Option::Some(()) => u32::MAX,
-            ::core::option::Option::None => ({
-              let Ok(numeric_value) =
-                console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_add(sby, 1));
-              numeric_value
-            })
-            .wrapping_mul({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sbsz);
-              numeric_value
-            }),
-          };
+          let y_0: c_uint =
+            match ::core::primitive::bool::then_some(i32::wrapping_add(sby, 1) == sbh, ()) {
+              ::core::option::Option::Some(()) => u32::MAX,
+              ::core::option::Option::None => ({
+                let Ok(numeric_value) =
+                  console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_add(sby, 1));
+                numeric_value
+              })
+              .wrapping_mul({
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sbsz);
+                numeric_value
+              }),
+            };
 
           match &f.sr_cur.progress {
-            Some(progress) => match ::core::primitive::bool::then_some(f.sr_cur.p.data.is_some(), ()) {
-              ::core::option::Option::Some(()) => {
-                (*match &**progress {
-                  [_, element_3, ..] => element_3,
-                })
-                .store(
-                  match ::core::primitive::bool::then_some(error_0 != 0, ()) {
-                    ::core::option::Option::Some(()) => FRAME_ERROR,
-                    ::core::option::Option::None => y_0,
-                  },
-                  Ordering::SeqCst,
-                );
+            Some(progress) => {
+              match ::core::primitive::bool::then_some(f.sr_cur.p.data.is_some(), ()) {
+                ::core::option::Option::Some(()) => {
+                  (*match &**progress {
+                    [_, element_3, ..] => element_3,
+                  })
+                  .store(
+                    match ::core::primitive::bool::then_some(error_0 != 0, ()) {
+                      ::core::option::Option::Some(()) => FRAME_ERROR,
+                      ::core::option::Option::None => y_0,
+                    },
+                    Ordering::SeqCst,
+                  );
+                }
+                ::core::option::Option::None => {}
               }
-              ::core::option::Option::None => {}
-            },
+            }
             None => {}
           }
         }
@@ -2594,7 +2825,10 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
           1,
         );
 
-        match ::core::primitive::bool::then_some(i32::wrapping_add(sby, 1) < sbh && num_tasks_0 != 0, ()) {
+        match ::core::primitive::bool::then_some(
+          i32::wrapping_add(sby, 1) < sbh && num_tasks_0 != 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             let Ok(_) = reset_task_cur(c, ttd, Some(t.frame_idx));
             continue 'outer;
@@ -2602,19 +2836,21 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
           ::core::option::Option::None => {}
         }
 
-        match ::core::primitive::bool::then_some(num_tasks_0 == 0
-          && (*match &fc.task_thread.done {
-            [element_2, ..] => element_2,
-          })
-          .load(Ordering::SeqCst)
-            != 0
-          && (uses_2pass_0 == 0
-            || (*match &fc.task_thread.done {
-              [_, element_2, ..] => element_2,
+        match ::core::primitive::bool::then_some(
+          num_tasks_0 == 0
+            && (*match &fc.task_thread.done {
+              [element_2, ..] => element_2,
             })
             .load(Ordering::SeqCst)
-              != 0), ())
-        {
+              != 0
+            && (uses_2pass_0 == 0
+              || (*match &fc.task_thread.done {
+                [_, element_2, ..] => element_2,
+              })
+              .load(Ordering::SeqCst)
+                != 0),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             error_0 = fc.task_thread.error.load(Ordering::SeqCst);
             let _ = rav1d_decode_frame_exit(
@@ -2622,10 +2858,12 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
               fc,
               match ::core::primitive::bool::then_some(error_0 == 1, ()) {
                 ::core::option::Option::Some(()) => Err(EINVAL),
-                ::core::option::Option::None => match ::core::primitive::bool::then_some(error_0 != 0, ()) {
-                  ::core::option::Option::Some(()) => Err(ENOMEM),
-                  ::core::option::Option::None => Ok(()),
-                },
+                ::core::option::Option::None => {
+                  match ::core::primitive::bool::then_some(error_0 != 0, ()) {
+                    ::core::option::Option::Some(()) => Err(ENOMEM),
+                    ::core::option::Option::None => Ok(()),
+                  }
+                }
               },
             );
             fc.task_thread.cond.notify_one();
@@ -2640,7 +2878,7 @@ fn run_worker(c: &Rav1dContext, worker: &Rav1dTaskContextTaskThread) -> Rav1dRes
     }
 
     let held = task_thread_lock.take().ok_or(EINVAL)?;
-      drop(held);
+    drop(held);
   };
 
   Ok(())
@@ -2653,8 +2891,10 @@ mod grain_panic_tests {
   use std::time::Duration;
 
   #[test]
-  fn reservation_caches_finished_fault_and_preserves_unfinished_slot_on_worker_failure() -> Rav1dResult {
-    let (Ok(completed), Ok(incomplete)) = (Rav1dFrameContext::default(0), Rav1dFrameContext::default(1));
+  fn reservation_caches_finished_fault_and_preserves_unfinished_slot_on_worker_failure()
+  -> Rav1dResult {
+    let (Ok(completed), Ok(incomplete)) =
+      (Rav1dFrameContext::default(0), Rav1dFrameContext::default(1));
     completed.task_thread.finished.store(true, Ordering::SeqCst);
     completed.task_thread.error.store(1, Ordering::SeqCst);
 
@@ -2663,7 +2903,10 @@ mod grain_panic_tests {
       *output_fault = Some(EINVAL);
     }
 
-    let decoder = Rav1dContext { fc: Box::new([completed, incomplete]), ..Rav1dContext::default() };
+    let decoder = Rav1dContext {
+      fc: Box::new([completed, incomplete]),
+      ..Rav1dContext::default()
+    };
     let mut state = Rav1dState::default();
     state.frame_thread.out_delayed = Box::new([Default::default(), Default::default()]);
 
@@ -2697,10 +2940,14 @@ mod grain_panic_tests {
     let shared = Arc::clone(&decoder.task_thread);
     let worker = thread::spawn(move || -> Rav1dResult {
       let lock = shared.lock.lock();
-      let (lock_2, timeout) = unpoison(shared.cond.wait_timeout_while(lock, Duration::from_secs(5), |_data| {
-        let Ok(active) = shared.delayed_fg_exec.get();
-        active == 0
-      }));
+      let (lock_2, timeout) = unpoison(shared.cond.wait_timeout_while(
+        lock,
+        Duration::from_secs(5),
+        |_data| {
+          let Ok(active) = shared.delayed_fg_exec.get();
+          active == 0
+        },
+      ));
 
       match timeout.timed_out().then_some(()) {
         Some(()) => {

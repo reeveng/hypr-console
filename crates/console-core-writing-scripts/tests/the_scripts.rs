@@ -19,8 +19,8 @@ const SCRIPTS: &str = include_str!("fixtures/Scripts.txt");
 const ALIASES: &str = include_str!("fixtures/PropertyValueAliases.txt");
 const LAST_CODE_POINT: u32 = 0x10FFFF;
 
-enum Fault {
-  Unreadable { line: u32, reading: Reading },
+enum Error {
+  Read { line: u32, reading: Reading },
   Misread(Vec<Misread>),
   Misnamed(Vec<Misnamed>),
   Unnamed(Vec<Script>),
@@ -59,13 +59,13 @@ struct Misnamed {
   seen: &'static str,
 }
 
-impl std::fmt::Debug for Fault {
+impl std::fmt::Debug for Error {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Fault::Unreadable { line, reading } => {
+      Error::Read { line, reading } => {
         write!(to, "line {line} cannot be read: {reading:?}")
       }
-      Fault::Misread(wrong) => {
+      Error::Misread(wrong) => {
         for one in wrong {
           writeln!(
             to,
@@ -76,7 +76,7 @@ impl std::fmt::Debug for Fault {
 
         Ok(())
       }
-      Fault::Misnamed(wrong) => {
+      Error::Misnamed(wrong) => {
         for one in wrong {
           writeln!(
             to,
@@ -87,8 +87,8 @@ impl std::fmt::Debug for Fault {
 
         Ok(())
       }
-      Fault::Unnamed(scripts) => write!(to, "no alias names {scripts:?}"),
-      Fault::Unclaimed(names) => write!(to, "no script answers to {names:?}"),
+      Error::Unnamed(scripts) => write!(to, "no alias names {scripts:?}"),
+      Error::Unclaimed(names) => write!(to, "no script answers to {names:?}"),
     }
   }
 }
@@ -139,7 +139,7 @@ fn code_points(span: &str) -> Result<std::ops::RangeInclusive<u32>, Reading> {
   Ok(start..=end)
 }
 
-fn wanted() -> Result<Vec<Script>, Fault> {
+fn wanted() -> Result<Vec<Script>, Error> {
   let mut each = vec![Script::Unknown; 0x110000];
 
   for (line, text) in (1_u32..).zip(SCRIPTS.lines()) {
@@ -147,14 +147,14 @@ fn wanted() -> Result<Vec<Script>, Fault> {
 
     match found {
       Some(body) => {
-        let (span, name) = body.split_once(';').ok_or(Fault::Unreadable {
+        let (span, name) = body.split_once(';').ok_or(Error::Read {
           line,
           reading: Reading::Fields,
         })?;
         let codes =
-          code_points(span.trim()).map_err(|reading| Fault::Unreadable { line, reading })?;
+          code_points(span.trim()).map_err(|reading| Error::Read { line, reading })?;
         let Ok(script) = named(name.trim());
-        let claimed = script.ok_or(Fault::Unreadable {
+        let claimed = script.ok_or(Error::Read {
           line,
           reading: Reading::NoSuchScript,
         })?;
@@ -165,7 +165,7 @@ fn wanted() -> Result<Vec<Script>, Fault> {
         match part {
           Some(part_2) => part_2.fill(claimed),
           None => {
-            return Err(Fault::Unreadable {
+            return Err(Error::Read {
               line,
               reading: Reading::Fields,
             });
@@ -180,7 +180,7 @@ fn wanted() -> Result<Vec<Script>, Fault> {
 }
 
 #[test]
-fn every_character_has_the_script_scripts_txt_gives_it() -> Result<(), Fault> {
+fn every_character_has_the_script_scripts_txt_gives_it() -> Result<(), Error> {
   let each = wanted()?;
   let mut wrong = Vec::new();
 
@@ -204,12 +204,12 @@ fn every_character_has_the_script_scripts_txt_gives_it() -> Result<(), Fault> {
 
   match wrong.as_slice() {
     [] => Ok(()),
-    [_, ..] => Err(Fault::Misread(wrong)),
+    [_, ..] => Err(Error::Misread(wrong)),
   }
 }
 
 #[test]
-fn every_script_has_the_short_name_its_alias_gives_it() -> Result<(), Fault> {
+fn every_script_has_the_short_name_its_alias_gives_it() -> Result<(), Error> {
   let mut wrong = Vec::new();
   let mut seen = HashSet::new();
   let mut unclaimed = Vec::new();
@@ -225,7 +225,7 @@ fn every_script_has_the_short_name_its_alias_gives_it() -> Result<(), Fault> {
       [] => continue,
       ["sc", short, long, ..] => (*short, *long),
       _ => {
-        return Err(Fault::Unreadable {
+        return Err(Error::Read {
           line,
           reading: Reading::Fields,
         });
@@ -261,9 +261,9 @@ fn every_script_has_the_short_name_its_alias_gives_it() -> Result<(), Fault> {
 
   match (wrong.as_slice(), unnamed.as_slice(), unclaimed.as_slice()) {
     ([], [], ["Katakana_Or_Hiragana"]) => Ok(()),
-    ([_, ..], _, _) => Err(Fault::Misnamed(wrong)),
-    ([], [_, ..], _) => Err(Fault::Unnamed(unnamed)),
-    ([], [], _) => Err(Fault::Unclaimed(unclaimed)),
+    ([_, ..], _, _) => Err(Error::Misnamed(wrong)),
+    ([], [_, ..], _) => Err(Error::Unnamed(unnamed)),
+    ([], [], _) => Err(Error::Unclaimed(unclaimed)),
   }
 }
 

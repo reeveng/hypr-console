@@ -18,7 +18,9 @@ where
 
     Ok(match (wide_value.cmp(&MIN), wide_value.cmp(&MAX)) {
       (Ordering::Less, _) | (_, Ordering::Greater) => None,
-      (Ordering::Equal | Ordering::Greater, Ordering::Equal | Ordering::Less) => Some(Self(value)),
+      (Ordering::Equal | Ordering::Greater, Ordering::Equal | Ordering::Less) => {
+        Some(Self(value))
+      }
     })
   }
 }
@@ -43,7 +45,8 @@ impl<T: fmt::Display, const MIN: u128, const MAX: u128> fmt::Display for InRange
 
 impl<const MIN: u128, const MAX: u128> InRange<u8, MIN, MAX> {
   pub const fn constant(value: u8) -> Result<Self, Never> {
-    let wide_value = console_core_number_conversion::const_wrapped_integer!(unsigned u8 => u128, value);
+    let wide_value =
+      console_core_number_conversion::const_wrapped_integer!(unsigned u8 => u128, value);
     assert!(wide_value >= MIN && wide_value <= MAX);
     Ok(Self(value))
   }
@@ -52,7 +55,10 @@ impl<const MIN: u128, const MAX: u128> InRange<u8, MIN, MAX> {
 impl<const MAX: u128> InRange<u16, 0, MAX> {
   #[cfg_attr(
     dylint_lib = "explicit011_no_as_cast",
-    expect(explicit011_no_as_cast, reason = "the compile-time scan table range check widens a u16 exactly, and From is unavailable in constant evaluation")
+    expect(
+      explicit011_no_as_cast,
+      reason = "the compile-time scan table range check widens a u16 exactly, and From is unavailable in constant evaluation"
+    )
   )]
   pub const fn new_array<const N: usize>(coefficients: [u16; N]) -> Result<[Self; N], Never> {
     let mut validated = [Self(0); N];

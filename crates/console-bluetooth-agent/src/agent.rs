@@ -53,10 +53,12 @@ pub enum Answer {
 }
 
 pub fn answering(asked: Address, introducing: Address) -> Result<Answer, Never> {
-  Ok(match ::core::primitive::bool::then_some(asked == introducing, ()) {
-    ::core::option::Option::Some(()) => Answer::Allow,
-    ::core::option::Option::None => Answer::Reject,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(asked == introducing, ()) {
+      ::core::option::Option::Some(()) => Answer::Allow,
+      ::core::option::Option::None => Answer::Reject,
+    },
+  )
 }
 
 pub fn reason(error: &Error) -> Result<Reason, Never> {

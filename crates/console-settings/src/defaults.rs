@@ -205,10 +205,12 @@ pub fn choice_rows(
     let Ok(uses) = use_(kind, application);
     let Ok(row) = Row::new(
       &application.says,
-      Aside(match ::core::primitive::bool::then_some(application.id == default, ()) {
-        ::core::option::Option::Some(()) => NOW,
-        ::core::option::Option::None => "",
-      }),
+      Aside(
+        match ::core::primitive::bool::then_some(application.id == default, ()) {
+          ::core::option::Option::Some(()) => NOW,
+          ::core::option::Option::None => "",
+        },
+      ),
       uses,
     );
 
@@ -236,28 +238,30 @@ mod tests {
   }
 
   fn applications() -> Result<Vec<Application>, Never> {
-    Ok([
-      (
-        "librewolf.desktop",
-        "Name=LibreWolf\nMimeType=x-scheme-handler/https;image/png;text/html;\n",
-      ),
-      (
-        "chromium.desktop",
-        "Name=Chromium\nMimeType=x-scheme-handler/https;\n",
-      ),
-      (
-        "org.kde.kate.desktop",
-        "Name=Kate\nCategories=TextEditor;\nMimeType=text/plain;\nExec=kate %U\n",
-      ),
-    ]
-    .into_iter()
-    .filter_map(|(id, fields)| {
-      let held = format!("[Desktop Entry]\nType=Application\n{fields}");
-      let Ok(app) = Application::read(Path::new(id), &held);
+    Ok(
+      [
+        (
+          "librewolf.desktop",
+          "Name=LibreWolf\nMimeType=x-scheme-handler/https;image/png;text/html;\n",
+        ),
+        (
+          "chromium.desktop",
+          "Name=Chromium\nMimeType=x-scheme-handler/https;\n",
+        ),
+        (
+          "org.kde.kate.desktop",
+          "Name=Kate\nCategories=TextEditor;\nMimeType=text/plain;\nExec=kate %U\n",
+        ),
+      ]
+      .into_iter()
+      .filter_map(|(id, fields)| {
+        let held = format!("[Desktop Entry]\nType=Application\n{fields}");
+        let Ok(app) = Application::read(Path::new(id), &held);
 
-      app
-    })
-    .collect())
+        app
+      })
+      .collect(),
+    )
   }
 
   fn choices(kind: &'static Kind, set: &str) -> Result<Vec<Row>, Never> {

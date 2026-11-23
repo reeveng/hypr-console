@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
 use console_core_never::Never;
-use console_program_contract::{Effect, Elapsed, Event, Job};
+use console_program_contract::{Effect, Elapsed, Event, Task};
 
 use crate::{Invocation, Platform, Subscribed, Wake};
 
@@ -201,7 +201,7 @@ impl<E: Clone, F: Clone + PartialEq> Platform for Simulation<E, F> {
     Ok(())
   }
 
-  fn finish(&mut self, jobs: &BTreeMap<Job, Invocation>) -> Result<(), SimulationError> {
+  fn finish(&mut self, jobs: &BTreeMap<Task, Invocation>) -> Result<(), SimulationError> {
     self.arrivals.retain(|(_, wake)| match wake {
       Wake::ForkReply(invocation, _) => jobs.get(&invocation.job) != Some(invocation),
       Wake::Event(_) | Wake::Deadline | Wake::Disconnected | Wake::Stop(_) => true,

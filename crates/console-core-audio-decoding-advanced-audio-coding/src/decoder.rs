@@ -22,7 +22,7 @@ use console_core_audio_decoding_interfaces::units::Duration;
 use console_core_byte_streams::{BitReaderLtr, FiniteBitStream, FlagBit, ReadBitsLtr};
 use console_core_number_conversion::index;
 
-use crate::config::{Config, map_channels};
+use crate::config::{Configuration, map_channels};
 use crate::lane::{Constraint, Lane, Sure};
 use crate::pair::{ChannelPair, Layout};
 use crate::subbands::Subbands;
@@ -70,7 +70,7 @@ struct Cursor {
 }
 
 pub struct AacDecoder {
-  config: Config,
+  config: Configuration,
   pairs: Vec<ChannelPair>,
   dsp: Dsp,
   subbands: Subbands,
@@ -251,8 +251,8 @@ impl Decoder for AacDecoder {
     }
 
     let config = match &params.extra_data {
-      Some(extra_data) => Config::from_audio_specific_config(extra_data)?,
-      None => Config::from_parameters(params)?,
+      Some(extra_data) => Configuration::from_audio_specific_config(extra_data)?,
+      None => Configuration::from_parameters(params)?,
     };
     let Ok(layout) = map_channels(config.channels);
     let channels = match layout {

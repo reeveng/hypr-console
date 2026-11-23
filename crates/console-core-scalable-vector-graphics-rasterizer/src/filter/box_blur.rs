@@ -173,7 +173,9 @@ fn blur_line(window: LineWindow, input: &[Rgba8], output: &mut [Rgba8]) -> Resul
     let Ok(pixel) = window.pixel(input, position);
 
     match pixel {
-      Some(pixel_2) => { let Ok(()) = total.add(pixel_2); }
+      Some(pixel_2) => {
+        let Ok(()) = total.add(pixel_2);
+      }
       None => return Ok(()),
     }
   }
@@ -195,7 +197,9 @@ fn blur_line(window: LineWindow, input: &[Rgba8], output: &mut [Rgba8]) -> Resul
         let Ok(pixel) = window.pixel(input, leaving_2);
 
         match pixel {
-          Some(pixel_3) => { let Ok(()) = total.remove(pixel_3); }
+          Some(pixel_3) => {
+            let Ok(()) = total.remove(pixel_3);
+          }
           None => return Ok(()),
         }
       }

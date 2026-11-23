@@ -482,7 +482,7 @@ impl Looking {
         let Ok(was) = stirred(&self.watching, at);
         let Ok(_effects) = self.handle_event(ViewerEvent::WakeOutcome(at));
 
-        Reply::Awake(match was {
+        Reply::WakeResult(match was {
           crate::watching::WakeOutcome::AlreadyAwake => WakeOutcome::AlreadyAwake,
           crate::watching::WakeOutcome::Woke => WakeOutcome::Woke,
         })
@@ -668,7 +668,7 @@ enum Reply {
   Location { folder: PathBuf, at: PathBuf },
   Time(Since),
   Edited(EditReply),
-  Awake(WakeOutcome),
+  WakeResult(WakeOutcome),
 }
 
 enum EditReply {
@@ -1409,7 +1409,7 @@ fn stir(held: &Shared) -> Result<WakeOutcome, Never> {
   let Ok(reply) = ask(held, Request::Wake);
 
   Ok(match reply {
-    Some(Reply::Awake(wake)) => wake,
+    Some(Reply::WakeResult(wake)) => wake,
     Some(_) | None => WakeOutcome::AlreadyAwake,
   })
 }
@@ -1561,12 +1561,8 @@ const NO_FOLDER: &str = "No Pictures Folder";
 
 fn saying_only(says: &'static str) -> Result<Card, Never> {
   Card::new(move || {
-    let Ok(asked) = Rows::computed(move || {
-      let Ok(row) = Row::placeholder(says);
-
-      vec![row]
-    });
-    let Ok(page) = Page::new("Media", asked);
+    let Ok(row) = Row::placeholder(says);
+    let Ok(page) = Page::new("Media", Rows::Fixed(vec![row]));
 
     vec![page]
   })

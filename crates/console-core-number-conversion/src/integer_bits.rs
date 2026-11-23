@@ -17,14 +17,14 @@ use console_core_never::Never;
 
 enum Rounding {
   Increment,
-  Keep,
+  Retain,
 }
 
 impl From<bool> for Rounding {
   fn from(round_up: bool) -> Self {
     match bool::then_some(round_up, ()) {
       Some(()) => Self::Increment,
-      None => Self::Keep,
+      None => Self::Retain,
     }
   }
 }
@@ -306,12 +306,11 @@ pub fn nearest_f32_from_u64(value: u64) -> Result<f32, Never> {
       let retained = value.wrapping_shr(shift);
       let remainder = value & 1u64.wrapping_shl(shift).wrapping_sub(1);
       let halfway = 1u64.wrapping_shl(shift.wrapping_sub(1));
-      let rounding = Rounding::from(
-        remainder > halfway || (remainder == halfway && retained & 1 != 0),
-      );
+      let rounding =
+        Rounding::from(remainder > halfway || (remainder == halfway && retained & 1 != 0));
       let increment = match rounding {
         Rounding::Increment => 1,
-        Rounding::Keep => 0,
+        Rounding::Retain => 0,
       };
 
       retained.wrapping_add(increment)

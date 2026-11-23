@@ -247,18 +247,20 @@ fn cached(entry: &[Option<CodeFromPath>], position: u32) -> Result<Cached, Never
 fn read(entry: &mut Vec<Option<CodeFromPath>>, path: &Path) -> Result<Option<Loaded>, Never> {
   let bytes = match std::fs::read(path) {
     Ok(read_bytes) => read_bytes,
-    Err(err) => match ::core::primitive::bool::then_some(err.kind() == io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => {
-        entry.push(None);
-        return Ok(None);
+    Err(err) => {
+      match ::core::primitive::bool::then_some(err.kind() == io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => {
+          entry.push(None);
+          return Ok(None);
+        }
+        ::core::option::Option::None => {
+          return Ok(Some(Err(CodeLoaderError {
+            path: path.display().to_string(),
+            err,
+          })));
+        }
       }
-      ::core::option::Option::None => {
-        return Ok(Some(Err(CodeLoaderError {
-          path: path.display().to_string(),
-          err,
-        })));
-      }
-    },
+    }
   };
   let Ok(code) = Code::owning(bytes);
   let res = CodeFromPath {

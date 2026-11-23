@@ -91,7 +91,10 @@ impl MpaDecoder {
     let Ok(mut reader) = packet.as_buf_reader();
     let header = read_frame_header(&mut reader)?;
 
-    match ::core::primitive::bool::then_some(u64::from(header.frame_size) == reader.bytes_available(), ()) {
+    match ::core::primitive::bool::then_some(
+      u64::from(header.frame_size) == reader.bytes_available(),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return decode_error("mpa: invalid packet length"),
     }

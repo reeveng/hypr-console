@@ -122,10 +122,12 @@ pub fn repeat_mode(
     | Kind::Compose => RepeatMode::Once,
   };
 
-  Ok(match ::core::primitive::bool::then_some(before == after, ()) {
-    ::core::option::Option::Some(()) => types,
-    ::core::option::Option::None => RepeatMode::Once,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(before == after, ()) {
+      ::core::option::Option::Some(()) => types,
+      ::core::option::Option::None => RepeatMode::Once,
+    },
+  )
 }
 
 pub fn symbols(walk: &[LayoutKind]) -> Result<Option<LayoutKind>, Never> {
@@ -393,7 +395,10 @@ impl Typist {
         let Ok(()) = self.set_modifiers(held);
         let Ok(()) = self.tap(code);
 
-        match ::core::primitive::bool::then_some(reset == Drops::Modifiers || self.held != modifiers::NONE, ()) {
+        match ::core::primitive::bool::then_some(
+          reset == Drops::Modifiers || self.held != modifiers::NONE,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             self.held &= modifiers::CAPS_LOCK;
             let Ok(()) = self.set_modifiers(self.held);
@@ -406,7 +411,10 @@ impl Typist {
         }
       }
       Kind::Copy { code, shifted } => {
-        let which = match ::core::primitive::bool::then_some(self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0, ()) {
+        let which = match ::core::primitive::bool::then_some(
+          self.held & (modifiers::SHIFT | modifiers::CAPS_LOCK) != 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => shifted,
           ::core::option::Option::None => code,
         };

@@ -286,7 +286,8 @@ fn packages_of_binaries(facts: &[Fact]) -> Result<BTreeMap<String, String>, Neve
 fn unit(drawing: &mut Drawing, unit: &Unit, architecture: &Architecture) -> Result<(), Never> {
   let Ok(id) = unit_id(&unit.name);
   let Ok(binaries) = packages_of_binaries(&architecture.facts);
-  let of = match ::core::primitive::bool::then_some(architecture.enabled.contains(&unit.name), ()) {
+  let of = match ::core::primitive::bool::then_some(architecture.enabled.contains(&unit.name), ())
+  {
     ::core::option::Option::Some(()) => Of::EnabledUnit,
     ::core::option::Option::None => Of::Unit,
   };

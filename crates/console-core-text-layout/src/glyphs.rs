@@ -27,7 +27,9 @@ use console_core_path_rasterizer::{FillRule, Mask, Path, PathBuilder, Transform}
 use console_core_picture_scaling::Source;
 use core::fmt;
 use skrifa::bitmap::{BitmapData, BitmapGlyph, BitmapStrikes, Origin};
-use skrifa::outline::{DrawSettings, HintingInstance, HintingMode, LcdLayout, LinearMetrics, OutlinePen};
+use skrifa::outline::{
+  DrawSettings, HintingInstance, HintingMode, LcdLayout, LinearMetrics, OutlinePen,
+};
 use skrifa::prelude::{FontRef, GlyphId, LocationRef, Size};
 use skrifa::{MetadataProvider, Tag};
 
@@ -94,12 +96,12 @@ impl fmt::Debug for GlyphCache {
 )]
 struct Slant(f32);
 
-struct Drawn {
+struct Rendered {
   path: PathBuilder,
   slant: Slant,
 }
 
-impl OutlinePen for Drawn {
+impl OutlinePen for Rendered {
   fn move_to(&mut self, x: f32, y: f32) {
     let ::core::result::Result::Ok(()) = self.path.move_to(x + self.slant.0 * y, -y);
   }
@@ -172,7 +174,7 @@ fn path(
   let size = Size::new(f32::from_bits(key.font_size_bits));
   let Ok(slant) = slant(key);
   let Ok(path) = PathBuilder::new();
-  let mut pen = Drawn { path, slant };
+  let mut pen = Rendered { path, slant };
 
   let drawn = match hinting {
     Some(instance) => glyph.draw(DrawSettings::hinted(instance, false), &mut pen),

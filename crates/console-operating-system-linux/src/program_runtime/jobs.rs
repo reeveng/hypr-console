@@ -4,17 +4,17 @@ use std::sync::mpsc::SyncSender;
 use std::thread::{Builder, JoinHandle};
 
 use console_core_never::Never;
-use console_program_contract::{Answer, ExitStatus, Fork, Job};
+use console_program_contract::{Answer, ExitStatus, Fork, Task};
 use console_program_lifetime::{Insistence, Interruption};
-use console_program_runtime::{Invocation, ReplyStatus};
 use console_program_runtime::commands::{self, Streams};
+use console_program_runtime::{Invocation, ReplyStatus};
 
 use super::Arrived;
 use super::commands::{Linux, Timing, finished};
 use crate::program_lifetime::ForkCancellation;
 
 #[derive(Default)]
-pub(super) struct Jobs(BTreeMap<Job, Running>);
+pub(super) struct Tasks(BTreeMap<Task, Running>);
 
 struct Running {
   invocation: Invocation,
@@ -23,7 +23,7 @@ struct Running {
   worker: JoinHandle<()>,
 }
 
-impl Jobs {
+impl Tasks {
   pub(super) fn start<E: Send + 'static>(
     &mut self,
     called: &str,
@@ -53,7 +53,7 @@ impl Jobs {
     Ok(())
   }
 
-  pub(super) fn interrupt(&mut self, job: &Job) -> Result<(), Never> {
+  pub(super) fn interrupt(&mut self, job: &Task) -> Result<(), Never> {
     match self.0.get_mut(job) {
       Some(running) => {
         let Ok((insistence, interruption)) = running.interruption.again();
@@ -174,7 +174,9 @@ fn start<E: Send + 'static>(
 
     match replies_2.send(Arrived::Reply(identity, answer)) {
       Ok(()) => {}
-      Err(_stopped) => console_core_logging::trace!("the program stopped before its job reply arrived"),
+      Err(_stopped) => {
+        console_core_logging::trace!("the program stopped before its job reply arrived")
+      }
     }
   })?;
 
@@ -237,7 +239,7 @@ mod tests {
 
       for (id, command) in [(JobId(1), sleeping), (JobId(2), finished)] {
         let Ok(()) = effects.offer(Effect::Fork(Fork {
-          job: Job {
+          job: Task {
             owner: JobOwner("shutdown test"),
             id,
           },
@@ -277,7 +279,7 @@ mod tests {
         subscriptions,
         arrived: Some(arrived),
         forking,
-        jobs: Jobs::default(),
+        jobs: Tasks::default(),
         listening: Subscribed::No,
         clock: Clock {
           began: Instant::now(),

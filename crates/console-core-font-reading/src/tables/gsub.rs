@@ -41,7 +41,10 @@ impl<'a> SubstitutionLookup<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SubstitutionLookup::lookup_flag` method returns `LookupFlag` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SubstitutionLookup::lookup_flag` method returns `LookupFlag` directly in the existing parser interface"
+    )
   )]
   pub fn lookup_flag(&self) -> LookupFlag {
     let Ok(of_unit_type) = self.of_unit_type();
@@ -53,7 +56,10 @@ impl<'a> SubstitutionLookup<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SubstitutionLookup::lookup_type` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SubstitutionLookup::lookup_type` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn lookup_type(&self) -> u16 {
     let Ok(of_unit_type) = self.of_unit_type();
@@ -65,7 +71,10 @@ impl<'a> SubstitutionLookup<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SubstitutionLookup::mark_filtering_set` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SubstitutionLookup::mark_filtering_set` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn mark_filtering_set(&self) -> Option<u16> {
     let Ok(of_unit_type) = self.of_unit_type();

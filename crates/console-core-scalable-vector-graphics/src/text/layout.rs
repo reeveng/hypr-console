@@ -19,7 +19,8 @@ use crate::tree::{BBox, IsValidLength};
 use crate::{
   AlignmentBaseline, ApproxZeroUlps, BaselineShift, DominantBaseline, Fill, FillRule, Font,
   FontResolver, GlyphId, LengthAdjust, PaintOrder, Path, ShapeRendering, Stroke, Text,
-  TextAnchor, TextChunk, TextDecorationStyle, TextFlow, TextPath, TextSpan, UserLength, WritingMode,
+  TextAnchor, TextChunk, TextDecorationStyle, TextFlow, TextPath, TextSpan, UserLength,
+  WritingMode,
 };
 
 #[derive(Clone, Debug)]
@@ -45,11 +46,17 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "The public font size is in resolved SVG user units")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "The public font size is in resolved SVG user units"
+    )
   )]
   pub fn font_size(&self) -> f32 {
     self.font_size.get()
@@ -58,7 +65,10 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   pub fn transform(&self) -> Transform {
     let sx = self.font_size.get()
@@ -77,7 +87,10 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   pub fn outline_transform(&self) -> Transform {
     let Ok(pre_concat) = ({
@@ -95,11 +108,17 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "Bitmap x and y are the stored glyph bearings in pixels and its density is pixels per em")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "Bitmap x and y are the stored glyph bearings in pixels and its density is pixels per em"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
@@ -131,11 +150,17 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "Bitmap bearings and height are pixels, outline minima are font units and density is pixels per em")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "Bitmap bearings and height are pixels, outline minima are font units and density is pixels per em"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
@@ -188,7 +213,10 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   pub fn svg_transform(&self) -> Transform {
     {
@@ -200,7 +228,10 @@ impl PositionedGlyph {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "The published glyph accessor returns its value directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "The published glyph accessor returns its value directly"
+    )
   )]
   pub fn colr_transform(&self) -> Transform {
     self.outline_transform()
@@ -310,7 +341,7 @@ pub(crate) fn layout_text(
     match ::core::primitive::bool::then_some(clusters.is_empty(), ()) {
       ::core::option::Option::Some(()) => {
         let Ok(count) = console_core_number_conversion::fixed_index(chunk.text.chars().count());
-    char_offset = char_offset.wrapping_add(count);
+        char_offset = char_offset.wrapping_add(count);
         continue;
       }
       ::core::option::Option::None => {}
@@ -363,7 +394,10 @@ pub(crate) fn layout_text(
     let Ok(count) = console_core_number_conversion::fixed_index(chunk.text.chars().count());
     char_offset = char_offset.wrapping_add(count);
 
-    match ::core::primitive::bool::then_some(text_node.writing_mode == WritingMode::TopToBottom, ()) {
+    match ::core::primitive::bool::then_some(
+      text_node.writing_mode == WritingMode::TopToBottom,
+      (),
+    ) {
       ::core::option::Option::Some(()) => match chunk.text_flow {
         TextFlow::Linear => {
           std::mem::swap(&mut curr_pos.x, &mut curr_pos.y);
@@ -384,7 +418,10 @@ pub(crate) fn layout_text(
 
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "Font resolution can extend the shared copy-on-write font catalogue")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "Font resolution can extend the shared copy-on-write font catalogue"
+  )
 )]
 fn layout_fonts(
   text: &Text,
@@ -421,7 +458,12 @@ struct SpanLayout<'a> {
 }
 
 impl SpanLayout<'_> {
-  fn span(&self, span: &TextSpan, font: &ResolvedFont, bbox: &mut BBox) -> Result<Option<Span>, Never> {
+  fn span(
+    &self,
+    span: &TextSpan,
+    font: &ResolvedFont,
+    bbox: &mut BBox,
+  ) -> Result<Option<Span>, Never> {
     let Ok(metrics) = font.metrics(span.font_size);
     let Ok(segments) = collect_decoration_spans(span, self.clusters);
     let transform = match self.flow {
@@ -434,13 +476,34 @@ impl SpanLayout<'_> {
       TextFlow::Path(_) => self.origin,
     };
     let (underline_offset, overline_offset, line_through_offset) = match self.mode {
-      WritingMode::LeftToRight => (-metrics.underline_position.0, -metrics.ascent.0, -metrics.line_through_position.0),
+      WritingMode::LeftToRight => (
+        -metrics.underline_position.0,
+        -metrics.ascent.0,
+        -metrics.line_through_position.0,
+      ),
       WritingMode::TopToBottom => (metrics.height.0 / 2.0, -metrics.height.0 / 2.0, 0.0),
     };
-    let decoration = DecorationLayout { span, segments: &segments, transform, thickness: metrics.underline_thickness };
-    let Ok(underline) = decoration.line(span.decoration.underline.as_ref(), UserLength(underline_offset), bbox);
-    let Ok(overline) = decoration.line(span.decoration.overline.as_ref(), UserLength(overline_offset), bbox);
-    let Ok(line_through) = decoration.line(span.decoration.line_through.as_ref(), UserLength(line_through_offset), bbox);
+    let decoration = DecorationLayout {
+      span,
+      segments: &segments,
+      transform,
+      thickness: metrics.underline_thickness,
+    };
+    let Ok(underline) = decoration.line(
+      span.decoration.underline.as_ref(),
+      UserLength(underline_offset),
+      bbox,
+    );
+    let Ok(overline) = decoration.line(
+      span.decoration.overline.as_ref(),
+      UserLength(overline_offset),
+      bbox,
+    );
+    let Ok(line_through) = decoration.line(
+      span.decoration.line_through.as_ref(),
+      UserLength(line_through_offset),
+      bbox,
+    );
     let Ok(converted) = convert_span(span, self.clusters, transform);
     let (fragments, bounds) = match converted {
       Some(layout) => layout,
@@ -448,16 +511,19 @@ impl SpanLayout<'_> {
     };
     let Ok(expanded) = bbox.expand(bounds);
     *bbox = expanded;
-    let positioned_glyphs = fragments.into_iter().flat_map(|mut cluster| {
-      let Ok(placement) = cluster.transform();
+    let positioned_glyphs = fragments
+      .into_iter()
+      .flat_map(|mut cluster| {
+        let Ok(placement) = cluster.transform();
 
-      for glyph in &mut cluster.glyphs {
-        glyph.cluster_ts = placement;
-        glyph.span_ts = transform;
-      }
+        for glyph in &mut cluster.glyphs {
+          glyph.cluster_ts = placement;
+          glyph.span_ts = transform;
+        }
 
-      cluster.glyphs
-    }).collect();
+        cluster.glyphs
+      })
+      .collect();
 
     Ok(Some(Span {
       fill: span.fill.clone().map(|mut fill| {
@@ -497,7 +563,14 @@ impl DecorationLayout<'_> {
       None => return Ok(None),
     };
 
-    match convert_decoration(offset, self.span, self.thickness, authored, self.segments, self.transform) {
+    match convert_decoration(
+      offset,
+      self.span,
+      self.thickness,
+      authored,
+      self.segments,
+      self.transform,
+    ) {
       Ok(Some(path)) => {
         let Ok(outline) = path.data.bounds();
         let Ok(expanded) = bounds.expand(outline);
@@ -543,8 +616,7 @@ fn convert_span(
     }
 
     let Ok(height) = cluster.height();
-    let Ok(non_zero_rect) =
-      NonZeroRect::from_xywh(0.0, -cluster.ascent.0, advance, height.0);
+    let Ok(non_zero_rect) = NonZeroRect::from_xywh(0.0, -cluster.ascent.0, advance, height.0);
 
     match non_zero_rect {
       Some(r) => {
@@ -596,10 +668,16 @@ fn collect_decoration_spans(
   for cluster in clusters {
     match span_membership(span, cluster.byte_idx) {
       Ok(SpanMembership::Inside) => {
-        match ::core::primitive::bool::then_some(started && cluster.placement == ClusterPlacement::Shifted, ()) {
+        match ::core::primitive::bool::then_some(
+          started && cluster.placement == ClusterPlacement::Shifted,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             started = false;
-            spans.push(DecorationSpan { width: UserLength(width), transform });
+            spans.push(DecorationSpan {
+              width: UserLength(width),
+              transform,
+            });
           }
           ::core::option::Option::None => {}
         }
@@ -617,7 +695,10 @@ fn collect_decoration_spans(
       }
       Ok(SpanMembership::Outside) => match ::core::primitive::bool::then_some(started, ()) {
         ::core::option::Option::Some(()) => {
-          spans.push(DecorationSpan { width: UserLength(width), transform });
+          spans.push(DecorationSpan {
+            width: UserLength(width),
+            transform,
+          });
           started = false;
         }
         ::core::option::Option::None => {}
@@ -627,7 +708,10 @@ fn collect_decoration_spans(
 
   match ::core::primitive::bool::then_some(started, ()) {
     ::core::option::Option::Some(()) => {
-      spans.push(DecorationSpan { width: UserLength(width), transform });
+      spans.push(DecorationSpan {
+        width: UserLength(width),
+        transform,
+      });
     }
     ::core::option::Option::None => {}
   }
@@ -665,7 +749,9 @@ fn convert_decoration(
       }
     };
 
-    let Ok(ts) = dec_span.transform.pre_translate_by(Point { x: 0.0, y: dy.0 });
+    let Ok(ts) = dec_span
+      .transform
+      .pre_translate_by(Point { x: 0.0, y: dy.0 });
 
     let Ok(rect_rect) = rect.to_rect();
     let Ok(mut path) = console_core_paths::PathBuilder::from_rect(rect_rect);
@@ -716,15 +802,27 @@ fn resolve_clusters_positions(
   clusters: &mut [GlyphCluster],
 ) -> Result<Point, Never> {
   match chunk.text_flow {
-    TextFlow::Linear => resolve_clusters_positions_horizontal(text, chunk, char_offset, writing_mode, clusters),
+    TextFlow::Linear => {
+      resolve_clusters_positions_horizontal(text, chunk, char_offset, writing_mode, clusters)
+    }
     TextFlow::Path(ref path) => resolve_clusters_positions_path(
-      text, chunk, char_offset, path, writing_mode, fonts_cache, clusters,
+      text,
+      chunk,
+      char_offset,
+      path,
+      writing_mode,
+      fonts_cache,
+      clusters,
     ),
   }
 }
 
 fn clusters_length(clusters: &[GlyphCluster]) -> Result<UserLength, Never> {
-  Ok(UserLength(clusters.iter().fold(0.0, |width, cluster| width + cluster.advance.0)))
+  Ok(UserLength(
+    clusters
+      .iter()
+      .fold(0.0, |width, cluster| width + cluster.advance.0),
+  ))
 }
 
 fn resolve_clusters_positions_horizontal(
@@ -755,8 +853,12 @@ fn resolve_clusters_positions_horizontal(
         }
 
         cluster.placement = match (dx.zero_proximity(4), dy.zero_proximity(4)) {
-          (crate::ZeroProximity::NearZero, crate::ZeroProximity::NearZero) => ClusterPlacement::Flow,
-          (crate::ZeroProximity::Nonzero, _) | (_, crate::ZeroProximity::Nonzero) => ClusterPlacement::Shifted,
+          (crate::ZeroProximity::NearZero, crate::ZeroProximity::NearZero) => {
+            ClusterPlacement::Flow
+          }
+          (crate::ZeroProximity::Nonzero, _) | (_, crate::ZeroProximity::Nonzero) => {
+            ClusterPlacement::Shifted
+          }
         };
       }
       (None, _) | (_, None) => {}
@@ -796,7 +898,8 @@ fn character_adjustments(
   byte: ByteIndex,
 ) -> Result<CharacterAdjustments, Never> {
   let Ok(relative_char) = byte.code_point_at(chunk);
-  let Ok(index) = console_core_number_conversion::wrapped_index(first_char.wrapping_add(relative_char));
+  let Ok(index) =
+    console_core_number_conversion::wrapped_index(first_char.wrapping_add(relative_char));
 
   Ok(CharacterAdjustments {
     dx: text.dx.get(index).copied(),
@@ -830,7 +933,16 @@ fn resolve_baseline(
           let Ok(alignment) = alignment_for_dominant_baseline(span.dominant_baseline);
           alignment
         }
-        alignment @ (AlignmentBaseline::BeforeEdge | AlignmentBaseline::TextBeforeEdge | AlignmentBaseline::Middle | AlignmentBaseline::Central | AlignmentBaseline::AfterEdge | AlignmentBaseline::TextAfterEdge | AlignmentBaseline::Ideographic | AlignmentBaseline::Alphabetic | AlignmentBaseline::Hanging | AlignmentBaseline::Mathematical) => alignment,
+        alignment @ (AlignmentBaseline::BeforeEdge
+        | AlignmentBaseline::TextBeforeEdge
+        | AlignmentBaseline::Middle
+        | AlignmentBaseline::Central
+        | AlignmentBaseline::AfterEdge
+        | AlignmentBaseline::TextAfterEdge
+        | AlignmentBaseline::Ideographic
+        | AlignmentBaseline::Alphabetic
+        | AlignmentBaseline::Hanging
+        | AlignmentBaseline::Mathematical) => alignment,
       };
       let Ok(offset) = metrics.baseline(alignment);
       positioned_shift += offset.0;
@@ -915,7 +1027,14 @@ fn resolve_clusters_positions_path(
       ::core::option::Option::None => 0.0,
     };
 
-    match ::core::primitive::bool::then_some(!matches!(dy.zero_proximity(4), crate::ZeroProximity::NearZero) || !matches!(baseline_shift.zero_proximity(4), crate::ZeroProximity::NearZero), ()) {
+    match ::core::primitive::bool::then_some(
+      !matches!(dy.zero_proximity(4), crate::ZeroProximity::NearZero)
+        || !matches!(
+          baseline_shift.zero_proximity(4),
+          crate::ZeroProximity::NearZero
+        ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let shift = kurbo::Vec2::new(
           0.0,
@@ -955,7 +1074,10 @@ fn resolve_clusters_positions_path(
     last_y = y;
   }
 
-  Ok(Point { x: last_x, y: last_y })
+  Ok(Point {
+    x: last_x,
+    y: last_y,
+  })
 }
 
 fn process_anchor(anchor: TextAnchor, width: UserLength) -> Result<UserLength, Never> {
@@ -973,7 +1095,10 @@ struct PathNormal {
 
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "This type stores degrees for a path tangent rotation")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "This type stores degrees for a path tangent rotation"
+  )
 )]
 struct TextAngle(f32);
 
@@ -994,7 +1119,8 @@ fn collect_normals(
     for cluster in clusters {
       let half_width = cluster.width.0 / 2.0;
 
-      let Ok(adjustments) = character_adjustments(text, &chunk.text, char_offset, cluster.byte_idx);
+      let Ok(adjustments) =
+        character_adjustments(text, &chunk.text, char_offset, cluster.byte_idx);
       advance += match adjustments.dx {
         Some(dx) => dx,
         None => 0.0,
@@ -1035,9 +1161,16 @@ fn collect_normals(
     };
 
     for offset_3 in unplaced {
-      match (length..=length + curve_len).contains(offset_3).then_some(()) {
+      match (length..=length + curve_len)
+        .contains(offset_3)
+        .then_some(())
+      {
         Some(()) => {
-          let Ok(normal) = curve_normal(curve, CurveDistance(*offset_3 - length), CurveDistance(f64::from(arclen_accuracy)));
+          let Ok(normal) = curve_normal(
+            curve,
+            CurveDistance(*offset_3 - length),
+            CurveDistance(f64::from(arclen_accuracy)),
+          );
           normals.push(Some(normal));
         }
         None => {}
@@ -1054,7 +1187,10 @@ fn collect_normals(
 
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "Curve arc lengths and tolerances are measured in SVG user-space units")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "Curve arc lengths and tolerances are measured in SVG user-space units"
+  )
 )]
 struct CurveDistance(f64);
 
@@ -1066,12 +1202,18 @@ fn curve_normal(
   let parameter = curve.inv_arclen(distance.0, accuracy.0).clamp(0.0, 1.0);
   let point = curve.eval(parameter);
   let derivative = curve.deriv().eval(parameter);
-  let angle = kurbo::Vec2::new(-derivative.y, derivative.x).atan2().to_degrees() - 90.0;
+  let angle = kurbo::Vec2::new(-derivative.y, derivative.x)
+    .atan2()
+    .to_degrees()
+    - 90.0;
   let Ok(x) = console_core_number_conversion::nearest_f32_from_f64(point.x);
   let Ok(y) = console_core_number_conversion::nearest_f32_from_f64(point.y);
   let Ok(degrees) = console_core_number_conversion::nearest_f32_from_f64(angle);
 
-  Ok(PathNormal { position: Point { x, y }, angle: TextAngle(degrees) })
+  Ok(PathNormal {
+    position: Point { x, y },
+    angle: TextAngle(degrees),
+  })
 }
 
 fn glyph_positions(glyphs: &[Glyph]) -> Result<HashMap<ByteIndex, u64>, Never> {
@@ -1086,7 +1228,10 @@ fn glyph_positions(glyphs: &[Glyph]) -> Result<HashMap<ByteIndex, u64>, Never> {
 
 #[cfg_attr(
   dylint_lib = "explicit053_no_while",
-  expect(explicit053_no_while, reason = "The shaper iterator advances by an entire cluster when glyph counts differ")
+  expect(
+    explicit053_no_while,
+    reason = "The shaper iterator advances by an entire cluster when glyph counts differ"
+  )
 )]
 fn merge_span_glyphs(
   glyphs: &mut Vec<Glyph>,
@@ -1261,7 +1406,10 @@ fn apply_length_adjust(chunk: &TextChunk, clusters: &mut [GlyphCluster]) -> Resu
       None => continue,
     };
     let authored_range = ByteIndex(span.byte_range.start)..ByteIndex(span.byte_range.end);
-    let mut ordered: Vec<u64> = by_byte.range(authored_range).map(|(_, ordinal)| *ordinal).collect();
+    let mut ordered: Vec<u64> = by_byte
+      .range(authored_range)
+      .map(|(_, ordinal)| *ordinal)
+      .collect();
     ordered.sort_unstable();
 
     match ::core::primitive::bool::then_some(ordered.is_empty(), ()) {
@@ -1270,7 +1418,11 @@ fn apply_length_adjust(chunk: &TextChunk, clusters: &mut [GlyphCluster]) -> Resu
     }
 
     let Ok(()) = adjust_clusters(
-      clusters, &ordered, target, span.length_adjust, &chunk.text_flow,
+      clusters,
+      &ordered,
+      target,
+      span.length_adjust,
+      &chunk.text_flow,
     );
   }
 
@@ -1335,7 +1487,9 @@ fn adjust_clusters(
 
     match scaling {
       Some(scale) => {
-        let Ok(transform) = cluster.transform.pre_scale_by(ScaleFactors { x: scale, y: 1.0 });
+        let Ok(transform) = cluster
+          .transform
+          .pre_scale_by(ScaleFactors { x: scale, y: 1.0 });
         cluster.transform = transform;
 
         match flow {
@@ -1378,8 +1532,12 @@ fn apply_writing_mode(
         cluster.ascent.0 = half_width;
         cluster.descent.0 = -cluster.width.0 / 2.0;
       }
-      Orientation::Rotated | Orientation::TransformedOrRotated | Orientation::TransformedOrUpright => {
-        let Ok(translated) = cluster.transform.pre_translate_by(Point { x: 0.0, y: midline });
+      Orientation::Rotated
+      | Orientation::TransformedOrRotated
+      | Orientation::TransformedOrUpright => {
+        let Ok(translated) = cluster
+          .transform
+          .pre_translate_by(Point { x: 0.0, y: midline });
 
         cluster.transform = translated;
       }
@@ -1430,7 +1588,12 @@ fn space_letter(
 }
 
 fn apply_letter_spacing(chunk: &TextChunk, clusters: &mut [GlyphCluster]) -> Result<(), Never> {
-  match chunk.spans.iter().find(|span| matches!(span.letter_spacing.0.zero_proximity(4), crate::ZeroProximity::Nonzero)) {
+  match chunk.spans.iter().find(|span| {
+    matches!(
+      span.letter_spacing.0.zero_proximity(4),
+      crate::ZeroProximity::Nonzero
+    )
+  }) {
     Some(_) => {}
     None => return Ok(()),
   }
@@ -1448,7 +1611,12 @@ fn apply_letter_spacing(chunk: &TextChunk, clusters: &mut [GlyphCluster]) -> Res
 }
 
 fn apply_word_spacing(chunk: &TextChunk, clusters: &mut [GlyphCluster]) -> Result<(), Never> {
-  match chunk.spans.iter().find(|span| matches!(span.word_spacing.0.zero_proximity(4), crate::ZeroProximity::Nonzero)) {
+  match chunk.spans.iter().find(|span| {
+    matches!(
+      span.word_spacing.0.zero_proximity(4),
+      crate::ZeroProximity::Nonzero
+    )
+  }) {
     Some(_) => {}
     None => return Ok(()),
   }
@@ -1476,7 +1644,6 @@ fn form_glyph_cluster(
   remaining: &[Glyph],
   font_size: NonZeroPositiveF32,
 ) -> Result<GlyphCluster, Never> {
-
   let mut x = 0.0;
   let mut width = 0.0;
   let mut advance = 0.0;
@@ -1586,7 +1753,10 @@ impl DatabaseExt for Database {
   #[inline(never)]
   fn glyph_coverage(&self, id: ID, character: char) -> crate::Presence {
     let Ok(glyph) = self.with_face_data(id, |font_data, face_index| {
-      let font = match skrifa::FontRef::from_index(font_data, face_index) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_unreadable_font_data_) => ::core::option::Option::None }?;
+      let font = match skrifa::FontRef::from_index(font_data, face_index) {
+        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+        ::core::result::Result::Err(_unreadable_font_data_) => ::core::option::Option::None,
+      }?;
 
       skrifa::charmap::Charmap::new(&font).map(character)
     });
@@ -1617,7 +1787,9 @@ fn positive_font_metric(value: FontMeasure) -> Result<Option<NonZeroU16>, Never>
   Ok(match u16::try_from(integer) {
     Ok(value_2) => NonZeroU16::new(value_2),
     Err(problem) => {
-      console_core_logging::debug!("Font measurement is outside the available metric range: {problem}");
+      console_core_logging::debug!(
+        "Font measurement is outside the available metric range: {problem}"
+      );
 
       None
     }
@@ -1665,7 +1837,8 @@ fn resolve_font_metrics(
     Some(underline_2) => underline_2,
     None => return Ok(None),
   };
-  let Ok((subscript_offset, superscript_offset)) = script_offsets(font, location.coords(), units_per_em);
+  let Ok((subscript_offset, superscript_offset)) =
+    script_offsets(font, location.coords(), units_per_em);
 
   Ok(Some(ResolvedFont {
     id,
@@ -1695,13 +1868,20 @@ fn underline_metrics(
       let Ok(position) = rounded_font_metric(FontMeasure(underline.offset));
       let Ok(thickness) = positive_font_metric(FontMeasure(underline.thickness));
 
-      Ok(Some((position, match thickness {
-        Some(thickness_2) => thickness_2,
-        None => fallback_thickness,
-      })))
+      Ok(Some((
+        position,
+        match thickness {
+          Some(thickness_2) => thickness_2,
+          None => fallback_thickness,
+        },
+      )))
     }
     None => {
-      let position = units_per_em.get().cast_signed().wrapping_neg().wrapping_div(9);
+      let position = units_per_em
+        .get()
+        .cast_signed()
+        .wrapping_neg()
+        .wrapping_div(9);
 
       Ok(Some((position, fallback_thickness)))
     }
@@ -1724,7 +1904,9 @@ fn script_offsets(
       superscript = authored_superscript;
     }
     Err(problem) => {
-      console_core_logging::debug!("Using default SVG script offsets without an OS/2 table: {problem}");
+      console_core_logging::debug!(
+        "Using default SVG script offsets without an OS/2 table: {problem}"
+      );
     }
   }
 
@@ -1741,7 +1923,9 @@ fn script_offsets(
             value
           }
           Err(problem) => {
-            console_core_logging::debug!("SVG text uses zero metric delta for {tag:?}: {problem}");
+            console_core_logging::debug!(
+              "SVG text uses zero metric delta for {tag:?}: {problem}"
+            );
 
             0.0
           }
@@ -1785,11 +1969,14 @@ fn shape_text(
   for _ in 0..256 {
     #[cfg_attr(
       dylint_lib = "explicit028_no_search_in_a_loop",
-      expect(explicit028_no_search_in_a_loop, reason = "The first missing character is looked up again only after trying a distinct fallback face, at most 256 times")
+      expect(
+        explicit028_no_search_in_a_loop,
+        reason = "The first missing character is looked up again only after trying a distinct fallback face, at most 256 times"
+      )
     )]
     let missing = glyphs.iter().find_map(|glyph| match glyph.availability() {
       Ok(GlyphAvailability::Present) => None,
-      Ok(GlyphAvailability::Missing) => Some(glyph.codepoint),
+      Ok(GlyphAvailability::Absent) => Some(glyph.codepoint),
     });
     let character = match missing {
       Some(character) => character,
@@ -1815,7 +2002,12 @@ fn shape_text(
       None => Vec::new(),
     };
 
-    match ::core::primitive::bool::then_some(replacement.iter().all(|glyph| matches!(glyph.availability(), Ok(GlyphAvailability::Present))), ()) {
+    match ::core::primitive::bool::then_some(
+      replacement
+        .iter()
+        .all(|glyph| matches!(glyph.availability(), Ok(GlyphAvailability::Present))),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         glyphs = replacement;
         break;
@@ -1834,7 +2026,7 @@ fn shape_text(
   for glyph in &glyphs {
     match glyph.availability() {
       Ok(GlyphAvailability::Present) => {}
-      Ok(GlyphAvailability::Missing) => {
+      Ok(GlyphAvailability::Absent) => {
         let character = glyph.codepoint;
         console_core_logging::warn!(
           "No fonts with a {character}/U+{:X} character were found.",
@@ -1850,7 +2042,7 @@ fn shape_text(
 fn fill_missing_glyphs(glyphs: &mut [Glyph], replacements: Vec<Glyph>) -> Result<(), Never> {
   for (glyph, alternate) in glyphs.iter_mut().zip(replacements) {
     match (glyph.availability(), alternate.availability()) {
-      (Ok(GlyphAvailability::Missing), Ok(GlyphAvailability::Present)) => *glyph = alternate,
+      (Ok(GlyphAvailability::Absent), Ok(GlyphAvailability::Present)) => *glyph = alternate,
       (_, _) => {}
     }
   }
@@ -1890,11 +2082,17 @@ fn shape_text_with_font(
         })
         .collect();
 
-      match ::core::primitive::bool::then_some(span.font_optical_sizing == crate::FontOpticalSizing::Auto, ()) {
+      match ::core::primitive::bool::then_some(
+        span.font_optical_sizing == crate::FontOpticalSizing::Auto,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let has_explicit_opsz = variations_2.iter().any(|v| v.tag == *b"opsz");
 
-          match ::core::primitive::bool::then_some(!has_explicit_opsz && hr_font.axes().get_by_tag(OPSZ).is_some(), ()) {
+          match ::core::primitive::bool::then_some(
+            !has_explicit_opsz && hr_font.axes().get_by_tag(OPSZ).is_some(),
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               variations_2.push(Variation {
                 tag: OPSZ,
@@ -1944,7 +2142,9 @@ fn shape_text_with_font(
       let (levels, runs) = match bidi_info.visual_runs(paragraph, line) {
         Ok(visual_runs) => visual_runs,
         Err(problem) => {
-          console_core_logging::debug!("Unable to resolve SVG bidirectional text runs: {problem:?}");
+          console_core_logging::debug!(
+            "Unable to resolve SVG bidirectional text runs: {problem:?}"
+          );
           return None;
         }
       };
@@ -1972,7 +2172,8 @@ fn shape_text_with_font(
         buffer.guess_segment_properties();
 
         let output = shaper.shape(buffer, ShapeOptions::new().features(&features));
-        let Ok(()) = append_run_glyphs(&output, sub_text, run.start, font, direction, &mut glyphs);
+        let Ok(()) =
+          append_run_glyphs(&output, sub_text, run.start, font, direction, &mut glyphs);
       }
 
       Some(glyphs)
@@ -2009,7 +2210,10 @@ fn append_run_glyphs(
     };
     let Ok(cluster_start) = console_core_number_conversion::index(info.cluster);
     let Ok(cluster_end) = console_core_number_conversion::index(end);
-    let character = match text.get(cluster_start..).and_then(|tail| tail.chars().next()) {
+    let character = match text
+      .get(cluster_start..)
+      .and_then(|tail| tail.chars().next())
+    {
       Some(character) => character,
       None => continue,
     };
@@ -2059,7 +2263,9 @@ impl From<bool> for LetterSpacing {
   }
 }
 
-fn script_letter_spacing(script: unicode_script::Script) -> ::core::result::Result<LetterSpacing, ::console_core_never::Never> {
+fn script_letter_spacing(
+  script: unicode_script::Script,
+) -> ::core::result::Result<LetterSpacing, ::console_core_never::Never> {
   use unicode_script::Script;
 
   ::core::result::Result::Ok(LetterSpacing::from(!matches!(
@@ -2105,14 +2311,14 @@ pub(crate) struct Glyph {
 }
 
 enum GlyphAvailability {
-  Missing,
+  Absent,
   Present,
 }
 
 impl Glyph {
   fn availability(&self) -> Result<GlyphAvailability, Never> {
     Ok(match self.id.0 {
-      0 => GlyphAvailability::Missing,
+      0 => GlyphAvailability::Absent,
       _ => GlyphAvailability::Present,
     })
   }
@@ -2138,7 +2344,12 @@ pub(crate) struct ResolvedFont {
 }
 
 fn chunk_span_at(chunk: &TextChunk, byte_offset: ByteIndex) -> Result<Option<&TextSpan>, Never> {
-  Ok(chunk.spans.iter().find(|span| span.byte_range.contains(&byte_offset.0)))
+  Ok(
+    chunk
+      .spans
+      .iter()
+      .find(|span| span.byte_range.contains(&byte_offset.0)),
+  )
 }
 
 enum SpanMembership {
@@ -2149,10 +2360,15 @@ enum SpanMembership {
 fn span_membership(span: &TextSpan, byte_offset: ByteIndex) -> Result<SpanMembership, Never> {
   use core::cmp::Ordering;
 
-  Ok(match (byte_offset.0.cmp(&span.byte_range.start), byte_offset.0.cmp(&span.byte_range.end)) {
-    (Ordering::Equal | Ordering::Greater, Ordering::Less) => SpanMembership::Inside,
-    (_, _) => SpanMembership::Outside,
-  })
+  Ok(
+    match (
+      byte_offset.0.cmp(&span.byte_range.start),
+      byte_offset.0.cmp(&span.byte_range.end),
+    ) {
+      (Ordering::Equal | Ordering::Greater, Ordering::Less) => SpanMembership::Inside,
+      (_, _) => SpanMembership::Outside,
+    },
+  )
 }
 
 enum WordBoundary {
@@ -2160,7 +2376,9 @@ enum WordBoundary {
   NonSeparator,
 }
 
-fn word_boundary(character: char) -> ::core::result::Result<WordBoundary, ::console_core_never::Never> {
+fn word_boundary(
+  character: char,
+) -> ::core::result::Result<WordBoundary, ::console_core_never::Never> {
   ::core::result::Result::Ok(match u32::from(character) {
     0x0020 | 0x00A0 | 0x1361 | 0x010100 | 0x010101 | 0x01039F | 0x01091F => {
       WordBoundary::Separator
@@ -2204,22 +2422,29 @@ impl ResolvedFont {
 impl FontMetrics {
   fn baseline(&self, alignment: AlignmentBaseline) -> Result<UserLength, Never> {
     Ok(UserLength(match alignment {
-      AlignmentBaseline::Auto | AlignmentBaseline::Baseline | AlignmentBaseline::Alphabetic => 0.0,
+      AlignmentBaseline::Auto | AlignmentBaseline::Baseline | AlignmentBaseline::Alphabetic => {
+        0.0
+      }
       AlignmentBaseline::BeforeEdge | AlignmentBaseline::TextBeforeEdge => self.ascent.0,
       AlignmentBaseline::Middle => self.x_height.0 * 0.5,
       AlignmentBaseline::Central => self.ascent.0 - self.height.0 * 0.5,
-      AlignmentBaseline::AfterEdge | AlignmentBaseline::TextAfterEdge | AlignmentBaseline::Ideographic => self.descent.0,
+      AlignmentBaseline::AfterEdge
+      | AlignmentBaseline::TextAfterEdge
+      | AlignmentBaseline::Ideographic => self.descent.0,
       AlignmentBaseline::Hanging => self.ascent.0 * 0.8,
       AlignmentBaseline::Mathematical => self.ascent.0 * 0.5,
     }))
   }
 }
 
-fn alignment_for_dominant_baseline(baseline: DominantBaseline) -> Result<AlignmentBaseline, Never> {
+fn alignment_for_dominant_baseline(
+  baseline: DominantBaseline,
+) -> Result<AlignmentBaseline, Never> {
   Ok(match baseline {
-    DominantBaseline::Auto | DominantBaseline::UseScript | DominantBaseline::NoChange | DominantBaseline::ResetSize => {
-      AlignmentBaseline::Auto
-    }
+    DominantBaseline::Auto
+    | DominantBaseline::UseScript
+    | DominantBaseline::NoChange
+    | DominantBaseline::ResetSize => AlignmentBaseline::Auto,
     DominantBaseline::Ideographic => AlignmentBaseline::Ideographic,
     DominantBaseline::Alphabetic => AlignmentBaseline::Alphabetic,
     DominantBaseline::Hanging => AlignmentBaseline::Hanging,
@@ -2239,10 +2464,11 @@ pub(crate) struct ByteIndex(u64);
 impl ByteIndex {
   fn code_point_at(self, text: &str) -> Result<u64, Never> {
     let Ok(byte) = console_core_number_conversion::index(self.0);
-    let ::core::result::Result::Ok(count) = ::console_core_number_conversion::fixed_index(match text.get(..byte) {
-      Some(prefix) => prefix.chars().count(),
-      None => text.chars().count(),
-    });
+    let ::core::result::Result::Ok(count) =
+      ::console_core_number_conversion::fixed_index(match text.get(..byte) {
+        Some(prefix) => prefix.chars().count(),
+        None => text.chars().count(),
+      });
 
     Ok(count)
   }

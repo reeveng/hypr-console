@@ -72,5 +72,7 @@ fn runnable(at: &Path) -> Result<Installed, Never> {
     Err(_nothing_there) => return Ok(Installed::No),
   };
 
-  Ok(Installed::from(about.is_file() && about.permissions().mode() & RUNNABLE != 0))
+  Ok(Installed::from(
+    about.is_file() && about.permissions().mode() & RUNNABLE != 0,
+  ))
 }

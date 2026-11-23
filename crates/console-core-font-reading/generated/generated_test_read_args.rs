@@ -20,7 +20,7 @@ impl<'a> MinByteRange<'a> for BaseArray<'a> {
 }
 
 impl ReadArgs for BaseArray<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for BaseArray<'a> {
@@ -196,7 +196,7 @@ impl<'a> BaseRecord<'a> {
 }
 
 impl ReadArgs for BaseRecord<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for BaseRecord<'_> {
@@ -266,7 +266,7 @@ impl<'a> FaceRecord<'a> {
 }
 
 impl ReadArgs for FaceRecord<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl ComputeSize for FaceRecord<'_> {

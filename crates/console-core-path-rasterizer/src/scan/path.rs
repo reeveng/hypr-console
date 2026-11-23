@@ -11,7 +11,7 @@ use crate::edge::{Edge, LineEdge};
 use crate::edge_builder::{BasicEdgeBuilder, ShiftedIntRect};
 use crate::fixed_point::{FDot16, fdot6, fdot16};
 use crate::geom::{IntRectExt, ScreenIntRect};
-use crate::{ContainsAnswer, FillRule, IntRect, LengthU32, Path, Rect, UpdateAnswer};
+use crate::{ContainsAnswer, FillRule, IntRect, LengthU32, Path, FloatRectangle, UpdateAnswer};
 
 pub fn fill_path(
   path: &Path,
@@ -37,7 +37,7 @@ pub fn fill_path(
   )
 }
 
-fn conservative_round_to_int(src: &Rect) -> Result<Option<IntRect>, Never> {
+fn conservative_round_to_int(src: &FloatRectangle) -> Result<Option<IntRect>, Never> {
   let bias = 0.5 + 1.5 / f64::from(fdot6::ONE);
   let Ok(left) = src.left();
   let Ok(top) = src.top();

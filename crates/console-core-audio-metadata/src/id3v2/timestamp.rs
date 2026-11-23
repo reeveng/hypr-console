@@ -41,12 +41,12 @@ enum Class {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Acceptance {
   Accepted,
-  Refused,
+  Rejected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Before {
-  Nothing,
+  Absent,
   DateSeparator,
   TimeMark,
   TimeSeparator,
@@ -80,8 +80,8 @@ fn accepted(before: Before, byte: u8) -> Result<Acceptance, Never> {
     (Before::DateSeparator, b'-' | b'.')
     | (Before::TimeMark, b'T')
     | (Before::TimeSeparator, b':') => Acceptance::Accepted,
-    (Before::Nothing | Before::DateSeparator | Before::TimeMark | Before::TimeSeparator, _) => {
-      Acceptance::Refused
+    (Before::Absent | Before::DateSeparator | Before::TimeMark | Before::TimeSeparator, _) => {
+      Acceptance::Rejected
     }
   })
 }
@@ -95,14 +95,14 @@ fn segment(reader: &mut Cursor<'_>, size: u64, before: Before) -> Result<Option<
   }
 
   match before {
-    Before::Nothing => {}
+    Before::Absent => {}
     Before::DateSeparator | Before::TimeMark | Before::TimeSeparator => {
       let byte = reader.byte()?;
       let Ok(acceptance) = accepted(before, byte);
 
       match acceptance {
         Acceptance::Accepted => {}
-        Acceptance::Refused => return Ok(None),
+        Acceptance::Rejected => return Ok(None),
       }
     }
   }
@@ -136,7 +136,7 @@ fn segment(reader: &mut Cursor<'_>, size: u64, before: Before) -> Result<Option<
       }
       Class::Separator => match before {
         Before::DateSeparator | Before::TimeMark | Before::TimeSeparator => break 'digits,
-        Before::Nothing => return Err(Malformed::Timestamp),
+        Before::Absent => return Err(Malformed::Timestamp),
       },
       Class::Other => return Err(Malformed::Timestamp),
     }
@@ -181,7 +181,7 @@ impl Timestamp {
     let Ok(mut reader) = Cursor::new(content);
 
     let Ok(before) = reader.left();
-    let year = segment(&mut reader, 4, Before::Nothing)?;
+    let year = segment(&mut reader, 4, Before::Absent)?;
     let Ok(after) = reader.left();
 
     let year_3 = match (year, before.saturating_sub(after)) {
@@ -191,7 +191,7 @@ impl Timestamp {
 
     let (date, clock) = match layout {
       Layout::Delimited => (Before::DateSeparator, Before::TimeSeparator),
-      Layout::Compact => (Before::Nothing, Before::Nothing),
+      Layout::Compact => (Before::Absent, Before::Absent),
     };
 
     let mut fields: [Option<u8>; 5] = [None; 5];

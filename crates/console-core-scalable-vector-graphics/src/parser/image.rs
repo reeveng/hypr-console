@@ -133,7 +133,9 @@ fn read_local_image(href: &str, options: &Options<'_>) -> Result<Option<ImageKin
         ::core::option::Option::Some(()) => {
           console_core_logging::warn!("'{}' is not a path to an image.", href)
         }
-        ::core::option::Option::None => console_core_logging::warn!("Failed to load '{}'. {}.", href, problem),
+        ::core::option::Option::None => {
+          console_core_logging::warn!("Failed to load '{}'. {}.", href, problem)
+        }
       }
 
       return Ok(None);
@@ -371,10 +373,16 @@ fn aligned_view_box(
   let Ok(height) = rect.height();
   let Ok(fitted_width) = fitted_2.width();
   let Ok(fitted_height) = fitted_2.height();
-  let Ok(console_core_paths::Point { x: aligned_x, y: aligned_y }) = crate::aligned_pos(
+  let Ok(console_core_paths::Point {
+    x: aligned_x,
+    y: aligned_y,
+  }) = crate::aligned_pos(
     aspect.align,
     console_core_paths::Point { x, y },
-    console_core_paths::Point { x: width - fitted_width, y: height - fitted_height },
+    console_core_paths::Point {
+      x: width - fitted_width,
+      y: height - fitted_height,
+    },
   );
 
   fitted_2.to_non_zero_rect(aligned_x, aligned_y)

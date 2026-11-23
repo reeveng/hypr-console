@@ -17,11 +17,11 @@ pub enum Metadata<'a> {
 }
 
 impl ReadArgs for Metadata<'_> {
-  type Args = (Tag, u32);
+  type Arguments = (Tag, u32);
 }
 
 impl<'a> FontReadWithArgs<'a> for Metadata<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let (tag, len) = *args;
     let Ok(value_1) = data.slice(
       0..({
@@ -50,7 +50,10 @@ impl<'a> ScriptLangTag<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ScriptLangTag::as_str` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ScriptLangTag::as_str` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn as_str(&self) -> &'a str {
     self.0
@@ -117,7 +120,11 @@ mod tests {
   fn check_script_lang_tags(table: Metadata, expected: &[&str]) -> Result<(), ReadError> {
     let languages = match table {
       Metadata::ScriptLangTags(languages) => languages,
-      Metadata::Other(_) => return Err(ReadError::MalformedData("expected script language metadata")),
+      Metadata::Other(_) => {
+        return Err(ReadError::MalformedData(
+          "expected script language metadata",
+        ));
+      }
     };
     let Ok(records) = languages.iter();
     let actual = records.collect::<Result<Vec<_>, _>>()?;
@@ -127,7 +134,7 @@ mod tests {
 
   #[test]
   fn parse_simple() -> ::core::result::Result<(), crate::read::ReadError> {
-    let table = Meta::read(<crate::font_data::FontData<'_> as ::core::convert::From<
+    let table = MetadataTable::read(<crate::font_data::FontData<'_> as ::core::convert::From<
       &[::core::primitive::u8],
     >>::from(test_data::SIMPLE_META_TABLE))?;
     let Ok(data_maps) = table.data_maps();

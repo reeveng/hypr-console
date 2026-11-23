@@ -45,7 +45,7 @@
 //! The wallpaper is started directly and held until it has exited, before
 //! the compositor is stopped. Letting the session script start it meant a
 //! short panel check could finish first and the daemon would arrive during
-//! teardown. Panel descriptions need no wallpaper and start none.
+//! teardown. Panel descriptions run alone without the desktop services.
 
 use console_core_external_programs::Program;
 use console_core_finite_numbers::FiniteF64;
@@ -54,6 +54,7 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 use console_operating_system_linux::systemd::{Wrapped, in_a_scope_of_its_own, nothing_left_in};
 use console_waiting::{Ready, Schedule, until_handed};
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, Command, ExitCode, Stdio};
 use std::time::Duration;
@@ -64,7 +65,7 @@ use console_core_arguments::{
 use console_core_words::Words;
 use console_test_desktop::connection::{Inside, Instance, Outcome};
 use console_test_desktop::nested::Wallpaper;
-use console_test_desktop::staging::{Screen, Verbosity, environment, stage_desktop};
+use console_test_desktop::staging::{Screen, Services, Verbosity, environment, stage_desktop};
 use console_test_desktop::{Unnested, scope_of, screen, session, stage};
 use console_test_stages::picture::{Picture, where_};
 
@@ -88,6 +89,7 @@ struct Arguments {
   open: Vec<String>,
   press: Option<String>,
   then: Option<String>,
+  press_count: NonZeroU64,
   sample: Vec<String>,
   window: bool,
   bare: bool,
@@ -184,6 +186,12 @@ const THEN: Flag = Flag {
   about: "what pressing presses",
 };
 
+const PRESS_COUNT: Flag = Flag {
+  spelling: "--press-count",
+  takes: Takes::Value("COUNT"),
+  about: "how many inputs pressing waits for (default: 1)",
+};
+
 const SAMPLE: Flag = Flag {
   spelling: "--sample",
   takes: Takes::Value("PLACE"),
@@ -206,7 +214,7 @@ const COMMAND: console_core_arguments::Command = console_core_arguments::Command
   name: "console-desktop",
   about: "the device's desktop, nested on this machine",
   flags: &[
-    SECONDS, SETTLE, UNTIL, CLIENTS, MONITORS, OPEN, PRESS, THEN, SAMPLE, WINDOW, BARE,
+    SECONDS, SETTLE, UNTIL, CLIENTS, MONITORS, OPEN, PRESS, THEN, PRESS_COUNT, SAMPLE, WINDOW, BARE,
   ],
   operands: Operands::Optional("FILE"),
 };
@@ -247,6 +255,7 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
     open: open.to_vec(),
     press: word(PRESS),
     then: word(THEN),
+    press_count: line.parsed::<NonZeroU64>(PRESS_COUNT)?.unwrap_or(NonZeroU64::MIN),
     sample: sample.to_vec(),
     window: window == Presence::Present,
     bare: bare == Presence::Present,
@@ -266,9 +275,13 @@ fn main() -> ExitCode {
 
   let done = match asked.command {
     Verb::Clean => clean(),
-    Verb::Stage => {
-      stage_desktop(Verbosity::Aloud, Screen::InAWindow, Wallpaper::Started).map(|_| 0)
-    }
+    Verb::Stage => stage_desktop(
+      Verbosity::Aloud,
+      Screen::InAWindow,
+      Wallpaper::Started,
+      Services::Desktop,
+    )
+    .map(|_| 0),
     Verb::Verify => verify(),
     Verb::Probe => run(&asked, None, Action::Probing),
     Verb::Describe => run(&asked, None, Action::Describing),
@@ -360,7 +373,8 @@ fn press_file(asked: &Arguments) -> Result<u8, Unnested> {
     ::core::option::Option::None => eprintln!("console-desktop: {command}: {pressed}"),
   }
 
-  let Ok(again) = session::wait_for_presses_past(at, before, session::A_LINE);
+  let last = before.saturating_add(asked.press_count.get().saturating_sub(1));
+  let Ok(again) = session::wait_for_presses_past(at, last, session::A_LINE);
 
   Ok(match again {
     session::Wrote::Some => 0,
@@ -399,14 +413,20 @@ fn clean() -> Result<u8, Unnested> {
   let Ok(dead) = session::dead_instances();
 
   for path in dead {
-    session::remove_tree(&path).map_err(|fault| Unnested::Staging("clearing a dead instance", fault))?;
+    session::remove_tree(&path)
+      .map_err(|fault| Unnested::Staging("clearing a dead instance", fault))?;
   }
 
   Ok(0)
 }
 
 fn verify() -> Result<u8, Unnested> {
-  let nested = stage_desktop(Verbosity::Quietly, Screen::InAWindow, Wallpaper::Started)?;
+  let nested = stage_desktop(
+    Verbosity::Quietly,
+    Screen::InAWindow,
+    Wallpaper::Started,
+    Services::Desktop,
+  )?;
   let Ok(mut asking) = Program::Hyprland.command();
 
   asking.args(["--verify-config", "-c"]).arg(&nested);
@@ -517,19 +537,31 @@ fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Un
       Screen::InAWindow
     }
   };
-  let ended = match ::core::primitive::bool::then_some(shot.is_none() && asked.seconds.is_none() && probe == Action::Running, ()) {
+  let ended = match ::core::primitive::bool::then_some(
+    shot.is_none() && asked.seconds.is_none() && probe == Action::Running,
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ended::ByTheCompositor,
     ::core::option::Option::None => Ended::ByThis,
   };
   let Ok(wallpaper) = wallpaper_for(ended, probe);
-  let nested = stage_desktop(Verbosity::Quietly, showing, wallpaper)?;
+  let services = match probe {
+    Action::Describing => Services::Panel,
+    Action::Running | Action::Probing => Services::Desktop,
+  };
+  let nested = stage_desktop(Verbosity::Quietly, showing, wallpaper, services)?;
   let where_ = environment()?;
   let Ok(()) = out_of_the_way();
   let here = stage()?;
   let Ok(named) = scope_of(&here);
   let go = screen()?;
-  let (mut compositor, session::Came { display: socket, signature }) =
-    start_nested(&nested, &where_, named.as_deref())?;
+  let (
+    mut compositor,
+    session::Came {
+      display: socket,
+      signature,
+    },
+  ) = start_nested(&nested, &where_, named.as_deref())?;
 
   eprintln!("the desktop is on {socket}");
 
@@ -595,8 +627,8 @@ fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Un
     (true, Wallpaper::Started | Wallpaper::LeftOut) | (false, Wallpaper::LeftOut) => {}
   }
 
-  let Ok(opened) = open_requested(asked, &inside);
-  let Ok(()) = run_probe(asked, &inside, probe);
+  let Ok(opened) = open_requested(asked, &inside, probe);
+  let Ok(probe_status) = run_probe(asked, &inside, probe);
   let Ok(monitors) = record_clients(asked, &inside);
 
   match &shot {
@@ -631,7 +663,7 @@ fn run(asked: &Arguments, shot: Option<PathBuf>, probe: Action) -> Result<u8, Un
   let Ok(()) = stop(&mut compositor, &signature, &inside, named.as_deref());
   let Ok(()) = nothing_left_running(opened);
 
-  Ok(0)
+  Ok(probe_status)
 }
 
 fn wallpaper_for(ended: Ended, action: Action) -> Result<Wallpaper, Never> {
@@ -644,7 +676,11 @@ fn wallpaper_for(ended: Ended, action: Action) -> Result<Wallpaper, Never> {
   })
 }
 
-fn open_requested(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Child)>, Never> {
+fn open_requested(
+  asked: &Arguments,
+  inside: &Inside,
+  action: Action,
+) -> Result<Vec<(String, Child)>, Never> {
   let Ok(was) = inside.surfaces();
 
   #[cfg_attr(
@@ -685,9 +721,9 @@ fn open_requested(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Chi
     })
     .collect();
 
-  match ::core::primitive::bool::then_some(opened.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => {
+  match (opened.is_empty(), action) {
+    (true, _) | (false, Action::Describing) => {}
+    (false, Action::Running | Action::Probing) => {
       let Ok(waited) = inside.wait_for_something(&was);
 
       match waited {
@@ -703,7 +739,7 @@ fn open_requested(asked: &Arguments, inside: &Inside) -> Result<Vec<(String, Chi
   Ok(opened)
 }
 
-fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Never> {
+fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<u8, Never> {
   match probe {
     Action::Probing => {
       for question in ["monitors", "workspaces", "clients"] {
@@ -734,13 +770,16 @@ fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Ne
     None => {}
   }
 
+  let mut status = 0;
   match &asked.press {
     Some(script) => {
       match probe {
         Action::Running | Action::Probing => {
           let Ok(_settled) = inside.wait_for_a_still_screen();
         }
-        Action::Describing => {}
+        Action::Describing => {
+          let Ok(()) = inside.focus_a_window();
+        }
       }
 
       let Ok(mut asking) = inside.command("sh");
@@ -755,9 +794,15 @@ fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Ne
       match asking.args(["-c", script]).status() {
         Ok(done) => match ::core::primitive::bool::then_some(done.success(), ()) {
           ::core::option::Option::Some(()) => {}
-          ::core::option::Option::None => eprintln!("console-desktop: the presses ended {done}"),
+          ::core::option::Option::None => {
+            eprintln!("console-desktop: the presses ended {done}");
+            status = 1;
+          }
         },
-        Err(fault) => eprintln!("console-desktop: {script}: {fault}"),
+        Err(fault) => {
+          eprintln!("console-desktop: {script}: {fault}");
+          status = 1;
+        }
       }
     }
     None => {}
@@ -780,7 +825,10 @@ fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<(), Ne
     }
   }
 
-  Ok(())
+  Ok(match probe {
+    Action::Describing => status,
+    Action::Probing | Action::Running => 0,
+  })
 }
 
 fn record_clients(asked: &Arguments, inside: &Inside) -> Result<String, Never> {
@@ -896,10 +944,12 @@ fn nothing_left_running(opened: Vec<(String, Child)>) -> Result<(), Never> {
   let Ok(all_gone) = until_handed(patience, &mut going, |going_2| {
     going_2.retain_mut(|(_, process)| !matches!(process.try_wait(), Ok(Some(_))));
 
-    Ok(match ::core::primitive::bool::then_some(going_2.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(going_2.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   });
 
   match all_gone {
@@ -938,7 +988,10 @@ fn stop(
   let Ok(patience) = Schedule::asking_every(Duration::from_secs(10), Duration::from_millis(100));
   let Ok(ended) = until_handed(patience, compositor, |compositor_2| {
     Ok(
-      match ::core::primitive::bool::then_some(compositor_2.try_wait().is_ok_and(|ended| ended.is_some()), ()) {
+      match ::core::primitive::bool::then_some(
+        compositor_2.try_wait().is_ok_and(|ended| ended.is_some()),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ready::Yes,
         ::core::option::Option::None => Ready::NotYet,
       },
@@ -995,7 +1048,8 @@ fn stderr_excerpt(voice: ChildStderr) -> Result<String, Never> {
   use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
   use rustix::io::Errno;
 
-  let nonblocking = fcntl_getfl(&voice).and_then(|flags| fcntl_setfl(&voice, flags | OFlags::NONBLOCK));
+  let nonblocking =
+    fcntl_getfl(&voice).and_then(|flags| fcntl_setfl(&voice, flags | OFlags::NONBLOCK));
 
   match nonblocking {
     Ok(()) => {}
@@ -1003,13 +1057,18 @@ fn stderr_excerpt(voice: ChildStderr) -> Result<String, Never> {
   }
 
   let mut excerpt = [0u8; 65_536];
-  let ::core::result::Result::Ok(length) = ::console_core_number_conversion::fixed_index(match rustix::io::read(&voice, &mut excerpt) {
-    Ok(length) => length,
-    Err(Errno::AGAIN | Errno::INTR) => return Ok(String::new()),
-    Err(fault) => return Ok(format!("could not read stderr: {fault}")),
-  });
+  let ::core::result::Result::Ok(length) =
+    ::console_core_number_conversion::fixed_index(match rustix::io::read(&voice, &mut excerpt) {
+      Ok(length) => length,
+      Err(Errno::AGAIN | Errno::INTR) => return Ok(String::new()),
+      Err(fault) => return Ok(format!("could not read stderr: {fault}")),
+    });
 
-  match excerpt.get(..match ::console_core_number_conversion::index(length) { ::core::result::Result::Ok(native_position) => native_position }) {
+  match excerpt.get(
+    ..match ::console_core_number_conversion::index(length) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+  ) {
     Some(bytes) => process_text(bytes, "child stderr"),
     None => Ok(String::from("invalid stderr length")),
   }

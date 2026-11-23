@@ -20,8 +20,7 @@ use crate::collections::IntSet;
 #[cfg(feature = "std")]
 pub(crate) use closure::{
   ContextFormat1, ContextFormat2, ContextFormat3, LayoutLookupList, LookupClosure,
-  LookupClosureCtx, MAX_LOOKUP_VISIT_COUNT, MAX_NESTING_LEVEL,
-  TraversalBudget, VisitDecision,
+  LookupClosureCtx, MAX_LOOKUP_VISIT_COUNT, MAX_NESTING_LEVEL, TraversalBudget, VisitDecision,
 };
 
 #[cfg(feature = "std")]
@@ -39,12 +38,14 @@ impl<'a, T: FontRead<'a>> Lookup<'a, T> {
 
   #[cfg(feature = "experimental_traverse")]
   #[must_use]
-  fn traverse_lookup_flag(&self) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
-      let Ok(lookup_flag) = self.lookup_flag();
+  fn traverse_lookup_flag(
+    &self,
+  ) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
+    let Ok(lookup_flag) = self.lookup_flag();
 
-      Ok(<crate::traversal::FieldType<'_> as ::core::convert::From<
-        ::core::result::Result<::core::primitive::u16, ::console_core_never::Never>,
-      >>::from(lookup_flag.to_bits()))
+    Ok(<crate::traversal::FieldType<'_> as ::core::convert::From<
+      ::core::result::Result<::core::primitive::u16, ::console_core_never::Never>,
+    >>::from(lookup_flag.to_bits()))
   }
 }
 
@@ -59,23 +60,32 @@ pub enum Subtables<'a, T: FontRead<'a>, Ext: ExtensionLookup<'a, T>> {
 
 impl<'a, T: FontRead<'a> + 'a, Ext: ExtensionLookup<'a, T> + 'a> Subtables<'a, T, Ext> {
   #[must_use]
-  pub(crate) fn new(offsets: &'a [BigEndian<Offset16>], data: FontData<'a>) -> core::result::Result<Self, console_core_never::Never> {
-      let Ok(value_1) = ArrayOfOffsets::new(offsets, data, ());
+  pub(crate) fn new(
+    offsets: &'a [BigEndian<Offset16>],
+    data: FontData<'a>,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    let Ok(value_1) = ArrayOfOffsets::new(offsets, data, ());
 
-      Ok(Subtables::Subtable(value_1))
+    Ok(Subtables::Subtable(value_1))
   }
 
   #[must_use]
-  pub(crate) fn new_ext(offsets: &'a [BigEndian<Offset16>], data: FontData<'a>) -> core::result::Result<Self, console_core_never::Never> {
-      let Ok(value_2) = ArrayOfOffsets::new(offsets, data, ());
+  pub(crate) fn new_ext(
+    offsets: &'a [BigEndian<Offset16>],
+    data: FontData<'a>,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    let Ok(value_2) = ArrayOfOffsets::new(offsets, data, ());
 
-      Ok(Subtables::Extension(value_2))
+    Ok(Subtables::Extension(value_2))
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtables::len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtables::len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn len(&self) -> u64 {
     match self {
@@ -95,11 +105,17 @@ impl<'a, T: FontRead<'a> + 'a, Ext: ExtensionLookup<'a, T> + 'a> Subtables<'a, T
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtables::is_empty` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtables::is_empty` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtables::is_empty` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtables::is_empty` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_empty(&self) -> bool {
     self.len() == 0
@@ -115,7 +131,10 @@ impl<'a, T: FontRead<'a> + 'a, Ext: ExtensionLookup<'a, T> + 'a> Subtables<'a, T
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtables::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtables::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = Result<T, ReadError>> + 'a + use<'a, T, Ext> {
     let (left, right) = match self {
@@ -147,7 +166,7 @@ pub enum FeatureParams<'a> {
 }
 
 impl ReadArgs for FeatureParams<'_> {
-  type Args = Tag;
+  type Arguments = Tag;
 }
 
 impl<'a> FontReadWithArgs<'a> for FeatureParams<'a> {
@@ -224,14 +243,20 @@ impl FeatureTableSubstitutionRecord {
 
 #[must_use]
 fn bit_storage(v: u32) -> core::result::Result<u32, console_core_never::Never> {
-    Ok(::core::primitive::u32::wrapping_sub(u32::BITS, v.leading_zeros()))
+  Ok(::core::primitive::u32::wrapping_sub(
+    u32::BITS,
+    v.leading_zeros(),
+  ))
 }
 
 impl<'a> CoverageTable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageTable::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageTable::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = GlyphId16> + 'a + use<'a> {
     let (iter1, iter2) = match self {
@@ -264,7 +289,10 @@ impl<'a> CoverageTable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageTable::get` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageTable::get` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn get(&self, gid: impl Into<GlyphId>) -> Option<u16> {
     match self {
@@ -277,16 +305,26 @@ impl<'a> CoverageTable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageTable::intersects` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageTable::intersects` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `CoverageTable::intersects` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `CoverageTable::intersects` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn intersects(&self, glyphs: &IntSet<GlyphId>) -> bool {
     match self {
-      CoverageTable::Format1(sub) => matches!(sub.overlap(glyphs), Ok(crate::Overlap::Intersecting)),
-      CoverageTable::Format2(sub) => matches!(sub.overlap(glyphs), Ok(crate::Overlap::Intersecting)),
+      CoverageTable::Format1(sub) => {
+        matches!(sub.overlap(glyphs), Ok(crate::Overlap::Intersecting))
+      }
+      CoverageTable::Format2(sub) => {
+        matches!(sub.overlap(glyphs), Ok(crate::Overlap::Intersecting))
+      }
     }
   }
 
@@ -294,19 +332,22 @@ impl<'a> CoverageTable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageTable::intersect_set` method returns `IntSet` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageTable::intersect_set` method returns `IntSet` directly in the existing parser interface"
+    )
   )]
   pub fn intersect_set(&self, glyphs: &IntSet<GlyphId>) -> IntSet<GlyphId> {
     match self {
       CoverageTable::Format1(sub) => {
-          let Ok(intersect_set) = sub.intersect_set(glyphs);
+        let Ok(intersect_set) = sub.intersect_set(glyphs);
 
-          intersect_set
+        intersect_set
       }
       CoverageTable::Format2(sub) => {
-          let Ok(intersect_set) = sub.intersect_set(glyphs);
+        let Ok(intersect_set) = sub.intersect_set(glyphs);
 
-          intersect_set
+        intersect_set
       }
     }
   }
@@ -314,7 +355,10 @@ impl<'a> CoverageTable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageTable::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageTable::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     match self {
@@ -326,7 +370,10 @@ impl<'a> CoverageTable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageTable::cost` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageTable::cost` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn cost(&self) -> u32 {
     match self {
@@ -341,18 +388,28 @@ impl CoverageFormat1<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageFormat1::get` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageFormat1::get` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn get(&self, gid: impl Into<GlyphId>) -> Option<u16> {
-    let gid16: GlyphId16 = (match <_ as ::core::convert::Into<::font_types::GlyphId>>::into(gid)
-      .try_into() { Ok(value) => Some(value), Err(_glyph_outside_font_range) => None })?;
+    let gid16: GlyphId16 =
+      (match <_ as ::core::convert::Into<::font_types::GlyphId>>::into(gid).try_into() {
+        Ok(value) => Some(value),
+        Err(_glyph_outside_font_range) => None,
+      })?;
     let be_glyph: BigEndian<GlyphId16> =
       <::font_types::BigEndian<::font_types::GlyphId16> as ::core::convert::From<
         ::font_types::GlyphId16,
       >>::from(gid16);
     let Ok(glyph_array) = self.glyph_array();
 
-    match glyph_array.binary_search(&be_glyph) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None }.map(|idx| {
+    match glyph_array.binary_search(&be_glyph) {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None,
+    }
+    .map(|idx| {
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(idx);
       migrated_value
     })
@@ -368,14 +425,17 @@ impl CoverageFormat1<'_> {
     };
     let Ok(value_43) = glyphs.len();
 
-    let intersects = match ::core::primitive::bool::then_some(glyph_count
-      > ::core::primitive::u32::wrapping_mul(
-        {
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(value_43);
-          migrated_value
-        },
-        self.cost(),
-      ), ()) {
+    let intersects = match ::core::primitive::bool::then_some(
+      glyph_count
+        > ::core::primitive::u32::wrapping_mul(
+          {
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(value_43);
+            migrated_value
+          },
+          self.cost(),
+        ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(mut value_66) = glyphs.iter();
 
@@ -398,22 +458,30 @@ impl CoverageFormat1<'_> {
 
   #[cfg(feature = "std")]
   #[must_use]
-  fn intersect_set(&self, glyphs: &IntSet<GlyphId>) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
-      let glyph_count = {
-        let Ok(own_glyph_count) = self.glyph_count();
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(own_glyph_count);
-        migrated_value
-      };
-      let Ok(value_80) = glyphs.len();
+  fn intersect_set(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+  ) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
+    let glyph_count = {
+      let Ok(own_glyph_count) = self.glyph_count();
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(own_glyph_count);
+      migrated_value
+    };
+    let Ok(value_80) = glyphs.len();
 
-      Ok(match ::core::primitive::bool::then_some(glyph_count
-        > ::core::primitive::u32::wrapping_mul(
-          {
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(value_80);
-            migrated_value
-          },
-          self.cost(),
-        ), ()) {
+    Ok(
+      match ::core::primitive::bool::then_some(
+        glyph_count
+          > ::core::primitive::u32::wrapping_mul(
+            {
+              let Ok(migrated_value) =
+                console_core_number_conversion::wrapped::<_, u32>(value_80);
+              migrated_value
+            },
+            self.cost(),
+          ),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(value_5) = glyphs.iter();
 
@@ -438,13 +506,17 @@ impl CoverageFormat1<'_> {
             })
             .collect()
         }
-      })
+      },
+    )
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageFormat1::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageFormat1::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     {
@@ -457,14 +529,20 @@ impl CoverageFormat1<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageFormat1::cost` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageFormat1::cost` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn cost(&self) -> u32 {
-    { let Ok(explicit_value) = bit_storage({
-      let Ok(glyph_count) = self.glyph_count();
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);
-      migrated_value
-    }); explicit_value }
+    {
+      let Ok(explicit_value) = bit_storage({
+        let Ok(glyph_count) = self.glyph_count();
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);
+        migrated_value
+      });
+      explicit_value
+    }
   }
 }
 
@@ -473,40 +551,48 @@ impl CoverageFormat2<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageFormat2::get` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageFormat2::get` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn get(&self, gid: impl Into<GlyphId>) -> Option<u16> {
-    let gid_2: GlyphId16 = (match <_ as ::core::convert::Into<::font_types::GlyphId>>::into(gid)
-      .try_into() { Ok(value) => Some(value), Err(_glyph_outside_font_range) => None })?;
+    let gid_2: GlyphId16 =
+      (match <_ as ::core::convert::Into<::font_types::GlyphId>>::into(gid).try_into() {
+        Ok(value) => Some(value),
+        Err(_glyph_outside_font_range) => None,
+      })?;
     let Ok(range_records) = self.range_records();
 
-    match range_records
-      .binary_search_by(|rec| {
-        let Ok(end_glyph_id) = rec.end_glyph_id();
+    match range_records.binary_search_by(|rec| {
+      let Ok(end_glyph_id) = rec.end_glyph_id();
 
-        match ::core::primitive::bool::then_some(end_glyph_id < gid_2, ()) {
-          ::core::option::Option::Some(()) => Ordering::Less,
-          ::core::option::Option::None => {
-            let Ok(start_glyph_id) = rec.start_glyph_id();
+      match ::core::primitive::bool::then_some(end_glyph_id < gid_2, ()) {
+        ::core::option::Option::Some(()) => Ordering::Less,
+        ::core::option::Option::None => {
+          let Ok(start_glyph_id) = rec.start_glyph_id();
 
-            match ::core::primitive::bool::then_some(start_glyph_id > gid_2, ()) {
-              ::core::option::Option::Some(()) => Ordering::Greater,
-              ::core::option::Option::None => Ordering::Equal,
-            }
+          match ::core::primitive::bool::then_some(start_glyph_id > gid_2, ()) {
+            ::core::option::Option::Some(()) => Ordering::Greater,
+            ::core::option::Option::None => Ordering::Equal,
           }
         }
-      }) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None }
-      .and_then(|idx| {
-        let rec = range_records.get(idx)?;
+      }
+    }) {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None,
+    }
+    .and_then(|idx| {
+      let rec = range_records.get(idx)?;
 
-        let Ok(value_7) = gid_2.to_u16();
-        let Ok(start_glyph_id) = rec.start_glyph_id();
-        let Ok(value_8) = start_glyph_id.to_u16();
+      let Ok(value_7) = gid_2.to_u16();
+      let Ok(start_glyph_id) = rec.start_glyph_id();
+      let Ok(value_8) = start_glyph_id.to_u16();
 
-        let Ok(start_coverage_index) = rec.start_coverage_index();
+      let Ok(start_coverage_index) = rec.start_coverage_index();
 
-        start_coverage_index.checked_add(::core::primitive::u16::wrapping_sub(value_7, value_8))
-      })
+      start_coverage_index.checked_add(::core::primitive::u16::wrapping_sub(value_7, value_8))
+    })
   }
 
   #[cfg(feature = "std")]
@@ -519,14 +605,17 @@ impl CoverageFormat2<'_> {
     };
     let Ok(value_81) = glyphs.len();
 
-    let intersects = match ::core::primitive::bool::then_some(range_count
-      > ::core::primitive::u32::wrapping_mul(
-        {
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(value_81);
-          migrated_value
-        },
-        self.cost(),
-      ), ()) {
+    let intersects = match ::core::primitive::bool::then_some(
+      range_count
+        > ::core::primitive::u32::wrapping_mul(
+          {
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(value_81);
+            migrated_value
+          },
+          self.cost(),
+        ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(mut value_82) = glyphs.iter();
 
@@ -543,22 +632,30 @@ impl CoverageFormat2<'_> {
 
   #[cfg(feature = "std")]
   #[must_use]
-  fn intersect_set(&self, glyphs: &IntSet<GlyphId>) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
-      let range_count = {
-        let Ok(own_range_count) = self.range_count();
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(own_range_count);
-        migrated_value
-      };
-      let Ok(value_83) = glyphs.len();
+  fn intersect_set(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+  ) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
+    let range_count = {
+      let Ok(own_range_count) = self.range_count();
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(own_range_count);
+      migrated_value
+    };
+    let Ok(value_83) = glyphs.len();
 
-      Ok(match ::core::primitive::bool::then_some(range_count
-        > ::core::primitive::u32::wrapping_mul(
-          {
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(value_83);
-            migrated_value
-          },
-          self.cost(),
-        ), ()) {
+    Ok(
+      match ::core::primitive::bool::then_some(
+        range_count
+          > ::core::primitive::u32::wrapping_mul(
+            {
+              let Ok(migrated_value) =
+                console_core_number_conversion::wrapped::<_, u32>(value_83);
+              migrated_value
+            },
+            self.cost(),
+          ),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(value_9) = glyphs.iter();
 
@@ -584,19 +681,25 @@ impl CoverageFormat2<'_> {
             last = end;
 
             let Ok(()) = collect_coverage_range(
-              glyphs, &mut out, GlyphId::from(start_glyph)..=GlyphId::from(end),
+              glyphs,
+              &mut out,
+              GlyphId::from(start_glyph)..=GlyphId::from(end),
             );
           }
 
           out
         }
-      })
+      },
+    )
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageFormat2::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageFormat2::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     let Ok(range_records) = self.range_records();
@@ -609,14 +712,20 @@ impl CoverageFormat2<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CoverageFormat2::cost` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CoverageFormat2::cost` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn cost(&self) -> u32 {
-    { let Ok(explicit_value) = bit_storage({
-      let Ok(range_count) = self.range_count();
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(range_count);
-      migrated_value
-    }); explicit_value }
+    {
+      let Ok(explicit_value) = bit_storage({
+        let Ok(range_count) = self.range_count();
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(range_count);
+        migrated_value
+      });
+      explicit_value
+    }
   }
 }
 
@@ -624,7 +733,10 @@ impl RangeRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeRecord::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeRecord::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = GlyphId16> + '_ {
     let Ok(start_glyph_id) = self.start_glyph_id();
@@ -645,11 +757,17 @@ impl RangeRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeRecord::intersects` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeRecord::intersects` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `RangeRecord::intersects` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `RangeRecord::intersects` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn intersects(&self, glyphs: &IntSet<GlyphId>) -> bool {
     let Ok(start_glyph_id) = self.start_glyph_id();
@@ -666,7 +784,10 @@ impl RangeRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `RangeRecord::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `RangeRecord::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     let Ok(start_glyph_id) = self.start_glyph_id();
@@ -696,21 +817,21 @@ impl RangeRecord {
 impl DeltaFormat {
   #[must_use]
   pub(crate) fn value_count(self, sizes: core::ops::RangeInclusive<u16>) -> Result<u64, Never> {
-      let (start_size, end_size) = sizes.into_inner();
-      let range_len = {
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-          end_size.saturating_add(1).saturating_sub(start_size),
-        );
-        migrated_value
-      };
-      let val_per_word = match self {
-        DeltaFormat::Local2BitDeltas => 8,
-        DeltaFormat::Local4BitDeltas => 4,
-        DeltaFormat::Local8BitDeltas => 2,
-        DeltaFormat::VariationIndex | DeltaFormat::Unknown => return Ok(0),
-      };
+    let (start_size, end_size) = sizes.into_inner();
+    let range_len = {
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
+        end_size.saturating_add(1).saturating_sub(start_size),
+      );
+      migrated_value
+    };
+    let val_per_word = match self {
+      DeltaFormat::Local2BitDeltas => 8,
+      DeltaFormat::Local4BitDeltas => 4,
+      DeltaFormat::Local8BitDeltas => 2,
+      DeltaFormat::VariationIndex | DeltaFormat::Unknown => return Ok(0),
+    };
 
-      Ok(range_len.div_ceil(val_per_word))
+    Ok(range_len.div_ceil(val_per_word))
   }
 }
 
@@ -734,7 +855,10 @@ impl<'a> ClassDefFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat1::get` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat1::get` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn get(&self, gid: impl Into<GlyphId>) -> u16 {
     let Ok(value_15) = <_ as ::core::convert::Into<::font_types::GlyphId>>::into(gid).to_u32();
@@ -767,7 +891,10 @@ impl<'a> ClassDefFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat1::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat1::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = (GlyphId16, u16)> + 'a + use<'a> {
     let Ok(start) = self.start_glyph_id();
@@ -791,7 +918,10 @@ impl<'a> ClassDefFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat1::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat1::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     {
@@ -804,7 +934,10 @@ impl<'a> ClassDefFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat1::cost` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat1::cost` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn cost(&self) -> u32 {
     1
@@ -812,174 +945,190 @@ impl<'a> ClassDefFormat1<'a> {
 
   #[cfg(feature = "std")]
   #[must_use]
-  fn intersect_classes(&self, glyphs: &IntSet<GlyphId>) -> core::result::Result<IntSet<u16>, console_core_never::Never> {
-      let Ok(mut out) = IntSet::empty();
-      let Ok(span) = class_glyph_span(glyphs);
-      let (first, last) = match span {
-        Some(endpoints) => endpoints,
-        None => return Ok(out),
-      };
-      let Ok(first_glyph) = first.to_u32();
-      let Ok(last_glyph) = last.to_u32();
+  fn intersect_classes(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+  ) -> core::result::Result<IntSet<u16>, console_core_never::Never> {
+    let Ok(mut out) = IntSet::empty();
+    let Ok(span) = class_glyph_span(glyphs);
+    let (first, last) = match span {
+      Some(endpoints) => endpoints,
+      None => return Ok(out),
+    };
+    let Ok(first_glyph) = first.to_u32();
+    let Ok(last_glyph) = last.to_u32();
 
-      let Ok(start_glyph_id) = self.start_glyph_id();
-      let Ok(start_glyph) = start_glyph_id.to_u32();
-      let Ok(glyph_count) = self.glyph_count();
-      let end_glyph = ::core::primitive::u32::wrapping_sub(
-        ::core::primitive::u32::wrapping_add(start_glyph, {
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);
-          migrated_value
-        }),
-        1,
-      );
+    let Ok(start_glyph_id) = self.start_glyph_id();
+    let Ok(start_glyph) = start_glyph_id.to_u32();
+    let Ok(glyph_count) = self.glyph_count();
+    let end_glyph = ::core::primitive::u32::wrapping_sub(
+      ::core::primitive::u32::wrapping_add(start_glyph, {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);
+        migrated_value
+      }),
+      1,
+    );
 
-      match ::core::primitive::bool::then_some(first_glyph < start_glyph || last_glyph > end_glyph, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(_previous_presence) = out.insert(0);
-        }
-        ::core::option::Option::None => {}
+    match ::core::primitive::bool::then_some(
+      first_glyph < start_glyph || last_glyph > end_glyph,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let Ok(_previous_presence) = out.insert(0);
       }
+      ::core::option::Option::None => {}
+    }
 
-      let Ok(class_values) = self.class_value_array();
-      let Ok(value_20) = glyphs.contains(GlyphId::from(start_glyph));
+    let Ok(class_values) = self.class_value_array();
+    let Ok(value_20) = glyphs.contains(GlyphId::from(start_glyph));
 
-      match ::core::primitive::bool::then_some(value_20 == console_core_integer_sets::Presence::Present, ()) {
-        ::core::option::Option::Some(()) => {
-          let start_glyph_class = match class_values.first() {
-            Some(start_glyph_class) => start_glyph_class,
-            None => {
-              return Ok(out);
-            }
-          };
-          let Ok(value_21) = start_glyph_class.get();
-
-          let Ok(_previous_presence) = out.insert(value_21);
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(value_93) = glyphs.iter_after(GlyphId::from(start_glyph));
-
-      for g in value_93 {
-        let Ok(value_52) = g.to_u32();
-
-        let g_2 = value_52;
-
-        match ::core::primitive::bool::then_some(g_2 > end_glyph, ()) {
-          ::core::option::Option::Some(()) => {
-            break;
-          }
-          ::core::option::Option::None => {}
-        }
-
-        let idx = ::core::primitive::u32::wrapping_sub(g_2, start_glyph);
-        let Ok(value_69) = console_core_number_conversion::index({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(idx);
-          migrated_value
-        });
-
-        let class = match class_values.get(value_69) {
-          Some(class) => class,
+    match ::core::primitive::bool::then_some(
+      value_20 == console_core_integer_sets::Presence::Present,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let start_glyph_class = match class_values.first() {
+          Some(start_glyph_class) => start_glyph_class,
           None => {
-            break;
+            return Ok(out);
           }
         };
-        let Ok(value_76) = class.get();
+        let Ok(value_21) = start_glyph_class.get();
 
-        let Ok(_previous_presence) = out.insert(value_76);
+        let Ok(_previous_presence) = out.insert(value_21);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(value_93) = glyphs.iter_after(GlyphId::from(start_glyph));
+
+    for g in value_93 {
+      let Ok(value_52) = g.to_u32();
+
+      let g_2 = value_52;
+
+      match ::core::primitive::bool::then_some(g_2 > end_glyph, ()) {
+        ::core::option::Option::Some(()) => {
+          break;
+        }
+        ::core::option::Option::None => {}
       }
 
-      Ok(out)
+      let idx = ::core::primitive::u32::wrapping_sub(g_2, start_glyph);
+      let Ok(value_69) = console_core_number_conversion::index({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(idx);
+        migrated_value
+      });
+
+      let class = match class_values.get(value_69) {
+        Some(class) => class,
+        None => {
+          break;
+        }
+      };
+      let Ok(value_76) = class.get();
+
+      let Ok(_previous_presence) = out.insert(value_76);
+    }
+
+    Ok(out)
   }
 
   #[cfg(feature = "std")]
   #[must_use]
-  fn intersected_class_glyphs(&self, glyphs: &IntSet<GlyphId>, class: u16) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
-      let Ok(mut out) = IntSet::empty();
-      let Ok(value_22) = glyphs.is_empty();
+  fn intersected_class_glyphs(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+    class: u16,
+  ) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
+    let Ok(mut out) = IntSet::empty();
+    let Ok(value_22) = glyphs.is_empty();
 
-      match ::core::primitive::bool::then_some(value_22 == console_core_integer_sets::Emptiness::Empty, ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(out);
-        }
-        ::core::option::Option::None => {}
+    match ::core::primitive::bool::then_some(
+      value_22 == console_core_integer_sets::Emptiness::Empty,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        return Ok(out);
       }
+      ::core::option::Option::None => {}
+    }
 
-      let Ok(start_glyph_id) = self.start_glyph_id();
-      let Ok(start_glyph) = start_glyph_id.to_u32();
-      let Ok(glyph_count) = self.glyph_count();
-      let end_glyph = ::core::primitive::u32::wrapping_sub(
-        ::core::primitive::u32::wrapping_add(start_glyph, {
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);
-          migrated_value
-        }),
-        1,
-      );
+    let Ok(start_glyph_id) = self.start_glyph_id();
+    let Ok(start_glyph) = start_glyph_id.to_u32();
+    let Ok(glyph_count) = self.glyph_count();
+    let end_glyph = ::core::primitive::u32::wrapping_sub(
+      ::core::primitive::u32::wrapping_add(start_glyph, {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);
+        migrated_value
+      }),
+      1,
+    );
 
-      match ::core::primitive::bool::then_some(class == 0, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(span) = class_glyph_span(glyphs);
-          let (first, last) = match span {
-            Some(endpoints) => endpoints,
-            None => return Ok(out),
-          };
-          let Ok(value_53) = first.to_u32();
-
-          match ::core::primitive::bool::then_some(value_53 < start_glyph, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(value_96) = glyphs.range(first..GlyphId::from(start_glyph));
-
-              out.extend(value_96);
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let Ok(value_54) = last.to_u32();
-
-          match ::core::primitive::bool::then_some(value_54 > end_glyph, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(value_98) = glyphs
-                .range(GlyphId::from(::core::primitive::u32::wrapping_add(end_glyph, 1))..=last);
-
-              out.extend(value_98);
-            }
-            ::core::option::Option::None => {}
-          }
-
-          return Ok(out);
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(class_values) = self.class_value_array();
-      let Ok(value_99) = glyphs.range(GlyphId::from(start_glyph)..=GlyphId::from(end_glyph));
-
-      for g in value_99 {
-        let Ok(value_55) = g.to_u32();
-
-        let idx = ::core::primitive::u32::wrapping_sub(value_55, start_glyph);
-        let Ok(value_70) = console_core_number_conversion::index({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(idx);
-          migrated_value
-        });
-
-        let c = match class_values.get(value_70) {
-          Some(c) => c,
-          None => {
-            break;
-          }
+    match ::core::primitive::bool::then_some(class == 0, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(span) = class_glyph_span(glyphs);
+        let (first, last) = match span {
+          Some(endpoints) => endpoints,
+          None => return Ok(out),
         };
-        let Ok(value_77) = c.get();
+        let Ok(value_53) = first.to_u32();
 
-        match ::core::primitive::bool::then_some(value_77 == class, ()) {
+        match ::core::primitive::bool::then_some(value_53 < start_glyph, ()) {
           ::core::option::Option::Some(()) => {
-            let Ok(_previous_presence) = out.insert(g);
+            let Ok(value_96) = glyphs.range(first..GlyphId::from(start_glyph));
+
+            out.extend(value_96);
           }
           ::core::option::Option::None => {}
         }
-      }
 
-      Ok(out)
+        let Ok(value_54) = last.to_u32();
+
+        match ::core::primitive::bool::then_some(value_54 > end_glyph, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(value_98) = glyphs
+              .range(GlyphId::from(::core::primitive::u32::wrapping_add(end_glyph, 1))..=last);
+
+            out.extend(value_98);
+          }
+          ::core::option::Option::None => {}
+        }
+
+        return Ok(out);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(class_values) = self.class_value_array();
+    let Ok(value_99) = glyphs.range(GlyphId::from(start_glyph)..=GlyphId::from(end_glyph));
+
+    for g in value_99 {
+      let Ok(value_55) = g.to_u32();
+
+      let idx = ::core::primitive::u32::wrapping_sub(value_55, start_glyph);
+      let Ok(value_70) = console_core_number_conversion::index({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(idx);
+        migrated_value
+      });
+
+      let c = match class_values.get(value_70) {
+        Some(c) => c,
+        None => {
+          break;
+        }
+      };
+      let Ok(value_77) = c.get();
+
+      match ::core::primitive::bool::then_some(value_77 == class, ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(_previous_presence) = out.insert(g);
+        }
+        ::core::option::Option::None => {}
+      }
+    }
+
+    Ok(out)
   }
 }
 
@@ -988,7 +1137,10 @@ impl<'a> ClassDefFormat2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat2::get` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat2::get` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn get(&self, gid: impl Into<GlyphId>) -> u16 {
     let Ok(gid_2) = <_ as ::core::convert::Into<::font_types::GlyphId>>::into(gid).to_u32();
@@ -1033,7 +1185,10 @@ impl<'a> ClassDefFormat2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat2::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat2::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = (GlyphId16, u16)> + 'a + use<'a> {
     let Ok(class_range_records) = self.class_range_records();
@@ -1061,7 +1216,10 @@ impl<'a> ClassDefFormat2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat2::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat2::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     let Ok(class_range_records) = self.class_range_records();
@@ -1074,249 +1232,271 @@ impl<'a> ClassDefFormat2<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDefFormat2::cost` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDefFormat2::cost` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn cost(&self) -> u32 {
-    { let Ok(explicit_value) = bit_storage({
-      let Ok(class_range_count) = self.class_range_count();
-      let Ok(migrated_value) =
-        console_core_number_conversion::wrapped::<_, u32>(class_range_count);
-      migrated_value
-    }); explicit_value }
+    {
+      let Ok(explicit_value) = bit_storage({
+        let Ok(class_range_count) = self.class_range_count();
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u32>(class_range_count);
+        migrated_value
+      });
+      explicit_value
+    }
   }
 
   #[cfg(feature = "std")]
   #[must_use]
-  fn intersect_classes(&self, glyphs: &IntSet<GlyphId>) -> core::result::Result<IntSet<u16>, console_core_never::Never> {
-      let Ok(mut out) = IntSet::empty();
-      let Ok(first_glyph) = glyphs.first();
-      let first_glyph_2 = match first_glyph {
-        Some(glyph) => glyph,
-        None => return Ok(out),
-      };
-      let Ok(range_records) = self.class_range_records();
-      let (first_record, remaining_ranges) = match range_records.split_first() {
-        Some(ranges) => ranges,
-        None => {
-          let Ok(_previous_presence) = out.insert(0);
+  fn intersect_classes(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+  ) -> core::result::Result<IntSet<u16>, console_core_never::Never> {
+    let Ok(mut out) = IntSet::empty();
+    let Ok(first_glyph) = glyphs.first();
+    let first_glyph_2 = match first_glyph {
+      Some(glyph) => glyph,
+      None => return Ok(out),
+    };
+    let Ok(range_records) = self.class_range_records();
+    let (first_record, remaining_ranges) = match range_records.split_first() {
+      Some(ranges) => ranges,
+      None => {
+        let Ok(_previous_presence) = out.insert(0);
 
-          return Ok(out);
-        }
-      };
-      let Ok(first_class_glyph) = first_record.start_glyph_id();
+        return Ok(out);
+      }
+    };
+    let Ok(first_class_glyph) = first_record.start_glyph_id();
 
-      match ::core::primitive::bool::then_some(first_glyph_2 < first_class_glyph, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(_previous_presence) = out.insert(0);
-        }
-        ::core::option::Option::None => {
-          let Ok(end_glyph_id) = first_record.end_glyph_id();
-          let mut glyph = GlyphId::from(end_glyph_id);
+    match ::core::primitive::bool::then_some(first_glyph_2 < first_class_glyph, ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(_previous_presence) = out.insert(0);
+      }
+      ::core::option::Option::None => {
+        let Ok(end_glyph_id) = first_record.end_glyph_id();
+        let mut glyph = GlyphId::from(end_glyph_id);
 
-          for record in remaining_ranges {
-            let Ok(mut value_27) = glyphs.iter_after(glyph);
+        for record in remaining_ranges {
+          let Ok(mut value_27) = glyphs.iter_after(glyph);
 
-            let g = match value_27.next() {
-              Some(g) => g,
-              None => {
-                break;
-              }
-            };
-
-            let Ok(start_glyph_id) = record.start_glyph_id();
-
-            match ::core::primitive::bool::then_some(g < start_glyph_id, ()) {
-              ::core::option::Option::Some(()) => {
-                let Ok(_previous_presence) = out.insert(0);
-                break;
-              }
-              ::core::option::Option::None => {}
+          let g = match value_27.next() {
+            Some(g) => g,
+            None => {
+              break;
             }
+          };
 
-            let Ok(record_end_glyph_id) = record.end_glyph_id();
-            glyph = GlyphId::from(record_end_glyph_id);
-          }
+          let Ok(start_glyph_id) = record.start_glyph_id();
 
-          let Ok(mut value_28) = glyphs.iter_after(glyph);
-
-          match ::core::primitive::bool::then_some(value_28.next().is_some(), ()) {
+          match ::core::primitive::bool::then_some(g < start_glyph_id, ()) {
             ::core::option::Option::Some(()) => {
               let Ok(_previous_presence) = out.insert(0);
+              break;
             }
             ::core::option::Option::None => {}
           }
+
+          let Ok(record_end_glyph_id) = record.end_glyph_id();
+          glyph = GlyphId::from(record_end_glyph_id);
+        }
+
+        let Ok(mut value_28) = glyphs.iter_after(glyph);
+
+        match ::core::primitive::bool::then_some(value_28.next().is_some(), ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(_previous_presence) = out.insert(0);
+          }
+          ::core::option::Option::None => {}
         }
       }
+    }
 
-      let Ok(num_ranges) = self.class_range_count();
-      let Ok(value_29) = glyphs.len();
+    let Ok(num_ranges) = self.class_range_count();
+    let Ok(value_29) = glyphs.len();
 
-      match ::core::primitive::bool::then_some(({
+    match ::core::primitive::bool::then_some(
+      ({
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_ranges);
         migrated_value
       }) > ::core::primitive::u64::wrapping_mul(value_29, {
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(self.cost());
         migrated_value
-      }), ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(value_106) = glyphs.iter();
+      }),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let Ok(value_106) = glyphs.iter();
 
-          for g in value_106 {
-            let class = self.get(g);
+        for g in value_106 {
+          let class = self.get(g);
 
-            match ::core::primitive::bool::then_some(class != 0, ()) {
-              ::core::option::Option::Some(()) => {
-                let Ok(_previous_presence) = out.insert(class);
-              }
-              ::core::option::Option::None => {}
+          match ::core::primitive::bool::then_some(class != 0, ()) {
+            ::core::option::Option::Some(()) => {
+              let Ok(_previous_presence) = out.insert(class);
             }
-          }
-        }
-        ::core::option::Option::None => {
-          for record in range_records {
-            let Ok(start_glyph_id) = record.start_glyph_id();
-            let Ok(value_30) = glyphs.intersects_range(
-              GlyphId::from(start_glyph_id)..=GlyphId::from({
-                let Ok(explicit_value) = record.end_glyph_id();
-                explicit_value
-              }),
-            );
-
-            match ::core::primitive::bool::then_some(value_30 == console_core_integer_sets::Overlap::Intersecting, ()) {
-              ::core::option::Option::Some(()) => {
-                let Ok(record_class) = record.class();
-                let Ok(_previous_presence) = out.insert(record_class);
-              }
-              ::core::option::Option::None => {}
-            }
+            ::core::option::Option::None => {}
           }
         }
       }
+      ::core::option::Option::None => {
+        for record in range_records {
+          let Ok(start_glyph_id) = record.start_glyph_id();
+          let Ok(value_30) = glyphs.intersects_range(
+            GlyphId::from(start_glyph_id)..=GlyphId::from({
+              let Ok(explicit_value) = record.end_glyph_id();
+              explicit_value
+            }),
+          );
 
-      Ok(out)
+          match ::core::primitive::bool::then_some(
+            value_30 == console_core_integer_sets::Overlap::Intersecting,
+            (),
+          ) {
+            ::core::option::Option::Some(()) => {
+              let Ok(record_class) = record.class();
+              let Ok(_previous_presence) = out.insert(record_class);
+            }
+            ::core::option::Option::None => {}
+          }
+        }
+      }
+    }
+
+    Ok(out)
   }
 
   #[cfg(feature = "std")]
   #[must_use]
-  fn intersected_class_glyphs(&self, glyphs: &IntSet<GlyphId>, class: u16) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
-      let Ok(mut out) = IntSet::empty();
-      let Ok(span) = class_glyph_span(glyphs);
-      let (first_glyph, last_glyph) = match span {
-        Some(endpoints) => endpoints,
-        None => return Ok(out),
-      };
-      let Ok(first) = first_glyph.to_u32();
-      let Ok(last) = last_glyph.to_u32();
+  fn intersected_class_glyphs(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+    class: u16,
+  ) -> core::result::Result<IntSet<GlyphId>, console_core_never::Never> {
+    let Ok(mut out) = IntSet::empty();
+    let Ok(span) = class_glyph_span(glyphs);
+    let (first_glyph, last_glyph) = match span {
+      Some(endpoints) => endpoints,
+      None => return Ok(out),
+    };
+    let Ok(first) = first_glyph.to_u32();
+    let Ok(last) = last_glyph.to_u32();
 
-      match ::core::primitive::bool::then_some(class == 0, ()) {
-        ::core::option::Option::Some(()) => {
-          let mut start = first;
+    match ::core::primitive::bool::then_some(class == 0, ()) {
+      ::core::option::Option::Some(()) => {
+        let mut start = first;
 
-          let Ok(class_range_records) = self.class_range_records();
+        let Ok(class_range_records) = self.class_range_records();
 
-          for range in class_range_records {
-            let Ok(start_glyph_id) = range.start_glyph_id();
-            let Ok(value_62) = start_glyph_id.to_u32();
+        for range in class_range_records {
+          let Ok(start_glyph_id) = range.start_glyph_id();
+          let Ok(value_62) = start_glyph_id.to_u32();
 
-            let range_start = value_62;
+          let range_start = value_62;
 
-            match ::core::primitive::bool::then_some(start < range_start, ()) {
-              ::core::option::Option::Some(()) => {
-                let Ok(value_111) = glyphs.range(GlyphId::from(start)..GlyphId::from(range_start));
-
-                out.extend(value_111);
-              }
-              ::core::option::Option::None => {}
-            }
-
-            let Ok(end_glyph_id) = range.end_glyph_id();
-            let Ok(range_end) = end_glyph_id.to_u32();
-
-            match ::core::primitive::bool::then_some(range_end >= last, ()) {
-              ::core::option::Option::Some(()) => {
-                break;
-              }
-              ::core::option::Option::None => {}
-            }
-
-            start = ::core::primitive::u32::wrapping_add(range_end, 1);
-          }
-
-          match ::core::primitive::bool::then_some(start <= last, ()) {
+          match ::core::primitive::bool::then_some(start < range_start, ()) {
             ::core::option::Option::Some(()) => {
-              let Ok(value_112) = glyphs.range(GlyphId::from(start)..=GlyphId::from(last));
+              let Ok(value_111) = glyphs.range(GlyphId::from(start)..GlyphId::from(range_start));
 
-              out.extend(value_112);
+              out.extend(value_111);
             }
             ::core::option::Option::None => {}
           }
 
-          return Ok(out);
+          let Ok(end_glyph_id) = range.end_glyph_id();
+          let Ok(range_end) = end_glyph_id.to_u32();
+
+          match ::core::primitive::bool::then_some(range_end >= last, ()) {
+            ::core::option::Option::Some(()) => {
+              break;
+            }
+            ::core::option::Option::None => {}
+          }
+
+          start = ::core::primitive::u32::wrapping_add(range_end, 1);
         }
-        ::core::option::Option::None => {}
+
+        match ::core::primitive::bool::then_some(start <= last, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(value_112) = glyphs.range(GlyphId::from(start)..=GlyphId::from(last));
+
+            out.extend(value_112);
+          }
+          ::core::option::Option::None => {}
+        }
+
+        return Ok(out);
       }
+      ::core::option::Option::None => {}
+    }
 
-      let Ok(num_ranges) = self.class_range_count();
-      let Ok(value_32) = glyphs.len();
+    let Ok(num_ranges) = self.class_range_count();
+    let Ok(value_32) = glyphs.len();
 
-      match ::core::primitive::bool::then_some(({
+    match ::core::primitive::bool::then_some(
+      ({
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_ranges);
         migrated_value
       }) > ::core::primitive::u64::wrapping_mul(value_32, {
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(self.cost());
         migrated_value
-      }), ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(value_113) = glyphs.iter();
+      }),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let Ok(value_113) = glyphs.iter();
 
-          for g in value_113 {
-            let c = self.get(g);
+        for g in value_113 {
+          let c = self.get(g);
 
-            match ::core::primitive::bool::then_some(c == class, ()) {
-              ::core::option::Option::Some(()) => {
-                let Ok(_previous_presence) = out.insert(g);
-              }
-              ::core::option::Option::None => {}
+          match ::core::primitive::bool::then_some(c == class, ()) {
+            ::core::option::Option::Some(()) => {
+              let Ok(_previous_presence) = out.insert(g);
             }
-          }
-        }
-        ::core::option::Option::None => {
-          let Ok(class_range_records) = self.class_range_records();
-
-          for range in class_range_records {
-            let Ok(start_glyph_id) = range.start_glyph_id();
-            let Ok(value_63) = start_glyph_id.to_u32();
-
-            let range_start = value_63;
-            let Ok(end_glyph_id) = range.end_glyph_id();
-            let Ok(value_64) = end_glyph_id.to_u32();
-
-            let range_end = value_64;
-
-            match ::core::primitive::bool::then_some(range_start > last, ()) {
-              ::core::option::Option::Some(()) => {
-                break;
-              }
-              ::core::option::Option::None => {}
-            }
-
-            let Ok(range_class) = range.class();
-
-            match (range_class != class || range_end < first).then_some(()) {
-              ::core::option::Option::Some(()) => {
-                continue;
-              }
-              ::core::option::Option::None => {}
-            }
-
-            let Ok(value_115) = glyphs.range(GlyphId::from(range_start)..=GlyphId::from(range_end));
-
-            out.extend(value_115);
+            ::core::option::Option::None => {}
           }
         }
       }
+      ::core::option::Option::None => {
+        let Ok(class_range_records) = self.class_range_records();
 
-      Ok(out)
+        for range in class_range_records {
+          let Ok(start_glyph_id) = range.start_glyph_id();
+          let Ok(value_63) = start_glyph_id.to_u32();
+
+          let range_start = value_63;
+          let Ok(end_glyph_id) = range.end_glyph_id();
+          let Ok(value_64) = end_glyph_id.to_u32();
+
+          let range_end = value_64;
+
+          match ::core::primitive::bool::then_some(range_start > last, ()) {
+            ::core::option::Option::Some(()) => {
+              break;
+            }
+            ::core::option::Option::None => {}
+          }
+
+          let Ok(range_class) = range.class();
+
+          match (range_class != class || range_end < first).then_some(()) {
+            ::core::option::Option::Some(()) => {
+              continue;
+            }
+            ::core::option::Option::None => {}
+          }
+
+          let Ok(value_115) = glyphs.range(GlyphId::from(range_start)..=GlyphId::from(range_end));
+
+          out.extend(value_115);
+        }
+      }
+    }
+
+    Ok(out)
   }
 }
 
@@ -1353,7 +1533,10 @@ impl ClassRangeRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassRangeRecord::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassRangeRecord::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     let Ok(start_glyph_id) = self.start_glyph_id();
@@ -1385,7 +1568,10 @@ impl ClassDef<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDef::get` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDef::get` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn get(&self, gid: impl Into<GlyphId>) -> u16 {
     match self {
@@ -1397,7 +1583,10 @@ impl ClassDef<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDef::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDef::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = (GlyphId16, u16)> + '_ {
     let (one, two) = match self {
@@ -1410,7 +1599,10 @@ impl ClassDef<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDef::population` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDef::population` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn population(&self) -> u64 {
     match self {
@@ -1422,7 +1614,10 @@ impl ClassDef<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDef::cost` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDef::cost` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn cost(&self) -> u32 {
     match self {
@@ -1435,19 +1630,22 @@ impl ClassDef<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDef::intersect_classes` method returns `IntSet` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDef::intersect_classes` method returns `IntSet` directly in the existing parser interface"
+    )
   )]
   pub fn intersect_classes(&self, glyphs: &IntSet<GlyphId>) -> IntSet<u16> {
     match self {
       ClassDef::Format1(table) => {
-          let Ok(intersect_classes) = table.intersect_classes(glyphs);
+        let Ok(intersect_classes) = table.intersect_classes(glyphs);
 
-          intersect_classes
+        intersect_classes
       }
       ClassDef::Format2(table) => {
-          let Ok(intersect_classes) = table.intersect_classes(glyphs);
+        let Ok(intersect_classes) = table.intersect_classes(glyphs);
 
-          intersect_classes
+        intersect_classes
       }
     }
   }
@@ -1456,7 +1654,10 @@ impl ClassDef<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ClassDef::intersected_class_glyphs` method returns `IntSet` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ClassDef::intersected_class_glyphs` method returns `IntSet` directly in the existing parser interface"
+    )
   )]
   pub fn intersected_class_glyphs(
     &self,
@@ -1465,14 +1666,14 @@ impl ClassDef<'_> {
   ) -> IntSet<GlyphId> {
     match self {
       ClassDef::Format1(table) => {
-          let Ok(intersected_class_glyphs) = table.intersected_class_glyphs(glyphs, class);
+        let Ok(intersected_class_glyphs) = table.intersected_class_glyphs(glyphs, class);
 
-          intersected_class_glyphs
+        intersected_class_glyphs
       }
       ClassDef::Format2(table) => {
-          let Ok(intersected_class_glyphs) = table.intersected_class_glyphs(glyphs, class);
+        let Ok(intersected_class_glyphs) = table.intersected_class_glyphs(glyphs, class);
 
-          intersected_class_glyphs
+        intersected_class_glyphs
       }
     }
   }
@@ -1482,7 +1683,10 @@ impl<'a> Device<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Device::iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Device::iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn iter(&self) -> impl Iterator<Item = i8> + 'a + use<'a> {
     let Ok(format) = self.delta_format();
@@ -1517,40 +1721,44 @@ impl<'a> Device<'a> {
 }
 
 #[must_use]
-fn iter_packed_values(raw: u16, format: DeltaFormat, n: u64) -> core::result::Result<impl Iterator<Item = i8>, console_core_never::Never> {
-    let mut decoded = [None; 8];
-    let (mask, sign_mask, bits, max_per_word) = match format {
-      DeltaFormat::Local2BitDeltas => (0b11, 0b10, 2u64, 8),
-      DeltaFormat::Local4BitDeltas => (0b1111, 0b1000, 4, 4),
-      DeltaFormat::Local8BitDeltas => (0b1111_1111, 0b1000_0000, 8, 2),
-      DeltaFormat::VariationIndex | DeltaFormat::Unknown => {
-        return Ok(decoded.into_iter().flatten());
+fn iter_packed_values(
+  raw: u16,
+  format: DeltaFormat,
+  n: u64,
+) -> core::result::Result<impl Iterator<Item = i8>, console_core_never::Never> {
+  let mut decoded = [None; 8];
+  let (mask, sign_mask, bits, max_per_word) = match format {
+    DeltaFormat::Local2BitDeltas => (0b11, 0b10, 2u64, 8),
+    DeltaFormat::Local4BitDeltas => (0b1111, 0b1000, 4, 4),
+    DeltaFormat::Local8BitDeltas => (0b1111_1111, 0b1000_0000, 8, 2),
+    DeltaFormat::VariationIndex | DeltaFormat::Unknown => {
+      return Ok(decoded.into_iter().flatten());
+    }
+  };
+
+  for (i, delta) in (0..n.min(max_per_word)).zip(&mut decoded) {
+    let shift = 16u64.wrapping_sub(bits).wrapping_sub(i.wrapping_mul(bits));
+    let Ok(shift_count) = console_core_number_conversion::fitted::<_, u32>(shift);
+    let mask_2 = u16::wrapping_shl(mask, shift_count);
+    let val = (raw & mask_2).wrapping_shr(shift_count);
+    let sign = val & sign_mask != 0;
+
+    let val_2 = match ::core::primitive::bool::then_some(sign, ()) {
+      ::core::option::Option::Some(()) => ::core::primitive::i8::wrapping_neg({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i8>(
+          ::core::primitive::u16::wrapping_add((!val) & mask_2, 1),
+        );
+        migrated_value
+      }),
+      ::core::option::Option::None => {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i8>(val);
+        migrated_value
       }
     };
+    *delta = Some(val_2);
+  }
 
-    for (i, delta) in (0..n.min(max_per_word)).zip(&mut decoded) {
-      let shift = 16u64.wrapping_sub(bits).wrapping_sub(i.wrapping_mul(bits));
-      let Ok(shift_count) = console_core_number_conversion::fitted::<_, u32>(shift);
-      let mask_2 = u16::wrapping_shl(mask, shift_count);
-      let val = (raw & mask_2).wrapping_shr(shift_count);
-      let sign = val & sign_mask != 0;
-
-      let val_2 = match ::core::primitive::bool::then_some(sign, ()) {
-        ::core::option::Option::Some(()) => ::core::primitive::i8::wrapping_neg({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i8>(
-            ::core::primitive::u16::wrapping_add((!val) & mask_2, 1),
-          );
-          migrated_value
-        }),
-        ::core::option::Option::None => {
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i8>(val);
-          migrated_value
-        }
-      };
-      *delta = Some(val_2);
-    }
-
-    Ok(decoded.into_iter().flatten())
+  Ok(decoded.into_iter().flatten())
 }
 
 impl From<VariationIndex<'_>> for DeltaSetIndex {
@@ -1572,7 +1780,10 @@ impl<T> TaggedElement<T> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TaggedElement::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TaggedElement::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(tag: Tag, element: T) -> Self {
     Self { tag, element }
@@ -1762,10 +1973,13 @@ mod tests {
 
   #[test]
   fn classdef_get_format2() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let classdef = crate::test_support::fixture_value(ClassDef::read({
-      let Ok(explicit_value) = FontData::new(font_test_data::gdef::MARKATTACHCLASSDEF_TABLE);
-      explicit_value
-    }), "fixture value")?;
+    let classdef = crate::test_support::fixture_value(
+      ClassDef::read({
+        let Ok(explicit_value) = FontData::new(font_test_data::gdef::MARKATTACHCLASSDEF_TABLE);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
     assert!(matches!(classdef, ClassDef::Format2(..)));
 
     let gid_class_pairs = [
@@ -1794,7 +2008,6 @@ mod tests {
     for (gid, class) in classdef.iter() {
       assert_eq!(classdef.get(gid), class);
     }
-  ;
 
     Ok(())
   }
@@ -1802,12 +2015,20 @@ mod tests {
   #[test]
   fn delta_decode() {
     assert_eq!(
-      ({ let Ok(explicit_value) = iter_packed_values(0x123f, DeltaFormat::Local4BitDeltas, 4); explicit_value }).collect::<Vec<_>>(),
+      ({
+        let Ok(explicit_value) = iter_packed_values(0x123f, DeltaFormat::Local4BitDeltas, 4);
+        explicit_value
+      })
+      .collect::<Vec<_>>(),
       &[1, 2, 3, -1]
     );
 
     assert_eq!(
-      ({ let Ok(explicit_value) = iter_packed_values(0x5540, DeltaFormat::Local2BitDeltas, 5); explicit_value }).collect::<Vec<_>>(),
+      ({
+        let Ok(explicit_value) = iter_packed_values(0x5540, DeltaFormat::Local2BitDeltas, 5);
+        explicit_value
+      })
+      .collect::<Vec<_>>(),
       &[1, 1, 1, 1, 1]
     );
   }
@@ -1827,15 +2048,69 @@ mod tests {
 
   #[test]
   fn bit_storage_tests() {
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(0); explicit_value }), 0);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(1); explicit_value }), 1);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(2); explicit_value }), 2);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(4); explicit_value }), 3);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(9); explicit_value }), 4);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(0x123); explicit_value }), 9);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(0x1234); explicit_value }), 13);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(0xffff); explicit_value }), 16);
-    assert_eq!(({ let Ok(explicit_value) = bit_storage(0xffff_ffff); explicit_value }), 32);
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(0);
+        explicit_value
+      }),
+      0
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(1);
+        explicit_value
+      }),
+      1
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(2);
+        explicit_value
+      }),
+      2
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(4);
+        explicit_value
+      }),
+      3
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(9);
+        explicit_value
+      }),
+      4
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(0x123);
+        explicit_value
+      }),
+      9
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(0x1234);
+        explicit_value
+      }),
+      13
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(0xffff);
+        explicit_value
+      }),
+      16
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bit_storage(0xffff_ffff);
+        explicit_value
+      }),
+      32
+    );
   }
 
   #[test]

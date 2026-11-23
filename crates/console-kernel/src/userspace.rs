@@ -45,6 +45,25 @@ struct Trap {
   value: u64,
 }
 
+pub(super) fn calculate(
+  memory: &mut Reserved,
+  stack: Address,
+  program: &[u8],
+  request: [u8; 8],
+) -> Result<Option<f64>, PagingError> {
+  let call = UserCall {
+    stack: stack.0,
+    argument: u64::from_le_bytes(request),
+  };
+  let trap = memory.browser.run(program, call)?;
+  let answer = f64::from_bits(trap.value);
+
+  Ok(match (trap.reason, answer.is_finite()) {
+    (0, true) => Some(answer),
+    _ => None,
+  })
+}
+
 const _: () = {
   assert!(core::mem::size_of::<Trap>() == 16);
   assert!(core::mem::align_of::<Trap>() == 8);
@@ -400,8 +419,10 @@ fn expect_unmapped(
   frame: HandleValue,
   reason: HandleError,
 ) -> Result<(), Error> {
-  match ::core::primitive::bool::then_some(!matches!(kernel.authorize_mapping(task.id, frame, MappingAccess::Read), Err(actual) if actual == reason), ())
-  {
+  match ::core::primitive::bool::then_some(
+    !matches!(kernel.authorize_mapping(task.id, frame, MappingAccess::Read), Err(actual) if actual == reason),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Err(Error::UnexpectedMapping);
     }
@@ -419,11 +440,14 @@ fn expect_unmapped(
       },
     )?;
 
-    match ::core::primitive::bool::then_some(trap
-      == (Trap {
-        reason: USER_PAGE_ABSENT,
-        value: address,
-      }), ()) {
+    match ::core::primitive::bool::then_some(
+      trap
+        == (Trap {
+          reason: USER_PAGE_ABSENT,
+          value: address,
+        }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => {
         return Err(Error::RevokedMapping {
@@ -533,13 +557,15 @@ pub fn check(memory: &mut Reserved, stack: Address) -> Result<&[u32; 1024], Erro
 
   let Ok(pixels) = memory.frame.pixels();
 
-  match ::core::primitive::bool::then_some(pixels
-    .as_chunks::<256>()
-    .0
-    .iter()
-    .zip(COLORS)
-    .all(|(row, color)| row.iter().all(|pixel| *pixel == color)), ())
-  {
+  match ::core::primitive::bool::then_some(
+    pixels
+      .as_chunks::<256>()
+      .0
+      .iter()
+      .zip(COLORS)
+      .all(|(row, color)| row.iter().all(|pixel| *pixel == color)),
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ok(pixels),
     ::core::option::Option::None => Err(Error::FrameContent),
   }
@@ -594,13 +620,18 @@ fn check_permissions(
     },
   )?;
 
-  match ::core::primitive::bool::then_some(supervisor
-    == (Trap {
-      reason: USER_READ_PROTECTION,
-      value: physical.0,
-    }), ()) {
+  match ::core::primitive::bool::then_some(
+    supervisor
+      == (Trap {
+        reason: USER_READ_PROTECTION,
+        value: physical.0,
+      }),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(Error::SupervisorAccess(supervisor.reason, supervisor.value)),
+    ::core::option::Option::None => {
+      return Err(Error::SupervisorAccess(supervisor.reason, supervisor.value));
+    }
   }
 
   let write_byte = Program::WriteByte.bytes()?;

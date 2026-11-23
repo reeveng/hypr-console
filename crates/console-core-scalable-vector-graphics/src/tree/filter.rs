@@ -84,27 +84,30 @@ impl Kind {
     input: &Input,
   ) -> core::result::Result<crate::HasInputAnswer, console_core_never::Never> {
     Ok(
-      match ::core::primitive::bool::then_some({
-        match self {
-          Kind::Blend(fe) => fe.input1 == *input || fe.input2 == *input,
-          Kind::ColorMatrix(fe) => fe.input == *input,
-          Kind::ComponentTransfer(fe) => fe.input == *input,
-          Kind::Composite(fe) => fe.input1 == *input || fe.input2 == *input,
-          Kind::ConvolveMatrix(fe) => fe.input == *input,
-          Kind::DiffuseLighting(fe) => fe.input == *input,
-          Kind::DisplacementMap(fe) => fe.input1 == *input || fe.input2 == *input,
-          Kind::DropShadow(fe) => fe.input == *input,
-          Kind::Flood(_) => false,
-          Kind::GaussianBlur(fe) => fe.input == *input,
-          Kind::Image(_) => false,
-          Kind::Merge(fe) => fe.inputs.iter().any(|i| i == input),
-          Kind::Morphology(fe) => fe.input == *input,
-          Kind::Offset(fe) => fe.input == *input,
-          Kind::SpecularLighting(fe) => fe.input == *input,
-          Kind::Tile(fe) => fe.input == *input,
-          Kind::Turbulence(_) => false,
-        }
-      }, ()) {
+      match ::core::primitive::bool::then_some(
+        {
+          match self {
+            Kind::Blend(fe) => fe.input1 == *input || fe.input2 == *input,
+            Kind::ColorMatrix(fe) => fe.input == *input,
+            Kind::ComponentTransfer(fe) => fe.input == *input,
+            Kind::Composite(fe) => fe.input1 == *input || fe.input2 == *input,
+            Kind::ConvolveMatrix(fe) => fe.input == *input,
+            Kind::DiffuseLighting(fe) => fe.input == *input,
+            Kind::DisplacementMap(fe) => fe.input1 == *input || fe.input2 == *input,
+            Kind::DropShadow(fe) => fe.input == *input,
+            Kind::Flood(_) => false,
+            Kind::GaussianBlur(fe) => fe.input == *input,
+            Kind::Image(_) => false,
+            Kind::Merge(fe) => fe.inputs.iter().any(|i| i == input),
+            Kind::Morphology(fe) => fe.input == *input,
+            Kind::Offset(fe) => fe.input == *input,
+            Kind::SpecularLighting(fe) => fe.input == *input,
+            Kind::Tile(fe) => fe.input == *input,
+            Kind::Turbulence(_) => false,
+          }
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => crate::HasInputAnswer::Yes,
         ::core::option::Option::None => crate::HasInputAnswer::No,
       },
@@ -303,10 +306,12 @@ impl ConvolveMatrix {
   pub fn preserve_alpha(
     &self,
   ) -> core::result::Result<crate::PreserveAlphaAnswer, console_core_never::Never> {
-    Ok(match ::core::primitive::bool::then_some(self.preserve_alpha, ()) {
-      ::core::option::Option::Some(()) => crate::PreserveAlphaAnswer::Yes,
-      ::core::option::Option::None => crate::PreserveAlphaAnswer::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.preserve_alpha, ()) {
+        ::core::option::Option::Some(()) => crate::PreserveAlphaAnswer::Yes,
+        ::core::option::Option::None => crate::PreserveAlphaAnswer::No,
+      },
+    )
   }
 }
 
@@ -364,7 +369,10 @@ impl ConvolveMatrixData {
     };
     let Ok(count_at_storage) = console_core_number_conversion::wrapped_index(count);
 
-    match ::core::primitive::bool::then_some(count_at_storage == data.len() && target.x < columns && target.y < rows, ()) {
+    match ::core::primitive::bool::then_some(
+      count_at_storage == data.len() && target.x < columns && target.y < rows,
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Some(Self {
         target_x: target.x,
         target_y: target.y,
@@ -386,7 +394,10 @@ impl ConvolveMatrixData {
   pub fn get(&self, x: u32, y: u32) -> Result<Option<f32>, Never> {
     match ::core::primitive::bool::then_some(x < self.columns && y < self.rows, ()) {
       ::core::option::Option::Some(()) => {
-        let offset = match y.checked_mul(self.columns).and_then(|row| row.checked_add(x)) {
+        let offset = match y
+          .checked_mul(self.columns)
+          .and_then(|row| row.checked_add(x))
+        {
           Some(offset) => offset,
           None => return Ok(None),
         };
@@ -406,14 +417,22 @@ mod tests {
   #[test]
   fn convolution_dimensions_cannot_wrap_to_an_empty_kernel() -> std::io::Result<()> {
     let Ok(matrix) = ConvolveMatrixData::new(
-      KernelLocation { x: 32_768, y: 32_768 },
-      KernelDimensions { columns: 65_536, rows: 65_536 },
+      KernelLocation {
+        x: 32_768,
+        y: 32_768,
+      },
+      KernelDimensions {
+        columns: 65_536,
+        rows: 65_536,
+      },
       Vec::new(),
     );
 
     match matrix {
       None => Ok(()),
-      Some(_) => Err(std::io::Error::other("overflowing convolution dimensions were accepted")),
+      Some(_) => Err(std::io::Error::other(
+        "overflowing convolution dimensions were accepted",
+      )),
     }
   }
 }
@@ -811,10 +830,12 @@ impl Turbulence {
   pub fn stitch_tiles(
     &self,
   ) -> core::result::Result<crate::StitchTilesAnswer, console_core_never::Never> {
-    Ok(match ::core::primitive::bool::then_some(self.stitch_tiles, ()) {
-      ::core::option::Option::Some(()) => crate::StitchTilesAnswer::Yes,
-      ::core::option::Option::None => crate::StitchTilesAnswer::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.stitch_tiles, ()) {
+        ::core::option::Option::Some(()) => crate::StitchTilesAnswer::Yes,
+        ::core::option::Option::None => crate::StitchTilesAnswer::No,
+      },
+    )
   }
 
   pub fn kind(&self) -> core::result::Result<TurbulenceKind, console_core_never::Never> {

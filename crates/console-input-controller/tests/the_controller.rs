@@ -86,7 +86,10 @@ fn l2_and_the_top_right_paddle_open_the_area_selector() -> Result<(), Failure> {
     .first()
     .and_then(|command| command.get(1))
     .map(String::as_str);
-  assert_eq!(flag, Some(console_core_internal_programs::SELECT_SCREENSHOT_AREA.spelling));
+  assert_eq!(
+    flag,
+    Some(console_core_internal_programs::SELECT_SCREENSHOT_AREA.spelling)
+  );
   Ok(())
 }
 
@@ -727,12 +730,17 @@ fn the_pad_is_picked_up_again_when_it_comes_back() -> Result<(), Failure> {
 }
 
 fn every_file(under: &Path, (skipping, only): (&str, &str)) -> Result<Vec<PathBuf>, Never> {
-  let Ok(listing) = console_core_directory_listing::recursive(under, |at| {
-    match ::core::primitive::bool::then_some(at.file_name().is_some_and(|name| name == skipping), ()) {
-      ::core::option::Option::Some(()) => Descend::Past,
-      ::core::option::Option::None => Descend::Into,
-    }
-  });
+  let Ok(listing) =
+    console_core_directory_listing::recursive(
+      under,
+      |at| match ::core::primitive::bool::then_some(
+        at.file_name().is_some_and(|name| name == skipping),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Descend::Past,
+        ::core::option::Option::None => Descend::Into,
+      },
+    );
 
   Ok(
     listing

@@ -829,8 +829,14 @@ fn check() -> Result<Output, Box<dyn Error>> {
 
   Ok(Output {
     status: done.status,
-    stdout: { let checked_value = String::from_utf8(done.stdout)?; checked_value },
-    stderr: { let checked_value_2 = String::from_utf8(done.stderr)?; checked_value_2 },
+    stdout: {
+      let checked_value = String::from_utf8(done.stdout)?;
+      checked_value
+    },
+    stderr: {
+      let checked_value_2 = String::from_utf8(done.stderr)?;
+      checked_value_2
+    },
   })
 }
 

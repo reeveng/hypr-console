@@ -57,7 +57,7 @@ pub struct TimedReadPipe(OwnedFd);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeReady {
   Readable,
-  Quiet,
+  Pending,
 }
 
 impl TimedReadPipe {
@@ -95,7 +95,7 @@ impl TimedReadPipe {
 
     Ok(
       descriptors.map(|fd| match fd.revents().is_empty().then_some(()) {
-        Some(()) => PipeReady::Quiet,
+        Some(()) => PipeReady::Pending,
         None => PipeReady::Readable,
       }),
     )
@@ -124,7 +124,7 @@ mod tests {
     let written = count.map_err(io::Error::other)?;
     assert_eq!(written, 2);
     let ready = output.ready_with(&errors, WAIT)?;
-    assert_eq!(ready, [PipeReady::Quiet, PipeReady::Readable]);
+    assert_eq!(ready, [PipeReady::Pending, PipeReady::Readable]);
     let heard = errors.read_some(&mut buffer, WAIT)?;
     assert_eq!(heard, 2);
     assert_eq!(&buffer, b"hi");

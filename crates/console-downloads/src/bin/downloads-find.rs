@@ -206,36 +206,38 @@ fn ran(search: Search<'_>) -> Result<Looked, Never> {
     }
   };
 
-  Ok(match ::core::primitive::bool::then_some(done.status.success(), ()) {
-    ::core::option::Option::Some(()) => match std::str::from_utf8(&done.stdout) {
-      Ok(text) => {
-        let Ok(found) = read(text);
+  Ok(
+    match ::core::primitive::bool::then_some(done.status.success(), ()) {
+      ::core::option::Option::Some(()) => match std::str::from_utf8(&done.stdout) {
+        Ok(text) => {
+          let Ok(found) = read(text);
+
+          Looked {
+            asked: asked_2,
+            fault: String::new(),
+            found,
+          }
+        }
+        Err(fault) => Looked {
+          asked: asked_2,
+          fault: format!("Search returned text that is not UTF-8: {fault}"),
+          found: Vec::new(),
+        },
+      },
+      ::core::option::Option::None => {
+        let Ok(fault) = match std::str::from_utf8(&done.stderr) {
+          Ok(text) => looking::complaint(text),
+          Err(fault) => Ok(format!("Search error output is not UTF-8: {fault}")),
+        };
 
         Looked {
           asked: asked_2,
-          fault: String::new(),
-          found,
+          fault,
+          found: Vec::new(),
         }
       }
-      Err(fault) => Looked {
-        asked: asked_2,
-        fault: format!("Search returned text that is not UTF-8: {fault}"),
-        found: Vec::new(),
-      },
     },
-    ::core::option::Option::None => {
-      let Ok(fault) = match std::str::from_utf8(&done.stderr) {
-        Ok(text) => looking::complaint(text),
-        Err(fault) => Ok(format!("Search error output is not UTF-8: {fault}")),
-      };
-
-      Looked {
-        asked: asked_2,
-        fault,
-        found: Vec::new(),
-      }
-    }
-  })
+  )
 }
 
 fn fill_covers(cache: &Path, report: Option<&Path>, found: &[Found]) -> Result<(), Never> {
@@ -290,7 +292,10 @@ fn picture(cache: &Path, scratch: &Path, found: &Found) -> Result<(), Never> {
     Ok(_prefix) => return Ok(()),
     Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
       Some(()) => {}
-      None => eprintln!("downloads-find: reloading an unreadable cover {}: {fault}", at.display()),
+      None => eprintln!(
+        "downloads-find: reloading an unreadable cover {}: {fault}",
+        at.display()
+      ),
     },
   }
 

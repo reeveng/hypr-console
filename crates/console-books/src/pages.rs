@@ -167,10 +167,12 @@ pub fn paginate(blocks: &[Block], layout: Layout, wrap: Wrap<'_>) -> Result<Vec<
 
   let Ok(()) = paginator.next_page();
 
-  Ok(match ::core::primitive::bool::then_some(paginator.pages.is_empty(), ()) {
-    ::core::option::Option::Some(()) => vec![Page::Text(Vec::new())],
-    ::core::option::Option::None => paginator.pages,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(paginator.pages.is_empty(), ()) {
+      ::core::option::Option::Some(()) => vec![Page::Text(Vec::new())],
+      ::core::option::Option::None => paginator.pages,
+    },
+  )
 }
 
 #[cfg(test)]

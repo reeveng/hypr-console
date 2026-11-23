@@ -127,7 +127,6 @@ impl OutlineFont {
     Ok(&self.0)
   }
 
-
   pub(crate) fn outline_glyph(
     &self,
     glyph: GlyphId,

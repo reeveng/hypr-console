@@ -29,7 +29,9 @@ use console_core_portable_document_rasterizer::console_core_portable_document_sy
   LoadPdfError, Pdf,
 };
 use console_core_portable_document_rasterizer::vello_cpu::color::{AlphaColor, Srgb};
-use console_core_portable_document_rasterizer::{RenderCache, RenderError, RenderSettings, ScaleFactor, render};
+use console_core_portable_document_rasterizer::{
+  RenderCache, RenderError, RenderSettings, ScaleFactor, render,
+};
 use console_core_portable_document_text::{GlyphSpacing, PageText, extract_page};
 use console_core_shapes::Pixels;
 
@@ -42,7 +44,7 @@ pub enum DocumentError {
   Unread(std::io::Error),
   Encrypted,
   Unparsed,
-  Undrawn(RenderError),
+  Render(RenderError),
   Unencoded(console_core_png_files::PngError),
 }
 
@@ -55,7 +57,7 @@ impl std::fmt::Display for DocumentError {
         "it is locked, and nothing here knows the password"
       ),
       DocumentError::Unparsed => write!(formatter, "it is not a document this desktop can read"),
-      DocumentError::Undrawn(fault) => write!(formatter, "drawing a document page: {fault}"),
+      DocumentError::Render(fault) => write!(formatter, "drawing a document page: {fault}"),
       DocumentError::Unencoded(fault) => write!(formatter, "making the page a PNG: {fault}"),
     }
   }
@@ -121,8 +123,13 @@ impl Document {
       ..RenderSettings::default()
     };
     let Ok(mut cache) = RenderCache::new();
-    let pixmap = render(page_3, &mut cache, &InterpreterSettings::default(), &settings)
-      .map_err(DocumentError::Undrawn)?;
+    let pixmap = render(
+      page_3,
+      &mut cache,
+      &InterpreterSettings::default(),
+      &settings,
+    )
+    .map_err(DocumentError::Render)?;
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
     let size = console_core_geometry::Size { width, height };

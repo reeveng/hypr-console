@@ -360,8 +360,8 @@ fn expand_key_256(round_keys: &mut [[u8; 16]], key: [[u8; 16]; 2]) -> Result<(),
 }
 
 pub(crate) enum Padding {
-  Strip,
-  Keep,
+  Remove,
+  Retain,
 }
 
 #[derive(Clone)]
@@ -476,7 +476,7 @@ impl<const KEY_SIZE: usize, const ROUNDS: usize> AESCipher<KEY_SIZE, ROUNDS> {
     }
 
     let padding_len = match (padding, result.last().copied()) {
-      (Padding::Strip, Some(length @ 1..=16)) => length,
+      (Padding::Remove, Some(length @ 1..=16)) => length,
       _keep_bytes => return Ok(result),
     };
     let Ok(length) = fixed_index(result.len());
@@ -593,13 +593,13 @@ mod tests {
       .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
       .required()?;
 
-    let Ok(our_decrypted) = our_cipher.decrypt_cbc(external_ciphertext, iv, Padding::Strip);
+    let Ok(our_decrypted) = our_cipher.decrypt_cbc(external_ciphertext, iv, Padding::Remove);
     assert_eq!(
       our_decrypted, plaintext,
       "AES-128 CBC: external encryption should be decryptable by our implementation"
     );
 
-    let Ok(our_roundtrip) = our_cipher.decrypt_cbc(&our_ciphertext, iv, Padding::Strip);
+    let Ok(our_roundtrip) = our_cipher.decrypt_cbc(&our_ciphertext, iv, Padding::Remove);
     assert_eq!(
       our_roundtrip, plaintext,
       "AES-128 CBC: our roundtrip should work"
@@ -636,13 +636,13 @@ mod tests {
       .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext.len())
       .required()?;
 
-    let Ok(our_decrypted) = our_cipher.decrypt_cbc(external_ciphertext, iv, Padding::Strip);
+    let Ok(our_decrypted) = our_cipher.decrypt_cbc(external_ciphertext, iv, Padding::Remove);
     assert_eq!(
       our_decrypted, plaintext,
       "AES-256 CBC: external encryption should be decryptable by our implementation"
     );
 
-    let Ok(our_roundtrip) = our_cipher.decrypt_cbc(&our_ciphertext, iv, Padding::Strip);
+    let Ok(our_roundtrip) = our_cipher.decrypt_cbc(&our_ciphertext, iv, Padding::Remove);
     assert_eq!(
       our_roundtrip, plaintext,
       "AES-256 CBC: our roundtrip should work"

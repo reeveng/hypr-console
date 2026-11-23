@@ -136,7 +136,9 @@ fn run_output(program: Program, words: &[&str]) -> Result<String, Unasked> {
       stdout,
       stderr,
     }) => match ::core::primitive::bool::then_some(status.success(), ()) {
-      Some(()) => String::from_utf8(stdout).map_err(|fault| Unasked::InvalidText(spelled.join(" "), fault)),
+      Some(()) => {
+        String::from_utf8(stdout).map_err(|fault| Unasked::InvalidText(spelled.join(" "), fault))
+      }
       None => {
         let said = match std::str::from_utf8(&stderr) {
           Ok(message) => message.trim().to_string(),

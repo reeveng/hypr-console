@@ -66,19 +66,19 @@ struct Window {
   available: u32,
 }
 
-struct Taken<'a> {
+struct ReadBits<'a> {
   word: [u8; 8],
   bits: u32,
   rest: &'a [u8],
 }
 
-fn taken_word(buf: &[u8], most: u64) -> Result<Taken<'_>, Never> {
+fn taken_word(buf: &[u8], most: u64) -> Result<ReadBits<'_>, Never> {
   let Ok((taken, rest)) = ahead(buf, most.min(8));
   let mut word = [0; 8];
   let Ok(count) = copied(taken, &mut word);
   let Ok(narrow) = fitted::<u64, u32>(count);
 
-  Ok(Taken {
+  Ok(ReadBits {
     word,
     bits: narrow.wrapping_shl(3),
     rest,
@@ -178,26 +178,28 @@ fn gather<B: FetchBits + ?Sized>(
   first: u64,
 ) -> io::Result<(u32, u64)> {
   let stepped = iterate((reader, width, first), |(reader_2, wanted, gathered)| {
-    Ok(match BufferedBits::from(wanted <= reader_2.num_bits_left()) {
-      BufferedBits::Sufficient => Step::Halt(Ok((wanted, gathered))),
-      BufferedBits::NeedsRefill => {
-        let rest = wanted.saturating_sub(reader_2.num_bits_left());
+    Ok(
+      match BufferedBits::from(wanted <= reader_2.num_bits_left()) {
+        BufferedBits::Sufficient => Step::Halt(Ok((wanted, gathered))),
+        BufferedBits::NeedsRefill => {
+          let rest = wanted.saturating_sub(reader_2.num_bits_left());
 
-        match reader_2.fetch_bits() {
-          Ok(()) => {
-            let word = reader_2.get_bits();
+          match reader_2.fetch_bits() {
+            Ok(()) => {
+              let word = reader_2.get_bits();
 
-            let more = match order {
-              Order::MostFirst => word.wrapping_shr(u64::BITS.wrapping_sub(rest)),
-              Order::LeastFirst => word.wrapping_shl(width.wrapping_sub(rest)),
-            };
+              let more = match order {
+                Order::MostFirst => word.wrapping_shr(u64::BITS.wrapping_sub(rest)),
+                Order::LeastFirst => word.wrapping_shl(width.wrapping_sub(rest)),
+              };
 
-            Step::Again((reader_2, rest, gathered | more))
+              Step::Again((reader_2, rest, gathered | more))
+            }
+            Err(fault) => Step::Halt(Err(fault)),
           }
-          Err(fault) => Step::Halt(Err(fault)),
         }
-      }
-    })
+      },
+    )
   });
 
   finished(stepped)

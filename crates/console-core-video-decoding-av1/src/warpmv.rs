@@ -112,7 +112,12 @@ fn round_product(product: i64, shift: u32, width: RoundingWidth) -> Result<i32, 
     RoundingWidth::Shear => i64::from(1_i32.wrapping_shl(shift).wrapping_shr(1)),
     RoundingWidth::Affine => 1_i64.wrapping_shl(shift).wrapping_shr(1),
   };
-  let Ok(magnitude) = wrapped(product.wrapping_abs().wrapping_add(round).wrapping_shr(shift));
+  let Ok(magnitude) = wrapped(
+    product
+      .wrapping_abs()
+      .wrapping_add(round)
+      .wrapping_shr(shift),
+  );
 
   Ok(apply_sign64(magnitude, product))
 }
@@ -123,7 +128,9 @@ pub(crate) enum WarpValidity {
   Rejected,
 }
 
-pub(crate) fn rav1d_get_shear_params(wm: &Rav1dWarpedMotionParams) -> Result<WarpValidity, Never> {
+pub(crate) fn rav1d_get_shear_params(
+  wm: &Rav1dWarpedMotionParams,
+) -> Result<WarpValidity, Never> {
   let [_, _, xx, xy, yx, yy] = wm.matrix;
 
   match xx {
@@ -182,10 +189,22 @@ pub(crate) fn rav1d_set_affine_mv2d(
   let x = block.origin.x.wrapping_mul(4).wrapping_add(center.x);
   let y = block.origin.y.wrapping_mul(4).wrapping_add(center.y);
   let [horizontal, vertical, xx, xy, yx, yy] = &mut wm.matrix;
-  let drift_x = x.wrapping_mul(xx.wrapping_sub(ONE)).wrapping_add(y.wrapping_mul(*xy));
-  let drift_y = x.wrapping_mul(*yx).wrapping_add(y.wrapping_mul(yy.wrapping_sub(ONE)));
-  *horizontal = iclip(i32::from(mv.x).wrapping_mul(0x2000).wrapping_sub(drift_x), -0x800000, 0x7fffff);
-  *vertical = iclip(i32::from(mv.y).wrapping_mul(0x2000).wrapping_sub(drift_y), -0x800000, 0x7fffff);
+  let drift_x = x
+    .wrapping_mul(xx.wrapping_sub(ONE))
+    .wrapping_add(y.wrapping_mul(*xy));
+  let drift_y = x
+    .wrapping_mul(*yx)
+    .wrapping_add(y.wrapping_mul(yy.wrapping_sub(ONE)));
+  *horizontal = iclip(
+    i32::from(mv.x).wrapping_mul(0x2000).wrapping_sub(drift_x),
+    -0x800000,
+    0x7fffff,
+  );
+  *vertical = iclip(
+    i32::from(mv.y).wrapping_mul(0x2000).wrapping_sub(drift_y),
+    -0x800000,
+    0x7fffff,
+  );
 
   Ok(())
 }
@@ -265,7 +284,11 @@ impl NormalEquations {
 }
 
 fn determinant([xx, xy]: [i32; 2], [yx, yy]: [i32; 2]) -> Result<i64, Never> {
-  Ok(i64::from(xx).wrapping_mul(i64::from(yy)).wrapping_sub(i64::from(xy).wrapping_mul(i64::from(yx))))
+  Ok(
+    i64::from(xx)
+      .wrapping_mul(i64::from(yy))
+      .wrapping_sub(i64::from(xy).wrapping_mul(i64::from(yx))),
+  )
 }
 
 fn normal_product([first, second]: [i32; 2], term: AffineTerm) -> Result<i32, Never> {
@@ -273,7 +296,14 @@ fn normal_product([first, second]: [i32; 2], term: AffineTerm) -> Result<i32, Ne
     AffineTerm::Diagonal => 8,
     AffineTerm::OffDiagonal => 4,
   };
-  Ok(first.wrapping_mul(second).wrapping_shr(2).wrapping_add(first).wrapping_add(second).wrapping_add(bias))
+  Ok(
+    first
+      .wrapping_mul(second)
+      .wrapping_shr(2)
+      .wrapping_add(first)
+      .wrapping_add(second)
+      .wrapping_add(bias),
+  )
 }
 
 pub(crate) fn rav1d_find_affine_int(

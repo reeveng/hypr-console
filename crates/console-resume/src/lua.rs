@@ -58,7 +58,9 @@ pub fn quote(text: &str) -> Result<String, Never> {
       '\r' => quoted.push_str("\\r"),
       '\t' => quoted.push_str("\\t"),
       plain => match ::core::primitive::bool::then_some(u32::from(plain) < 0x20, ()) {
-        ::core::option::Option::Some(()) => quoted.push_str(&format!("\\{:03}", u32::from(plain))),
+        ::core::option::Option::Some(()) => {
+          quoted.push_str(&format!("\\{:03}", u32::from(plain)))
+        }
         ::core::option::Option::None => quoted.push(plain),
       },
     }

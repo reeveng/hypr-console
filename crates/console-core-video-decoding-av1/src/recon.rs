@@ -19,35 +19,36 @@ use crate::include::dav1d::picture::PicOffset;
 use crate::include::dav1d::picture::Rav1dPictureDataComponent;
 
 use crate::src::cdef_apply::{CdefRowSpan, CdefRows, rav1d_cdef_brow};
-use crate::src::ctx::{CaseSet, ContextRun};
 use crate::src::ctx::case_set_al;
 use crate::src::ctx::small_memset;
+use crate::src::ctx::{CaseSet, ContextRun};
 use crate::src::env::get_uv_inter_txtp;
 use crate::src::error::Rav1dError::{EINVAL, EIO};
-use console_core_geometry::{Point, Rectangle, Size};
 use crate::src::error::Rav1dResult;
 use crate::src::pal::PalettePlane;
+use console_core_geometry::{Point, Rectangle, Size};
 #[path = "palette_cache.rs"]
 mod palette_cache;
 use crate::src::in_range::InRange;
 use crate::src::internal::Bxy;
-use crate::src::internal::ChromaNeighborPrediction;
 use crate::src::internal::Cf;
+use crate::src::internal::ChromaNeighborPrediction;
 use crate::src::internal::CodedBlockInfo;
 use crate::src::internal::Rav1dContext;
 use crate::src::internal::Rav1dFrameData;
 use crate::src::internal::Rav1dTaskContext;
-use crate::src::internal::{Rav1dTileState, Rav1dTileStateContext};
 use crate::src::internal::ScratchEmuEdge;
 use crate::src::internal::TaskContextScratch;
 use crate::src::internal::TileStateRef;
+use crate::src::internal::{Rav1dTileState, Rav1dTileStateContext};
 use crate::src::intra_edge::{EdgeAvailability, EdgeFlags};
 use crate::src::ipred::{CflPrediction, IntraPrediction};
-use crate::src::ipred_prepare::{
-  AboveEdge, IntraEdgeDestination, IntraEdgePreparation, PrefilteredTop, rav1d_prepare_intra_edges,
-};
 use crate::src::ipred_prepare::sm_flag;
 use crate::src::ipred_prepare::sm_uv_flag;
+use crate::src::ipred_prepare::{
+  AboveEdge, IntraEdgeDestination, IntraEdgePreparation, PrefilteredTop,
+  rav1d_prepare_intra_edges,
+};
 use crate::src::levels::Av1Block;
 use crate::src::levels::Av1BlockInter;
 use crate::src::levels::Av1BlockIntra;
@@ -73,10 +74,10 @@ use crate::src::levels::TxfmSize;
 use crate::src::levels::TxfmType;
 use crate::src::levels::WHT_WHT;
 use crate::src::lf_apply::rav1d_copy_lpf;
-use crate::src::mc::{ResizePhase, ResizeSampling};
 use crate::src::lf_apply::rav1d_loopfilter_sbrow_cols;
 use crate::src::lf_apply::rav1d_loopfilter_sbrow_rows;
 use crate::src::lr_apply::rav1d_lr_sbrow;
+use crate::src::mc::{ResizePhase, ResizeSampling};
 use crate::src::msac::EntropyBit;
 use crate::src::msac::MsacContext;
 use crate::src::msac::rav1d_msac_decode_bool_adapt;
@@ -110,19 +111,22 @@ use std::ptr;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlockTrace {
   Enabled,
-  Quiet,
+  Disabled,
 }
 
-pub(crate) const BLOCK_TRACE: BlockTrace = BlockTrace::Quiet;
-const PIXEL_TRACE: BlockTrace = BlockTrace::Quiet;
-const COEFFICIENT_TRACE: BlockTrace = BlockTrace::Quiet;
+pub(crate) const BLOCK_TRACE: BlockTrace = BlockTrace::Disabled;
+const PIXEL_TRACE: BlockTrace = BlockTrace::Disabled;
+const COEFFICIENT_TRACE: BlockTrace = BlockTrace::Disabled;
 
 impl Bxy {
   #[must_use]
   pub(crate) fn trace(&self) -> BlockTrace {
     match *self {
-      Self { x: 8..=11, y: 0..=3 } => BlockTrace::Enabled,
-      _ => BlockTrace::Quiet,
+      Self {
+        x: 8..=11,
+        y: 0..=3,
+      } => BlockTrace::Enabled,
+      _ => BlockTrace::Disabled,
     }
   }
 }
@@ -136,9 +140,9 @@ macro_rules! debug_block_info {
     match BLOCK_TRACE {
       BlockTrace::Enabled => match $f.frame_hdr.as_ref() {
         Some(header) if header.frame_offset == 2 => block.trace(),
-        Some(_) | None => BlockTrace::Quiet,
+        Some(_) | None => BlockTrace::Disabled,
       },
-      BlockTrace::Quiet => BlockTrace::Quiet,
+      BlockTrace::Disabled => BlockTrace::Disabled,
     }
   }};
 }
@@ -189,8 +193,12 @@ pub(crate) struct PaletteRead {
 pub(crate) type CopyPalBlockFn =
   fn(&mut Rav1dTaskContext, &Rav1dFrameData, PaletteCopy) -> Rav1dResult;
 
-pub(crate) type ReadPalFn =
-  fn(&mut Rav1dTaskContext, &Rav1dFrameData, &mut Rav1dTileStateContext, PaletteRead) -> Rav1dResult<u8>;
+pub(crate) type ReadPalFn = fn(
+  &mut Rav1dTaskContext,
+  &Rav1dFrameData,
+  &mut Rav1dTileStateContext,
+  PaletteRead,
+) -> Rav1dResult<u8>;
 
 #[inline]
 fn read_golomb(msac: &mut MsacContext) -> core::result::Result<u32, console_core_never::Never> {
@@ -209,7 +217,10 @@ fn read_golomb(msac: &mut MsacContext) -> core::result::Result<u32, console_core
     for _ in 0..len {
       val = u32::wrapping_add(
         u32::wrapping_shl(val, 1_u32),
-        u32::from(matches!(rav1d_msac_decode_bool_equi(msac), Ok(EntropyBit::One))),
+        u32::from(matches!(
+          rav1d_msac_decode_bool_equi(msac),
+          Ok(EntropyBit::One)
+        )),
       );
     }
 
@@ -237,7 +248,10 @@ fn chroma_neighbor_evidence(context: &[u8]) -> Rav1dResult<u8> {
 fn luma_neighbor_level(context: &[u8]) -> Rav1dResult<u8> {
   match context.len() {
     1 | 2 | 4 | 8 | 16 => {
-      let merged = context.iter().copied().fold(0, |combined, entry| combined | entry);
+      let merged = context
+        .iter()
+        .copied()
+        .fold(0, |combined, entry| combined | entry);
       Ok((merged & 0x3f).min(4))
     }
     _ => Err(EINVAL),
@@ -267,8 +281,8 @@ fn get_skip_ctx(
     ResidualPlane::Chroma(layout) => {
       let horizontal = u8::from(width != 0 && layout != Rav1dPixelLayout::I444);
       let vertical = u8::from(height != 0 && layout == Rav1dPixelLayout::I420);
-      let more_than_one = width.wrapping_sub(horizontal) > t_dim.lw
-        || height.wrapping_sub(vertical) > t_dim.lh;
+      let more_than_one =
+        width.wrapping_sub(horizontal) > t_dim.lw || height.wrapping_sub(vertical) > t_dim.lh;
       let base = 7_u8.wrapping_add(u8::from(more_than_one).wrapping_mul(3));
       let top = chroma_neighbor_evidence(above)?;
       let side = chroma_neighbor_evidence(left)?;
@@ -384,7 +398,10 @@ fn get_lo_ctx(
   stride: u8,
 ) -> Rav1dResult<u8> {
   let level = |offset: Point<u16>| -> Rav1dResult<u32> {
-    let position = offset.y.wrapping_mul(u16::from(stride)).wrapping_add(offset.x);
+    let position = offset
+      .y
+      .wrapping_mul(u16::from(stride))
+      .wrapping_add(offset.x);
     let Ok(index) = console_core_number_conversion::index(position);
     levels.get(index).copied().map(u32::from).ok_or(EINVAL)
   };
@@ -398,14 +415,26 @@ fn get_lo_ctx(
       let downward = level(Point { x: 0, y: 2 })?;
       let Ok(column) = console_core_number_conversion::index(x.min(4));
       let Ok(row) = console_core_number_conversion::index(y.min(4));
-      let offset = offsets.get(row).and_then(|values| values.get(column)).copied().ok_or(EINVAL)?;
-      (first.wrapping_add(diagonal), farther.wrapping_add(downward), offset)
+      let offset = offsets
+        .get(row)
+        .and_then(|values| values.get(column))
+        .copied()
+        .ok_or(EINVAL)?;
+      (
+        first.wrapping_add(diagonal),
+        farther.wrapping_add(downward),
+        offset,
+      )
     }
     (TxClass::H | TxClass::V, None) => {
       let third = level(Point { x: 3, y: 0 })?;
       let fourth = level(Point { x: 4, y: 0 })?;
       let offset = 26u8.wrapping_add(y.min(2).wrapping_mul(5));
-      (first.wrapping_add(farther), third.wrapping_add(fourth), offset)
+      (
+        first.wrapping_add(farther),
+        third.wrapping_add(fourth),
+        offset,
+      )
     }
     (TxClass::TwoD, None) | (TxClass::H | TxClass::V, Some(_)) => return Err(EINVAL),
   };
@@ -442,12 +471,26 @@ struct CoefficientOutput<'a> {
 
 fn decode_coefs<BD: BitDepth>(
   f: &Rav1dFrameData,
-  CoefficientDecoder { tile: ts, state: ts_c, scratch, coefficients: t_cf }: CoefficientDecoder<'_>,
+  CoefficientDecoder {
+    tile: ts,
+    state: ts_c,
+    scratch,
+    coefficients: t_cf,
+  }: CoefficientDecoder<'_>,
   CoefficientBlock {
-    trace: dbg_block_info, above: a, left: l, transform: tx, size: bs,
-    syntax: b, plane, storage: cf,
+    trace: dbg_block_info,
+    above: a,
+    left: l,
+    transform: tx,
+    size: bs,
+    syntax: b,
+    plane,
+    storage: cf,
   }: CoefficientBlock<'_>,
-  CoefficientOutput { transform: txtp, residual_context: res_ctx }: CoefficientOutput<'_>,
+  CoefficientOutput {
+    transform: txtp,
+    residual_context: res_ctx,
+  }: CoefficientOutput<'_>,
 ) -> Rav1dResult<c_int> {
   Ok({
     let dc_sign_ctx;
@@ -456,14 +499,24 @@ fn decode_coefs<BD: BitDepth>(
     let chroma = plane != 0;
     let frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
     let lossless = *match <[_]>::get(&frame_hdr.segmentation.lossless, {
-      match b.seg_id.get() { Ok(value) => match console_core_number_conversion::index(value) { Ok(position) => position } }
+      match b.seg_id.get() {
+        Ok(value) => match console_core_number_conversion::index(value) {
+          Ok(position) => position,
+        },
+      }
     }) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
         return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
       }
     };
-    let t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = tx.ordinal(); ordinal }); table_index }) {
+    let t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+      let Ok(table_index) = console_core_number_conversion::index({
+        let Ok(ordinal) = tx.ordinal();
+        ordinal
+      });
+      table_index
+    }) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
         return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
@@ -486,14 +539,14 @@ fn decode_coefs<BD: BitDepth>(
       .ok_or(EINVAL)?;
     let dbg = match (dbg_block_info, plane, COEFFICIENT_TRACE) {
       (BlockTrace::Enabled, 1.., BlockTrace::Enabled) => BlockTrace::Enabled,
-      _ => BlockTrace::Quiet,
+      _ => BlockTrace::Disabled,
     };
 
     match dbg {
       BlockTrace::Enabled => {
         println!("Start: r={}", ts_c.msac.rng);
       }
-      BlockTrace::Quiet => {}
+      BlockTrace::Disabled => {}
     }
 
     let residual_plane = match plane {
@@ -502,24 +555,29 @@ fn decode_coefs<BD: BitDepth>(
     };
     let neighbors = ResidualNeighbors { above: a, left: l };
     let sctx = get_skip_ctx(t_dim, bs, neighbors, residual_plane)?;
-    let all_skip = matches!(rav1d_msac_decode_bool_adapt(
-      &mut ts_c.msac,
-      (match <[_]>::get_mut(&mut *ts_c.cdf.coef.skip, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.ctx);
-        numeric_value
-      }) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => {
-          return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-        }
-      }).get_mut({
-        let Ok(numeric_value) = console_core_number_conversion::wrapped_index({
-          let Ok(explicit_value) = sctx.get();
-          explicit_value
-        });
-        numeric_value
-      }).ok_or(EINVAL)?,
-    ), Ok(EntropyBit::One));
+    let all_skip = matches!(
+      rav1d_msac_decode_bool_adapt(
+        &mut ts_c.msac,
+        (match <[_]>::get_mut(&mut *ts_c.cdf.coef.skip, {
+          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.ctx);
+          numeric_value
+        }) {
+          ::core::option::Option::Some(indexed_value) => indexed_value,
+          ::core::option::Option::None => {
+            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+          }
+        })
+        .get_mut({
+          let Ok(numeric_value) = console_core_number_conversion::wrapped_index({
+            let Ok(explicit_value) = sctx.get();
+            explicit_value
+          });
+          numeric_value
+        })
+        .ok_or(EINVAL)?,
+      ),
+      Ok(EntropyBit::One)
+    );
 
     match dbg {
       BlockTrace::Enabled => {
@@ -528,7 +586,7 @@ fn decode_coefs<BD: BitDepth>(
           t_dim.ctx, sctx, all_skip, ts_c.msac.rng,
         );
       }
-      BlockTrace::Quiet => {}
+      BlockTrace::Disabled => {}
     }
 
     match ::core::primitive::bool::then_some(all_skip, ()) {
@@ -571,7 +629,11 @@ fn decode_coefs<BD: BitDepth>(
       }
 
       _ if *match <[_]>::get(&frame_hdr.segmentation.qidx, {
-        match b.seg_id.get() { Ok(value) => match console_core_number_conversion::index(value) { Ok(position) => position } }
+        match b.seg_id.get() {
+          Ok(value) => match console_core_number_conversion::index(value) {
+            Ok(position) => position,
+          },
+        }
       }) {
         ::core::option::Option::Some(indexed_value) => indexed_value,
         ::core::option::Option::None => {
@@ -582,20 +644,25 @@ fn decode_coefs<BD: BitDepth>(
         DCT_DCT
       }
       Intra(intra) => {
-        let y_mode_nofilt = match ::core::primitive::bool::then_some(intra.y_mode == FILTER_PRED, ()) {
-          ::core::option::Option::Some(()) => *match <[_]>::get(&dav1d_filter_mode_to_y_mode, {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped_index(intra.y_angle);
-            numeric_value
-          }) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          },
-          ::core::option::Option::None => intra.y_mode,
-        };
+        let y_mode_nofilt =
+          match ::core::primitive::bool::then_some(intra.y_mode == FILTER_PRED, ()) {
+            ::core::option::Option::Some(()) => *match <[_]>::get(&dav1d_filter_mode_to_y_mode, {
+              let Ok(numeric_value) =
+                console_core_number_conversion::wrapped_index(intra.y_angle);
+              numeric_value
+            }) {
+              ::core::option::Option::Some(indexed_value) => indexed_value,
+              ::core::option::Option::None => {
+                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+              }
+            },
+            ::core::option::Option::None => intra.y_mode,
+          };
         let idx;
-        let txtp = match ::core::primitive::bool::then_some(frame_hdr.reduced_txtp_set != 0 || t_dim.min == tx_16x16, ()) {
+        let txtp = match ::core::primitive::bool::then_some(
+          frame_hdr.reduced_txtp_set != 0 || t_dim.min == tx_16x16,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             idx = {
               let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt8(
@@ -609,11 +676,13 @@ fn decode_coefs<BD: BitDepth>(
                   ::core::option::Option::None => {
                     return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
                   }
-                }).get_mut({
+                })
+                .get_mut({
                   let Ok(numeric_value) =
                     console_core_number_conversion::wrapped_index(y_mode_nofilt);
                   numeric_value
-                }).ok_or(EINVAL)?,
+                })
+                .ok_or(EINVAL)?,
                 4,
               );
               explicit_value
@@ -645,11 +714,13 @@ fn decode_coefs<BD: BitDepth>(
                   ::core::option::Option::None => {
                     return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
                   }
-                }).get_mut({
+                })
+                .get_mut({
                   let Ok(numeric_value) =
                     console_core_number_conversion::wrapped_index(y_mode_nofilt);
                   numeric_value
-                }).ok_or(EINVAL)?,
+                })
+                .ok_or(EINVAL)?,
                 6,
               );
               explicit_value
@@ -677,27 +748,34 @@ fn decode_coefs<BD: BitDepth>(
               tx, t_dim.min, y_mode_nofilt, idx, txtp, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         txtp
       }
       Inter(_) => {
         let idx;
-        let txtp = match ::core::primitive::bool::then_some(frame_hdr.reduced_txtp_set != 0 || t_dim.max == tx_32x32, ()) {
+        let txtp = match ::core::primitive::bool::then_some(
+          frame_hdr.reduced_txtp_set != 0 || t_dim.max == tx_32x32,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
-            let bool_idx = matches!(rav1d_msac_decode_bool_adapt(
-              &mut ts_c.msac,
-              &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.txtp_inter3, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.min);
-                numeric_value
-              }) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              },
-            ), Ok(EntropyBit::One));
+            let bool_idx = matches!(
+              rav1d_msac_decode_bool_adapt(
+                &mut ts_c.msac,
+                &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.txtp_inter3, {
+                  let Ok(numeric_value) =
+                    console_core_number_conversion::wrapped_index(t_dim.min);
+                  numeric_value
+                }) {
+                  ::core::option::Option::Some(indexed_value) => indexed_value,
+                  ::core::option::Option::None => {
+                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                  }
+                },
+              ),
+              Ok(EntropyBit::One)
+            );
             idx = u8::from(bool_idx);
 
             match ::core::primitive::bool::then_some(bool_idx, ()) {
@@ -705,63 +783,67 @@ fn decode_coefs<BD: BitDepth>(
               ::core::option::Option::None => IDTX,
             }
           }
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(t_dim.min == tx_16x16, ()) {
-            ::core::option::Option::Some(()) => {
-              idx = {
-                let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
-                  &mut ts_c.msac,
-                  &mut *ts_c.cdf.m.txtp_inter2,
-                  11,
-                );
-                explicit_value
-              };
-              *match <[_]>::get(
-                &dav1d_tx_types_per_set,
-                ({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(idx);
-                  numeric_value
-                })
-                .wrapping_add(12),
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }
-            }
-            ::core::option::Option::None => {
-              idx = {
-                let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
-                  &mut ts_c.msac,
-                  &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.txtp_inter1, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(t_dim.min);
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(t_dim.min == tx_16x16, ()) {
+              ::core::option::Option::Some(()) => {
+                idx = {
+                  let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
+                    &mut ts_c.msac,
+                    &mut *ts_c.cdf.m.txtp_inter2,
+                    11,
+                  );
+                  explicit_value
+                };
+                *match <[_]>::get(
+                  &dav1d_tx_types_per_set,
+                  ({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(idx);
                     numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  },
-                  15,
-                );
-                explicit_value
-              };
-              *match <[_]>::get(
-                &dav1d_tx_types_per_set,
-                ({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(idx);
-                  numeric_value
-                })
-                .wrapping_add(24),
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                  })
+                  .wrapping_add(12),
+                ) {
+                  ::core::option::Option::Some(indexed_value) => indexed_value,
+                  ::core::option::Option::None => {
+                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                  }
+                }
+              }
+              ::core::option::Option::None => {
+                idx = {
+                  let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
+                    &mut ts_c.msac,
+                    &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.txtp_inter1, {
+                      let Ok(numeric_value) =
+                        console_core_number_conversion::wrapped_index(t_dim.min);
+                      numeric_value
+                    }) {
+                      ::core::option::Option::Some(indexed_value) => indexed_value,
+                      ::core::option::Option::None => {
+                        return ::core::result::Result::Err(
+                          crate::src::error::Rav1dError::EINVAL,
+                        );
+                      }
+                    },
+                    15,
+                  );
+                  explicit_value
+                };
+                *match <[_]>::get(
+                  &dav1d_tx_types_per_set,
+                  ({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(idx);
+                    numeric_value
+                  })
+                  .wrapping_add(24),
+                ) {
+                  ::core::option::Option::Some(indexed_value) => indexed_value,
+                  ::core::option::Option::None => {
+                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                  }
                 }
               }
             }
-          },
+          }
         };
 
         match dbg {
@@ -771,7 +853,7 @@ fn decode_coefs<BD: BitDepth>(
               tx, t_dim.min, idx, txtp, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         txtp
@@ -779,8 +861,14 @@ fn decode_coefs<BD: BitDepth>(
     };
 
     let tx2dszctx = u8::wrapping_add(
-      cmp::min(t_dim.lw, { let Ok(ordinal) = TxfmSize::S32x32.ordinal(); ordinal }),
-      cmp::min(t_dim.lh, { let Ok(ordinal) = TxfmSize::S32x32.ordinal(); ordinal }),
+      cmp::min(t_dim.lw, {
+        let Ok(ordinal) = TxfmSize::S32x32.ordinal();
+        ordinal
+      }),
+      cmp::min(t_dim.lh, {
+        let Ok(ordinal) = TxfmSize::S32x32.ordinal();
+        ordinal
+      }),
     );
     let tx_class = *match <[_]>::get(&dav1d_tx_type_class, {
       let Ok(numeric_value) = console_core_number_conversion::wrapped_index(*txtp);
@@ -805,7 +893,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(is_1d).ok_or(EINVAL)?;
+        })
+        .get_mut(is_1d)
+        .ok_or(EINVAL)?;
 
         {
           let Ok(explicit_value) =
@@ -819,7 +909,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(is_1d).ok_or(EINVAL)?;
+        })
+        .get_mut(is_1d)
+        .ok_or(EINVAL)?;
 
         {
           let Ok(explicit_value) =
@@ -833,7 +925,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(is_1d).ok_or(EINVAL)?;
+        })
+        .get_mut(is_1d)
+        .ok_or(EINVAL)?;
 
         {
           let Ok(explicit_value) =
@@ -847,7 +941,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(is_1d).ok_or(EINVAL)?;
+        })
+        .get_mut(is_1d)
+        .ok_or(EINVAL)?;
 
         {
           let Ok(explicit_value) =
@@ -861,7 +957,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(is_1d).ok_or(EINVAL)?;
+        })
+        .get_mut(is_1d)
+        .ok_or(EINVAL)?;
 
         {
           let Ok(explicit_value) =
@@ -915,17 +1013,25 @@ fn decode_coefs<BD: BitDepth>(
           ts_c.msac.rng,
         );
       }
-      BlockTrace::Quiet => {}
+      BlockTrace::Disabled => {}
     }
 
     let eob = match ::core::primitive::bool::then_some(eob_bin > 1, ()) {
       ::core::option::Option::Some(()) => {
         let Ok(context_index) = console_core_number_conversion::index(t_dim.ctx);
         let Ok(bin_index) = console_core_number_conversion::index(eob_bin);
-        let eob_hi_bit_cdf = ts_c.cdf.coef.eob_hi_bit.get_mut(context_index)
+        let eob_hi_bit_cdf = ts_c
+          .cdf
+          .coef
+          .eob_hi_bit
+          .get_mut(context_index)
           .and_then(|contexts| contexts.get_mut(chroma))
-          .and_then(|bins| bins.get_mut(bin_index)).ok_or(EINVAL)?;
-        let eob_hi_bit = u16::from(matches!(rav1d_msac_decode_bool_adapt(&mut ts_c.msac, eob_hi_bit_cdf), Ok(EntropyBit::One)));
+          .and_then(|bins| bins.get_mut(bin_index))
+          .ok_or(EINVAL)?;
+        let eob_hi_bit = u16::from(matches!(
+          rav1d_msac_decode_bool_adapt(&mut ts_c.msac, eob_hi_bit_cdf),
+          Ok(EntropyBit::One)
+        ));
 
         match dbg {
           BlockTrace::Enabled => {
@@ -934,7 +1040,7 @@ fn decode_coefs<BD: BitDepth>(
               t_dim.ctx, chroma, eob_bin, eob_hi_bit, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         let eob = u16::wrapping_shl(eob_hi_bit | 2, {
@@ -954,7 +1060,7 @@ fn decode_coefs<BD: BitDepth>(
           BlockTrace::Enabled => {
             println!("Post-eob[{}]: r={}", eob, ts_c.msac.rng);
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         eob
@@ -976,7 +1082,11 @@ fn decode_coefs<BD: BitDepth>(
       fn get(&self, residue: u16) -> Rav1dResult<i32> {
         let Ok(position) = self.position(residue);
         let Ok(index) = console_core_number_conversion::index(position);
-        self.0.get(index).map(|&value| <_ as ::core::convert::Into<::core::primitive::i32>>::into(value)).ok_or(EINVAL)
+        self
+          .0
+          .get(index)
+          .map(|&value| <_ as ::core::convert::Into<::core::primitive::i32>>::into(value))
+          .ok_or(EINVAL)
       }
 
       fn set<T: ToPrimitive<BD::Coef>>(&mut self, residue: u16, value: T) -> Rav1dResult {
@@ -1037,12 +1147,27 @@ fn decode_coefs<BD: BitDepth>(
 
         let Ok(context_index) = console_core_number_conversion::index(t_dim.ctx);
         let Ok(high_index) = console_core_number_conversion::index(t_dim.ctx.min(3));
-        let eob_cdf = ts_c.cdf.coef.eob_base_tok.get_mut(context_index)
-          .and_then(|contexts| contexts.get_mut(chroma)).ok_or(EINVAL)?;
-        let hi_cdf = ts_c.cdf.coef.br_tok.get_mut(high_index)
-          .and_then(|contexts| contexts.get_mut(chroma)).ok_or(EINVAL)?;
-        let lo_cdf = ts_c.cdf.coef.base_tok.get_mut(context_index)
-          .and_then(|contexts| contexts.get_mut(chroma)).ok_or(EINVAL)?;
+        let eob_cdf = ts_c
+          .cdf
+          .coef
+          .eob_base_tok
+          .get_mut(context_index)
+          .and_then(|contexts| contexts.get_mut(chroma))
+          .ok_or(EINVAL)?;
+        let hi_cdf = ts_c
+          .cdf
+          .coef
+          .br_tok
+          .get_mut(high_index)
+          .and_then(|contexts| contexts.get_mut(chroma))
+          .ok_or(EINVAL)?;
+        let lo_cdf = ts_c
+          .cdf
+          .coef
+          .base_tok
+          .get_mut(context_index)
+          .and_then(|contexts| contexts.get_mut(chroma))
+          .ok_or(EINVAL)?;
         let Ok(levels) = ({
           let explicit_value = scratch.inter_intra_mut()?;
           explicit_value
@@ -1050,8 +1175,14 @@ fn decode_coefs<BD: BitDepth>(
         .levels_pal
         .levels_mut();
 
-        let slw = cmp::min(t_dim.lw, { let Ok(ordinal) = TxfmSize::S32x32.ordinal(); ordinal });
-        let slh = cmp::min(t_dim.lh, { let Ok(ordinal) = TxfmSize::S32x32.ordinal(); ordinal });
+        let slw = cmp::min(t_dim.lw, {
+          let Ok(ordinal) = TxfmSize::S32x32.ordinal();
+          ordinal
+        });
+        let slh = cmp::min(t_dim.lh, {
+          let Ok(ordinal) = TxfmSize::S32x32.ordinal();
+          ordinal
+        });
         let tx2dszctx = u8::wrapping_add(slw, slh);
         let sw = cmp::min(t_dim.w, 8);
         let sh = cmp::min(t_dim.h, 8);
@@ -1080,10 +1211,12 @@ fn decode_coefs<BD: BitDepth>(
         let eob_tok = {
           let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
             &mut ts_c.msac,
-            eob_cdf.get_mut({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-              numeric_value
-            }).ok_or(EINVAL)?,
+            eob_cdf
+              .get_mut({
+                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
+                numeric_value
+              })
+              .ok_or(EINVAL)?,
             2,
           );
           explicit_value
@@ -1103,9 +1236,8 @@ fn decode_coefs<BD: BitDepth>(
               Ok(crate::src::levels::TransformShape::Square) => 0u8,
               Ok(crate::src::levels::TransformShape::Rectangular) => 1u8,
             };
-            let Ok(layout_index) = console_core_number_conversion::index(
-              rectangle.wrapping_add(code & rectangle),
-            );
+            let Ok(layout_index) =
+              console_core_number_conversion::index(rectangle.wrapping_add(code & rectangle));
             let Ok(scan_index) = console_core_number_conversion::index(code);
             let offsets = dav1d_lo_ctx_offsets.get(layout_index).ok_or(EINVAL)?;
             lo_ctx_offsets = Some(offsets);
@@ -1162,7 +1294,10 @@ fn decode_coefs<BD: BitDepth>(
           .0
           .wrapping_add(2),
         ) {
-          *{ let checked_value_13 = levels.get_mut(i).ok_or(EINVAL)?; checked_value_13 } = 0;
+          *{
+            let checked_value_13 = levels.get_mut(i).ok_or(EINVAL)?;
+            checked_value_13
+          } = 0;
         }
 
         let mut rc;
@@ -1172,12 +1307,13 @@ fn decode_coefs<BD: BitDepth>(
         match tx_class {
           TxClass::TwoD => {
             rc = {
-              let checked_value_14 = scan.get({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(eob);
-                numeric_value
-              }).ok_or(EINVAL)?;
-              let Ok(explicit_value) = (*checked_value_14)
-              .get();
+              let checked_value_14 = scan
+                .get({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(eob);
+                  numeric_value
+                })
+                .ok_or(EINVAL)?;
+              let Ok(explicit_value) = (*checked_value_14).get();
               explicit_value
             };
             x = {
@@ -1250,25 +1386,30 @@ fn decode_coefs<BD: BitDepth>(
               t_dim.ctx, chroma, ctx, eob, rc, tok, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         match ::core::primitive::bool::then_some(eob_tok == 2, ()) {
           ::core::option::Option::Some(()) => {
-            ctx = match ::core::primitive::bool::then_some(match ::core::primitive::bool::then_some(tx_class == TxClass::TwoD, ()) {
-              ::core::option::Option::Some(()) => (x | y) > 1,
-              ::core::option::Option::None => y != 0,
-            }, ()) {
+            ctx = match ::core::primitive::bool::then_some(
+              match ::core::primitive::bool::then_some(tx_class == TxClass::TwoD, ()) {
+                ::core::option::Option::Some(()) => (x | y) > 1,
+                ::core::option::Option::None => y != 0,
+              },
+              (),
+            ) {
               ::core::option::Option::Some(()) => 14,
               ::core::option::Option::None => 7,
             };
             tok = {
               let Ok(explicit_value) = rav1d_msac_decode_hi_tok(
                 &mut ts_c.msac,
-                hi_cdf.get_mut({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                  numeric_value
-                }).ok_or(EINVAL)?,
+                hi_cdf
+                  .get_mut({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
+                    numeric_value
+                  })
+                  .ok_or(EINVAL)?,
               );
               explicit_value
             };
@@ -1287,7 +1428,7 @@ fn decode_coefs<BD: BitDepth>(
                   ts_c.msac.rng,
                 );
               }
-              BlockTrace::Quiet => {}
+              BlockTrace::Disabled => {}
             }
           }
           ::core::option::Option::None => {}
@@ -1297,27 +1438,39 @@ fn decode_coefs<BD: BitDepth>(
 
         match ::core::primitive::bool::then_some(tx_class == TxClass::TwoD, ()) {
           ::core::option::Option::Some(()) => {
-            *{ let checked_value_15 = levels.get_mut({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(rc);
-              numeric_value
-            }).ok_or(EINVAL)?; checked_value_15 } = {
+            *{
+              let checked_value_15 = levels
+                .get_mut({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(rc);
+                  numeric_value
+                })
+                .ok_or(EINVAL)?;
+              checked_value_15
+            } = {
               let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(level_tok);
               numeric_value
             };
           }
           ::core::option::Option::None => {
-            *{ let checked_value_16 = levels.get_mut(({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(x);
-              numeric_value
-            })
-            .wrapping_mul({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(stride);
-              numeric_value
-            })
-            .wrapping_add({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(y);
-              numeric_value
-            })).ok_or(EINVAL)?; checked_value_16 } = {
+            *{
+              let checked_value_16 = levels
+                .get_mut(
+                  ({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(x);
+                    numeric_value
+                  })
+                  .wrapping_mul({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(stride);
+                    numeric_value
+                  })
+                  .wrapping_add({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(y);
+                    numeric_value
+                  }),
+                )
+                .ok_or(EINVAL)?;
+              checked_value_16
+            } = {
               let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(level_tok);
               numeric_value
             };
@@ -1330,12 +1483,13 @@ fn decode_coefs<BD: BitDepth>(
           match tx_class {
             TxClass::TwoD => {
               rc_i = {
-                let checked_value_17 = scan.get({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i);
-                  numeric_value
-                }).ok_or(EINVAL)?;
-                let Ok(explicit_value) = (*checked_value_17)
-                .get();
+                let checked_value_17 = scan
+                  .get({
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i);
+                    numeric_value
+                  })
+                  .ok_or(EINVAL)?;
+                let Ok(explicit_value) = (*checked_value_17).get();
                 explicit_value
               };
               x = {
@@ -1407,30 +1561,32 @@ fn decode_coefs<BD: BitDepth>(
           y = ::core::primitive::u8::wrapping_rem(y, 32);
 
           let level = match ::core::primitive::bool::then_some(tx_class == TxClass::TwoD, ()) {
-            ::core::option::Option::Some(()) => {
-              levels.get_mut(({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(rc_i);
-                numeric_value
-              })..).ok_or(EINVAL)?
-            }
-            ::core::option::Option::None => {
-              levels.get_mut(({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(x);
-                numeric_value
-              })
-              .wrapping_mul({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(stride);
-                numeric_value
-              })
-              .wrapping_add({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(y);
-                numeric_value
-              })..).ok_or(EINVAL)?
-            }
+            ::core::option::Option::Some(()) => levels
+              .get_mut(
+                ({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(rc_i);
+                  numeric_value
+                })..,
+              )
+              .ok_or(EINVAL)?,
+            ::core::option::Option::None => levels
+              .get_mut(
+                ({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(x);
+                  numeric_value
+                })
+                .wrapping_mul({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(stride);
+                  numeric_value
+                })
+                .wrapping_add({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(y);
+                  numeric_value
+                })..,
+              )
+              .ok_or(EINVAL)?,
           };
-          ctx = {
-            get_lo_ctx(level, tx_class, &mut mag, lo_ctx_offsets, x, y, stride)?
-          };
+          ctx = { get_lo_ctx(level, tx_class, &mut mag, lo_ctx_offsets, x, y, stride)? };
 
           match ::core::primitive::bool::then_some(tx_class == TxClass::TwoD, ()) {
             ::core::option::Option::Some(()) => {
@@ -1442,10 +1598,12 @@ fn decode_coefs<BD: BitDepth>(
           tok = {
             let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
               &mut ts_c.msac,
-              lo_cdf.get_mut({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                numeric_value
-              }).ok_or(EINVAL)?,
+              lo_cdf
+                .get_mut({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
+                  numeric_value
+                })
+                .ok_or(EINVAL)?,
               3,
             );
             explicit_value
@@ -1458,7 +1616,7 @@ fn decode_coefs<BD: BitDepth>(
                 t_dim.ctx, chroma, ctx, i, rc_i, tok, ts_c.msac.rng,
               );
             }
-            BlockTrace::Quiet => {}
+            BlockTrace::Disabled => {}
           }
 
           match ::core::primitive::bool::then_some(tok == 3, ()) {
@@ -1468,22 +1626,29 @@ fn decode_coefs<BD: BitDepth>(
                 numeric_value
               }) & 63;
               ctx = u8::wrapping_add(
-                match ::core::primitive::bool::then_some(y > u8::from(tx_class == TxClass::TwoD), ()) {
+                match ::core::primitive::bool::then_some(
+                  y > u8::from(tx_class == TxClass::TwoD),
+                  (),
+                ) {
                   ::core::option::Option::Some(()) => 14,
                   ::core::option::Option::None => 7,
                 },
                 match ::core::primitive::bool::then_some(mag > 12, ()) {
                   ::core::option::Option::Some(()) => 6,
-                  ::core::option::Option::None => u8::wrapping_shr(u8::wrapping_add(mag, 1), 1_u32),
+                  ::core::option::Option::None => {
+                    u8::wrapping_shr(u8::wrapping_add(mag, 1), 1_u32)
+                  }
                 },
               );
               tok = {
                 let Ok(explicit_value) = rav1d_msac_decode_hi_tok(
                   &mut ts_c.msac,
-                  hi_cdf.get_mut({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                    numeric_value
-                  }).ok_or(EINVAL)?,
+                  hi_cdf
+                    .get_mut({
+                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
+                      numeric_value
+                    })
+                    .ok_or(EINVAL)?,
                 );
                 explicit_value
               };
@@ -1501,10 +1666,13 @@ fn decode_coefs<BD: BitDepth>(
                     ts_c.msac.rng,
                   );
                 }
-                BlockTrace::Quiet => {}
+                BlockTrace::Disabled => {}
               }
 
-              *{ let checked_value_18 = level.get_mut(0).ok_or(EINVAL)?; checked_value_18 } = {
+              *{
+                let checked_value_18 = level.get_mut(0).ok_or(EINVAL)?;
+                checked_value_18
+              } = {
                 let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(
                   u8::wrapping_add(tok, u8::wrapping_shl(3, 6_u32)),
                 );
@@ -1531,7 +1699,10 @@ fn decode_coefs<BD: BitDepth>(
                 },
                 0x17ff41,
               );
-              *{ let checked_value_19 = level.get_mut(0).ok_or(EINVAL)?; checked_value_19 } = {
+              *{
+                let checked_value_19 = level.get_mut(0).ok_or(EINVAL)?;
+                checked_value_19
+              } = {
                 let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(tok);
                 numeric_value
               };
@@ -1585,10 +1756,12 @@ fn decode_coefs<BD: BitDepth>(
           let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>({
             let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
               &mut ts_c.msac,
-              lo_cdf.get_mut({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                numeric_value
-              }).ok_or(EINVAL)?,
+              lo_cdf
+                .get_mut({
+                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
+                  numeric_value
+                })
+                .ok_or(EINVAL)?,
               3,
             );
             explicit_value
@@ -1603,7 +1776,7 @@ fn decode_coefs<BD: BitDepth>(
               t_dim.ctx, chroma, ctx, dc_tok, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         match ::core::primitive::bool::then_some(dc_tok == 3, ()) {
@@ -1613,46 +1786,55 @@ fn decode_coefs<BD: BitDepth>(
                 mag = u32::wrapping_add(
                   u32::wrapping_add(
                     {
-                      let checked_value_20 = levels.get((::core::num::Wrapping(0)
-                          * ::core::num::Wrapping({
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(stride);
-                            numeric_value
-                          }))
-                        .0
-                        .wrapping_add(1)).ok_or(EINVAL)?;
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                        (*checked_value_20),
-                      );
+                      let checked_value_20 = levels
+                        .get(
+                          (::core::num::Wrapping(0)
+                            * ::core::num::Wrapping({
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped_index(stride);
+                              numeric_value
+                            }))
+                          .0
+                          .wrapping_add(1),
+                        )
+                        .ok_or(EINVAL)?;
+                      let Ok(numeric_value) =
+                        console_core_number_conversion::wrapped::<_, u32>((*checked_value_20));
                       numeric_value
                     },
                     {
-                      let checked_value_21 = levels.get((::core::num::Wrapping(1)
-                          * ::core::num::Wrapping({
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(stride);
-                            numeric_value
-                          }))
-                        .0
-                        .wrapping_add(0)).ok_or(EINVAL)?;
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                        (*checked_value_21),
-                      );
+                      let checked_value_21 = levels
+                        .get(
+                          (::core::num::Wrapping(1)
+                            * ::core::num::Wrapping({
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped_index(stride);
+                              numeric_value
+                            }))
+                          .0
+                          .wrapping_add(0),
+                        )
+                        .ok_or(EINVAL)?;
+                      let Ok(numeric_value) =
+                        console_core_number_conversion::wrapped::<_, u32>((*checked_value_21));
                       numeric_value
                     },
                   ),
                   {
-                    let checked_value_22 = levels.get((::core::num::Wrapping(1)
-                        * ::core::num::Wrapping({
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(stride);
-                          numeric_value
-                        }))
-                      .0
-                      .wrapping_add(1)).ok_or(EINVAL)?;
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                      (*checked_value_22),
-                    );
+                    let checked_value_22 = levels
+                      .get(
+                        (::core::num::Wrapping(1)
+                          * ::core::num::Wrapping({
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped_index(stride);
+                            numeric_value
+                          }))
+                        .0
+                        .wrapping_add(1),
+                      )
+                      .ok_or(EINVAL)?;
+                    let Ok(numeric_value) =
+                      console_core_number_conversion::wrapped::<_, u32>((*checked_value_22));
                     numeric_value
                   },
                 );
@@ -1672,10 +1854,12 @@ fn decode_coefs<BD: BitDepth>(
               let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>({
                 let Ok(explicit_value) = rav1d_msac_decode_hi_tok(
                   &mut ts_c.msac,
-                  hi_cdf.get_mut({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                    numeric_value
-                  }).ok_or(EINVAL)?,
+                  hi_cdf
+                    .get_mut({
+                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
+                      numeric_value
+                    })
+                    .ok_or(EINVAL)?,
                 );
                 explicit_value
               });
@@ -1692,7 +1876,7 @@ fn decode_coefs<BD: BitDepth>(
                   ts_c.msac.rng,
                 );
               }
-              BlockTrace::Quiet => {}
+              BlockTrace::Disabled => {}
             }
           }
           ::core::option::Option::None => {}
@@ -1706,24 +1890,42 @@ fn decode_coefs<BD: BitDepth>(
       ::core::option::Option::Some(()) => {
         let cf = &mut cf;
         (rc, dc_tok) = match tx_class {
-          TxClass::TwoD => {
-            decode_coefs_class::<{ { let Ok(table_index) = console_core_number_conversion::const_u8_index({ let Ok(ordinal) = TxClass::TwoD.ordinal(); ordinal }); table_index } }, BD>(
-
-              ts_c, t_dim, chroma, scratch, eob, tx, dbg, cf,
-            )?
-          }
-          TxClass::H => {
-            decode_coefs_class::<{ { let Ok(table_index) = console_core_number_conversion::const_u8_index({ let Ok(ordinal) = TxClass::H.ordinal(); ordinal }); table_index } }, BD>(
-
-              ts_c, t_dim, chroma, scratch, eob, tx, dbg, cf,
-            )?
-          }
-          TxClass::V => {
-            decode_coefs_class::<{ { let Ok(table_index) = console_core_number_conversion::const_u8_index({ let Ok(ordinal) = TxClass::V.ordinal(); ordinal }); table_index } }, BD>(
-
-              ts_c, t_dim, chroma, scratch, eob, tx, dbg, cf,
-            )?
-          }
+          TxClass::TwoD => decode_coefs_class::<
+            {
+              {
+                let Ok(table_index) = console_core_number_conversion::const_u8_index({
+                  let Ok(ordinal) = TxClass::TwoD.ordinal();
+                  ordinal
+                });
+                table_index
+              }
+            },
+            BD,
+          >(ts_c, t_dim, chroma, scratch, eob, tx, dbg, cf)?,
+          TxClass::H => decode_coefs_class::<
+            {
+              {
+                let Ok(table_index) = console_core_number_conversion::const_u8_index({
+                  let Ok(ordinal) = TxClass::H.ordinal();
+                  ordinal
+                });
+                table_index
+              }
+            },
+            BD,
+          >(ts_c, t_dim, chroma, scratch, eob, tx, dbg, cf)?,
+          TxClass::V => decode_coefs_class::<
+            {
+              {
+                let Ok(table_index) = console_core_number_conversion::const_u8_index({
+                  let Ok(ordinal) = TxClass::V.ordinal();
+                  ordinal
+                });
+                table_index
+              }
+            },
+            BD,
+          >(ts_c, t_dim, chroma, scratch, eob, tx, dbg, cf)?,
         };
       }
       ::core::option::Option::None => {
@@ -1735,7 +1937,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(chroma).ok_or(EINVAL)?;
+        })
+        .get_mut(chroma)
+        .ok_or(EINVAL)?;
         let hi_cdf = (match <[_]>::get_mut(&mut *ts_c.cdf.coef.br_tok, {
           let Ok(numeric_value) =
             console_core_number_conversion::wrapped_index(cmp::min(t_dim.ctx, 3));
@@ -1745,7 +1949,9 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut(chroma).ok_or(EINVAL)?;
+        })
+        .get_mut(chroma)
+        .ok_or(EINVAL)?;
 
         let Ok(tok_br) = console_core_number_conversion::wrapped::<_, u32>({
           let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
@@ -1767,7 +1973,7 @@ fn decode_coefs<BD: BitDepth>(
               t_dim.ctx, chroma, 0, dc_tok, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         match ::core::primitive::bool::then_some(tok_br == 2, ()) {
@@ -1793,7 +1999,7 @@ fn decode_coefs<BD: BitDepth>(
                   ts_c.msac.rng,
                 );
               }
-              BlockTrace::Quiet => {}
+              BlockTrace::Disabled => {}
             }
           }
           ::core::option::Option::None => {}
@@ -1811,12 +2017,20 @@ fn decode_coefs<BD: BitDepth>(
     let Ok(segment) = b.seg_id.get();
     let Ok(plane_index) = console_core_number_conversion::index(plane);
     let Ok(segment_index) = console_core_number_conversion::index(segment);
-    let dq_tbl = dq.get(segment_index).and_then(|table| table.get(plane_index)).ok_or(EINVAL)?;
+    let dq_tbl = dq
+      .get(segment_index)
+      .and_then(|table| table.get(plane_index))
+      .ok_or(EINVAL)?;
     let qm_tbl = match ::core::primitive::bool::then_some(*txtp < IDTX, ()) {
       Some(()) => {
         let Ok(transform) = tx.ordinal();
         let Ok(transform_index) = console_core_number_conversion::index(transform);
-        ::core::result::Result::<&_, _>::copied(f.qm.get(transform_index).and_then(|table| table.get(plane_index)).ok_or(EINVAL))?
+        ::core::result::Result::<&_, _>::copied(
+          f.qm
+            .get(transform_index)
+            .and_then(|table| table.get(plane_index))
+            .ok_or(EINVAL),
+        )?
       }
       None => None,
     };
@@ -1873,11 +2087,16 @@ fn decode_coefs<BD: BitDepth>(
           ::core::option::Option::None => {
             return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
           }
-        }).get_mut({
+        })
+        .get_mut({
           let Ok(numeric_value) = console_core_number_conversion::wrapped_index(dc_sign_ctx);
           numeric_value
-        }).ok_or(EINVAL)?;
-        dc_sign = i32::from(matches!(rav1d_msac_decode_bool_adapt(&mut ts_c.msac, dc_sign_cdf), Ok(EntropyBit::One)));
+        })
+        .ok_or(EINVAL)?;
+        dc_sign = i32::from(matches!(
+          rav1d_msac_decode_bool_adapt(&mut ts_c.msac, dc_sign_cdf),
+          Ok(EntropyBit::One)
+        ));
 
         match dbg {
           BlockTrace::Enabled => {
@@ -1886,7 +2105,7 @@ fn decode_coefs<BD: BitDepth>(
               chroma, dc_sign_ctx, dc_sign, ts_c.msac.rng,
             );
           }
-          BlockTrace::Quiet => {}
+          BlockTrace::Disabled => {}
         }
 
         dc_dq = {
@@ -1945,7 +2164,7 @@ fn decode_coefs<BD: BitDepth>(
                       ts_c.msac.rng,
                     );
                   }
-                  BlockTrace::Quiet => {}
+                  BlockTrace::Disabled => {}
                 }
 
                 dc_tok &= 0xfffff;
@@ -2029,7 +2248,7 @@ fn decode_coefs<BD: BitDepth>(
                       ts_c.msac.rng,
                     );
                   }
-                  BlockTrace::Quiet => {}
+                  BlockTrace::Disabled => {}
                 }
 
                 dc_tok &= 0xfffff;
@@ -2122,13 +2341,16 @@ fn decode_coefs<BD: BitDepth>(
         };
 
         loop {
-          let sign = matches!(rav1d_msac_decode_bool_equi(&mut ts_c.msac), Ok(EntropyBit::One));
+          let sign = matches!(
+            rav1d_msac_decode_bool_equi(&mut ts_c.msac),
+            Ok(EntropyBit::One)
+          );
 
           match dbg {
             BlockTrace::Enabled => {
               println!("Post-sign[{}={}]: r={}", rc, sign, ts_c.msac.rng);
             }
-            BlockTrace::Quiet => {}
+            BlockTrace::Disabled => {}
           }
 
           let Ok(rc_tok) = console_core_number_conversion::wrapped::<_, u32>({
@@ -2175,7 +2397,7 @@ fn decode_coefs<BD: BitDepth>(
                     ts_c.msac.rng,
                   );
                 }
-                BlockTrace::Quiet => {}
+                BlockTrace::Disabled => {}
               }
 
               tok &= 0xfffff;
@@ -2240,13 +2462,16 @@ fn decode_coefs<BD: BitDepth>(
         };
 
         loop {
-          let sign = i32::from(matches!(rav1d_msac_decode_bool_equi(&mut ts_c.msac), Ok(EntropyBit::One)));
+          let sign = i32::from(matches!(
+            rav1d_msac_decode_bool_equi(&mut ts_c.msac),
+            Ok(EntropyBit::One)
+          ));
 
           match dbg {
             BlockTrace::Enabled => {
               println!("Post-sign[{}={}]: r={}", rc, sign, ts_c.msac.rng);
             }
-            BlockTrace::Quiet => {}
+            BlockTrace::Disabled => {}
           }
 
           let Ok(rc_tok) = console_core_number_conversion::wrapped::<_, u32>({
@@ -2274,7 +2499,7 @@ fn decode_coefs<BD: BitDepth>(
                     ts_c.msac.rng,
                   );
                 }
-                BlockTrace::Quiet => {}
+                BlockTrace::Disabled => {}
               }
 
               tok &= 0xfffff;
@@ -2381,7 +2606,11 @@ impl<'a> CoefficientNode<'a> {
     frame: Size<i32>,
     split_mask: u16,
   ) -> Rav1dResult<Option<[Option<Self>; 4]>> {
-    let bit_index = self.split_cell.y.wrapping_mul(4).wrapping_add(self.split_cell.x);
+    let bit_index = self
+      .split_cell
+      .y
+      .wrapping_mul(4)
+      .wrapping_add(self.split_cell.x);
     let Ok(shift) = console_core_number_conversion::wrapped::<_, u32>(bit_index);
 
     match (split_mask & 1_u16.wrapping_shl(shift) != 0).then_some(()) {
@@ -2412,12 +2641,19 @@ impl<'a> CoefficientNode<'a> {
       let output = self.output.map(|dst| {
         let Ok(pitch) = dst.fixed_pixel_stride::<BD>();
         let x = i64::from(offset.x).wrapping_mul(i64::from(x_step));
-        let y = i64::from(offset.y).wrapping_mul(i64::from(y_step)).wrapping_mul(pitch);
+        let y = i64::from(offset.y)
+          .wrapping_mul(i64::from(y_step))
+          .wrapping_mul(pitch);
         let pixels = x.wrapping_add(y).wrapping_mul(4);
         let Ok(displacement) = console_core_number_conversion::wrapped_offset(pixels);
         dst + displacement
       });
-      Self { position, transform: dimensions.sub, split_cell, output }
+      Self {
+        position,
+        transform: dimensions.sub,
+        split_cell,
+        output,
+      }
     };
 
     let top_left = Some(make_child(Point { x: 0, y: 0 }));
@@ -2435,9 +2671,15 @@ fn read_coef_tree<BD: BitDepth>(
   tree: LumaCoefficientTree<'_>,
 ) -> Rav1dResult {
   let root = CoefficientNode {
-    position: t.b, transform: tree.transform, split_cell: tree.split_cell, output: tree.output,
+    position: t.b,
+    transform: tree.transform,
+    split_cell: tree.split_cell,
+    output: tree.output,
   };
-  let frame = Size { width: f.bw, height: f.bh };
+  let frame = Size {
+    width: f.bw,
+    height: f.bh,
+  };
   let [root_split, child_split] = tree.splits;
   let children = root.children::<BD>(frame, root_split)?;
 
@@ -2486,7 +2728,9 @@ fn read_coef_leaf<BD: BitDepth>(
   };
   let storage = match frame_pass {
     Some(pass) => {
-      let Ok(offset) = pass.cf.get_update(|position| position.wrapping_add(coefficient_count));
+      let Ok(offset) = pass
+        .cf
+        .get_update(|position| position.wrapping_add(coefficient_count));
       CfSelect::Frame(offset)
     }
     None => CfSelect::Task,
@@ -2494,7 +2738,9 @@ fn read_coef_leaf<BD: BitDepth>(
 
   let (eob, kind) = match t.frame_thread.pass {
     2 => {
-      let Ok(record) = reconstruct.cbi_idx.get_update(|position| position.wrapping_add(1));
+      let Ok(record) = reconstruct
+        .cbi_idx
+        .get_update(|position| position.wrapping_add(1));
       let Ok(index) = console_core_number_conversion::index(record);
       let info_slot = f.frame_thread.cbi.get(index).ok_or(EINVAL)?;
       let Ok(info) = info_slot.get();
@@ -2538,7 +2784,10 @@ fn read_coef_leaf<BD: BitDepth>(
           plane: 0,
           storage,
         },
-        CoefficientOutput { transform: &mut kind, residual_context: &mut residual_context },
+        CoefficientOutput {
+          transform: &mut kind,
+          residual_context: &mut residual_context,
+        },
       )?;
 
       match trace {
@@ -2548,13 +2797,15 @@ fn read_coef_leaf<BD: BitDepth>(
             tile_context.msac.rng,
           );
         }
-        BlockTrace::Quiet => {}
+        BlockTrace::Disabled => {}
       }
 
       let columns = i32::from(dim.w).min(f.bw.wrapping_sub(t.b.x));
       let rows = i32::from(dim.h).min(f.bh.wrapping_sub(t.b.y));
-      let above_len = console_core_number_conversion::checked_index(columns).map_err(|_invalid_width| EINVAL)?;
-      let left_len = console_core_number_conversion::checked_index(rows).map_err(|_invalid_height| EINVAL)?;
+      let above_len = console_core_number_conversion::checked_index(columns)
+        .map_err(|_invalid_width| EINVAL)?;
+      let left_len =
+        console_core_number_conversion::checked_index(rows).map_err(|_invalid_height| EINVAL)?;
       let above_context = above_guard.get_mut(..above_len).ok_or(EINVAL)?;
       let left_context = left.get_mut(..left_len).ok_or(EINVAL)?;
       let Ok(()) = small_memset::<u8, 16, true>(above_context, residual_context);
@@ -2566,15 +2817,24 @@ fn read_coef_leaf<BD: BitDepth>(
       let Ok(start) = console_core_number_conversion::index(y.wrapping_mul(32).wrapping_add(x));
       let rows = transform_map.get_mut(start..).ok_or(EINVAL)?;
       let Ok(transform_rows) = console_core_number_conversion::index(height);
-      let Ok(()) = CaseSet::<16, false>::one(rows, ContextRun { offset: 0, length: u64::from(width) }, |case, rows| {
-        for row in rows.chunks_mut(32).take(transform_rows) {
-          let Ok(()) = case.set(row, kind);
-        }
-      });
+      let Ok(()) = CaseSet::<16, false>::one(
+        rows,
+        ContextRun {
+          offset: 0,
+          length: u64::from(width),
+        },
+        |case, rows| {
+          for row in rows.chunks_mut(32).take(transform_rows) {
+            let Ok(()) = case.set(row, kind);
+          }
+        },
+      );
 
       match t.frame_thread.pass {
         1 => {
-          let Ok(record) = entropy.cbi_idx.get_update(|position| position.wrapping_add(1));
+          let Ok(record) = entropy
+            .cbi_idx
+            .get_update(|position| position.wrapping_add(1));
           let Ok(index) = console_core_number_conversion::index(record);
           let info_slot = f.frame_thread.cbi.get(index).ok_or(EINVAL)?;
           let Ok(encoded_eob) = console_core_number_conversion::wrapped::<_, i16>(eob);
@@ -2607,7 +2867,8 @@ fn read_coef_leaf<BD: BitDepth>(
     CfSelect::Frame(offset) => {
       let end = offset.checked_add(coefficient_count).ok_or(EINVAL)?;
       let Ok(bytes) = console_core_number_conversion::fixed_index(f.frame_thread.cf.len());
-      let Ok(element_width) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Coef>());
+      let Ok(element_width) =
+        console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Coef>());
       let capacity = bytes.checked_div(element_width).ok_or(EINVAL)?;
 
       match u64::from(end).cmp(&capacity) {
@@ -2631,19 +2892,24 @@ fn read_coef_leaf<BD: BitDepth>(
       };
       coef_dump(coefficients, coded, 3, "dq").map_err(|_dump_error| EIO)?;
     }
-    (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+    (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
   }
 
   let bd = BD::from_c(f.bitdepth_max);
   let mut output = crate::src::owned_recon::ReconDst::Pic(destination);
-  f.dsp.itx.add::<BD>(transform, kind, &mut output, coefficients, eob, bd)?;
+  f.dsp
+    .itx
+    .add::<BD>(transform, kind, &mut output, coefficients, eob, bd)?;
 
   match (trace, PIXEL_TRACE) {
     (BlockTrace::Enabled, BlockTrace::Enabled) => {
-      let extent = Size { width: u64::from(width).wrapping_mul(4), height: u64::from(height).wrapping_mul(4) };
+      let extent = Size {
+        width: u64::from(width).wrapping_mul(4),
+        height: u64::from(height).wrapping_mul(4),
+      };
       hex_dump_pic::<BD>(&output, extent, "recon").map_err(|_dump_error| EIO)?;
     }
-    (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+    (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
   }
 
   Ok(())
@@ -2748,19 +3014,29 @@ pub(crate) fn rav1d_read_coef_blocks<BD: BitDepth>(
     });
     assert!(t.frame_thread.pass == 1);
     assert!(b.skip == 0);
-    let uv_t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = b.uvtx.ordinal(); ordinal }); table_index }) {
+    let uv_t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+      let Ok(table_index) = console_core_number_conversion::index({
+        let Ok(ordinal) = b.uvtx.ordinal();
+        ordinal
+      });
+      table_index
+    }) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
         return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
       }
     };
-    let t_dim = &*match <[_]>::get(
-      &dav1d_txfm_dimensions,
-      { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = (match &b.ii {
-        Av1BlockIntraInter::Intra(intra) => intra.tx,
-        Av1BlockIntraInter::Inter(inter) => inter.max_ytx,
-      }).ordinal(); ordinal }); table_index },
-    ) {
+    let t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+      let Ok(table_index) = console_core_number_conversion::index({
+        let Ok(ordinal) = (match &b.ii {
+          Av1BlockIntraInter::Intra(intra) => intra.tx,
+          Av1BlockIntraInter::Inter(inter) => inter.max_ytx,
+        })
+        .ordinal();
+        ordinal
+      });
+      table_index
+    }) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
         return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
@@ -2934,7 +3210,7 @@ pub(crate) fn rav1d_read_coef_blocks<BD: BitDepth>(
                       intra.tx, txtp, eob, ts_c.msac.rng,
                     );
                   }
-                  BlockTrace::Quiet => {}
+                  BlockTrace::Disabled => {}
                 }
 
                 let Ok(cbi_idx) = (*match &ts.frame_thread {
@@ -3211,13 +3487,19 @@ pub(crate) fn rav1d_read_coef_blocks<BD: BitDepth>(
                     ) {
                       ::core::option::Option::Some(indexed_value) => indexed_value,
                       ::core::option::Option::None => {
-                        return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                        return ::core::result::Result::Err(
+                          crate::src::error::Rav1dError::EINVAL,
+                        );
                       }
                     },
                     transform: b.uvtx,
                     size: bs,
                     syntax: b,
-                    plane: { let checked_value_23 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?; checked_value_23 }.wrapping_add(1),
+                    plane: {
+                      let checked_value_23 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
+                      checked_value_23
+                    }
+                    .wrapping_add(1),
                     storage: CfSelect::Frame(cf_idx),
                   },
                   CoefficientOutput {
@@ -3234,7 +3516,7 @@ pub(crate) fn rav1d_read_coef_blocks<BD: BitDepth>(
                     pl, b.uvtx, txtp, eob, ts_c.msac.rng,
                   );
                 }
-                BlockTrace::Quiet => {}
+                BlockTrace::Disabled => {}
               }
 
               let Ok(cbi_idx) = (*match &ts.frame_thread {
@@ -3436,7 +3718,10 @@ fn motion_picture_position<BD: BitDepth>(
   }
 
   let Ok(offset_2) = console_core_number_conversion::index(offset);
-  Ok(PicOffset { data: component, offset: offset_2 })
+  Ok(PicOffset {
+    data: component,
+    offset: offset_2,
+  })
 }
 
 #[derive(Clone, Copy)]
@@ -3451,7 +3736,16 @@ fn mc<BD: BitDepth>(
   dst: MaybeTempPixels<()>,
   prediction: MotionPrediction<'_>,
 ) -> Result<(), ()> {
-  let MotionPrediction { position, size, origin, plane, motion, reference, reference_index, filter } = prediction;
+  let MotionPrediction {
+    position,
+    size,
+    origin,
+    plane,
+    motion,
+    reference,
+    reference_index,
+    filter,
+  } = prediction;
   let bd = BD::from_c(f.bitdepth_max);
   let ref_data = &reference.p.data.as_ref().ok_or(())?.data;
   let cur_data = &f.cur.data.as_ref().ok_or(())?.data;
@@ -3470,18 +3764,27 @@ fn mc<BD: BitDepth>(
     x: origin.x.wrapping_mul(4_i32.wrapping_shr(subsample.x)),
     y: origin.y.wrapping_mul(4_i32.wrapping_shr(subsample.y)),
   };
-  let mode = match (reference.p.p.w.cmp(&f.cur.p.w), reference.p.p.h.cmp(&f.cur.p.h)) {
+  let mode = match (
+    reference.p.p.w.cmp(&f.cur.p.w),
+    reference.p.p.h.cmp(&f.cur.p.h),
+  ) {
     (cmp::Ordering::Equal, cmp::Ordering::Equal) => ReferenceSampling::Direct,
     _ => ReferenceSampling::Scaled,
   };
-  let mv = Point { x: i32::from(motion.x), y: i32::from(motion.y) };
+  let mv = Point {
+    x: i32::from(motion.x),
+    y: i32::from(motion.y),
+  };
 
   match mode {
     ReferenceSampling::Direct => {
       let [first_reference, ..] = ref_data;
       let [first_current, ..] = cur_data;
       let visible = match first_reference.ref_eq(first_current).then_some(()) {
-        Some(()) => Size { width: f.bw.wrapping_mul(4), height: f.bh.wrapping_mul(4) },
+        Some(()) => Size {
+          width: f.bw.wrapping_mul(4),
+          height: f.bh.wrapping_mul(4),
+        },
         None => Size {
           width: f.cur.p.w.wrapping_add(i32::from(subsample.x != 0)),
           height: f.cur.p.h.wrapping_add(i32::from(subsample.y != 0)),
@@ -3492,17 +3795,31 @@ fn mc<BD: BitDepth>(
         height: visible.height.wrapping_shr(subsample.y),
       };
       let source = Point {
-        x: start.x.wrapping_add(mv.x.wrapping_shr(3_u32.wrapping_add(subsample.x))),
-        y: start.y.wrapping_add(mv.y.wrapping_shr(3_u32.wrapping_add(subsample.y))),
+        x: start
+          .x
+          .wrapping_add(mv.x.wrapping_shr(3_u32.wrapping_add(subsample.x))),
+        y: start
+          .y
+          .wrapping_add(mv.y.wrapping_shr(3_u32.wrapping_add(subsample.y))),
       };
       let phase = Point {
         x: mv.x & 15_i32.wrapping_shr(u32::from(subsample.x == 0)),
         y: mv.y & 15_i32.wrapping_shr(u32::from(subsample.y == 0)),
       };
-      let taps = Point { x: i32::from(phase.x != 0), y: i32::from(phase.y != 0) };
-      let lower = Point { x: taps.x.wrapping_mul(3), y: taps.y.wrapping_mul(3) };
-      let upper = Point { x: taps.x.wrapping_mul(4), y: taps.y.wrapping_mul(4) };
-      let outside = source.x < lower.x || source.y < lower.y
+      let taps = Point {
+        x: i32::from(phase.x != 0),
+        y: i32::from(phase.y != 0),
+      };
+      let lower = Point {
+        x: taps.x.wrapping_mul(3),
+        y: taps.y.wrapping_mul(3),
+      };
+      let upper = Point {
+        x: taps.x.wrapping_mul(4),
+        y: taps.y.wrapping_mul(4),
+      };
+      let outside = source.x < lower.x
+        || source.y < lower.y
         || source.x.wrapping_add(block.width).wrapping_add(upper.x) > extent.width
         || source.y.wrapping_add(block.height).wrapping_add(upper.y) > extent.height;
       let edge_component;
@@ -3516,9 +3833,16 @@ fn mc<BD: BitDepth>(
               height: block.height.wrapping_add(taps.y.wrapping_mul(7)),
             },
             reference: extent,
-            origin: Point { x: source.x.wrapping_sub(lower.x), y: source.y.wrapping_sub(lower.y) },
+            origin: Point {
+              x: source.x.wrapping_sub(lower.x),
+              y: source.y.wrapping_sub(lower.y),
+            },
           };
-          f.dsp.mc.emu_edge.call::<BD>(window, buffer, STRIDE, component).map_err(|_edge_layout| ())?;
+          f.dsp
+            .mc
+            .emu_edge
+            .call::<BD>(window, buffer, STRIDE, component)
+            .map_err(|_edge_layout| ())?;
           let Ok(stride) = console_core_number_conversion::index(STRIDE);
           edge_component = Rav1dPictureDataComponent::wrap_buf::<BD>(buffer, stride);
           motion_picture_position::<BD>(edge_component.with_offset::<BD>(), lower)?
@@ -3534,11 +3858,21 @@ fn mc<BD: BitDepth>(
       };
       let result = match dst {
         MaybeTempPixels::NonTemp { dst: dst_2 } => {
-          let mc = f.dsp.mc.mc.checked(filter).map_err(|_invalid_dispatch| ())?;
+          let mc = f
+            .dsp
+            .mc
+            .mc
+            .checked(filter)
+            .map_err(|_invalid_dispatch| ())?;
           mc.call::<BD>(filter, dst_2, input, sampling, bd)
         }
         MaybeTempPixels::Temp { tmp, .. } => {
-          let mct = f.dsp.mc.mct.checked(filter).map_err(|_invalid_dispatch| ())?;
+          let mct = f
+            .dsp
+            .mc
+            .mct
+            .checked(filter)
+            .map_err(|_invalid_dispatch| ())?;
           mct.call::<BD>(filter, tmp, input, sampling, bd)
         }
       };
@@ -3551,54 +3885,108 @@ fn mc<BD: BitDepth>(
       }
 
       let origin = Point {
-        x: start.x.wrapping_shl(4).wrapping_add(mv.x.wrapping_shl(u32::from(subsample.x == 0))),
-        y: start.y.wrapping_shl(4).wrapping_add(mv.y.wrapping_shl(u32::from(subsample.y == 0))),
+        x: start
+          .x
+          .wrapping_shl(4)
+          .wrapping_add(mv.x.wrapping_shl(u32::from(subsample.x == 0))),
+        y: start
+          .y
+          .wrapping_shl(4)
+          .wrapping_add(mv.y.wrapping_shl(u32::from(subsample.y == 0))),
       };
       let Ok(reference_position) = console_core_number_conversion::index(reference_index);
       let [horizontal, vertical] = f.svc.get(reference_position).ok_or(())?;
       let scale = |value: i32, multiplier: i32| {
         let correction = multiplier.wrapping_sub(0x4000).wrapping_mul(8);
-        let scaled = i64::from(value).wrapping_mul(i64::from(multiplier)).wrapping_add(i64::from(correction));
+        let scaled = i64::from(value)
+          .wrapping_mul(i64::from(multiplier))
+          .wrapping_add(i64::from(correction));
         let rounded = scaled.wrapping_abs().wrapping_add(128).wrapping_shr(8);
         let Ok(quotient) = console_core_number_conversion::wrapped::<_, i32>(rounded);
         apply_sign64(quotient, scaled).wrapping_add(32)
       };
-      let sample = Point { x: scale(origin.x, horizontal.scale), y: scale(origin.y, vertical.scale) };
-      let source = Point { x: sample.x.wrapping_shr(10), y: sample.y.wrapping_shr(10) };
-      let right = sample.x.wrapping_add(block.width.wrapping_sub(1).wrapping_mul(horizontal.step)).wrapping_shr(10).wrapping_add(1);
-      let bottom = sample.y.wrapping_add(block.height.wrapping_sub(1).wrapping_mul(vertical.step)).wrapping_shr(10).wrapping_add(1);
+      let sample = Point {
+        x: scale(origin.x, horizontal.scale),
+        y: scale(origin.y, vertical.scale),
+      };
+      let source = Point {
+        x: sample.x.wrapping_shr(10),
+        y: sample.y.wrapping_shr(10),
+      };
+      let right = sample
+        .x
+        .wrapping_add(block.width.wrapping_sub(1).wrapping_mul(horizontal.step))
+        .wrapping_shr(10)
+        .wrapping_add(1);
+      let bottom = sample
+        .y
+        .wrapping_add(block.height.wrapping_sub(1).wrapping_mul(vertical.step))
+        .wrapping_shr(10)
+        .wrapping_add(1);
 
       match debug_block_info!(f, position) {
         BlockTrace::Enabled => {
           console_core_logging::trace!(
             "Off {}x{} [{},{},{}], size {}x{} [{},{}]",
-            source.x, source.y, origin.x, horizontal.scale, reference_index,
-            right.wrapping_sub(source.x), bottom.wrapping_sub(source.y), horizontal.step, vertical.step,
+            source.x,
+            source.y,
+            origin.x,
+            horizontal.scale,
+            reference_index,
+            right.wrapping_sub(source.x),
+            bottom.wrapping_sub(source.y),
+            horizontal.step,
+            vertical.step,
           );
         }
-        BlockTrace::Quiet => {}
+        BlockTrace::Disabled => {}
       }
 
       let extent = Size {
-        width: reference.p.p.w.wrapping_add(i32::from(subsample.x != 0)).wrapping_shr(subsample.x),
-        height: reference.p.p.h.wrapping_add(i32::from(subsample.y != 0)).wrapping_shr(subsample.y),
+        width: reference
+          .p
+          .p
+          .w
+          .wrapping_add(i32::from(subsample.x != 0))
+          .wrapping_shr(subsample.x),
+        height: reference
+          .p
+          .p
+          .h
+          .wrapping_add(i32::from(subsample.y != 0))
+          .wrapping_shr(subsample.y),
       };
-      let outside = source.x < 3 || source.y < 3 || right.wrapping_add(4) > extent.width || bottom.wrapping_add(4) > extent.height;
+      let outside = source.x < 3
+        || source.y < 3
+        || right.wrapping_add(4) > extent.width
+        || bottom.wrapping_add(4) > extent.height;
       let edge_component;
       let input = match outside.then_some(()) {
         Some(()) => {
           const STRIDE: u32 = 320;
           let buffer = emu_edge.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
           let window = crate::src::mc::EdgeWindow {
-            block: Size { width: right.wrapping_sub(source.x).wrapping_add(7), height: bottom.wrapping_sub(source.y).wrapping_add(7) },
+            block: Size {
+              width: right.wrapping_sub(source.x).wrapping_add(7),
+              height: bottom.wrapping_sub(source.y).wrapping_add(7),
+            },
             reference: extent,
-            origin: Point { x: source.x.wrapping_sub(3), y: source.y.wrapping_sub(3) },
+            origin: Point {
+              x: source.x.wrapping_sub(3),
+              y: source.y.wrapping_sub(3),
+            },
           };
-          f.dsp.mc.emu_edge.call::<BD>(window, buffer, STRIDE, component).map_err(|_edge_layout| ())?;
+          f.dsp
+            .mc
+            .emu_edge
+            .call::<BD>(window, buffer, STRIDE, component)
+            .map_err(|_edge_layout| ())?;
 
           match debug_block_info!(f, position) {
-            BlockTrace::Enabled => { console_core_logging::trace!("Emu"); }
-            BlockTrace::Quiet => {}
+            BlockTrace::Enabled => {
+              console_core_logging::trace!("Emu");
+            }
+            BlockTrace::Disabled => {}
           }
 
           let Ok(stride) = console_core_number_conversion::index(STRIDE);
@@ -3609,16 +3997,32 @@ fn mc<BD: BitDepth>(
       };
       let sampling = crate::src::mc::ScaledSampling {
         size: block,
-        phase: Point { x: sample.x & 0x3ff, y: sample.y & 0x3ff },
-        step: Point { x: horizontal.step, y: vertical.step },
+        phase: Point {
+          x: sample.x & 0x3ff,
+          y: sample.y & 0x3ff,
+        },
+        step: Point {
+          x: horizontal.step,
+          y: vertical.step,
+        },
       };
       let result = match dst {
         MaybeTempPixels::NonTemp { dst: dst_3 } => {
-          let mc = f.dsp.mc.mc_scaled.checked(filter).map_err(|_invalid_dispatch| ())?;
+          let mc = f
+            .dsp
+            .mc
+            .mc_scaled
+            .checked(filter)
+            .map_err(|_invalid_dispatch| ())?;
           mc.call::<BD>(filter, dst_3, input, sampling, bd)
         }
         MaybeTempPixels::Temp { tmp, .. } => {
-          let mct = f.dsp.mc.mct_scaled.checked(filter).map_err(|_invalid_dispatch| ())?;
+          let mct = f
+            .dsp
+            .mc
+            .mct_scaled
+            .checked(filter)
+            .map_err(|_invalid_dispatch| ())?;
           mct.call::<BD>(filter, tmp, input, sampling, bd)
         }
       };
@@ -3639,16 +4043,17 @@ fn obmc<BD: BitDepth>(
   t: &mut Rav1dTaskContext,
   dst: PicOffset,
   OverlapReconstruction {
-    visible, dimensions: [block_width, block_height, horizontal_limit, vertical_limit], context, plane,
+    visible,
+    dimensions: [block_width, block_height, horizontal_limit, vertical_limit],
+    context,
+    plane,
   }: OverlapReconstruction,
 ) -> Result<(), ()> {
-  match {
-      ::core::primitive::bool::then_some((t.b.x | t.b.y) & 1 != 0, ())
-  } {
-      ::core::option::Option::Some(()) => {
-        return Err(());
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some((t.b.x | t.b.y) & 1 != 0, ()) } {
+    ::core::option::Option::Some(()) => {
+      return Err(());
+    }
+    ::core::option::Option::None => {}
   }
 
   let tile = f.tile(t.tile_index).ok_or(())?;
@@ -3663,10 +4068,15 @@ fn obmc<BD: BitDepth>(
   let pixel_width = 4_i32.wrapping_shr(x_shift);
   let pixel_height = 4_i32.wrapping_shr(y_shift);
   let luma = plane == 0;
-  let fits_above = i32::from(block_width).wrapping_mul(pixel_width)
-    .wrapping_add(i32::from(block_height).wrapping_mul(pixel_height)) >= 16;
+  let fits_above = i32::from(block_width)
+    .wrapping_mul(pixel_width)
+    .wrapping_add(i32::from(block_height).wrapping_mul(pixel_height))
+    >= 16;
   let scratch = t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
-  let lap = scratch.lap_inter.lap_mut::<BD>().map_err(|_invalid_scratch| ())?;
+  let lap = scratch
+    .lap_inter
+    .lap_mut::<BD>()
+    .map_err(|_invalid_scratch| ())?;
 
   use crate::src::safe_simd::mc::BlendAxis;
 
@@ -3675,7 +4085,9 @@ fn obmc<BD: BitDepth>(
       BlendAxis::Horizontal if position.y > tile.tiling.row_start && (luma || fits_above) => {
         (visible.width, horizontal_limit.min(4))
       }
-      BlendAxis::Vertical if position.x > tile.tiling.col_start => (visible.height, vertical_limit.min(4)),
+      BlendAxis::Vertical if position.x > tile.tiling.col_start => {
+        (visible.height, vertical_limit.min(4))
+      }
       BlendAxis::Horizontal | BlendAxis::Vertical => continue,
     };
     let mut count = 0_u8;
@@ -3683,103 +4095,167 @@ fn obmc<BD: BitDepth>(
 
     'inner_for_2: for _ in 0..visible_extent {
       match {
-          ::core::primitive::bool::then_some(distance >= visible_extent || count >= max_neighbors, ())
+        ::core::primitive::bool::then_some(
+          distance >= visible_extent || count >= max_neighbors,
+          (),
+        )
       } {
-          ::core::option::Option::Some(()) => {
-            break 'inner_for_2;
-          },
-          ::core::option::Option::None => {},
+        ::core::option::Option::Some(()) => {
+          break 'inner_for_2;
+        }
+        ::core::option::Option::None => {}
       }
 
       let one_ahead = distance.wrapping_add(1);
       let neighbor = match axis {
-        BlendAxis::Horizontal => Point { x: position.x.wrapping_add(one_ahead), y: ring_row.wrapping_sub(1) },
-        BlendAxis::Vertical => Point { x: position.x.wrapping_sub(1), y: ring_row.wrapping_add(one_ahead) },
+        BlendAxis::Horizontal => Point {
+          x: position.x.wrapping_add(one_ahead),
+          y: ring_row.wrapping_sub(1),
+        },
+        BlendAxis::Vertical => Point {
+          x: position.x.wrapping_sub(1),
+          y: ring_row.wrapping_add(one_ahead),
+        },
       };
-      let block = crate::src::refmvs::read_spatial_block(&f.rf.r, &t.rt.r, neighbor).map_err(|_invalid_neighbor| ())?;
+      let block = crate::src::refmvs::read_spatial_block(&f.rf.r, &t.rt.r, neighbor)
+        .map_err(|_invalid_neighbor| ())?;
       let Ok(&[neighbor_width, neighbor_height, ..]) = block.bs.dimensions();
-      let span = match axis { BlendAxis::Horizontal => neighbor_width, BlendAxis::Vertical => neighbor_height };
+      let span = match axis {
+        BlendAxis::Horizontal => neighbor_width,
+        BlendAxis::Vertical => neighbor_height,
+      };
       let step = span.max(2).min(16);
       let [reference, _] = block.r#ref.r#ref;
 
-      match {
-          ::core::primitive::bool::then_some(reference > 0, ())
-      } {
-          ::core::option::Option::Some(()) => {
-            let reference_code = u8::try_from(reference.wrapping_sub(1)).map_err(|_invalid_reference| ())?;
-            let Ok(reference_index) = console_core_number_conversion::index(reference_code);
-            let reference_picture = f.refp.get(reference_index).ok_or(())?;
-            let [motion, _] = block.mv.mv;
-            let (width, height, filter_position) = match axis {
-              BlendAxis::Horizontal => (step.min(block_width), block_height.min(16).wrapping_shr(1), context.x.wrapping_add(one_ahead)),
-              BlendAxis::Vertical => (block_width.min(16).wrapping_shr(1), step.min(block_height), context.y.wrapping_add(one_ahead)),
-            };
-            let filter_position = console_core_number_conversion::checked_index(filter_position).map_err(|_outside_filter| ())?;
-            let [filter_x, filter_y] = match axis {
-              BlendAxis::Horizontal => {
-                match {
-                    ::core::primitive::bool::then_some(filter_position >= above_x.len() || filter_position >= above_y.len(), ())
-                } {
-                    ::core::option::Option::Some(()) => {
-                      return Err(());
-                    },
-                    ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(reference > 0, ()) } {
+        ::core::option::Option::Some(()) => {
+          let reference_code =
+            u8::try_from(reference.wrapping_sub(1)).map_err(|_invalid_reference| ())?;
+          let Ok(reference_index) = console_core_number_conversion::index(reference_code);
+          let reference_picture = f.refp.get(reference_index).ok_or(())?;
+          let [motion, _] = block.mv.mv;
+          let (width, height, filter_position) = match axis {
+            BlendAxis::Horizontal => (
+              step.min(block_width),
+              block_height.min(16).wrapping_shr(1),
+              context.x.wrapping_add(one_ahead),
+            ),
+            BlendAxis::Vertical => (
+              block_width.min(16).wrapping_shr(1),
+              step.min(block_height),
+              context.y.wrapping_add(one_ahead),
+            ),
+          };
+          let filter_position = console_core_number_conversion::checked_index(filter_position)
+            .map_err(|_outside_filter| ())?;
+          let [filter_x, filter_y] = match axis {
+            BlendAxis::Horizontal => {
+              match {
+                ::core::primitive::bool::then_some(
+                  filter_position >= above_x.len() || filter_position >= above_y.len(),
+                  (),
+                )
+              } {
+                ::core::option::Option::Some(()) => {
+                  return Err(());
                 }
+                ::core::option::Option::None => {}
+              }
 
-                [*above_x.index(filter_position), *above_y.index(filter_position)]
-              }
-              BlendAxis::Vertical => [
-                *left_x.get_mut().get(filter_position).ok_or(())?,
-                *left_y.get_mut().get(filter_position).ok_or(())?,
-              ],
-            };
-            let Ok(filter_column) = console_core_number_conversion::index(u8::from(filter_x));
-            let Ok(filter_row) = console_core_number_conversion::index(u8::from(filter_y));
-            let &filter = dav1d_filter_2d.get(filter_row).and_then(|row| row.get(filter_column)).ok_or(())?;
-            let width = i32::from(width);
-            let height = i32::from(height);
-            let size = Size { width: width.wrapping_mul(pixel_width), height: height.wrapping_mul(pixel_height) };
-            let lap_stride = console_core_number_conversion::checked_index(size.width).map_err(|_invalid_stride| ())?;
-            let lap_component = Rav1dPictureDataComponent::wrap_buf::<BD>(lap, lap_stride);
-            let (height_to_predict, reference_origin, output) = match axis {
-              BlendAxis::Horizontal => {
-                let origin = Point { x: position.x.wrapping_add(distance), y: position.y };
-                let height_to_predict = height.wrapping_mul(3).wrapping_add(3).wrapping_shr(2);
-                let offset = console_core_number_conversion::checked_index(distance.wrapping_mul(pixel_width)).map_err(|_outside_destination| ())?;
-                (height_to_predict, origin, dst + offset)
-              }
-              BlendAxis::Vertical => {
-                let origin = Point { x: position.x, y: position.y.wrapping_add(distance) };
-                let Ok(row) = console_core_number_conversion::wrapped_offset(distance.wrapping_mul(pixel_height));
-                let Ok(stride) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() { ::core::result::Result::Ok(stride) => stride });
-                (height, origin, dst + row.wrapping_mul(match ::console_core_number_conversion::wrapped_offset(stride) { ::core::result::Result::Ok(native_position) => native_position }))
-              }
-            };
-            mc::<BD>(
-              f,
-              &mut scratch.emu_edge,
-              MaybeTempPixels::NonTemp { dst: PicOffset { data: &lap_component, offset: 0 } },
-              MotionPrediction {
-                position,
-                size: Size { width, height: height_to_predict },
-                origin: reference_origin,
-                plane,
-                motion,
-                reference: reference_picture,
-                reference_index: reference_code,
-                filter,
+              [
+                *above_x.index(filter_position),
+                *above_y.index(filter_position),
+              ]
+            }
+            BlendAxis::Vertical => [
+              *left_x.get_mut().get(filter_position).ok_or(())?,
+              *left_y.get_mut().get(filter_position).ok_or(())?,
+            ],
+          };
+          let Ok(filter_column) = console_core_number_conversion::index(u8::from(filter_x));
+          let Ok(filter_row) = console_core_number_conversion::index(u8::from(filter_y));
+          let &filter = dav1d_filter_2d
+            .get(filter_row)
+            .and_then(|row| row.get(filter_column))
+            .ok_or(())?;
+          let width = i32::from(width);
+          let height = i32::from(height);
+          let size = Size {
+            width: width.wrapping_mul(pixel_width),
+            height: height.wrapping_mul(pixel_height),
+          };
+          let lap_stride = console_core_number_conversion::checked_index(size.width)
+            .map_err(|_invalid_stride| ())?;
+          let lap_component = Rav1dPictureDataComponent::wrap_buf::<BD>(lap, lap_stride);
+          let (height_to_predict, reference_origin, output) = match axis {
+            BlendAxis::Horizontal => {
+              let origin = Point {
+                x: position.x.wrapping_add(distance),
+                y: position.y,
+              };
+              let height_to_predict = height.wrapping_mul(3).wrapping_add(3).wrapping_shr(2);
+              let offset =
+                console_core_number_conversion::checked_index(distance.wrapping_mul(pixel_width))
+                  .map_err(|_outside_destination| ())?;
+              (height_to_predict, origin, dst + offset)
+            }
+            BlendAxis::Vertical => {
+              let origin = Point {
+                x: position.x,
+                y: position.y.wrapping_add(distance),
+              };
+              let Ok(row) = console_core_number_conversion::wrapped_offset(
+                distance.wrapping_mul(pixel_height),
+              );
+              let Ok(stride) =
+                ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+                  ::core::result::Result::Ok(stride) => stride,
+                });
+              (
+                height,
+                origin,
+                dst
+                  + row.wrapping_mul(
+                    match ::console_core_number_conversion::wrapped_offset(stride) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  ),
+              )
+            }
+          };
+          mc::<BD>(
+            f,
+            &mut scratch.emu_edge,
+            MaybeTempPixels::NonTemp {
+              dst: PicOffset {
+                data: &lap_component,
+                offset: 0,
               },
-            )?;
-            #[cfg(not(feature = "c-ffi"))]
-            lap_component.copy_pixels_to::<BD>(lap);
-            let blended = match axis {
-              BlendAxis::Horizontal => f.dsp.mc.blend_h.call::<BD>(axis, output, lap, size),
-              BlendAxis::Vertical => f.dsp.mc.blend_v.call::<BD>(axis, output, lap, size),
-            };
-            blended.map_err(|_invalid_destination| ())?;
-            count = count.wrapping_add(1);
-          },
-          ::core::option::Option::None => {},
+            },
+            MotionPrediction {
+              position,
+              size: Size {
+                width,
+                height: height_to_predict,
+              },
+              origin: reference_origin,
+              plane,
+              motion,
+              reference: reference_picture,
+              reference_index: reference_code,
+              filter,
+            },
+          )?;
+          #[cfg(not(feature = "c-ffi"))]
+          lap_component.copy_pixels_to::<BD>(lap);
+          let blended = match axis {
+            BlendAxis::Horizontal => f.dsp.mc.blend_h.call::<BD>(axis, output, lap, size),
+            BlendAxis::Vertical => f.dsp.mc.blend_v.call::<BD>(axis, output, lap, size),
+          };
+          blended.map_err(|_invalid_destination| ())?;
+          count = count.wrapping_add(1);
+        }
+        ::core::option::Option::None => {}
       }
 
       distance = distance.wrapping_add(i32::from(step));
@@ -3801,7 +4277,13 @@ fn warp_affine<BD: BitDepth>(
   f: &Rav1dFrameData,
   emu_edge: &mut ScratchEmuEdge,
   mut dst: MaybeTempPixels<u64>,
-  WarpPrediction { position, dimensions, plane, reference, parameters }: WarpPrediction<'_>,
+  WarpPrediction {
+    position,
+    dimensions,
+    plane,
+    reference,
+    parameters,
+  }: WarpPrediction<'_>,
 ) -> Result<(), ()> {
   let Ok(coefficients) = parameters.abcd.get();
   let [x_offset, y_offset, xx, xy, yx, yy] = parameters.matrix;
@@ -3826,8 +4308,18 @@ fn warp_affine<BD: BitDepth>(
   }
 
   let extent = Size {
-    width: reference.p.p.w.wrapping_add(i32::from(subsample.x != 0)).wrapping_shr(subsample.x),
-    height: reference.p.p.h.wrapping_add(i32::from(subsample.y != 0)).wrapping_shr(subsample.y),
+    width: reference
+      .p
+      .p
+      .w
+      .wrapping_add(i32::from(subsample.x != 0))
+      .wrapping_shr(subsample.x),
+    height: reference
+      .p
+      .p
+      .h
+      .wrapping_add(i32::from(subsample.y != 0))
+      .wrapping_shr(subsample.y),
   };
   let alpha = i32::from(parameters.alpha()).wrapping_mul(4);
   let beta = i32::from(parameters.beta()).wrapping_mul(7);
@@ -3835,17 +4327,38 @@ fn warp_affine<BD: BitDepth>(
   let delta = i32::from(parameters.delta()).wrapping_mul(4);
 
   for y in (0..block.height).step_by(8) {
-    let src_y = position.y.wrapping_mul(4).wrapping_add(y.wrapping_add(4).wrapping_shl(subsample.y));
-    let tx = i64::from(xy).wrapping_mul(i64::from(src_y)).wrapping_add(i64::from(x_offset));
-    let ty = i64::from(yy).wrapping_mul(i64::from(src_y)).wrapping_add(i64::from(y_offset));
+    let src_y = position
+      .y
+      .wrapping_mul(4)
+      .wrapping_add(y.wrapping_add(4).wrapping_shl(subsample.y));
+    let tx = i64::from(xy)
+      .wrapping_mul(i64::from(src_y))
+      .wrapping_add(i64::from(x_offset));
+    let ty = i64::from(yy)
+      .wrapping_mul(i64::from(src_y))
+      .wrapping_add(i64::from(y_offset));
 
     for x in (0..block.width).step_by(8) {
-      let src_x = position.x.wrapping_mul(4).wrapping_add(x.wrapping_add(4).wrapping_shl(subsample.x));
-      let transformed_x = i64::from(xx).wrapping_mul(i64::from(src_x)).wrapping_add(tx).wrapping_shr(subsample.x);
-      let transformed_y = i64::from(yx).wrapping_mul(i64::from(src_x)).wrapping_add(ty).wrapping_shr(subsample.y);
-      let Ok(center_x) = console_core_number_conversion::wrapped::<_, i32>(transformed_x.wrapping_shr(16));
-      let Ok(center_y) = console_core_number_conversion::wrapped::<_, i32>(transformed_y.wrapping_shr(16));
-      let source = Point { x: center_x.wrapping_sub(4), y: center_y.wrapping_sub(4) };
+      let src_x = position
+        .x
+        .wrapping_mul(4)
+        .wrapping_add(x.wrapping_add(4).wrapping_shl(subsample.x));
+      let transformed_x = i64::from(xx)
+        .wrapping_mul(i64::from(src_x))
+        .wrapping_add(tx)
+        .wrapping_shr(subsample.x);
+      let transformed_y = i64::from(yx)
+        .wrapping_mul(i64::from(src_x))
+        .wrapping_add(ty)
+        .wrapping_shr(subsample.y);
+      let Ok(center_x) =
+        console_core_number_conversion::wrapped::<_, i32>(transformed_x.wrapping_shr(16));
+      let Ok(center_y) =
+        console_core_number_conversion::wrapped::<_, i32>(transformed_y.wrapping_shr(16));
+      let source = Point {
+        x: center_x.wrapping_sub(4),
+        y: center_y.wrapping_sub(4),
+      };
       let Ok(phase_x) = console_core_number_conversion::wrapped::<_, i32>(transformed_x & 0xffff);
       let Ok(phase_y) = console_core_number_conversion::wrapped::<_, i32>(transformed_y & 0xffff);
       let sampling = crate::src::mc::WarpSampling {
@@ -3855,19 +4368,31 @@ fn warp_affine<BD: BitDepth>(
           y: phase_y.wrapping_sub(gamma).wrapping_sub(delta) & !0x3f,
         },
       };
-      let outside = source.x < 3 || source.y < 3
-        || source.x.wrapping_add(12) > extent.width || source.y.wrapping_add(12) > extent.height;
+      let outside = source.x < 3
+        || source.y < 3
+        || source.x.wrapping_add(12) > extent.width
+        || source.y.wrapping_add(12) > extent.height;
       let edge_component;
       let input = match outside.then_some(()) {
         Some(()) => {
           const STRIDE: u32 = 32;
           let buffer = emu_edge.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
           let window = crate::src::mc::EdgeWindow {
-            block: Size { width: 15, height: 15 },
+            block: Size {
+              width: 15,
+              height: 15,
+            },
             reference: extent,
-            origin: Point { x: source.x.wrapping_sub(3), y: source.y.wrapping_sub(3) },
+            origin: Point {
+              x: source.x.wrapping_sub(3),
+              y: source.y.wrapping_sub(3),
+            },
           };
-          f.dsp.mc.emu_edge.call::<BD>(window, buffer, STRIDE, component).map_err(|_edge_layout| ())?;
+          f.dsp
+            .mc
+            .emu_edge
+            .call::<BD>(window, buffer, STRIDE, component)
+            .map_err(|_edge_layout| ())?;
           let Ok(stride) = console_core_number_conversion::index(STRIDE);
           edge_component = Rav1dPictureDataComponent::wrap_buf::<BD>(buffer, stride);
           motion_picture_position::<BD>(edge_component.with_offset::<BD>(), Point { x: 3, y: 3 })?
@@ -3882,7 +4407,10 @@ fn warp_affine<BD: BitDepth>(
           let offset = samples.checked_add(column).ok_or(())?;
           let Ok(first_sample) = console_core_number_conversion::index(offset);
           let output = tmp.get_mut(first_sample..).ok_or(())?;
-          f.dsp.mc.warp8x8t.call(output, *tmp_stride, input, sampling, depth)
+          f.dsp
+            .mc
+            .warp8x8t
+            .call(output, *tmp_stride, input, sampling, depth)
         }
         MaybeTempPixels::NonTemp { dst: dst_2 } => {
           let target = motion_picture_position::<BD>(*dst_2, Point { x, y })?;
@@ -3896,7 +4424,10 @@ fn warp_affine<BD: BitDepth>(
   Ok(())
 }
 
-fn block_plane_origin(position: Bxy, sampling: Point<u32>) -> Result<Point<i32>, console_core_never::Never> {
+fn block_plane_origin(
+  position: Bxy,
+  sampling: Point<u32>,
+) -> Result<Point<i32>, console_core_never::Never> {
   let x = position.x.wrapping_shr(sampling.x).wrapping_mul(4);
   let y = position.y.wrapping_shr(sampling.y).wrapping_mul(4);
   Ok(Point { x, y })
@@ -3908,7 +4439,10 @@ struct PredictionEdgeRow {
   plane: u8,
 }
 
-fn prefiltered_top(f: &Rav1dFrameData, request: PredictionEdgeRow) -> Rav1dResult<Option<PrefilteredTop<'_>>> {
+fn prefiltered_top(
+  f: &Rav1dFrameData,
+  request: PredictionEdgeRow,
+) -> Rav1dResult<Option<PrefilteredTop<'_>>> {
   let boundary = request.block_y & !request.chroma_rounding & f.sb_step.wrapping_sub(1);
 
   match boundary {
@@ -3920,10 +4454,16 @@ fn prefiltered_top(f: &Rav1dFrameData, request: PredictionEdgeRow) -> Rav1dResul
   let previous = request.block_y.wrapping_shr(shift).wrapping_sub(1);
   let row_width = i64::from(f.sb128w).wrapping_mul(128);
   let rows = i64::from(previous).checked_mul(row_width).ok_or(EINVAL)?;
-  let bank = f.ipred_edge_off.checked_mul(u64::from(request.plane)).ok_or(EINVAL)?;
+  let bank = f
+    .ipred_edge_off
+    .checked_mul(u64::from(request.plane))
+    .ok_or(EINVAL)?;
   let plane = i64::try_from(bank).map_err(|_outside_edge_buffer| EINVAL)?;
   let row_start = plane.checked_add(rows).ok_or(EINVAL)?;
-  Ok(Some(PrefilteredTop { samples: &f.ipred_edge, row_start }))
+  Ok(Some(PrefilteredTop {
+    samples: &f.ipred_edge,
+    row_start,
+  }))
 }
 
 pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
@@ -3940,10 +4480,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
     let bd = BD::from_c(f.bitdepth_max);
 
     let picture = f.cur.data.as_ref().ok_or(EINVAL)?;
-    let Ok(mut planes) = crate::src::owned_recon::ReconPlanes::bind(
-      &picture.data,
-      &mut t.recon_band,
-    );
+    let Ok(mut planes) =
+      crate::src::owned_recon::ReconPlanes::bind(&picture.data, &mut t.recon_band);
     let ts = &*match f.tile(t.tile_index) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
@@ -3987,13 +4525,25 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
     let has_chroma = f.cur.p.layout != Rav1dPixelLayout::I400
       && (bw4 > ss_hor || t.b.x & 1 != 0)
       && (bh4 > ss_ver || t.b.y & 1 != 0);
-    let t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = intra.tx.ordinal(); ordinal }); table_index }) {
+    let t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+      let Ok(table_index) = console_core_number_conversion::index({
+        let Ok(ordinal) = intra.tx.ordinal();
+        ordinal
+      });
+      table_index
+    }) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
         return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
       }
     };
-    let uv_t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = b.uvtx.ordinal(); ordinal }); table_index }) {
+    let uv_t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+      let Ok(table_index) = console_core_number_conversion::index({
+        let Ok(ordinal) = b.uvtx.ordinal();
+        ordinal
+      });
+      table_index
+    }) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
         return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
@@ -4030,12 +4580,20 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
       );
 
       'over_init_x_2: for init_x in (0..w4).step_by(16) {
-        match ::core::primitive::bool::then_some((match intra.pal_sz {
-          [element, ..] => element,
-        }) != 0, ())
-        {
+        match ::core::primitive::bool::then_some(
+          (match intra.pal_sz {
+            [element, ..] => element,
+          }) != 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
-            let mut y_dst = planes.dst::<BD>(0, Point { x: t.b.x.wrapping_mul(4), y: t.b.y.wrapping_mul(4) })?;
+            let mut y_dst = planes.dst::<BD>(
+              0,
+              Point {
+                x: t.b.x.wrapping_mul(4),
+                y: t.b.y.wrapping_mul(4),
+              },
+            )?;
             let scratch = t.scratch.inter_intra_mut()?;
             let pal_idx = match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
               ::core::option::Option::Some(()) => {
@@ -4089,7 +4647,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                   _explicit_part
                 },
                 pal_idx,
-                Size { width: i32::wrapping_mul(bw4, 4), height: i32::wrapping_mul(bh4, 4) },
+                Size {
+                  width: i32::wrapping_mul(bw4, 4),
+                  height: i32::wrapping_mul(bh4, 4),
+                },
               )?
             });
 
@@ -4098,13 +4659,24 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                 hex_dump_pic::<BD>(
                   &y_dst,
                   Size {
-                    width: { let checked_value_5 = u64::try_from(bw4).map_err(|_negative_extent| EINVAL)?; checked_value_5 }.wrapping_mul(4),
-                    height: { let checked_value_6 = u64::try_from(bh4).map_err(|_negative_extent| EINVAL)?; checked_value_6 }.wrapping_mul(4),
+                    width: {
+                      let checked_value_5 =
+                        u64::try_from(bw4).map_err(|_negative_extent| EINVAL)?;
+                      checked_value_5
+                    }
+                    .wrapping_mul(4),
+                    height: {
+                      let checked_value_6 =
+                        u64::try_from(bh4).map_err(|_negative_extent| EINVAL)?;
+                      checked_value_6
+                    }
+                    .wrapping_mul(4),
                   },
                   "y-pal-pred",
-                ).map_err(|_dump_error| EIO)?;
+                )
+                .map_err(|_dump_error| EIO)?;
               }
-              (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+              (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
             }
           }
           ::core::option::Option::None => {}
@@ -4120,21 +4692,31 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
           bx4,
         )?;
         let left_sm = sm_flag(&t.l, by4)?;
-        let intra_flags = above_sm | left_sm
-          | intra_edge_filter_flag;
-        let sb_has_tr = match ::core::primitive::bool::then_some(i32::wrapping_add(init_x, 16) < w4, ()) {
-          ::core::option::Option::Some(()) => true,
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(init_y != 0, ()) {
-            ::core::option::Option::Some(()) => false,
-            ::core::option::Option::None => matches!(intra_edge_flags.availability(EdgeFlags::I444_TOP_HAS_RIGHT), Ok(EdgeAvailability::Present)),
-          },
-        };
+        let intra_flags = above_sm | left_sm | intra_edge_filter_flag;
+        let sb_has_tr =
+          match ::core::primitive::bool::then_some(i32::wrapping_add(init_x, 16) < w4, ()) {
+            ::core::option::Option::Some(()) => true,
+            ::core::option::Option::None => {
+              match ::core::primitive::bool::then_some(init_y != 0, ()) {
+                ::core::option::Option::Some(()) => false,
+                ::core::option::Option::None => matches!(
+                  intra_edge_flags.availability(EdgeFlags::I444_TOP_HAS_RIGHT),
+                  Ok(EdgeAvailability::Present)
+                ),
+              }
+            }
+          };
         let sb_has_bl = match ::core::primitive::bool::then_some(init_x != 0, ()) {
           ::core::option::Option::Some(()) => false,
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(i32::wrapping_add(init_y, 16) < h4, ()) {
-            ::core::option::Option::Some(()) => true,
-            ::core::option::Option::None => matches!(intra_edge_flags.availability(EdgeFlags::I444_LEFT_HAS_BOTTOM), Ok(EdgeAvailability::Present)),
-          },
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(i32::wrapping_add(init_y, 16) < h4, ()) {
+              ::core::option::Option::Some(()) => true,
+              ::core::option::Option::None => matches!(
+                intra_edge_flags.availability(EdgeFlags::I444_LEFT_HAS_BOTTOM),
+                Ok(EdgeAvailability::Present)
+              ),
+            }
+          }
         };
         let mut y;
         let mut x;
@@ -4157,15 +4739,23 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
           };
 
           while x < sub_w4 {
-            let mut y_dst = planes.dst::<BD>(0, Point { x: t.b.x.wrapping_mul(4), y: t.b.y.wrapping_mul(4) })?;
+            let mut y_dst = planes.dst::<BD>(
+              0,
+              Point {
+                x: t.b.x.wrapping_mul(4),
+                y: t.b.y.wrapping_mul(4),
+              },
+            )?;
             let mut angle;
             let edge_flags;
             let m;
 
-            match ::core::primitive::bool::then_some(!((match intra.pal_sz {
-              [element, ..] => element,
-            }) != 0), ())
-            {
+            match ::core::primitive::bool::then_some(
+              !((match intra.pal_sz {
+                [element, ..] => element,
+              }) != 0),
+              (),
+            ) {
               ::core::option::Option::Some(()) => {
                 angle = {
                   let Ok(numeric_value) =
@@ -4175,32 +4765,38 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                 edge_flags = {
                   let Ok(explicit_value) = EdgeFlags::union_all([
                     ({
-                      let Ok(explicit_value) = EdgeFlags::I444_TOP_HAS_RIGHT.select(
-                        EdgeAvailability::from(!((y > init_y || !sb_has_tr)
-                          && i32::wrapping_add(x, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, i32>(t_dim.w);
-                            numeric_value
-                          }) >= sub_w4)),
-                      );
+                      let Ok(explicit_value) =
+                        EdgeFlags::I444_TOP_HAS_RIGHT.select(EdgeAvailability::from(
+                          !((y > init_y || !sb_has_tr)
+                            && i32::wrapping_add(x, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, i32>(t_dim.w);
+                              numeric_value
+                            }) >= sub_w4),
+                        ));
                       explicit_value
                     }),
                     ({
-                      let Ok(explicit_value) = EdgeFlags::I444_LEFT_HAS_BOTTOM.select(
-                        EdgeAvailability::from(!(x > init_x
-                          || (!sb_has_bl
-                            && i32::wrapping_add(y, {
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped::<_, i32>(t_dim.h);
-                              numeric_value
-                            }) >= sub_h4))),
-                      );
+                      let Ok(explicit_value) =
+                        EdgeFlags::I444_LEFT_HAS_BOTTOM.select(EdgeAvailability::from(
+                          !(x > init_x
+                            || (!sb_has_bl
+                              && i32::wrapping_add(y, {
+                                let Ok(numeric_value) =
+                                  console_core_number_conversion::wrapped::<_, i32>(t_dim.h);
+                                numeric_value
+                              }) >= sub_h4)),
+                        ));
                       explicit_value
                     }),
                   ]);
                   explicit_value
                 };
-                let saved_row = PredictionEdgeRow { block_y: t.b.y, chroma_rounding: 0, plane: 0 };
+                let saved_row = PredictionEdgeRow {
+                  block_y: t.b.y,
+                  chroma_rounding: 0,
+                  plane: 0,
+                };
                 let prefiltered = prefiltered_top(f, saved_row)?;
                 let edge_array = {
                   let explicit_value = ({
@@ -4217,19 +4813,28 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                   rav1d_prepare_intra_edges(
                     IntraEdgePreparation {
                       position: Point { x: t.b.x, y: t.b.y },
-                      frame: Size { width: ts.tiling.col_end, height: ts.tiling.row_end },
-                      transform: Size { width: {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, i32>(t_dim.w);
-                      numeric_value
-                    }, height: {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, i32>(t_dim.h);
-                      numeric_value
-                    } },
+                      frame: Size {
+                        width: ts.tiling.col_end,
+                        height: ts.tiling.row_end,
+                      },
+                      transform: Size {
+                        width: {
+                          let Ok(numeric_value) =
+                            console_core_number_conversion::wrapped::<_, i32>(t_dim.w);
+                          numeric_value
+                        },
+                        height: {
+                          let Ok(numeric_value) =
+                            console_core_number_conversion::wrapped::<_, i32>(t_dim.h);
+                          numeric_value
+                        },
+                      },
                       has_left: t.b.x > ts.tiling.col_start,
                       above: {
-                        let Ok(above) = AboveEdge::select(EdgeAvailability::from(t.b.y > ts.tiling.row_start), prefiltered);
+                        let Ok(above) = AboveEdge::select(
+                          EdgeAvailability::from(t.b.y > ts.tiling.row_start),
+                          prefiltered,
+                        );
                         above
                       },
                       available: edge_flags,
@@ -4274,22 +4879,34 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                         let Ok(center) = console_core_number_conversion::fixed_index(edge_offset);
                         center
                       },
-                      size: Size { width: i32::wrapping_mul(
-                      {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, i32>(t_dim.w);
-                        numeric_value
+                      size: Size {
+                        width: i32::wrapping_mul(
+                          {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, i32>(t_dim.w);
+                            numeric_value
+                          },
+                          4,
+                        ),
+                        height: i32::wrapping_mul(
+                          {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, i32>(t_dim.h);
+                            numeric_value
+                          },
+                          4,
+                        ),
                       },
-                      4,
-                    ), height: i32::wrapping_mul(
-                      {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, i32>(t_dim.h);
-                        numeric_value
+                      reach: Size {
+                        width: i32::wrapping_sub(
+                          i32::wrapping_mul(4, f.bw),
+                          i32::wrapping_mul(4, t.b.x),
+                        ),
+                        height: i32::wrapping_sub(
+                          i32::wrapping_mul(4, f.bh),
+                          i32::wrapping_mul(4, t.b.y),
+                        ),
                       },
-                      4,
-                    ) },
-                      reach: Size { width: i32::wrapping_sub(i32::wrapping_mul(4, f.bw), i32::wrapping_mul(4, t.b.x)), height: i32::wrapping_sub(i32::wrapping_mul(4, f.bh), i32::wrapping_mul(4, t.b.y)) },
                       angle: angle | intra_flags,
                     },
                     bd,
@@ -4325,7 +4942,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       },
                       u64::from(t_dim.h).wrapping_mul(4),
                       "l",
-                    ).map_err(|_dump_error| EIO)?;
+                    )
+                    .map_err(|_dump_error| EIO)?;
                     hex_dump::<BD>(
                       &*match <[_]>::get(&*edge_array, edge_offset..) {
                         ::core::option::Option::Some(indexed_value) => indexed_value,
@@ -4341,7 +4959,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       },
                       0,
                       "tl",
-                    ).map_err(|_dump_error| EIO)?;
+                    )
+                    .map_err(|_dump_error| EIO)?;
                     hex_dump::<BD>(
                       &*match <[_]>::get(&*edge_array, usize::wrapping_add(edge_offset, 1)..) {
                         ::core::option::Option::Some(indexed_value) => indexed_value,
@@ -4357,7 +4976,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       },
                       u64::from(t_dim.w).wrapping_mul(4),
                       "t",
-                    ).map_err(|_dump_error| EIO)?;
+                    )
+                    .map_err(|_dump_error| EIO)?;
                     hex_dump_pic::<BD>(
                       &y_dst,
                       Size {
@@ -4365,9 +4985,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                         height: u64::from(t_dim.h).wrapping_mul(4),
                       },
                       "y-intra-pred",
-                    ).map_err(|_dump_error| EIO)?;
+                    )
+                    .map_err(|_dump_error| EIO)?;
                   }
-                  (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                  (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                 }
               }
               ::core::option::Option::None => {}
@@ -4537,7 +5158,7 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                           ts_c.as_deref().ok_or(EINVAL)?.msac.rng,
                         );
                       }
-                      BlockTrace::Quiet => {}
+                      BlockTrace::Disabled => {}
                     }
 
                     case_set_al! {
@@ -4569,9 +5190,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                           },
                           3,
                           "dq",
-                        ).map_err(|_dump_error| EIO)?;
+                        )
+                        .map_err(|_dump_error| EIO)?;
                       }
-                      (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                      (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                     }
 
                     f.dsp
@@ -4587,25 +5209,28 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                             height: u64::from(t_dim.h).wrapping_mul(4),
                           },
                           "recon",
-                        ).map_err(|_dump_error| EIO)?;
+                        )
+                        .map_err(|_dump_error| EIO)?;
                       }
-                      (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                      (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                     }
                   }
                   ::core::option::Option::None => {}
                 }
               }
-              ::core::option::Option::None => match ::core::primitive::bool::then_some(t.frame_thread.pass == 0, ()) {
-                ::core::option::Option::Some(()) => {
-                  case_set_al! {
-                      <16, false>
-                      l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.h); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(by4, y)); numeric_value }),
-                      a: (above_context, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.w); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(bx4, x)); numeric_value }),
-                      lcoef = (0x40, 0x40),
+              ::core::option::Option::None => {
+                match ::core::primitive::bool::then_some(t.frame_thread.pass == 0, ()) {
+                  ::core::option::Option::Some(()) => {
+                    case_set_al! {
+                        <16, false>
+                        l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.h); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(by4, y)); numeric_value }),
+                        a: (above_context, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t_dim.w); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(bx4, x)); numeric_value }),
+                        lcoef = (0x40, 0x40),
+                    }
                   }
+                  ::core::option::Option::None => {}
                 }
-                ::core::option::Option::None => {}
-              },
+              }
             }
 
             {
@@ -4674,7 +5299,13 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
             let scratch = t.scratch.inter_intra_mut()?;
             let ac = scratch.ac_txtp_map.ac_mut()?;
             let y_src = {
-              let explicit_value = planes.src::<BD>(0, Point { x: (t.b.x & !ss_hor).wrapping_mul(4), y: (t.b.y & !ss_ver).wrapping_mul(4) })?;
+              let explicit_value = planes.src::<BD>(
+                0,
+                Point {
+                  x: (t.b.x & !ss_hor).wrapping_mul(4),
+                  y: (t.b.y & !ss_ver).wrapping_mul(4),
+                },
+              )?;
               explicit_value
             };
 
@@ -4752,13 +5383,15 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
             });
 
             'over_pl_3: for pl in 0..2 {
-              match ::core::primitive::bool::then_some(*match <[_]>::get(&intra.cfl_alpha, pl) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              } == 0, ())
-              {
+              match ::core::primitive::bool::then_some(
+                *match <[_]>::get(&intra.cfl_alpha, pl) {
+                  ::core::option::Option::Some(indexed_value) => indexed_value,
+                  ::core::option::Option::None => {
+                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                  }
+                } == 0,
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   continue 'over_pl_3;
                 }
@@ -4767,7 +5400,11 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
 
               let mut angle = 0;
               let chroma_plane = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
-              let saved_row = PredictionEdgeRow { block_y: t.b.y, chroma_rounding: ss_ver, plane: chroma_plane.wrapping_add(1) };
+              let saved_row = PredictionEdgeRow {
+                block_y: t.b.y,
+                chroma_rounding: ss_ver,
+                plane: chroma_plane.wrapping_add(1),
+              };
               let prefiltered = prefiltered_top(f, saved_row)?;
               let xpos = i32::wrapping_shr(t.b.x, {
                 let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
@@ -4788,34 +5425,51 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
               let edge_array = scratch.interintra_edge_pal.edge.buf_mut::<BD>()?;
               let edge_offset = 128;
               let mut uv_dst = {
-                let explicit_value = planes.dst::<BD>({ let checked_value_24 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?; checked_value_24 }.wrapping_add(1), { let Ok(origin) = block_plane_origin(t.b, chroma_shifts); origin })?;
+                let explicit_value = planes.dst::<BD>(
+                  {
+                    let checked_value_24 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
+                    checked_value_24
+                  }
+                  .wrapping_add(1),
+                  {
+                    let Ok(origin) = block_plane_origin(t.b, chroma_shifts);
+                    origin
+                  },
+                )?;
                 explicit_value
               };
               let m: IntraPredMode = {
                 rav1d_prepare_intra_edges(
                   IntraEdgePreparation {
                     position: Point { x: xpos, y: ypos },
-                    frame: Size { width: i32::wrapping_shr(ts.tiling.col_end, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                    numeric_value
-                  }), height: i32::wrapping_shr(ts.tiling.row_end, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                    numeric_value
-                  }) },
-                    transform: Size { width: {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
-                    numeric_value
-                  }, height: {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
-                    numeric_value
-                  } },
+                    frame: Size {
+                      width: i32::wrapping_shr(ts.tiling.col_end, {
+                        let Ok(numeric_value) =
+                          console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                        numeric_value
+                      }),
+                      height: i32::wrapping_shr(ts.tiling.row_end, {
+                        let Ok(numeric_value) =
+                          console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                        numeric_value
+                      }),
+                    },
+                    transform: Size {
+                      width: {
+                        let Ok(numeric_value) =
+                          console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
+                        numeric_value
+                      },
+                      height: {
+                        let Ok(numeric_value) =
+                          console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
+                        numeric_value
+                      },
+                    },
                     has_left: xpos > xstart,
                     above: {
-                      let Ok(above) = AboveEdge::select(EdgeAvailability::from(ypos > ystart), prefiltered);
+                      let Ok(above) =
+                        AboveEdge::select(EdgeAvailability::from(ypos > ystart), prefiltered);
                       above
                     },
                     available: EdgeFlags::EMPTY,
@@ -4857,34 +5511,37 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       let Ok(center) = console_core_number_conversion::fixed_index(edge_offset);
                       center
                     },
-                    size: Size { width: i32::wrapping_mul(
-                    {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
-                      numeric_value
+                    size: Size {
+                      width: i32::wrapping_mul(
+                        {
+                          let Ok(numeric_value) =
+                            console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
+                          numeric_value
+                        },
+                        4,
+                      ),
+                      height: i32::wrapping_mul(
+                        {
+                          let Ok(numeric_value) =
+                            console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
+                          numeric_value
+                        },
+                        4,
+                      ),
                     },
-                    4,
-                  ), height: i32::wrapping_mul(
-                    {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
-                      numeric_value
-                    },
-                    4,
-                  ) },
                     alpha: {
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(
-                      *match <[_]>::get(&intra.cfl_alpha, pl) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => {
-                          return ::core::result::Result::Err(
-                            crate::src::error::Rav1dError::EINVAL,
-                          );
-                        }
-                      },
-                    );
-                    numeric_value
-                  },
+                      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(
+                        *match <[_]>::get(&intra.cfl_alpha, pl) {
+                          ::core::option::Option::Some(indexed_value) => indexed_value,
+                          ::core::option::Option::None => {
+                            return ::core::result::Result::Err(
+                              crate::src::error::Rav1dError::EINVAL,
+                            );
+                          }
+                        },
+                      );
+                      numeric_value
+                    },
                   },
                   bd,
                 )?
@@ -4896,23 +5553,54 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                 coef_dump(
                   ac,
                   Size {
-                    width: { let checked_value_7 = u64::try_from(cbw4).map_err(|_negative_extent| EINVAL)?; checked_value_7 }.wrapping_mul(4),
-                    height: { let checked_value_8 = u64::try_from(cbh4).map_err(|_negative_extent| EINVAL)?; checked_value_8 }.wrapping_mul(4),
+                    width: {
+                      let checked_value_7 =
+                        u64::try_from(cbw4).map_err(|_negative_extent| EINVAL)?;
+                      checked_value_7
+                    }
+                    .wrapping_mul(4),
+                    height: {
+                      let checked_value_8 =
+                        u64::try_from(cbh4).map_err(|_negative_extent| EINVAL)?;
+                      checked_value_8
+                    }
+                    .wrapping_mul(4),
                   },
                   3,
                   "ac",
-                ).map_err(|_dump_error| EIO)?;
+                )
+                .map_err(|_dump_error| EIO)?;
 
                 for pl in 1..3 {
                   let uv_dst = {
-                    let explicit_value = planes.dst::<BD>({ let checked_value_25 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?; checked_value_25 }, { let Ok(origin) = block_plane_origin(t.b, chroma_shifts); origin })?;
+                    let explicit_value = planes.dst::<BD>(
+                      {
+                        let checked_value_25 =
+                          u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
+                        checked_value_25
+                      },
+                      {
+                        let Ok(origin) = block_plane_origin(t.b, chroma_shifts);
+                        origin
+                      },
+                    )?;
                     explicit_value
                   };
                   hex_dump_pic::<BD>(
                     &uv_dst,
                     Size {
-                      width: { let checked_value_9 = u64::try_from(cbw4).map_err(|_negative_extent| EINVAL)?; checked_value_9 }.wrapping_mul(4),
-                      height: { let checked_value_10 = u64::try_from(cbh4).map_err(|_negative_extent| EINVAL)?; checked_value_10 }.wrapping_mul(4),
+                      width: {
+                        let checked_value_9 =
+                          u64::try_from(cbw4).map_err(|_negative_extent| EINVAL)?;
+                        checked_value_9
+                      }
+                      .wrapping_mul(4),
+                      height: {
+                        let checked_value_10 =
+                          u64::try_from(cbh4).map_err(|_negative_extent| EINVAL)?;
+                        checked_value_10
+                      }
+                      .wrapping_mul(4),
                     },
                     *match <[_]>::get(&(["", "u-cfl-pred", "v-cfl-pred"]), pl) {
                       ::core::option::Option::Some(indexed_value) => indexed_value,
@@ -4922,68 +5610,80 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                         );
                       }
                     },
-                  ).map_err(|_dump_error| EIO)?;
+                  )
+                  .map_err(|_dump_error| EIO)?;
                 }
               }
-              (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+              (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
             }
           }
-          ::core::option::Option::None => match ::core::primitive::bool::then_some((match intra.pal_sz {
-            [_, element, ..] => element,
-          }) != 0, ())
-          {
+          ::core::option::Option::None => match ::core::primitive::bool::then_some(
+            (match intra.pal_sz {
+              [_, element, ..] => element,
+            }) != 0,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               let Ok(uv_origin) = block_plane_origin(t.b, chroma_shifts);
               let frame_palette;
-              let (pal, pal_idx) = match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
-                ::core::option::Option::Some(()) => {
-                  let Ok(p) =
-                    console_core_number_conversion::wrapped_index(t.frame_thread.pass & 1);
-                  let stride = i64::from(f.b4_stride);
-                  let position = palette_cache::PalettePosition { x: t.b.x, y: t.b.y };
-                  let record = palette_cache::record_index(position, stride)?;
-                  let Ok(len) = console_core_number_conversion::wrapped::<_, u32>(
-                    i32::wrapping_mul(i32::wrapping_mul(cbw4, cbh4), 8),
-                  );
-                  let Ok(pal_idx_offset) = (*match <[_]>::get(&ts.frame_thread, p) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  })
-                  .pal_idx
-                  .get_update(|i| u32::wrapping_add(i, len));
-                  frame_palette = f.frame_thread.pal.checked_index::<BD>(record)?;
-                  (
-                    &*frame_palette,
-                    &*f.frame_thread.pal_idx.index((
+              let (pal, pal_idx) =
+                match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
+                  ::core::option::Option::Some(()) => {
+                    let Ok(p) =
+                      console_core_number_conversion::wrapped_index(t.frame_thread.pass & 1);
+                    let stride = i64::from(f.b4_stride);
+                    let position = palette_cache::PalettePosition { x: t.b.x, y: t.b.y };
+                    let record = palette_cache::record_index(position, stride)?;
+                    let Ok(len) = console_core_number_conversion::wrapped::<_, u32>(
+                      i32::wrapping_mul(i32::wrapping_mul(cbw4, cbh4), 8),
+                    );
+                    let Ok(pal_idx_offset) = (*match <[_]>::get(&ts.frame_thread, p) {
+                      ::core::option::Option::Some(indexed_value) => indexed_value,
+                      ::core::option::Option::None => {
+                        return ::core::result::Result::Err(
+                          crate::src::error::Rav1dError::EINVAL,
+                        );
+                      }
+                    })
+                    .pal_idx
+                    .get_update(|i| u32::wrapping_add(i, len));
+                    frame_palette = f.frame_thread.pal.checked_index::<BD>(record)?;
+                    (
+                      &*frame_palette,
+                      &*f.frame_thread.pal_idx.index((
+                        ({
+                          let Ok(numeric_value) =
+                            console_core_number_conversion::wrapped_index(pal_idx_offset);
+                          numeric_value
+                        })..,
+                        ..({
+                          let Ok(numeric_value) =
+                            console_core_number_conversion::wrapped_index(len);
+                          numeric_value
+                        }),
+                      )),
+                    )
+                  }
+                  ::core::option::Option::None => {
+                    let scratch = t.scratch.inter_intra_mut()?;
+                    (
                       ({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(pal_idx_offset);
-                        numeric_value
-                      })..,
-                      ..({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(len);
-                        numeric_value
+                        let explicit_value = scratch.interintra_edge_pal.pal.buf::<BD>()?;
+                        explicit_value
                       }),
-                    )),
-                  )
-                }
-                ::core::option::Option::None => {
-                  let scratch = t.scratch.inter_intra_mut()?;
-                  (
-                    ({
-                      let explicit_value = scratch.interintra_edge_pal.pal.buf::<BD>()?;
-                      explicit_value
-                    }),
-                    scratch.pal_idx_uv.as_slice(),
-                  )
-                }
-              };
+                      scratch.pal_idx_uv.as_slice(),
+                    )
+                  }
+                };
 
               for pl in 1..3 {
-                let mut uv = planes.dst::<BD>({ let checked_value_26 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?; checked_value_26 }, uv_origin)?;
+                let mut uv = planes.dst::<BD>(
+                  {
+                    let checked_value_26 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
+                    checked_value_26
+                  },
+                  uv_origin,
+                )?;
                 ({
                   f.dsp.ipred.pal_pred.call::<BD>(
                     &mut uv,
@@ -4996,7 +5696,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       }
                     },
                     pal_idx,
-                    Size { width: i32::wrapping_mul(cbw4, 4), height: i32::wrapping_mul(cbh4, 4) },
+                    Size {
+                      width: i32::wrapping_mul(cbw4, 4),
+                      height: i32::wrapping_mul(cbh4, 4),
+                    },
                   )?
                 });
 
@@ -5005,8 +5708,18 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                     hex_dump_pic::<BD>(
                       &uv,
                       Size {
-                        width: { let checked_value_11 = u64::try_from(cbw4).map_err(|_negative_extent| EINVAL)?; checked_value_11 }.wrapping_mul(4),
-                        height: { let checked_value_12 = u64::try_from(cbh4).map_err(|_negative_extent| EINVAL)?; checked_value_12 }.wrapping_mul(4),
+                        width: {
+                          let checked_value_11 =
+                            u64::try_from(cbw4).map_err(|_negative_extent| EINVAL)?;
+                          checked_value_11
+                        }
+                        .wrapping_mul(4),
+                        height: {
+                          let checked_value_12 =
+                            u64::try_from(cbh4).map_err(|_negative_extent| EINVAL)?;
+                          checked_value_12
+                        }
+                        .wrapping_mul(4),
                       },
                       *match <[_]>::get(&(["", "u-pal-pred", "v-pal-pred"]), pl) {
                         ::core::option::Option::Some(indexed_value) => indexed_value,
@@ -5016,9 +5729,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                           );
                         }
                       },
-                    ).map_err(|_dump_error| EIO)?;
+                    )
+                    .map_err(|_dump_error| EIO)?;
                   }
-                  (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                  (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                 }
               }
             }
@@ -5037,26 +5751,38 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
         )?;
         let left_sm_2 = sm_uv_flag(&t.l, cby4)?;
         let sm_uv_fl = above_sm_uv | left_sm_2;
-        let uv_sb_has_tr = match ::core::primitive::bool::then_some(i32::wrapping_shr(i32::wrapping_add(init_x, 16), {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-          numeric_value
-        }) < cw4, ())
-        {
+        let uv_sb_has_tr = match ::core::primitive::bool::then_some(
+          i32::wrapping_shr(i32::wrapping_add(init_x, 16), {
+            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+            numeric_value
+          }) < cw4,
+          (),
+        ) {
           ::core::option::Option::Some(()) => true,
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(init_y != 0, ()) {
-            ::core::option::Option::Some(()) => false,
-            ::core::option::Option::None => matches!(intra_edge_flags.availability(EdgeFlags::I420_TOP_HAS_RIGHT >> f.cur.p.layout), Ok(EdgeAvailability::Present)),
-          },
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(init_y != 0, ()) {
+              ::core::option::Option::Some(()) => false,
+              ::core::option::Option::None => matches!(
+                intra_edge_flags.availability(EdgeFlags::I420_TOP_HAS_RIGHT >> f.cur.p.layout),
+                Ok(EdgeAvailability::Present)
+              ),
+            }
+          }
         };
         let uv_sb_has_bl = match ::core::primitive::bool::then_some(init_x != 0, ()) {
           ::core::option::Option::Some(()) => false,
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(i32::wrapping_shr(i32::wrapping_add(init_y, 16), {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-            numeric_value
-          }) < ch4, ())
-          {
+          ::core::option::Option::None => match ::core::primitive::bool::then_some(
+            i32::wrapping_shr(i32::wrapping_add(init_y, 16), {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+              numeric_value
+            }) < ch4,
+            (),
+          ) {
             ::core::option::Option::Some(()) => true,
-            ::core::option::Option::None => matches!(intra_edge_flags.availability(EdgeFlags::I420_LEFT_HAS_BOTTOM >> f.cur.p.layout), Ok(EdgeAvailability::Present)),
+            ::core::option::Option::None => matches!(
+              intra_edge_flags.availability(EdgeFlags::I420_LEFT_HAS_BOTTOM >> f.cur.p.layout),
+              Ok(EdgeAvailability::Present)
+            ),
           },
         };
         let sub_cw4 = cmp::min(
@@ -5093,7 +5819,17 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
 
             while x < sub_cw4 {
               let mut uv_dst = {
-                let explicit_value = planes.dst::<BD>({ let checked_value_27 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?; checked_value_27 }.wrapping_add(1), { let Ok(origin) = block_plane_origin(t.b, chroma_shifts); origin })?;
+                let explicit_value = planes.dst::<BD>(
+                  {
+                    let checked_value_27 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
+                    checked_value_27
+                  }
+                  .wrapping_add(1),
+                  {
+                    let Ok(origin) = block_plane_origin(t.b, chroma_shifts);
+                    origin
+                  },
+                )?;
                 explicit_value
               };
               let mut angle;
@@ -5105,17 +5841,19 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
               let ystart;
               let m;
 
-              match ::core::primitive::bool::then_some(!(intra.uv_mode == CFL_PRED
-                && *match <[_]>::get(&intra.cfl_alpha, pl) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                } != 0
-                || (match intra.pal_sz {
-                  [_, element, ..] => element,
-                }) != 0), ())
-              {
+              match ::core::primitive::bool::then_some(
+                !(intra.uv_mode == CFL_PRED
+                  && *match <[_]>::get(&intra.cfl_alpha, pl) {
+                    ::core::option::Option::Some(indexed_value) => indexed_value,
+                    ::core::option::Option::None => {
+                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+                    }
+                  } != 0
+                  || (match intra.pal_sz {
+                    [_, element, ..] => element,
+                  }) != 0),
+                (),
+              ) {
                 ::core::option::Option::Some(()) => {
                   angle = {
                     let Ok(numeric_value) =
@@ -5124,45 +5862,52 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                   };
 
                   edge_flags = ({
-                    let Ok(explicit_value) = EdgeFlags::I444_TOP_HAS_RIGHT.select(
-                      EdgeAvailability::from(!((y
-                        > i32::wrapping_shr(init_y, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                          numeric_value
-                        })
-                        || !uv_sb_has_tr)
-                        && i32::wrapping_add(x, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
-                          numeric_value
-                        }) >= sub_cw4)),
-                    );
+                    let Ok(explicit_value) =
+                      EdgeFlags::I444_TOP_HAS_RIGHT.select(EdgeAvailability::from(
+                        !((y
+                          > i32::wrapping_shr(init_y, {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                            numeric_value
+                          })
+                          || !uv_sb_has_tr)
+                          && i32::wrapping_add(x, {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
+                            numeric_value
+                          }) >= sub_cw4),
+                      ));
                     explicit_value
                   }) | ({
-                    let Ok(explicit_value) = EdgeFlags::I444_LEFT_HAS_BOTTOM.select(
-                      EdgeAvailability::from(!(x
-                        > i32::wrapping_shr(init_x, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                          numeric_value
-                        })
-                        || !uv_sb_has_bl
-                          && i32::wrapping_add(y, {
+                    let Ok(explicit_value) =
+                      EdgeFlags::I444_LEFT_HAS_BOTTOM.select(EdgeAvailability::from(
+                        !(x
+                          > i32::wrapping_shr(init_x, {
                             let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
+                              console_core_number_conversion::wrapped::<_, u32>(ss_hor);
                             numeric_value
-                          }) >= sub_ch4)),
-                    );
+                          })
+                          || !uv_sb_has_bl
+                            && i32::wrapping_add(y, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
+                              numeric_value
+                            }) >= sub_ch4),
+                      ));
                     explicit_value
                   });
                   let chroma_plane = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
-                  let saved_row = PredictionEdgeRow { block_y: t.b.y, chroma_rounding: ss_ver, plane: chroma_plane.wrapping_add(1) };
-                  let prefiltered = prefiltered_top(f, saved_row)?;
-                  uv_mode = match ::core::primitive::bool::then_some(intra.uv_mode == CFL_PRED, ()) {
-                    ::core::option::Option::Some(()) => DC_PRED,
-                    ::core::option::Option::None => intra.uv_mode,
+                  let saved_row = PredictionEdgeRow {
+                    block_y: t.b.y,
+                    chroma_rounding: ss_ver,
+                    plane: chroma_plane.wrapping_add(1),
                   };
+                  let prefiltered = prefiltered_top(f, saved_row)?;
+                  uv_mode =
+                    match ::core::primitive::bool::then_some(intra.uv_mode == CFL_PRED, ()) {
+                      ::core::option::Option::Some(()) => DC_PRED,
+                      ::core::option::Option::None => intra.uv_mode,
+                    };
                   xpos = i32::wrapping_shr(t.b.x, {
                     let Ok(numeric_value) =
                       console_core_number_conversion::wrapped::<_, u32>(ss_hor);
@@ -5198,27 +5943,34 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                     rav1d_prepare_intra_edges(
                       IntraEdgePreparation {
                         position: Point { x: xpos, y: ypos },
-                        frame: Size { width: i32::wrapping_shr(ts.tiling.col_end, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                        numeric_value
-                      }), height: i32::wrapping_shr(ts.tiling.row_end, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                        numeric_value
-                      }) },
-                        transform: Size { width: {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
-                        numeric_value
-                      }, height: {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
-                        numeric_value
-                      } },
+                        frame: Size {
+                          width: i32::wrapping_shr(ts.tiling.col_end, {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                            numeric_value
+                          }),
+                          height: i32::wrapping_shr(ts.tiling.row_end, {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                            numeric_value
+                          }),
+                        },
+                        transform: Size {
+                          width: {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
+                            numeric_value
+                          },
+                          height: {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
+                            numeric_value
+                          },
+                        },
                         has_left: xpos > xstart,
                         above: {
-                          let Ok(above) = AboveEdge::select(EdgeAvailability::from(ypos > ystart), prefiltered);
+                          let Ok(above) =
+                            AboveEdge::select(EdgeAvailability::from(ypos > ystart), prefiltered);
                           above
                         },
                         available: edge_flags,
@@ -5233,7 +5985,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       IntraEdgeDestination {
                         samples: edge_array,
                         center: {
-                          let Ok(center) = console_core_number_conversion::fixed_index(edge_offset);
+                          let Ok(center) =
+                            console_core_number_conversion::fixed_index(edge_offset);
                           center
                         },
                       },
@@ -5259,45 +6012,52 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                       IntraPrediction {
                         mode: u64::from(m),
                         edge_center: {
-                          let Ok(center) = console_core_number_conversion::fixed_index(edge_offset);
+                          let Ok(center) =
+                            console_core_number_conversion::fixed_index(edge_offset);
                           center
                         },
-                        size: Size { width: i32::wrapping_mul(
-                        {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
-                          numeric_value
+                        size: Size {
+                          width: i32::wrapping_mul(
+                            {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.w);
+                              numeric_value
+                            },
+                            4,
+                          ),
+                          height: i32::wrapping_mul(
+                            {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
+                              numeric_value
+                            },
+                            4,
+                          ),
                         },
-                        4,
-                      ), height: i32::wrapping_mul(
-                        {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, i32>(uv_t_dim.h);
-                          numeric_value
+                        reach: Size {
+                          width: i32::wrapping_shr(
+                            i32::wrapping_sub(
+                              i32::wrapping_add(i32::wrapping_mul(4, f.bw), ss_hor),
+                              i32::wrapping_mul(4, t.b.x & !ss_hor),
+                            ),
+                            {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                              numeric_value
+                            },
+                          ),
+                          height: i32::wrapping_shr(
+                            i32::wrapping_sub(
+                              i32::wrapping_add(i32::wrapping_mul(4, f.bh), ss_ver),
+                              i32::wrapping_mul(4, t.b.y & !ss_ver),
+                            ),
+                            {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                              numeric_value
+                            },
+                          ),
                         },
-                        4,
-                      ) },
-                        reach: Size { width: i32::wrapping_shr(
-                        i32::wrapping_sub(
-                          i32::wrapping_add(i32::wrapping_mul(4, f.bw), ss_hor),
-                          i32::wrapping_mul(4, t.b.x & !ss_hor),
-                        ),
-                        {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                          numeric_value
-                        },
-                      ), height: i32::wrapping_shr(
-                        i32::wrapping_sub(
-                          i32::wrapping_add(i32::wrapping_mul(4, f.bh), ss_ver),
-                          i32::wrapping_mul(4, t.b.y & !ss_ver),
-                        ),
-                        {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                          numeric_value
-                        },
-                      ) },
                         angle: angle | sm_uv_fl,
                       },
                       bd,
@@ -5333,7 +6093,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                         },
                         u64::from(uv_t_dim.h).wrapping_mul(4),
                         "l",
-                      ).map_err(|_dump_error| EIO)?;
+                      )
+                      .map_err(|_dump_error| EIO)?;
                       hex_dump::<BD>(
                         &*match <[_]>::get(&*edge_array, edge_offset..) {
                           ::core::option::Option::Some(indexed_value) => indexed_value,
@@ -5349,7 +6110,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                         },
                         0,
                         "tl",
-                      ).map_err(|_dump_error| EIO)?;
+                      )
+                      .map_err(|_dump_error| EIO)?;
                       hex_dump::<BD>(
                         &*match <[_]>::get(&*edge_array, usize::wrapping_add(edge_offset, 1)..) {
                           ::core::option::Option::Some(indexed_value) => indexed_value,
@@ -5365,7 +6127,8 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                         },
                         u64::from(uv_t_dim.w).wrapping_mul(4),
                         "t",
-                      ).map_err(|_dump_error| EIO)?;
+                      )
+                      .map_err(|_dump_error| EIO)?;
                       hex_dump_pic::<BD>(
                         &uv_dst,
                         Size {
@@ -5380,9 +6143,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                             );
                           }
                         },
-                      ).map_err(|_dump_error| EIO)?;
+                      )
+                      .map_err(|_dump_error| EIO)?;
                     }
-                    (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                    (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                   }
                 }
                 ::core::option::Option::None => {}
@@ -5543,7 +6307,12 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                             transform: b.uvtx,
                             size: bs,
                             syntax: b,
-                            plane: { let checked_value_23 = u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?; checked_value_23 }.wrapping_add(1),
+                            plane: {
+                              let checked_value_23 =
+                                u8::try_from(pl).map_err(|_invalid_plane| EINVAL)?;
+                              checked_value_23
+                            }
+                            .wrapping_add(1),
                             storage: CfSelect::Task,
                           },
                           CoefficientOutput {
@@ -5570,7 +6339,7 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                             cbx4,
                           );
                         }
-                        BlockTrace::Quiet => {}
+                        BlockTrace::Disabled => {}
                       }
 
                       case_set_al! {
@@ -5602,9 +6371,10 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                             },
                             3,
                             "dq",
-                          ).map_err(|_dump_error| EIO)?;
+                          )
+                          .map_err(|_dump_error| EIO)?;
                         }
-                        (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                        (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                       }
 
                       f.dsp
@@ -5620,25 +6390,28 @@ pub(crate) fn rav1d_recon_b_intra<BD: BitDepth>(
                               height: u64::from(uv_t_dim.h).wrapping_mul(4),
                             },
                             "recon",
-                          ).map_err(|_dump_error| EIO)?;
+                          )
+                          .map_err(|_dump_error| EIO)?;
                         }
-                        (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                        (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                       }
                     }
                     ::core::option::Option::None => {}
                   }
                 }
-                ::core::option::Option::None => match ::core::primitive::bool::then_some(t.frame_thread.pass == 0, ()) {
-                  ::core::option::Option::Some(()) => {
-                    case_set_al! {
-                        <16, false>
-                        l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(uv_t_dim.h); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(cby4, y)); numeric_value }),
-                        a: (above_context, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(uv_t_dim.w); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(cbx4, x)); numeric_value }),
-                        ccoef[pl] = (0x40, 0x40),
+                ::core::option::Option::None => {
+                  match ::core::primitive::bool::then_some(t.frame_thread.pass == 0, ()) {
+                    ::core::option::Option::Some(()) => {
+                      case_set_al! {
+                          <16, false>
+                          l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(uv_t_dim.h); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(cby4, y)); numeric_value }),
+                          a: (above_context, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(uv_t_dim.w); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(i32::wrapping_add(cbx4, x)); numeric_value }),
+                          ccoef[pl] = (0x40, 0x40),
+                      }
                     }
+                    ::core::option::Option::None => {}
                   }
-                  ::core::option::Option::None => {}
-                },
+                }
               }
 
               {
@@ -5735,23 +6508,31 @@ fn wedge_mask(lookup: WedgeMaskLookup) -> Result<&'static [u8], ()> {
   let Ok(layout_index) = console_core_number_conversion::index(lookup.layout);
   let Ok(polarity_index) = console_core_number_conversion::index(u8::from(lookup.polarity));
   let Ok(wedge_index) = console_core_number_conversion::index(lookup.wedge);
-  dav1d_wedge_masks.get(block_index)
+  dav1d_wedge_masks
+    .get(block_index)
     .and_then(|block| block.get(layout_index))
     .and_then(|layout| layout.get(polarity_index))
     .and_then(|variants| variants.get(wedge_index))
-    .copied().ok_or(())
+    .copied()
+    .ok_or(())
 }
 
-fn interintra_mask(block: BlockSize, layout: u8, mode: InterIntraPredMode) -> Result<&'static [u8], ()> {
+fn interintra_mask(
+  block: BlockSize,
+  layout: u8,
+  mode: InterIntraPredMode,
+) -> Result<&'static [u8], ()> {
   let Ok(block_ordinal) = block.ordinal();
   let Ok(mode_ordinal) = mode.ordinal();
   let Ok(block_index) = console_core_number_conversion::index(block_ordinal);
   let Ok(layout_index) = console_core_number_conversion::index(layout);
   let Ok(mode_index) = console_core_number_conversion::index(mode_ordinal);
-  dav1d_ii_masks.get(block_index)
+  dav1d_ii_masks
+    .get(block_index)
     .and_then(|block_masks| block_masks.get(layout_index))
     .and_then(|modes| modes.get(mode_index))
-    .copied().ok_or(())
+    .copied()
+    .ok_or(())
 }
 
 pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
@@ -5814,9 +6595,15 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
     numeric_value
   });
   let [luma, ..] = cur_data;
-  let y_position = Point { x: t.b.x.wrapping_mul(4), y: t.b.y.wrapping_mul(4) };
+  let y_position = Point {
+    x: t.b.x.wrapping_mul(4),
+    y: t.b.y.wrapping_mul(4),
+  };
   let mut y_dst = motion_picture_position::<BD>(luma.with_offset::<BD>(), y_position)?;
-  let shifts = Point { x: u32::from(ss_hor != 0), y: u32::from(ss_ver != 0) };
+  let shifts = Point {
+    x: u32::from(ss_hor != 0),
+    y: u32::from(ss_ver != 0),
+  };
   let Ok(chroma_origin) = block_plane_origin(t.b, shifts);
   let chroma_destination = |plane: u8, displacement: Point<i32>| {
     let Ok(index) = console_core_number_conversion::index(plane);
@@ -5839,7 +6626,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
         MaybeTempPixels::NonTemp { dst: y_dst },
         MotionPrediction {
           position: t.b,
-          size: Size { width: bw4, height: bh4 },
+          size: Size {
+            width: bw4,
+            height: bh4,
+          },
           origin: Point { x: t.b.x, y: t.b.y },
           plane: 0,
           motion: match inter.nd.one_d.mv {
@@ -5859,21 +6649,25 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
             mc::<BD>(
               f,
               &mut scratch.emu_edge,
-              MaybeTempPixels::NonTemp {
-                dst: destination,
-              },
+              MaybeTempPixels::NonTemp { dst: destination },
               MotionPrediction {
                 position: t.b,
-                size: Size { width: i32::wrapping_shl(bw4, {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, u32>(i32::from(bw4 == ss_hor));
-                numeric_value
-              }), height: i32::wrapping_shl(bh4, {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, u32>(i32::from(bh4 == ss_ver));
-                numeric_value
-              }) },
-                origin: Point { x: t.b.x & !ss_hor, y: t.b.y & !ss_ver },
+                size: Size {
+                  width: i32::wrapping_shl(bw4, {
+                    let Ok(numeric_value) =
+                      console_core_number_conversion::wrapped::<_, u32>(i32::from(bw4 == ss_hor));
+                    numeric_value
+                  }),
+                  height: i32::wrapping_shl(bh4, {
+                    let Ok(numeric_value) =
+                      console_core_number_conversion::wrapped::<_, u32>(i32::from(bh4 == ss_ver));
+                    numeric_value
+                  }),
+                },
+                origin: Point {
+                  x: t.b.x & !ss_hor,
+                  y: t.b.y & !ss_ver,
+                },
                 plane: motion_plane,
                 motion: match inter.nd.one_d.mv {
                   [_explicit_element, ..] => _explicit_element,
@@ -5893,7 +6687,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
         let filter_2d = inter.filter2d;
 
         let scratch = t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
-        let scratch_inter = scratch.lap_inter.inter_mut().map_err(|_invalid_scratch| ())?;
+        let scratch_inter = scratch
+          .lap_inter
+          .inter_mut()
+          .map_err(|_invalid_scratch| ())?;
         let tmp = &mut scratch_inter.compinter;
         let mut jnt_weight = 0;
         let seg_mask = &mut scratch_inter.seg_mask;
@@ -5911,20 +6708,22 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
             ::core::option::Option::None => return ::core::result::Result::Err(()),
           };
 
-          match ::core::primitive::bool::then_some(inter.inter_mode == GLOBALMV_GLOBALMV
-            && *match <[_]>::get(&f.gmv_warp_allowed, {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                *match <[_]>::get(&inter.r#ref, i) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-              );
-              numeric_value
-            }) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            } != 0, ())
-          {
+          match ::core::primitive::bool::then_some(
+            inter.inter_mode == GLOBALMV_GLOBALMV
+              && *match <[_]>::get(&f.gmv_warp_allowed, {
+                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
+                  *match <[_]>::get(&inter.r#ref, i) {
+                    ::core::option::Option::Some(indexed_value) => indexed_value,
+                    ::core::option::Option::None => return ::core::result::Result::Err(()),
+                  },
+                );
+                numeric_value
+              }) {
+                ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
+                ::core::option::Option::None => return ::core::result::Result::Err(()),
+              } != 0,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               warp_affine::<BD>(
                 f,
@@ -5934,7 +6733,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                     ::core::option::Option::Some(indexed_value) => indexed_value,
                     ::core::option::Option::None => return ::core::result::Result::Err(()),
                   },
-                  tmp_stride: u64::from(match b_dim { &[_explicit_element, ..] => _explicit_element }).wrapping_mul(4),
+                  tmp_stride: u64::from(match b_dim {
+                    &[_explicit_element, ..] => _explicit_element,
+                  })
+                  .wrapping_mul(4),
                 },
                 WarpPrediction {
                   position: t.b,
@@ -5942,23 +6744,24 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                   plane: 0,
                   reference: refp,
                   parameters: &*match <[_]>::get(&frame_hdr.gmv, {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                    *match <[_]>::get(&inter.r#ref, i) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                  );
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
+                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
+                      *match <[_]>::get(&inter.r#ref, i) {
+                        ::core::option::Option::Some(indexed_value) => indexed_value,
+                        ::core::option::Option::None => return ::core::result::Result::Err(()),
+                      },
+                    );
+                    numeric_value
+                  }) {
+                    ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
+                    ::core::option::Option::None => return ::core::result::Result::Err(()),
+                  },
                 },
               )?;
             }
             ::core::option::Option::None => {
               let &reference_code = inter.r#ref.get(i).ok_or(())?;
-              let motion_reference = u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
+              let motion_reference =
+                u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
               mc::<BD>(
                 f,
                 &mut scratch.emu_edge,
@@ -5971,7 +6774,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                 },
                 MotionPrediction {
                   position: t.b,
-                  size: Size { width: bw4, height: bh4 },
+                  size: Size {
+                    width: bw4,
+                    height: bh4,
+                  },
                   origin: Point { x: t.b.x, y: t.b.y },
                   plane: 0,
                   motion: *match <[_]>::get(&inter.nd.one_d.mv, i) {
@@ -5996,8 +6802,14 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
           CompInterType::Avg => {
             let [first, second] = &*tmp;
             let predictions = [first, second];
-            let extent = Size { width: bw4.wrapping_mul(4), height: bh4.wrapping_mul(4) };
-            f.dsp.mc.avg.call::<BD>(y_dst, predictions, extent, bd)
+            let extent = Size {
+              width: bw4.wrapping_mul(4),
+              height: bh4.wrapping_mul(4),
+            };
+            f.dsp
+              .mc
+              .avg
+              .call::<BD>(y_dst, predictions, extent, bd)
               .map_err(|_| ())?;
           }
           CompInterType::WeightedAvg => {
@@ -6029,8 +6841,14 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
             };
             let [first, second] = &*tmp;
             let predictions = [first, second];
-            let extent = Size { width: bw4.wrapping_mul(4), height: bh4.wrapping_mul(4) };
-            f.dsp.mc.w_avg.call::<BD>(y_dst, predictions, extent, jnt_weight, bd)
+            let extent = Size {
+              width: bw4.wrapping_mul(4),
+              height: bh4.wrapping_mul(4),
+            };
+            f.dsp
+              .mc
+              .w_avg
+              .call::<BD>(y_dst, predictions, extent, jnt_weight, bd)
               .map_err(|_| ())?;
           }
           CompInterType::Seg => {
@@ -6042,13 +6860,21 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               Normal => (first, second),
               Inverted => (second, first),
             };
-            let checked_value_2 = f.dsp.mc.w_mask.checked(chroma_layout).map_err(|_invalid_dispatch| ())?;
+            let checked_value_2 = f
+              .dsp
+              .mc
+              .w_mask
+              .checked(chroma_layout)
+              .map_err(|_invalid_dispatch| ())?;
             checked_value_2
               .call(
                 chroma_layout,
                 y_dst,
                 predictions,
-                Size { width: bw4.wrapping_mul(4), height: bh4.wrapping_mul(4) },
+                Size {
+                  width: bw4.wrapping_mul(4),
+                  height: bh4.wrapping_mul(4),
+                },
                 seg_mask,
                 polarity,
                 bd,
@@ -6058,7 +6884,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
           }
           CompInterType::Wedge => {
             let lookup = WedgeMaskLookup {
-              block: bs, layout: 0, polarity: crate::src::levels::MaskPolarity::Normal, wedge: inter.nd.one_d.wedge_idx,
+              block: bs,
+              layout: 0,
+              polarity: crate::src::levels::MaskPolarity::Normal,
+              wedge: inter.nd.one_d.wedge_idx,
             };
             let checked_value_4 = wedge_mask(lookup)?;
             mask = checked_value_4;
@@ -6068,14 +6897,23 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               crate::src::levels::MaskPolarity::Normal => [first, second],
               crate::src::levels::MaskPolarity::Inverted => [second, first],
             };
-            let extent = Size { width: bw4.wrapping_mul(4), height: bh4.wrapping_mul(4) };
-            f.dsp.mc.mask.call::<BD>(y_dst, predictions, extent, mask, bd)
+            let extent = Size {
+              width: bw4.wrapping_mul(4),
+              height: bh4.wrapping_mul(4),
+            };
+            f.dsp
+              .mc
+              .mask
+              .call::<BD>(y_dst, predictions, extent, mask, bd)
               .map_err(|_| ())?;
 
             match ::core::primitive::bool::then_some(has_chroma, ()) {
               ::core::option::Option::Some(()) => {
                 let lookup = WedgeMaskLookup {
-                  block: bs, layout: mask_layout, polarity: wedge_polarity, wedge: inter.nd.one_d.wedge_idx,
+                  block: bs,
+                  layout: mask_layout,
+                  polarity: wedge_polarity,
+                  wedge: inter.nd.one_d.wedge_idx,
                 };
                 let checked_value_7 = wedge_mask(lookup)?;
                 mask = checked_value_7;
@@ -6102,21 +6940,23 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                   ::core::option::Option::None => return ::core::result::Result::Err(()),
                 };
 
-                match ::core::primitive::bool::then_some(inter.inter_mode == GLOBALMV_GLOBALMV
-                  && cmp::min(cbw4, cbh4) > 1
-                  && *match <[_]>::get(&f.gmv_warp_allowed, {
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                      *match <[_]>::get(&inter.r#ref, i) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    );
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  } != 0, ())
-                {
+                match ::core::primitive::bool::then_some(
+                  inter.inter_mode == GLOBALMV_GLOBALMV
+                    && cmp::min(cbw4, cbh4) > 1
+                    && *match <[_]>::get(&f.gmv_warp_allowed, {
+                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
+                        *match <[_]>::get(&inter.r#ref, i) {
+                          ::core::option::Option::Some(indexed_value) => indexed_value,
+                          ::core::option::Option::None => return ::core::result::Result::Err(()),
+                        },
+                      );
+                      numeric_value
+                    }) {
+                      ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
+                      ::core::option::Option::None => return ::core::result::Result::Err(()),
+                    } != 0,
+                  (),
+                ) {
                   ::core::option::Option::Some(()) => {
                     let warp_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
                     warp_affine::<BD>(
@@ -6127,7 +6967,11 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                           ::core::option::Option::Some(indexed_value) => indexed_value,
                           ::core::option::Option::None => return ::core::result::Result::Err(()),
                         },
-                        tmp_stride: u64::from(match b_dim { &[_explicit_element, ..] => _explicit_element }).wrapping_mul(4).wrapping_shr(u32::from(ss_hor != 0)),
+                        tmp_stride: u64::from(match b_dim {
+                          &[_explicit_element, ..] => _explicit_element,
+                        })
+                        .wrapping_mul(4)
+                        .wrapping_shr(u32::from(ss_hor != 0)),
                       },
                       WarpPrediction {
                         position: t.b,
@@ -6135,26 +6979,27 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                         plane: warp_plane.wrapping_add(1),
                         reference: refp,
                         parameters: &*match <[_]>::get(&frame_hdr.gmv, {
-                        let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                          *match <[_]>::get(&inter.r#ref, i) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          },
-                        );
-                        numeric_value
-                      }) {
-                        ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
+                          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
+                            *match <[_]>::get(&inter.r#ref, i) {
+                              ::core::option::Option::Some(indexed_value) => indexed_value,
+                              ::core::option::Option::None => {
+                                return ::core::result::Result::Err(());
+                              }
+                            },
+                          );
+                          numeric_value
+                        }) {
+                          ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
+                          ::core::option::Option::None => return ::core::result::Result::Err(()),
+                        },
                       },
                     )?;
                   }
                   ::core::option::Option::None => {
                     let motion_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
                     let &reference_code = inter.r#ref.get(i).ok_or(())?;
-                    let motion_reference = u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
+                    let motion_reference =
+                      u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
                     mc::<BD>(
                       f,
                       &mut scratch.emu_edge,
@@ -6167,7 +7012,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                       },
                       MotionPrediction {
                         position: t.b,
-                        size: Size { width: bw4, height: bh4 },
+                        size: Size {
+                          width: bw4,
+                          height: bh4,
+                        },
                         origin: Point { x: t.b.x, y: t.b.y },
                         plane: motion_plane.wrapping_add(1),
                         motion: *match <[_]>::get(&inter.nd.one_d.mv, i) {
@@ -6184,31 +7032,42 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               }
 
               let destination_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
-              let uv_dst = chroma_destination(destination_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
+              let uv_dst =
+                chroma_destination(destination_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
 
               match comp_inter_type {
                 CompInterType::Avg => {
                   let [first, second] = &*tmp;
                   let predictions = [first, second];
-                  let Ok(horizontal_shift) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                  let Ok(vertical_shift) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                  let Ok(horizontal_shift) =
+                    console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                  let Ok(vertical_shift) =
+                    console_core_number_conversion::wrapped::<_, u32>(ss_ver);
                   let extent = Size {
                     width: bw4.wrapping_mul(4).wrapping_shr(horizontal_shift),
                     height: bh4.wrapping_mul(4).wrapping_shr(vertical_shift),
                   };
-                  f.dsp.mc.avg.call::<BD>(uv_dst, predictions, extent, bd)
+                  f.dsp
+                    .mc
+                    .avg
+                    .call::<BD>(uv_dst, predictions, extent, bd)
                     .map_err(|_| ())?;
                 }
                 CompInterType::WeightedAvg => {
                   let [first, second] = &*tmp;
                   let predictions = [first, second];
-                  let Ok(horizontal_shift) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                  let Ok(vertical_shift) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                  let Ok(horizontal_shift) =
+                    console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                  let Ok(vertical_shift) =
+                    console_core_number_conversion::wrapped::<_, u32>(ss_ver);
                   let extent = Size {
                     width: bw4.wrapping_mul(4).wrapping_shr(horizontal_shift),
                     height: bh4.wrapping_mul(4).wrapping_shr(vertical_shift),
                   };
-                  f.dsp.mc.w_avg.call::<BD>(uv_dst, predictions, extent, jnt_weight, bd)
+                  f.dsp
+                    .mc
+                    .w_avg
+                    .call::<BD>(uv_dst, predictions, extent, jnt_weight, bd)
                     .map_err(|_| ())?;
                 }
                 CompInterType::Seg | CompInterType::Wedge => {
@@ -6217,13 +7076,18 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                     Ok(crate::src::levels::MaskPolarity::Normal) => [first, second],
                     Ok(crate::src::levels::MaskPolarity::Inverted) => [second, first],
                   };
-                  let Ok(horizontal_shift) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                  let Ok(vertical_shift) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                  let Ok(horizontal_shift) =
+                    console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                  let Ok(vertical_shift) =
+                    console_core_number_conversion::wrapped::<_, u32>(ss_ver);
                   let extent = Size {
                     width: bw4.wrapping_mul(4).wrapping_shr(horizontal_shift),
                     height: bh4.wrapping_mul(4).wrapping_shr(vertical_shift),
                   };
-                  f.dsp.mc.mask.call::<BD>(uv_dst, predictions, extent, mask, bd)
+                  f.dsp
+                    .mc
+                    .mask
+                    .call::<BD>(uv_dst, predictions, extent, mask, bd)
                     .map_err(|_| ())?;
                 }
               }
@@ -6245,21 +7109,23 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
         };
         let filter_2d = inter.filter2d;
 
-        match ::core::primitive::bool::then_some(cmp::min(bw4, bh4) > 1
-          && (inter.inter_mode == GLOBALMV
-            && *match <[_]>::get(&f.gmv_warp_allowed, {
-              let Ok(numeric_value) =
-                console_core_number_conversion::wrapped_index(match inter.r#ref {
-                  [element, ..] => element,
-                });
-              numeric_value
-            }) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            } != 0
-            || inter.motion_mode == MotionMode::Warp
-              && t.warpmv.r#type > Rav1dWarpedMotionType::Translation), ())
-        {
+        match ::core::primitive::bool::then_some(
+          cmp::min(bw4, bh4) > 1
+            && (inter.inter_mode == GLOBALMV
+              && *match <[_]>::get(&f.gmv_warp_allowed, {
+                let Ok(numeric_value) =
+                  console_core_number_conversion::wrapped_index(match inter.r#ref {
+                    [element, ..] => element,
+                  });
+                numeric_value
+              }) {
+                ::core::option::Option::Some(indexed_value) => indexed_value,
+                ::core::option::Option::None => return ::core::result::Result::Err(()),
+              } != 0
+              || inter.motion_mode == MotionMode::Warp
+                && t.warpmv.r#type > Rav1dWarpedMotionType::Translation),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             warp_affine::<BD>(
               f,
@@ -6274,25 +7140,29 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                 dimensions: *b_dim,
                 plane: 0,
                 reference: refp,
-                parameters: match ::core::primitive::bool::then_some(inter.motion_mode == MotionMode::Warp, ()) {
-                ::core::option::Option::Some(()) => &t.warpmv,
-                ::core::option::Option::None => &*match <[_]>::get(&frame_hdr.gmv, {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped_index(match inter.r#ref {
-                      [element, ..] => element,
-                    });
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
+                parameters: match ::core::primitive::bool::then_some(
+                  inter.motion_mode == MotionMode::Warp,
+                  (),
+                ) {
+                  ::core::option::Option::Some(()) => &t.warpmv,
+                  ::core::option::Option::None => &*match <[_]>::get(&frame_hdr.gmv, {
+                    let Ok(numeric_value) =
+                      console_core_number_conversion::wrapped_index(match inter.r#ref {
+                        [element, ..] => element,
+                      });
+                    numeric_value
+                  }) {
+                    ::core::option::Option::Some(indexed_value) => indexed_value,
+                    ::core::option::Option::None => return ::core::result::Result::Err(()),
+                  },
                 },
-              },
               },
             )?;
           }
           ::core::option::Option::None => {
             let [reference_code, _] = inter.r#ref;
-            let motion_reference = u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
+            let motion_reference =
+              u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
             mc::<BD>(
               f,
               &mut ({
@@ -6303,7 +7173,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               MaybeTempPixels::NonTemp { dst: y_dst },
               MotionPrediction {
                 position: t.b,
-                size: Size { width: bw4, height: bh4 },
+                size: Size {
+                  width: bw4,
+                  height: bh4,
+                },
                 origin: Point { x: t.b.x, y: t.b.y },
                 plane: 0,
                 motion: match inter.nd.one_d.mv {
@@ -6318,9 +7191,14 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
             match ::core::primitive::bool::then_some(inter.motion_mode == MotionMode::Obmc, ()) {
               ::core::option::Option::Some(()) => {
                 obmc::<BD>(
-                  f, t, y_dst,
+                  f,
+                  t,
+                  y_dst,
                   OverlapReconstruction {
-                    visible: Size { width: w4, height: h4 },
+                    visible: Size {
+                      width: w4,
+                      height: h4,
+                    },
                     dimensions: *b_dim,
                     context: Point { x: bx4, y: by4 },
                     plane: 0,
@@ -6339,7 +7217,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               explicit_value
             })
             .interintra_edge_pal;
-            let tl_edge_array = interintra_edge_pal.edge.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
+            let tl_edge_array = interintra_edge_pal
+              .edge
+              .buf_mut::<BD>()
+              .map_err(|_invalid_scratch| ())?;
             let tl_edge_offset = 32;
             let Ok(get) = inter.nd.one_d.interintra_mode.get();
             let mut m = match get {
@@ -6347,7 +7228,11 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               mode => mode as IntraPredMode,
             };
             let mut angle = 0;
-            let saved_row = PredictionEdgeRow { block_y: t.b.y, chroma_rounding: 0, plane: 0 };
+            let saved_row = PredictionEdgeRow {
+              block_y: t.b.y,
+              chroma_rounding: 0,
+              plane: 0,
+            };
             let prefiltered = prefiltered_top(f, saved_row).map_err(|_invalid_edge_row| ())?;
             let source_picture = crate::src::owned_recon::ReconDst::Pic(y_dst);
             let Ok(source_pixels) = source_picture.as_src();
@@ -6355,11 +7240,20 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               rav1d_prepare_intra_edges(
                 IntraEdgePreparation {
                   position: Point { x: t.b.x, y: t.b.y },
-                  frame: Size { width: ts.tiling.col_end, height: ts.tiling.row_end },
-                  transform: Size { width: bw4, height: bh4 },
+                  frame: Size {
+                    width: ts.tiling.col_end,
+                    height: ts.tiling.row_end,
+                  },
+                  transform: Size {
+                    width: bw4,
+                    height: bh4,
+                  },
                   has_left: t.b.x > ts.tiling.col_start,
                   above: {
-                    let Ok(above) = AboveEdge::select(EdgeAvailability::from(t.b.y > ts.tiling.row_start), prefiltered);
+                    let Ok(above) = AboveEdge::select(
+                      EdgeAvailability::from(t.b.y > ts.tiling.row_start),
+                      prefiltered,
+                    );
                     above
                   },
                   available: EdgeFlags::EMPTY,
@@ -6376,9 +7270,13 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                   },
                 },
                 bd,
-              ).map_err(|_| ())?
+              )
+              .map_err(|_| ())?
             };
-            let tmp = interintra_edge_pal.interintra.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
+            let tmp = interintra_edge_pal
+              .interintra
+              .buf_mut::<BD>()
+              .map_err(|_invalid_scratch| ())?;
             let tmp_component = Rav1dPictureDataComponent::wrap_buf::<BD>(
               tmp,
               (::core::num::Wrapping(4)
@@ -6408,12 +7306,19 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                     let Ok(center) = console_core_number_conversion::fixed_index(tl_edge_offset);
                     center
                   },
-                  size: Size { width: i32::wrapping_mul(bw4, 4), height: i32::wrapping_mul(bh4, 4) },
-                  reach: Size { width: 0, height: 0 },
+                  size: Size {
+                    width: i32::wrapping_mul(bw4, 4),
+                    height: i32::wrapping_mul(bh4, 4),
+                  },
+                  reach: Size {
+                    width: 0,
+                    height: 0,
+                  },
                   angle: 0,
                 },
                 bd,
-              ).map_err(|_| ())?
+              )
+              .map_err(|_| ())?
             });
             #[cfg(not(feature = "c-ffi"))]
             tmp_component.copy_pixels_to::<BD>(tmp);
@@ -6422,70 +7327,103 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               InterIntraType::Blend => interintra_mask(bs, 0, blend_mode)?,
               InterIntraType::Wedge => {
                 let lookup = WedgeMaskLookup {
-                  block: bs, layout: 0, polarity: crate::src::levels::MaskPolarity::Normal, wedge: inter.nd.one_d.wedge_idx,
+                  block: bs,
+                  layout: 0,
+                  polarity: crate::src::levels::MaskPolarity::Normal,
+                  wedge: inter.nd.one_d.wedge_idx,
                 };
                 wedge_mask(lookup)?
               }
             };
-            f.dsp.mc.blend.call::<BD>(
-              y_dst,
-              tmp,
-              Size { width: i32::wrapping_mul(bw4, 4), height: i32::wrapping_mul(bh4, 4) },
-              ii_mask,
-            ).map_err(|_| ())?;
+            f.dsp
+              .mc
+              .blend
+              .call::<BD>(
+                y_dst,
+                tmp,
+                Size {
+                  width: i32::wrapping_mul(bw4, 4),
+                  height: i32::wrapping_mul(bh4, 4),
+                },
+                ii_mask,
+              )
+              .map_err(|_| ())?;
           }
           None => {}
         }
 
         match ::core::primitive::bool::then_some(has_chroma, ()) {
           ::core::option::Option::Some(()) => {
-            let extent = Size { width: bw4, height: bh4 };
-            match f.chroma_motion_neighbors(t, extent).map_err(|_invalid_neighbor| ())? {
+            let extent = Size {
+              width: bw4,
+              height: bh4,
+            };
+            match f
+              .chroma_motion_neighbors(t, extent)
+              .map_err(|_invalid_neighbor| ())?
+            {
               Some(neighbors) => {
                 let x_offset = i32::from(neighbors.left.is_some()).wrapping_mul(2);
                 let y_offset = i32::from(neighbors.above.is_some()).wrapping_mul(2);
                 let filter_at = |[horizontal, vertical]: [Rav1dFilterMode; 2]| {
                   let Ok(column) = console_core_number_conversion::index(u8::from(horizontal));
                   let Ok(row) = console_core_number_conversion::index(u8::from(vertical));
-                  dav1d_filter_2d.get(row).and_then(|filters| filters.get(column)).copied().ok_or(())
+                  dav1d_filter_2d
+                    .get(row)
+                    .and_then(|filters| filters.get(column))
+                    .copied()
+                    .ok_or(())
                 };
-                let draw_neighbor =
-                  |task: &mut Rav1dTaskContext, prediction: ChromaNeighborPrediction,
-                   displacement: Point<i32>, local_filter: Filter2d| -> Result<(), ()> {
-                    let Ok(reference) = console_core_number_conversion::index(prediction.reference);
-                    let picture = f.refp.get(reference).ok_or(())?;
-                    let filter = match task.frame_thread.pass {
-                      2 => {
-                        let address = f.coded_block_position(prediction.position).map_err(|_invalid_neighbor| ())?;
-                        let Ok(index) = console_core_number_conversion::index(address);
-                        let Ok(filter) = f.frame_thread.b.index(index).ii.filter2d();
-                        filter
-                      }
-                      _ => local_filter,
-                    };
-                    let position = task.b;
-                    let scratch = task.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
-                    for plane in [1_u8, 2] {
-                      let dst = chroma_destination(plane, displacement)?;
-                      mc::<BD>(f, &mut scratch.emu_edge, MaybeTempPixels::NonTemp { dst }, MotionPrediction {
+                let draw_neighbor = |task: &mut Rav1dTaskContext,
+                                     prediction: ChromaNeighborPrediction,
+                                     displacement: Point<i32>,
+                                     local_filter: Filter2d|
+                 -> Result<(), ()> {
+                  let Ok(reference) = console_core_number_conversion::index(prediction.reference);
+                  let picture = f.refp.get(reference).ok_or(())?;
+                  let filter = match task.frame_thread.pass {
+                    2 => {
+                      let address = f
+                        .coded_block_position(prediction.position)
+                        .map_err(|_invalid_neighbor| ())?;
+                      let Ok(index) = console_core_number_conversion::index(address);
+                      let Ok(filter) = f.frame_thread.b.index(index).ii.filter2d();
+                      filter
+                    }
+                    _ => local_filter,
+                  };
+                  let position = task.b;
+                  let scratch = task.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
+                  for plane in [1_u8, 2] {
+                    let dst = chroma_destination(plane, displacement)?;
+                    mc::<BD>(
+                      f,
+                      &mut scratch.emu_edge,
+                      MaybeTempPixels::NonTemp { dst },
+                      MotionPrediction {
                         position,
                         size: extent,
-                        origin: Point { x: prediction.position.x, y: prediction.position.y },
+                        origin: Point {
+                          x: prediction.position.x,
+                          y: prediction.position.y,
+                        },
                         plane,
                         motion: prediction.vector,
                         reference: picture,
                         reference_index: prediction.reference,
                         filter,
-                      })?;
-                    }
-                    Ok(())
-                  };
+                      },
+                    )?;
+                  }
+                  Ok(())
+                };
                 if let Some(diagonal) = neighbors.diagonal {
                   let filter = t.tl_4x4_filter;
                   draw_neighbor(t, diagonal, Point { x: 0, y: 0 }, filter)?;
                 }
                 if let Some(left) = neighbors.left {
-                  let index = console_core_number_conversion::checked_index(by4).map_err(|_invalid_row| ())?;
+                  let index = console_core_number_conversion::checked_index(by4)
+                    .map_err(|_invalid_row| ())?;
                   let [horizontal, vertical] = &mut t.l.filter;
                   let filter = filter_at([
                     *horizontal.get_mut().get(index).ok_or(())?,
@@ -6494,81 +7432,98 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                   draw_neighbor(t, left, Point { x: 0, y: y_offset }, filter)?;
                 }
                 if let Some(above) = neighbors.above {
-                  let index = console_core_number_conversion::checked_index(bx4).map_err(|_invalid_column| ())?;
+                  let index = console_core_number_conversion::checked_index(bx4)
+                    .map_err(|_invalid_column| ())?;
                   let [horizontal, vertical] = &above_context.filter;
                   let filter = filter_at([*horizontal.index(index), *vertical.index(index)])?;
                   draw_neighbor(t, above, Point { x: x_offset, y: 0 }, filter)?;
                 }
 
                 let [reference_code, _] = inter.r#ref;
-                let reference_index = u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
+                let reference_index =
+                  u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
                 let [motion, _] = inter.nd.one_d.mv;
                 let scratch = t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
-                let displacement = Point { x: x_offset, y: y_offset };
+                let displacement = Point {
+                  x: x_offset,
+                  y: y_offset,
+                };
                 for plane in [1_u8, 2] {
                   let dst = chroma_destination(plane, displacement)?;
-                  mc::<BD>(f, &mut scratch.emu_edge, MaybeTempPixels::NonTemp { dst }, MotionPrediction {
-                    position: t.b,
-                    size: extent,
-                    origin: Point { x: t.b.x, y: t.b.y },
-                    plane,
-                    motion,
-                    reference: refp,
-                    reference_index,
-                    filter: filter_2d,
-                  })?;
+                  mc::<BD>(
+                    f,
+                    &mut scratch.emu_edge,
+                    MaybeTempPixels::NonTemp { dst },
+                    MotionPrediction {
+                      position: t.b,
+                      size: extent,
+                      origin: Point { x: t.b.x, y: t.b.y },
+                      plane,
+                      motion,
+                      reference: refp,
+                      reference_index,
+                      filter: filter_2d,
+                    },
+                  )?;
                 }
               }
               ::core::option::Option::None => {
-                match ::core::primitive::bool::then_some(cmp::min(cbw4, cbh4) > 1
-                  && (inter.inter_mode == GLOBALMV
-                    && *match <[_]>::get(&f.gmv_warp_allowed, {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped_index(match inter.r#ref {
-                          [element, ..] => element,
-                        });
-                      numeric_value
-                    }) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    } != 0
-                    || inter.motion_mode == MotionMode::Warp
-                      && t.warpmv.r#type > Rav1dWarpedMotionType::Translation), ())
-                {
+                match ::core::primitive::bool::then_some(
+                  cmp::min(cbw4, cbh4) > 1
+                    && (inter.inter_mode == GLOBALMV
+                      && *match <[_]>::get(&f.gmv_warp_allowed, {
+                        let Ok(numeric_value) =
+                          console_core_number_conversion::wrapped_index(match inter.r#ref {
+                            [element, ..] => element,
+                          });
+                        numeric_value
+                      }) {
+                        ::core::option::Option::Some(indexed_value) => indexed_value,
+                        ::core::option::Option::None => return ::core::result::Result::Err(()),
+                      } != 0
+                      || inter.motion_mode == MotionMode::Warp
+                        && t.warpmv.r#type > Rav1dWarpedMotionType::Translation),
+                  (),
+                ) {
                   ::core::option::Option::Some(()) => {
                     for pl in 0..2 {
                       let warp_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
-                      let destination = chroma_destination(warp_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
+                      let destination =
+                        chroma_destination(warp_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
                       warp_affine::<BD>(
                         f,
                         &mut ({
-                          let explicit_value = t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
+                          let explicit_value =
+                            t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
                           explicit_value
                         })
                         .emu_edge,
-                        MaybeTempPixels::NonTemp {
-                          dst: destination,
-                        },
+                        MaybeTempPixels::NonTemp { dst: destination },
                         WarpPrediction {
                           position: t.b,
                           dimensions: *b_dim,
                           plane: warp_plane.wrapping_add(1),
                           reference: refp,
-                          parameters: match ::core::primitive::bool::then_some(inter.motion_mode == MotionMode::Warp, ()) {
-                          ::core::option::Option::Some(()) => &t.warpmv,
-                          ::core::option::Option::None => &*match <[_]>::get(&frame_hdr.gmv, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(match inter.r#ref {
-                                [element, ..] => element,
-                              });
-                            numeric_value
-                          }) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
+                          parameters: match ::core::primitive::bool::then_some(
+                            inter.motion_mode == MotionMode::Warp,
+                            (),
+                          ) {
+                            ::core::option::Option::Some(()) => &t.warpmv,
+                            ::core::option::Option::None => &*match <[_]>::get(&frame_hdr.gmv, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped_index(
+                                  match inter.r#ref {
+                                    [element, ..] => element,
+                                  },
+                                );
+                              numeric_value
+                            }) {
+                              ::core::option::Option::Some(indexed_value) => indexed_value,
+                              ::core::option::Option::None => {
+                                return ::core::result::Result::Err(());
+                              }
+                            },
                           },
-                        },
                         },
                       )?;
                     }
@@ -6577,32 +7532,41 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                     for pl in 0..2 {
                       let motion_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
                       let [reference_code, _] = inter.r#ref;
-                      let motion_reference = u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
-                      let destination = chroma_destination(motion_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
+                      let motion_reference =
+                        u8::try_from(reference_code).map_err(|_invalid_reference| ())?;
+                      let destination =
+                        chroma_destination(motion_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
                       mc::<BD>(
                         f,
                         &mut ({
-                          let explicit_value = t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
+                          let explicit_value =
+                            t.scratch.inter_mut().map_err(|_invalid_scratch| ())?;
                           explicit_value
                         })
                         .emu_edge,
-                        MaybeTempPixels::NonTemp {
-                          dst: destination,
-                        },
+                        MaybeTempPixels::NonTemp { dst: destination },
                         MotionPrediction {
                           position: t.b,
-                          size: Size { width: i32::wrapping_shl(bw4, {
-                          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                            i32::from(bw4 == ss_hor),
-                          );
-                          numeric_value
-                        }), height: i32::wrapping_shl(bh4, {
-                          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                            i32::from(bh4 == ss_ver),
-                          );
-                          numeric_value
-                        }) },
-                          origin: Point { x: t.b.x & !ss_hor, y: t.b.y & !ss_ver },
+                          size: Size {
+                            width: i32::wrapping_shl(bw4, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(i32::from(
+                                  bw4 == ss_hor,
+                                ));
+                              numeric_value
+                            }),
+                            height: i32::wrapping_shl(bh4, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(i32::from(
+                                  bh4 == ss_ver,
+                                ));
+                              numeric_value
+                            }),
+                          },
+                          origin: Point {
+                            x: t.b.x & !ss_hor,
+                            y: t.b.y & !ss_ver,
+                          },
                           plane: motion_plane.wrapping_add(1),
                           motion: match inter.nd.one_d.mv {
                             [_explicit_element, ..] => _explicit_element,
@@ -6613,16 +7577,27 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                         },
                       )?;
                       let destination_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
-                      let uv_dst = chroma_destination(destination_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
+                      let uv_dst = chroma_destination(
+                        destination_plane.wrapping_add(1),
+                        Point { x: 0, y: 0 },
+                      )?;
 
-                      match ::core::primitive::bool::then_some(inter.motion_mode == MotionMode::Obmc, ()) {
+                      match ::core::primitive::bool::then_some(
+                        inter.motion_mode == MotionMode::Obmc,
+                        (),
+                      ) {
                         ::core::option::Option::Some(()) => {
                           let checked_value_3 = u8::try_from(pl).map_err(|_invalid_plane| ())?;
                           let plane = checked_value_3.wrapping_add(1);
                           obmc::<BD>(
-                            f, t, uv_dst,
+                            f,
+                            t,
+                            uv_dst,
                             OverlapReconstruction {
-                              visible: Size { width: w4, height: h4 },
+                              visible: Size {
+                                width: w4,
+                                height: h4,
+                              },
                               dimensions: *b_dim,
                               context: Point { x: bx4, y: by4 },
                               plane,
@@ -6642,7 +7617,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                       InterIntraType::Blend => interintra_mask(bs, mask_layout, blend_mode)?,
                       InterIntraType::Wedge => {
                         let lookup = WedgeMaskLookup {
-                          block: bs, layout: mask_layout, polarity: crate::src::levels::MaskPolarity::Normal, wedge: inter.nd.one_d.wedge_idx,
+                          block: bs,
+                          layout: mask_layout,
+                          polarity: crate::src::levels::MaskPolarity::Normal,
+                          wedge: inter.nd.one_d.wedge_idx,
                         };
                         wedge_mask(lookup)?
                       }
@@ -6650,11 +7628,15 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
 
                     for pl in 0..2 {
                       let interintra_edge_pal = &mut ({
-                        let explicit_value = t.scratch.inter_intra_mut().map_err(|_invalid_scratch| ())?;
+                        let explicit_value =
+                          t.scratch.inter_intra_mut().map_err(|_invalid_scratch| ())?;
                         explicit_value
                       })
                       .interintra_edge_pal;
-                      let tl_edge_array = interintra_edge_pal.edge.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
+                      let tl_edge_array = interintra_edge_pal
+                        .edge
+                        .buf_mut::<BD>()
+                        .map_err(|_invalid_scratch| ())?;
                       let tl_edge_offset = 32;
                       let Ok(get) = inter.nd.one_d.interintra_mode.get();
                       let mut m = match get {
@@ -6663,53 +7645,75 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                       };
                       let mut angle = 0;
                       let destination_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
-                      let uv_dst = chroma_destination(destination_plane.wrapping_add(1), Point { x: 0, y: 0 })?;
+                      let uv_dst = chroma_destination(
+                        destination_plane.wrapping_add(1),
+                        Point { x: 0, y: 0 },
+                      )?;
                       let chroma_plane = u8::try_from(pl).map_err(|_invalid_plane| ())?;
-                      let saved_row = PredictionEdgeRow { block_y: t.b.y, chroma_rounding: 0, plane: chroma_plane.wrapping_add(1) };
-                      let prefiltered = prefiltered_top(f, saved_row).map_err(|_invalid_edge_row| ())?;
+                      let saved_row = PredictionEdgeRow {
+                        block_y: t.b.y,
+                        chroma_rounding: 0,
+                        plane: chroma_plane.wrapping_add(1),
+                      };
+                      let prefiltered =
+                        prefiltered_top(f, saved_row).map_err(|_invalid_edge_row| ())?;
                       let source_picture = crate::src::owned_recon::ReconDst::Pic(uv_dst);
                       let Ok(source_pixels) = source_picture.as_src();
                       m = {
                         rav1d_prepare_intra_edges(
                           IntraEdgePreparation {
-                            position: Point { x: i32::wrapping_shr(t.b.x, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                            numeric_value
-                          }), y: i32::wrapping_shr(t.b.y, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                            numeric_value
-                          }) },
-                            frame: Size { width: i32::wrapping_shr(ts.tiling.col_end, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                            numeric_value
-                          }), height: i32::wrapping_shr(ts.tiling.row_end, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                            numeric_value
-                          }) },
-                            transform: Size { width: cbw4, height: cbh4 },
+                            position: Point {
+                              x: i32::wrapping_shr(t.b.x, {
+                                let Ok(numeric_value) =
+                                  console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                                numeric_value
+                              }),
+                              y: i32::wrapping_shr(t.b.y, {
+                                let Ok(numeric_value) =
+                                  console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                                numeric_value
+                              }),
+                            },
+                            frame: Size {
+                              width: i32::wrapping_shr(ts.tiling.col_end, {
+                                let Ok(numeric_value) =
+                                  console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                                numeric_value
+                              }),
+                              height: i32::wrapping_shr(ts.tiling.row_end, {
+                                let Ok(numeric_value) =
+                                  console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                                numeric_value
+                              }),
+                            },
+                            transform: Size {
+                              width: cbw4,
+                              height: cbh4,
+                            },
                             has_left: i32::wrapping_shr(t.b.x, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                            numeric_value
-                          }) > i32::wrapping_shr(ts.tiling.col_start, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                            numeric_value
-                          }),
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                              numeric_value
+                            }) > i32::wrapping_shr(ts.tiling.col_start, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(ss_hor);
+                              numeric_value
+                            }),
                             above: {
-                              let Ok(above) = AboveEdge::select(EdgeAvailability::from(i32::wrapping_shr(t.b.y, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                            numeric_value
-                          }) > i32::wrapping_shr(ts.tiling.row_start, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-                            numeric_value
-                          })), prefiltered);
+                              let Ok(above) = AboveEdge::select(
+                                EdgeAvailability::from(
+                                  i32::wrapping_shr(t.b.y, {
+                                    let Ok(numeric_value) =
+                                      console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                                    numeric_value
+                                  }) > i32::wrapping_shr(ts.tiling.row_start, {
+                                    let Ok(numeric_value) =
+                                      console_core_number_conversion::wrapped::<_, u32>(ss_ver);
+                                    numeric_value
+                                  }),
+                                ),
+                                prefiltered,
+                              );
                               above
                             },
                             available: EdgeFlags::EMPTY,
@@ -6721,14 +7725,19 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                           IntraEdgeDestination {
                             samples: tl_edge_array,
                             center: {
-                              let Ok(center) = console_core_number_conversion::fixed_index(tl_edge_offset);
+                              let Ok(center) =
+                                console_core_number_conversion::fixed_index(tl_edge_offset);
                               center
                             },
                           },
                           bd,
-                        ).map_err(|_| ())?
+                        )
+                        .map_err(|_| ())?
                       };
-                      let tmp = interintra_edge_pal.interintra.buf_mut::<BD>().map_err(|_invalid_scratch| ())?;
+                      let tmp = interintra_edge_pal
+                        .interintra
+                        .buf_mut::<BD>()
+                        .map_err(|_invalid_scratch| ())?;
                       let tmp_component = Rav1dPictureDataComponent::wrap_buf::<BD>(
                         tmp,
                         (::core::num::Wrapping(4)
@@ -6757,24 +7766,39 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                           IntraPrediction {
                             mode: u64::from(m),
                             edge_center: {
-                              let Ok(center) = console_core_number_conversion::fixed_index(tl_edge_offset);
+                              let Ok(center) =
+                                console_core_number_conversion::fixed_index(tl_edge_offset);
                               center
                             },
-                            size: Size { width: i32::wrapping_mul(cbw4, 4), height: i32::wrapping_mul(cbh4, 4) },
-                            reach: Size { width: 0, height: 0 },
+                            size: Size {
+                              width: i32::wrapping_mul(cbw4, 4),
+                              height: i32::wrapping_mul(cbh4, 4),
+                            },
+                            reach: Size {
+                              width: 0,
+                              height: 0,
+                            },
                             angle: 0,
                           },
                           bd,
-                        ).map_err(|_| ())?
+                        )
+                        .map_err(|_| ())?
                       });
                       #[cfg(not(feature = "c-ffi"))]
                       tmp_component.copy_pixels_to::<BD>(tmp);
-                      f.dsp.mc.blend.call::<BD>(
-                        uv_dst,
-                        tmp,
-                        Size { width: i32::wrapping_mul(cbw4, 4), height: i32::wrapping_mul(cbh4, 4) },
-                        ii_mask,
-                      ).map_err(|_| ())?;
+                      f.dsp
+                        .mc
+                        .blend
+                        .call::<BD>(
+                          uv_dst,
+                          tmp,
+                          Size {
+                            width: i32::wrapping_mul(cbw4, 4),
+                            height: i32::wrapping_mul(cbh4, 4),
+                          },
+                          ii_mask,
+                        )
+                        .map_err(|_| ())?;
                     }
                   }
                   None => {}
@@ -6795,11 +7819,18 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
       hex_dump_pic::<BD>(
         &crate::src::owned_recon::ReconDst::Pic(y_dst),
         Size {
-          width: u64::from(match b_dim { &[element, ..] => element }).wrapping_mul(4),
-          height: u64::from(match b_dim { &[_, element, ..] => element }).wrapping_mul(4),
+          width: u64::from(match b_dim {
+            &[element, ..] => element,
+          })
+          .wrapping_mul(4),
+          height: u64::from(match b_dim {
+            &[_, element, ..] => element,
+          })
+          .wrapping_mul(4),
         },
         "y-pred",
-      ).map_err(|_dump_error| ())?;
+      )
+      .map_err(|_dump_error| ())?;
 
       match ::core::primitive::bool::then_some(has_chroma, ()) {
         ::core::option::Option::Some(()) => {
@@ -6809,20 +7840,29 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
             hex_dump_pic::<BD>(
               &crate::src::owned_recon::ReconDst::Pic(uv_dst),
               Size {
-                width: { let checked_value_5 = u64::try_from(cbw4).map_err(|_negative_extent| ())?; checked_value_5 }.wrapping_mul(4),
-                height: { let checked_value_6 = u64::try_from(cbh4).map_err(|_negative_extent| ())?; checked_value_6 }.wrapping_mul(4),
+                width: {
+                  let checked_value_5 = u64::try_from(cbw4).map_err(|_negative_extent| ())?;
+                  checked_value_5
+                }
+                .wrapping_mul(4),
+                height: {
+                  let checked_value_6 = u64::try_from(cbh4).map_err(|_negative_extent| ())?;
+                  checked_value_6
+                }
+                .wrapping_mul(4),
               },
               *match <[_]>::get(&(["", "u-pred", "v-pred"]), pl) {
                 ::core::option::Option::Some(indexed_value) => indexed_value,
                 ::core::option::Option::None => return ::core::result::Result::Err(()),
               },
-            ).map_err(|_dump_error| ())?;
+            )
+            .map_err(|_dump_error| ())?;
           }
         }
         ::core::option::Option::None => {}
       }
     }
-    (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+    (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
   }
 
   let cw4 = i32::wrapping_shr(i32::wrapping_add(w4, ss_hor), {
@@ -6861,11 +7901,23 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
     ::core::option::Option::None => {}
   }
 
-  let uvtx = &*match <[_]>::get(&dav1d_txfm_dimensions, { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = b.uvtx.ordinal(); ordinal }); table_index }) {
+  let uvtx = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+    let Ok(table_index) = console_core_number_conversion::index({
+      let Ok(ordinal) = b.uvtx.ordinal();
+      ordinal
+    });
+    table_index
+  }) {
     ::core::option::Option::Some(indexed_value) => indexed_value,
     ::core::option::Option::None => return ::core::result::Result::Err(()),
   };
-  let ytx = &*match <[_]>::get(&dav1d_txfm_dimensions, { let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = inter.max_ytx.ordinal(); ordinal }); table_index }) {
+  let ytx = &*match <[_]>::get(&dav1d_txfm_dimensions, {
+    let Ok(table_index) = console_core_number_conversion::index({
+      let Ok(ordinal) = inter.max_ytx.ordinal();
+      ordinal
+    });
+    table_index
+  }) {
     ::core::option::Option::Some(indexed_value) => indexed_value,
     ::core::option::Option::None => return ::core::result::Result::Err(()),
   };
@@ -6921,10 +7973,13 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
               transform: inter.max_ytx,
               splits: tx_split,
               split_cell: Point { x: x_off, y: y_off },
-              output: Some(y_dst + {
-                let Ok(offset) = console_core_number_conversion::wrapped_index(x.wrapping_mul(4));
-                offset
-              }),
+              output: Some(
+                y_dst + {
+                  let Ok(offset) =
+                    console_core_number_conversion::wrapped_index(x.wrapping_mul(4));
+                  offset
+                },
+              ),
             },
           )
           .map_err(|_| ())?;
@@ -7155,11 +8210,13 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                     txtp = *match <[_]>::get(
                       &*({
                         let explicit_value = ({
-                          let explicit_value = t.scratch.inter_intra().map_err(|_invalid_scratch| ())?;
+                          let explicit_value =
+                            t.scratch.inter_intra().map_err(|_invalid_scratch| ())?;
                           explicit_value
                         })
                         .ac_txtp_map
-                        .txtp_map().map_err(|_invalid_scratch| ())?;
+                        .txtp_map()
+                        .map_err(|_invalid_scratch| ())?;
                         explicit_value
                       }),
                       {
@@ -7243,12 +8300,19 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                             }),
                           ) {
                             ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => return ::core::result::Result::Err(()),
+                            ::core::option::Option::None => {
+                              return ::core::result::Result::Err(());
+                            }
                           },
                           transform: b.uvtx,
                           size: bs,
                           syntax: b,
-                          plane: { let checked_value_23 = u8::try_from(pl).map_err(|_invalid_plane| ())?; checked_value_23 }.wrapping_add(1),
+                          plane: {
+                            let checked_value_23 =
+                              u8::try_from(pl).map_err(|_invalid_plane| ())?;
+                            checked_value_23
+                          }
+                          .wrapping_add(1),
                           storage: CfSelect::Task,
                         },
                         CoefficientOutput {
@@ -7259,7 +8323,8 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                       .map_err(|_| ())?
                     };
                     cf = {
-                      let explicit_value = t.cf.select_mut::<BD>().map_err(|_invalid_scratch| ())?;
+                      let explicit_value =
+                        t.cf.select_mut::<BD>().map_err(|_invalid_scratch| ())?;
                       explicit_value
                     };
 
@@ -7274,7 +8339,7 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                           ts_c.as_deref().ok_or(())?.msac.rng,
                         );
                       }
-                      BlockTrace::Quiet => {}
+                      BlockTrace::Disabled => {}
                     }
 
                     case_set_al! {
@@ -7306,9 +8371,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                           },
                           3,
                           "dq",
-                        ).map_err(|_dump_error| ())?;
+                        )
+                        .map_err(|_dump_error| ())?;
                       }
-                      (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                      (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                     }
 
                     let mut uv_dst_tx = crate::src::owned_recon::ReconDst::Pic(
@@ -7335,9 +8401,10 @@ pub(crate) fn rav1d_recon_b_inter<BD: BitDepth>(
                             height: u64::from(uvtx.h).wrapping_mul(4),
                           },
                           "recon",
-                        ).map_err(|_dump_error| ())?;
+                        )
+                        .map_err(|_dump_error| ())?;
                       }
-                      (BlockTrace::Quiet, _) | (_, BlockTrace::Quiet) => {}
+                      (BlockTrace::Disabled, _) | (_, BlockTrace::Disabled) => {}
                     }
                   }
                   ::core::option::Option::None => {}
@@ -7445,23 +8512,24 @@ pub(crate) fn rav1d_filter_sbrow_deblock_cols<BD: BitDepth>(
   sby: c_int,
 ) -> Rav1dResult {
   match {
-      ::core::primitive::bool::then_some(!c.inloop_filters.contains(Rav1dInloopFilterType::DEBLOCK), ())
+    ::core::primitive::bool::then_some(
+      !c.inloop_filters.contains(Rav1dInloopFilterType::DEBLOCK),
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      return Ok(());
+    }
+    ::core::option::Option::None => {}
   }
 
   let frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
 
-  match {
-      ::core::primitive::bool::then_some(frame_hdr.loopfilter.level_y == [0; 2], ())
-  } {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some(frame_hdr.loopfilter.level_y == [0; 2], ()) } {
+    ::core::option::Option::Some(()) => {
+      return Ok(());
+    }
+    ::core::option::Option::None => {}
   }
 
   let row = u32::try_from(sby).map_err(|_invalid_row| EINVAL)?;
@@ -7484,22 +8552,26 @@ pub(crate) fn rav1d_filter_sbrow_deblock_rows<BD: BitDepth>(
   let frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
 
   match {
-      ::core::primitive::bool::then_some(c.inloop_filters.contains(Rav1dInloopFilterType::DEBLOCK) && frame_hdr.loopfilter.level_y != [0; 2], ())
+    ::core::primitive::bool::then_some(
+      c.inloop_filters.contains(Rav1dInloopFilterType::DEBLOCK)
+        && frame_hdr.loopfilter.level_y != [0; 2],
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        let row = u32::try_from(sby).map_err(|_invalid_row| EINVAL)?;
-        rav1d_loopfilter_sbrow_rows::<BD>(f, pictures, row)?;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      let row = u32::try_from(sby).map_err(|_invalid_row| EINVAL)?;
+      rav1d_loopfilter_sbrow_rows::<BD>(f, pictures, row)?;
+    }
+    ::core::option::Option::None => {}
   }
 
   match {
-      ::core::primitive::bool::then_some(seq_hdr.cdef != 0 || !f.lf.restore_planes.is_empty(), ())
+    ::core::primitive::bool::then_some(seq_hdr.cdef != 0 || !f.lf.restore_planes.is_empty(), ())
   } {
-      ::core::option::Option::Some(()) => {
-        rav1d_copy_lpf::<BD>(c, f, pictures, sby)?;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      rav1d_copy_lpf::<BD>(c, f, pictures, sby)?;
+    }
+    ::core::option::Option::None => {}
   }
 
   Ok(())
@@ -7512,7 +8584,10 @@ pub(crate) fn rav1d_filter_sbrow_cdef<BD: BitDepth>(
   sby: c_int,
 ) -> Rav1dResult {
   {
-    match ::core::primitive::bool::then_some(!c.inloop_filters.contains(Rav1dInloopFilterType::CDEF), ()) {
+    match ::core::primitive::bool::then_some(
+      !c.inloop_filters.contains(Rav1dInloopFilterType::CDEF),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -7549,7 +8624,6 @@ pub(crate) fn rav1d_filter_sbrow_cdef<BD: BitDepth>(
           let ss_ver = f.cur.p.layout == Rav1dPixelLayout::I420 && i != 0;
           p[i]
             - (::core::num::Wrapping(8)
-
               * ::core::num::Wrapping({
                 match p[i].pixel_stride::<BD>() {
                   ::core::result::Result::Ok(value__) => value__,
@@ -7687,11 +8761,24 @@ pub(crate) fn rav1d_filter_sbrow_resize<BD: BitDepth>(
       let [luma_step, chroma_step] = f.resize_step;
       let [luma_start, chroma_start] = f.resize_start;
       let phase = match pl {
-        0 => ResizePhase { step: luma_step, initial: luma_start },
-        _ => ResizePhase { step: chroma_step, initial: chroma_start },
+        0 => ResizePhase {
+          step: luma_step,
+          initial: luma_start,
+        },
+        _ => ResizePhase {
+          step: chroma_step,
+          initial: chroma_start,
+        },
       };
-      let sampling = ResizeSampling { source_width, destination: Size { width, height }, phase };
-      f.dsp.mc.resize.call::<BD>(destination, src_2, sampling, bd)?;
+      let sampling = ResizeSampling {
+        source_width,
+        destination: Size { width, height },
+        phase,
+      };
+      f.dsp
+        .mc
+        .resize
+        .call::<BD>(destination, src_2, sampling, bd)?;
     }
   };
 
@@ -7705,10 +8792,11 @@ pub(crate) fn rav1d_filter_sbrow_lr<BD: BitDepth>(
   sby: c_int,
 ) -> Rav1dResult {
   {
-    match ::core::primitive::bool::then_some(!c
-      .inloop_filters
-      .contains(Rav1dInloopFilterType::RESTORATION), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !c.inloop_filters
+        .contains(Rav1dInloopFilterType::RESTORATION),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -7745,11 +8833,14 @@ pub(crate) fn rav1d_filter_sbrow<BD: BitDepth>(
 
     let frame_hdr = &***frame;
 
-    match ::core::primitive::bool::then_some((match frame_hdr.size.width {
-      [element, ..] => element,
-    }) != (match frame_hdr.size.width {
-      [_, element, ..] => element,
-    }), ()) {
+    match ::core::primitive::bool::then_some(
+      (match frame_hdr.size.width {
+        [element, ..] => element,
+      }) != (match frame_hdr.size.width {
+        [_, element, ..] => element,
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         rav1d_filter_sbrow_resize::<BD>(c, f, t, sby)?;
       }
@@ -7773,13 +8864,18 @@ pub(crate) fn rav1d_backup_ipred_edge<BD: BitDepth>(
 ) -> Rav1dResult {
   let tile = f.tile(t.tile_index).ok_or(EINVAL)?;
   let superblock_shift = u32::try_from(f.sb_shift).map_err(|_invalid_shift| EINVAL)?;
-  let superblock_row = u64::try_from(t.b.y.wrapping_shr(superblock_shift)).map_err(|_invalid_row| EINVAL)?;
+  let superblock_row =
+    u64::try_from(t.b.y.wrapping_shr(superblock_shift)).map_err(|_invalid_row| EINVAL)?;
   let superblocks = u64::try_from(f.sb128w).map_err(|_invalid_width| EINVAL)?;
   let row = superblock_row.checked_mul(superblocks).ok_or(EINVAL)?;
   let row_origin = row.checked_mul(128).ok_or(EINVAL)?;
   let first_column = tile.tiling.col_start.wrapping_mul(4);
   let luma_rows = t.b.y.wrapping_add(f.sb_step).wrapping_mul(4);
-  let tile_width = tile.tiling.col_end.wrapping_sub(tile.tiling.col_start).wrapping_mul(4);
+  let tile_width = tile
+    .tiling
+    .col_end
+    .wrapping_sub(tile.tiling.col_start)
+    .wrapping_mul(4);
   let width = u64::try_from(tile_width).map_err(|_invalid_tile_width| EINVAL)?;
   let layout = f.cur.p.layout;
   let plane_count = match layout {
@@ -7799,7 +8895,10 @@ pub(crate) fn rav1d_backup_ipred_edge<BD: BitDepth>(
       y: luma_rows.wrapping_shr(vertical).wrapping_sub(1),
     };
     let column = u64::try_from(origin.x).map_err(|_invalid_column| EINVAL)?;
-    let bank = f.ipred_edge_off.checked_mul(u64::from(plane)).ok_or(EINVAL)?;
+    let bank = f
+      .ipred_edge_off
+      .checked_mul(u64::from(plane))
+      .ok_or(EINVAL)?;
     let stripe = bank.checked_add(row_origin).ok_or(EINVAL)?;
     let start = stripe.checked_add(column).ok_or(EINVAL)?;
     let count = width.wrapping_shr(horizontal);
@@ -7814,7 +8913,11 @@ pub(crate) fn rav1d_backup_ipred_edge<BD: BitDepth>(
     let Ok(samples) = console_core_number_conversion::index(count);
     let Ok(destination) = console_core_number_conversion::indices(start..end);
     let Ok(source) = input.slice::<BD>(samples);
-    BD::pixel_copy(&mut f.ipred_edge.mut_slice_as(destination), &source, samples);
+    BD::pixel_copy(
+      &mut f.ipred_edge.mut_slice_as(destination),
+      &source,
+      samples,
+    );
   }
 
   Ok(())
@@ -7843,10 +8946,14 @@ pub(crate) fn rav1d_copy_pal_block<BD: BitDepth>(
   let Rectangle { origin, size } = region;
   let x_end = origin.x.checked_add(size.width).ok_or(EINVAL)?;
   let y_end = origin.y.checked_add(size.height).ok_or(EINVAL)?;
-  let x = console_core_number_conversion::checked_index(origin.x).map_err(|_outside_palette| EINVAL)?;
-  let y = console_core_number_conversion::checked_index(origin.y).map_err(|_outside_palette| EINVAL)?;
-  let right = console_core_number_conversion::checked_index(x_end).map_err(|_outside_palette| EINVAL)?;
-  let bottom = console_core_number_conversion::checked_index(y_end).map_err(|_outside_palette| EINVAL)?;
+  let x =
+    console_core_number_conversion::checked_index(origin.x).map_err(|_outside_palette| EINVAL)?;
+  let y =
+    console_core_number_conversion::checked_index(origin.y).map_err(|_outside_palette| EINVAL)?;
+  let right =
+    console_core_number_conversion::checked_index(x_end).map_err(|_outside_palette| EINVAL)?;
+  let bottom =
+    console_core_number_conversion::checked_index(y_end).map_err(|_outside_palette| EINVAL)?;
   let [above, left] = t.al_pal.select_mut::<BD>()?;
   let above_2 = above.get_mut(x..right).ok_or(EINVAL)?;
   let left_2 = left.get_mut(y..bottom).ok_or(EINVAL)?;
@@ -7879,11 +8986,16 @@ fn rav1d_read_pal_plane<BD: BitDepth>(
   f: &Rav1dFrameData,
   ts_c: &mut Rav1dTileStateContext,
   plane: PalettePlane,
-  PaletteRead { size_context: sz_ctx, position }: PaletteRead,
+  PaletteRead {
+    size_context: sz_ctx,
+    position,
+  }: PaletteRead,
 ) -> Rav1dResult<u8> {
   Ok({
-    let bx4 = console_core_number_conversion::checked_index(position.x).map_err(|_outside_palette| EINVAL)?;
-    let by4 = console_core_number_conversion::checked_index(position.y).map_err(|_outside_palette| EINVAL)?;
+    let bx4 = console_core_number_conversion::checked_index(position.x)
+      .map_err(|_outside_palette| EINVAL)?;
+    let by4 = console_core_number_conversion::checked_index(position.y)
+      .map_err(|_outside_palette| EINVAL)?;
     let (plane_code, not_pl) = match plane {
       PalettePlane::Luma => (0u8, 1u16),
       PalettePlane::Chroma => (1, 0),
@@ -7917,7 +9029,12 @@ fn rav1d_read_pal_plane<BD: BitDepth>(
       .and_then(|planes| planes.get(pli))
       .ok_or(EINVAL)?;
     let mut cache = [0.as_::<BD::Pixel>(); 16];
-    let neighborhoods = palette_cache::NeighborColors { left, left_count, above, above_count };
+    let neighborhoods = palette_cache::NeighborColors {
+      left,
+      left_count,
+      above,
+      above_count,
+    };
     let neighbors = palette_cache::merge_neighbors(neighborhoods, &mut cache)?;
     let [luma_cdf, chroma_cdf] = &mut *ts_c.cdf.m.pal_sz;
     let plane_cdf = match plane {
@@ -7949,7 +9066,13 @@ fn rav1d_read_pal_plane<BD: BitDepth>(
         ::core::option::Option::None => {}
       }
 
-      match ::core::primitive::bool::then_some(matches!(rav1d_msac_decode_bool_equi(&mut ts_c.msac), Ok(EntropyBit::One)), ()) {
+      match ::core::primitive::bool::then_some(
+        matches!(
+          rav1d_msac_decode_bool_equi(&mut ts_c.msac),
+          Ok(EntropyBit::One)
+        ),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           *{
             let checked_value_2 = used_cache.get_mut(i).ok_or(EINVAL)?;
@@ -8031,7 +9154,8 @@ fn rav1d_read_pal_plane<BD: BitDepth>(
               );
               *color = prev.as_::<BD::Pixel>();
 
-              match ::core::primitive::bool::then_some(u16::wrapping_add(prev, not_pl) >= max, ()) {
+              match ::core::primitive::bool::then_some(u16::wrapping_add(prev, not_pl) >= max, ())
+              {
                 ::core::option::Option::Some(()) => {
                   remaining_colors.into_slice().fill(max.as_::<BD::Pixel>());
                   break;
@@ -8118,7 +9242,7 @@ fn rav1d_read_pal_plane<BD: BitDepth>(
 
         println!("]");
       }
-      BlockTrace::Quiet => {}
+      BlockTrace::Disabled => {}
     }
 
     pal_sz_u8
@@ -8157,7 +9281,13 @@ pub(crate) fn rav1d_read_pal_uv<BD: BitDepth>(
       )
       .ok_or(EINVAL)?;
 
-    match ::core::primitive::bool::then_some(matches!(rav1d_msac_decode_bool_equi(&mut ts_c.msac), Ok(EntropyBit::One)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(
+        rav1d_msac_decode_bool_equi(&mut ts_c.msac),
+        Ok(EntropyBit::One)
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let bits = u8::wrapping_sub(
           u8::wrapping_add(f.cur.p.bpc, {
@@ -8190,7 +9320,14 @@ pub(crate) fn rav1d_read_pal_uv<BD: BitDepth>(
             explicit_value
           });
 
-          match ::core::primitive::bool::then_some(delta != 0 && matches!(rav1d_msac_decode_bool_equi(&mut ts_c.msac), Ok(EntropyBit::One)), ()) {
+          match ::core::primitive::bool::then_some(
+            delta != 0
+              && matches!(
+                rav1d_msac_decode_bool_equi(&mut ts_c.msac),
+                Ok(EntropyBit::One)
+              ),
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               delta = (delta).wrapping_neg();
             }
@@ -8243,7 +9380,7 @@ pub(crate) fn rav1d_read_pal_uv<BD: BitDepth>(
 
         println!("]");
       }
-      BlockTrace::Quiet => {}
+      BlockTrace::Disabled => {}
     }
 
     pal_sz

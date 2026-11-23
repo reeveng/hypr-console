@@ -251,16 +251,14 @@ impl<'a> Engine<'a> {
       | MIRP01000 | MIRP01001 | MIRP01010 | MIRP01011 | MIRP01100 | MIRP01101 | MIRP01110
       | MIRP01111 | MIRP10000 | MIRP10001 | MIRP10010 | MIRP10011 | MIRP10100 | MIRP10101
       | MIRP10110 | MIRP10111 | MIRP11000 | MIRP11001 | MIRP11010 | MIRP11011 | MIRP11100
-      | MIRP11101 | MIRP11110 | MIRP11111 => match (
-        opcode >= MIRP00000,
-        opcode >= MDRP00000,
-        opcode >= PUSHB000,
-      ) {
-        (true, _, _) => self.op_mirp(raw_opcode)?,
-        (false, true, _) => self.op_mdrp(raw_opcode)?,
-        (false, false, true) => self.op_push(&ins.inline_operands)?,
-        (false, false, false) => return self.op_unknown(raw_opcode),
-      },
+      | MIRP11101 | MIRP11110 | MIRP11111 => {
+        match (opcode >= MIRP00000, opcode >= MDRP00000, opcode >= PUSHB000) {
+          (true, _, _) => self.op_mirp(raw_opcode)?,
+          (false, true, _) => self.op_mdrp(raw_opcode)?,
+          (false, false, true) => self.op_push(&ins.inline_operands)?,
+          (false, false, false) => return self.op_unknown(raw_opcode),
+        }
+      }
     }
 
     Ok(())

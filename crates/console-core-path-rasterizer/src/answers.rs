@@ -222,7 +222,6 @@ pub enum RequiredAnswer {
   No,
 }
 
-
 #[derive(Clone, Copy)]
 pub(crate) enum PointOrder {
   Forward,

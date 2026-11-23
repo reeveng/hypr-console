@@ -120,7 +120,10 @@ fn steps(
 
   kernel.revoke(root, executable_resource)?;
 
-  match ::core::primitive::bool::then_some(kernel.handle_rights(renderer.process, resource) == Err(HandleError::BadHandle), ()) {
+  match ::core::primitive::bool::then_some(
+    kernel.handle_rights(renderer.process, resource) == Err(HandleError::BadHandle),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(BAD_STATE),
   }
@@ -131,7 +134,10 @@ fn steps(
 
   let replacement = browser.replace_renderer(&mut kernel, &site)?;
 
-  match ::core::primitive::bool::then_some(kernel.handles(renderer.process) == Err(HandleError::ProcessNotFound), ()) {
+  match ::core::primitive::bool::then_some(
+    kernel.handles(renderer.process) == Err(HandleError::ProcessNotFound),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(BAD_STATE),
   }
@@ -156,7 +162,14 @@ fn steps(
     "closing the last tab ended the renderer and returned the site's share"
   ));
 
-  finish_browser(&mut kernel, root, root_job, parent, root_before, root_objects)
+  finish_browser(
+    &mut kernel,
+    root,
+    root_job,
+    parent,
+    root_before,
+    root_objects,
+  )
 }
 
 fn finish_browser(
@@ -237,9 +250,11 @@ fn exercise_sandbox(
 ) -> Result<(), SiteIsolationError> {
   let allocation = kernel.create_memory(renderer.process, Bytes(0))?;
 
-  match ::core::primitive::bool::then_some(kernel.replace_as_executable(renderer.process, allocation, resource)
-    == Err(HandleError::DeniedByPolicy(Condition::ReplaceAsExecutable)), ())
-  {
+  match ::core::primitive::bool::then_some(
+    kernel.replace_as_executable(renderer.process, allocation, resource)
+      == Err(HandleError::DeniedByPolicy(Condition::ReplaceAsExecutable)),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(BAD_STATE),
   }
@@ -254,9 +269,11 @@ fn exercise_sandbox(
     browser.send(kernel, site, reload.as_bytes())?;
   }
 
-  match ::core::primitive::bool::then_some(browser.send(kernel, site, reload.as_bytes())
-    == Err(SiteIsolationError::Kernel(HandleError::ChannelFull)), ())
-  {
+  match ::core::primitive::bool::then_some(
+    browser.send(kernel, site, reload.as_bytes())
+      == Err(SiteIsolationError::Kernel(HandleError::ChannelFull)),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(BAD_STATE),
   }
@@ -266,7 +283,10 @@ fn exercise_sandbox(
   ));
   let Ok(browser_process) = browser.process();
 
-  match ::core::primitive::bool::then_some(kernel.create_memory(browser_process, BROWSER_SHARE) == Err(HandleError::OverBudget), ()) {
+  match ::core::primitive::bool::then_some(
+    kernel.create_memory(browser_process, BROWSER_SHARE) == Err(HandleError::OverBudget),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(BAD_STATE),
   }
@@ -285,7 +305,10 @@ fn check_site_closed(
   before: console_kernel_handles::Budget,
   objects: u64,
 ) -> Result<(), SiteIsolationError> {
-  match ::core::primitive::bool::then_some(kernel.handles(replacement) == Err(HandleError::ProcessNotFound), ()) {
+  match ::core::primitive::bool::then_some(
+    kernel.handles(replacement) == Err(HandleError::ProcessNotFound),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(BAD_STATE),
   }
@@ -347,10 +370,10 @@ fn exchange_frame(
   let site_after = browser.site_budget(kernel, site)?;
   let remaining_objects = kernel.object_count()?;
 
-  match ::core::primitive::bool::then_some(browser_after == browser_before
-    && site_after == site_before
-    && remaining_objects == objects, ())
-  {
+  match ::core::primitive::bool::then_some(
+    browser_after == browser_before && site_after == site_before && remaining_objects == objects,
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ok(()),
     ::core::option::Option::None => Err(BAD_STATE),
   }

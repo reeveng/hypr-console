@@ -79,78 +79,80 @@ pub enum Operator {
 impl Operator {
   #[must_use]
   fn from_opcode(opcode: u8) -> core::result::Result<Option<Self>, console_core_never::Never> {
-      use Operator::*;
+    use Operator::*;
 
-      Ok(Some(match opcode {
-        0 => Version,
-        1 => Notice,
-        2 => FullName,
-        3 => FamilyName,
-        4 => Weight,
-        5 => FontBbox,
-        13 => UniqueId,
-        14 => Xuid,
-        15 => Charset,
-        16 => Encoding,
-        17 => CharstringsOffset,
-        18 => PrivateDictRange,
-        24 => VariationStoreOffset,
+    Ok(Some(match opcode {
+      0 => Version,
+      1 => Notice,
+      2 => FullName,
+      3 => FamilyName,
+      4 => Weight,
+      5 => FontBbox,
+      13 => UniqueId,
+      14 => Xuid,
+      15 => Charset,
+      16 => Encoding,
+      17 => CharstringsOffset,
+      18 => PrivateDictRange,
+      24 => VariationStoreOffset,
 
-        6 => BlueValues,
-        7 => OtherBlues,
-        8 => FamilyBlues,
-        9 => FamilyOtherBlues,
-        10 => StdHw,
-        11 => StdVw,
-        19 => SubrsOffset,
-        20 => DefaultWidthX,
-        21 => NominalWidthX,
-        22 => VariationStoreIndex,
-        23 => Blend,
+      6 => BlueValues,
+      7 => OtherBlues,
+      8 => FamilyBlues,
+      9 => FamilyOtherBlues,
+      10 => StdHw,
+      11 => StdVw,
+      19 => SubrsOffset,
+      20 => DefaultWidthX,
+      21 => NominalWidthX,
+      22 => VariationStoreIndex,
+      23 => Blend,
 
-        _ => return Ok(None),
-      }))
+      _ => return Ok(None),
+    }))
   }
 
   #[must_use]
-  fn from_extended_opcode(opcode: u8) -> core::result::Result<Option<Self>, console_core_never::Never> {
-      use Operator::*;
+  fn from_extended_opcode(
+    opcode: u8,
+  ) -> core::result::Result<Option<Self>, console_core_never::Never> {
+    use Operator::*;
 
-      Ok(Some(match opcode {
-        0 => Copyright,
-        1 => IsFixedPitch,
-        2 => ItalicAngle,
-        3 => UnderlinePosition,
-        4 => UnderlineThickness,
-        5 => PaintType,
-        6 => CharstringType,
-        7 => FontMatrix,
-        8 => StrokeWidth,
-        20 => SyntheticBase,
-        21 => PostScript,
-        22 => BaseFontName,
-        23 => BaseFontBlend,
-        30 => Ros,
-        31 => CidFontVersion,
-        32 => CidFontRevision,
-        33 => CidFontType,
-        34 => CidCount,
-        35 => UidBase,
-        36 => FdArrayOffset,
-        37 => FdSelectOffset,
-        38 => FontName,
+    Ok(Some(match opcode {
+      0 => Copyright,
+      1 => IsFixedPitch,
+      2 => ItalicAngle,
+      3 => UnderlinePosition,
+      4 => UnderlineThickness,
+      5 => PaintType,
+      6 => CharstringType,
+      7 => FontMatrix,
+      8 => StrokeWidth,
+      20 => SyntheticBase,
+      21 => PostScript,
+      22 => BaseFontName,
+      23 => BaseFontBlend,
+      30 => Ros,
+      31 => CidFontVersion,
+      32 => CidFontRevision,
+      33 => CidFontType,
+      34 => CidCount,
+      35 => UidBase,
+      36 => FdArrayOffset,
+      37 => FdSelectOffset,
+      38 => FontName,
 
-        9 => BlueScale,
-        10 => BlueShift,
-        11 => BlueFuzz,
-        12 => StemSnapH,
-        13 => StemSnapV,
-        14 => ForceBold,
-        17 => LanguageGroup,
-        18 => ExpansionFactor,
-        19 => InitialRandomSeed,
-        _ => return Ok(None),
-      }))
+      9 => BlueScale,
+      10 => BlueShift,
+      11 => BlueFuzz,
+      12 => StemSnapH,
+      13 => StemSnapV,
+      14 => ForceBold,
+      17 => LanguageGroup,
+      18 => ExpansionFactor,
+      19 => InitialRandomSeed,
+      _ => return Ok(None),
+    }))
   }
 }
 
@@ -181,7 +183,10 @@ where
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the published `tokens` function returns its iterator or trait value directly for existing callers to compose")
+  expect(
+    explicit002_infallible_result,
+    reason = "the published `tokens` function returns its iterator or trait value directly for existing callers to compose"
+  )
 )]
 pub fn tokens(dict_data: &[u8]) -> impl Iterator<Item = Result<Token, Error>> + '_ + Clone {
   let Ok(data) = crate::FontData::new(dict_data);
@@ -200,7 +205,11 @@ fn parse_token(cursor: &mut Cursor) -> Result<Token, Error> {
   Ok(match ::core::primitive::bool::then_some(b0 == ESCAPE, ()) {
     ::core::option::Option::Some(()) => {
       let b1 = cursor.read::<u8>()?;
-      let operator = ({ let Ok(explicit_value) = Operator::from_extended_opcode(b1); explicit_value }).ok_or(Error::InvalidDictOperator(b1))?;
+      let operator = ({
+        let Ok(explicit_value) = Operator::from_extended_opcode(b1);
+        explicit_value
+      })
+      .ok_or(Error::InvalidDictOperator(b1))?;
 
       Token::Operator(operator)
     }
@@ -215,13 +224,20 @@ fn parse_token(cursor: &mut Cursor) -> Result<Token, Error> {
           let components = BcdComponents::parse(cursor)?;
           Token::Operand(
             <crate::ps::cff::stack::Number as ::core::convert::From<::font_types::Fixed>>::from(
-              { let Ok(explicit_value) = components.value(false); explicit_value },
+              {
+                let Ok(explicit_value) = components.value(false);
+                explicit_value
+              },
             ),
             Some(components),
           )
         }
         _ => {
-          let operator = ({ let Ok(explicit_value) = Operator::from_opcode(b0); explicit_value }).ok_or(Error::InvalidDictOperator(b0))?;
+          let operator = ({
+            let Ok(explicit_value) = Operator::from_opcode(b0);
+            explicit_value
+          })
+          .ok_or(Error::InvalidDictOperator(b0))?;
 
           Token::Operator(operator)
         }
@@ -295,7 +311,10 @@ pub enum Entry {
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the published `entries` function returns its iterator or trait value directly for existing callers to compose")
+  expect(
+    explicit002_infallible_result,
+    reason = "the published `entries` function returns its iterator or trait value directly for existing callers to compose"
+  )
 )]
 pub fn entries<'a>(
   dict_data: &'a [u8],
@@ -337,7 +356,10 @@ pub fn entries<'a>(
           }
         }
         Token::Operator(op) => {
-          match ::core::primitive::bool::then_some(op == Operator::Blend || op == Operator::VariationStoreIndex, ()) {
+          match ::core::primitive::bool::then_some(
+            op == Operator::Blend || op == Operator::VariationStoreIndex,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               let state_3 = match blend_state_2.as_mut() {
                 Some(state_2) => state_2,
@@ -374,8 +396,17 @@ pub fn entries<'a>(
           match ::core::primitive::bool::then_some(op == Operator::BlueScale, ()) {
             ::core::option::Option::Some(()) => match last_bcd_components.take() {
               Some(bcd_components) => {
-                (match stack.pop_fixed() { Ok(value) => Some(value), Err(_invalid_bcd_operand) => None })?;
-                (match stack.push({ let Ok(explicit_value) = bcd_components.value(true); explicit_value }) { Ok(value) => Some(value), Err(_operand_stack_full) => None })?;
+                (match stack.pop_fixed() {
+                  Ok(value) => Some(value),
+                  Err(_invalid_bcd_operand) => None,
+                })?;
+                (match stack.push({
+                  let Ok(explicit_value) = bcd_components.value(true);
+                  explicit_value
+                }) {
+                  Ok(value) => Some(value),
+                  Err(_operand_stack_full) => None,
+                })?;
               }
               None => {}
             },
@@ -409,7 +440,10 @@ pub fn entries<'a>(
           *last_bcd_components = None;
           let entry = parse_entry(op, stack);
           stack.clear();
-          *cursor_pos = match cursor_3.position() { Ok(value) => value, Err(_invalid_dict_position) => Default::default() };
+          *cursor_pos = match cursor_3.position() {
+            Ok(value) => value,
+            Err(_invalid_dict_position) => Default::default(),
+          };
           return Some(entry);
         }
       }
@@ -787,36 +821,52 @@ mod tests {
       let Ok(value) = F2Dot14::from_f32(0.0);
       value
     }];
-    let blend_state = crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
-    let entries: Vec<_> = entries(private_dict_data, Some(blend_state)).collect::<Result<_, _>>()?;
+    let blend_state =
+      crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
+    let entries: Vec<_> =
+      entries(private_dict_data, Some(blend_state)).collect::<Result<_, _>>()?;
 
     #[must_use]
     fn make_blues(values: &[f64]) -> core::result::Result<Blues, console_core_never::Never> {
-        Ok(Blues::new(values.iter().copied().map(|argument| {
-          let Ok(value_9) = Fixed::from_f64(argument);
+      Ok(Blues::new(values.iter().copied().map(|argument| {
+        let Ok(value_9) = Fixed::from_f64(argument);
 
-          value_9
-        })))
+        value_9
+      })))
     }
 
     #[must_use]
-    fn make_stem_snaps(values: &[f64]) -> core::result::Result<StemSnaps, console_core_never::Never> {
-        Ok(StemSnaps::new(values.iter().copied().map(|argument| {
-          let Ok(value_10) = Fixed::from_f64(argument);
+    fn make_stem_snaps(
+      values: &[f64],
+    ) -> core::result::Result<StemSnaps, console_core_never::Never> {
+      Ok(StemSnaps::new(values.iter().copied().map(|argument| {
+        let Ok(value_10) = Fixed::from_f64(argument);
 
-          value_10
-        })))
+        value_10
+      })))
     }
 
     let expected: &[Entry] = &[
-      BlueValues({ let Ok(explicit_value) = make_blues(&[
-        -20.0, 0.0, 472.0, 490.0, 525.0, 540.0, 645.0, 660.0, 670.0, 690.0, 730.0, 750.0,
-      ]); explicit_value }),
-      OtherBlues({ let Ok(explicit_value) = make_blues(&[-250.0, -240.0]); explicit_value }),
-      FamilyBlues({ let Ok(explicit_value) = make_blues(&[
-        -20.0, 0.0, 473.0, 491.0, 525.0, 540.0, 644.0, 659.0, 669.0, 689.0, 729.0, 749.0,
-      ]); explicit_value }),
-      FamilyOtherBlues({ let Ok(explicit_value) = make_blues(&[-249.0, -239.0]); explicit_value }),
+      BlueValues({
+        let Ok(explicit_value) = make_blues(&[
+          -20.0, 0.0, 472.0, 490.0, 525.0, 540.0, 645.0, 660.0, 670.0, 690.0, 730.0, 750.0,
+        ]);
+        explicit_value
+      }),
+      OtherBlues({
+        let Ok(explicit_value) = make_blues(&[-250.0, -240.0]);
+        explicit_value
+      }),
+      FamilyBlues({
+        let Ok(explicit_value) = make_blues(&[
+          -20.0, 0.0, 473.0, 491.0, 525.0, 540.0, 644.0, 659.0, 669.0, 689.0, 729.0, 749.0,
+        ]);
+        explicit_value
+      }),
+      FamilyOtherBlues({
+        let Ok(explicit_value) = make_blues(&[-249.0, -239.0]);
+        explicit_value
+      }),
       BlueScale({
         let Ok(explicit_value) = Fixed::from_f64(0.037506103515625);
         explicit_value
@@ -830,8 +880,14 @@ mod tests {
         let Ok(explicit_value) = Fixed::from_f64(80.0);
         explicit_value
       }),
-      StemSnapH({ let Ok(explicit_value) = make_stem_snaps(&[40.0, 55.0]); explicit_value }),
-      StemSnapV({ let Ok(explicit_value) = make_stem_snaps(&[80.0, 90.0]); explicit_value }),
+      StemSnapH({
+        let Ok(explicit_value) = make_stem_snaps(&[40.0, 55.0]);
+        explicit_value
+      }),
+      StemSnapV({
+        let Ok(explicit_value) = make_stem_snaps(&[80.0, 90.0]);
+        explicit_value
+      }),
       SubrsOffset(114),
     ];
     assert_eq!(&entries, expected);
@@ -840,17 +896,19 @@ mod tests {
   }
 
   #[test]
-  fn noto_serif_display_top_dict_entries() -> ::core::result::Result<(), crate::test_support::Failure>
-  {
+  fn noto_serif_display_top_dict_entries()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     use Entry::*;
-    let fixture_value = crate::test_support::fixture_value(FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED), "fixture value")?;
+    let fixture_value = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED),
+      "fixture value",
+    )?;
     let top_dict_data = {
-      let cff_table = crate::test_support::fixture_value(fixture_value
-      .cff(), "fixture value")?;
+      let cff_table = crate::test_support::fixture_value(fixture_value.cff(), "fixture value")?;
       cff_table
     }
-      .top_dicts()
-      .get(0)?;
+    .top_dicts()
+    .get(0)?;
     let entries: Vec<_> = entries(top_dict_data, None).collect::<Result<_, _>>()?;
     let expected = &[
       Version(Sid::new(391)),
@@ -885,13 +943,70 @@ mod tests {
       30u8, 10, 0, 31, 139, 30, 10, 0, 1, 103, 255, 30, 10, 0, 31, 139, 139, 12, 7,
     ];
     let matrix = {
-        let fixture_value = crate::test_support::fixture_value(entries(&dict_data, None).next(), "fixture value")?;
-        let outcome_matrix = fixture_value?;
+      let fixture_value =
+        crate::test_support::fixture_value(entries(&dict_data, None).next(), "fixture value")?;
+      let outcome_matrix = fixture_value?;
 
-        match outcome_matrix {
-            Entry::FontMatrix(matched_matrix) => matched_matrix,
-            crate::ps::cff::dict::Entry::Version(..) | crate::ps::cff::dict::Entry::Notice(..) | crate::ps::cff::dict::Entry::FullName(..) | crate::ps::cff::dict::Entry::FamilyName(..) | crate::ps::cff::dict::Entry::Weight(..) | crate::ps::cff::dict::Entry::FontBbox(..) | crate::ps::cff::dict::Entry::CharstringsOffset(..) | crate::ps::cff::dict::Entry::PrivateDictRange(..) | crate::ps::cff::dict::Entry::VariationStoreOffset(..) | crate::ps::cff::dict::Entry::Copyright(..) | crate::ps::cff::dict::Entry::IsFixedPitch(..) | crate::ps::cff::dict::Entry::ItalicAngle(..) | crate::ps::cff::dict::Entry::UnderlinePosition(..) | crate::ps::cff::dict::Entry::UnderlineThickness(..) | crate::ps::cff::dict::Entry::PaintType(..) | crate::ps::cff::dict::Entry::CharstringType(..) | crate::ps::cff::dict::Entry::StrokeWidth(..) | crate::ps::cff::dict::Entry::FdArrayOffset(..) | crate::ps::cff::dict::Entry::FdSelectOffset(..) | crate::ps::cff::dict::Entry::BlueValues(..) | crate::ps::cff::dict::Entry::OtherBlues(..) | crate::ps::cff::dict::Entry::FamilyBlues(..) | crate::ps::cff::dict::Entry::FamilyOtherBlues(..) | crate::ps::cff::dict::Entry::SubrsOffset(..) | crate::ps::cff::dict::Entry::VariationStoreIndex(..) | crate::ps::cff::dict::Entry::BlueScale(..) | crate::ps::cff::dict::Entry::BlueShift(..) | crate::ps::cff::dict::Entry::BlueFuzz(..) | crate::ps::cff::dict::Entry::LanguageGroup(..) | crate::ps::cff::dict::Entry::ExpansionFactor(..) | crate::ps::cff::dict::Entry::Encoding(..) | crate::ps::cff::dict::Entry::Charset(..) | crate::ps::cff::dict::Entry::UniqueId(..) | crate::ps::cff::dict::Entry::Xuid | crate::ps::cff::dict::Entry::SyntheticBase(..) | crate::ps::cff::dict::Entry::PostScript(..) | crate::ps::cff::dict::Entry::BaseFontName(..) | crate::ps::cff::dict::Entry::BaseFontBlend | crate::ps::cff::dict::Entry::Ros { .. } | crate::ps::cff::dict::Entry::CidFontVersion(..) | crate::ps::cff::dict::Entry::CidFontRevision(..) | crate::ps::cff::dict::Entry::CidFontType(..) | crate::ps::cff::dict::Entry::CidCount(..) | crate::ps::cff::dict::Entry::UidBase(..) | crate::ps::cff::dict::Entry::FontName(..) | crate::ps::cff::dict::Entry::StdHw(..) | crate::ps::cff::dict::Entry::StdVw(..) | crate::ps::cff::dict::Entry::DefaultWidthX(..) | crate::ps::cff::dict::Entry::NominalWidthX(..) | crate::ps::cff::dict::Entry::StemSnapH(..) | crate::ps::cff::dict::Entry::StemSnapV(..) | crate::ps::cff::dict::Entry::ForceBold(..) | crate::ps::cff::dict::Entry::InitialRandomSeed(..) => return Err(crate::test_support::Failure::from(alloc::format!("This was totally a font matrix"))),
+      match outcome_matrix {
+        Entry::FontMatrix(matched_matrix) => matched_matrix,
+        crate::ps::cff::dict::Entry::Version(..)
+        | crate::ps::cff::dict::Entry::Notice(..)
+        | crate::ps::cff::dict::Entry::FullName(..)
+        | crate::ps::cff::dict::Entry::FamilyName(..)
+        | crate::ps::cff::dict::Entry::Weight(..)
+        | crate::ps::cff::dict::Entry::FontBbox(..)
+        | crate::ps::cff::dict::Entry::CharstringsOffset(..)
+        | crate::ps::cff::dict::Entry::PrivateDictRange(..)
+        | crate::ps::cff::dict::Entry::VariationStoreOffset(..)
+        | crate::ps::cff::dict::Entry::Copyright(..)
+        | crate::ps::cff::dict::Entry::IsFixedPitch(..)
+        | crate::ps::cff::dict::Entry::ItalicAngle(..)
+        | crate::ps::cff::dict::Entry::UnderlinePosition(..)
+        | crate::ps::cff::dict::Entry::UnderlineThickness(..)
+        | crate::ps::cff::dict::Entry::PaintType(..)
+        | crate::ps::cff::dict::Entry::CharstringType(..)
+        | crate::ps::cff::dict::Entry::StrokeWidth(..)
+        | crate::ps::cff::dict::Entry::FdArrayOffset(..)
+        | crate::ps::cff::dict::Entry::FdSelectOffset(..)
+        | crate::ps::cff::dict::Entry::BlueValues(..)
+        | crate::ps::cff::dict::Entry::OtherBlues(..)
+        | crate::ps::cff::dict::Entry::FamilyBlues(..)
+        | crate::ps::cff::dict::Entry::FamilyOtherBlues(..)
+        | crate::ps::cff::dict::Entry::SubrsOffset(..)
+        | crate::ps::cff::dict::Entry::VariationStoreIndex(..)
+        | crate::ps::cff::dict::Entry::BlueScale(..)
+        | crate::ps::cff::dict::Entry::BlueShift(..)
+        | crate::ps::cff::dict::Entry::BlueFuzz(..)
+        | crate::ps::cff::dict::Entry::LanguageGroup(..)
+        | crate::ps::cff::dict::Entry::ExpansionFactor(..)
+        | crate::ps::cff::dict::Entry::Encoding(..)
+        | crate::ps::cff::dict::Entry::Charset(..)
+        | crate::ps::cff::dict::Entry::UniqueId(..)
+        | crate::ps::cff::dict::Entry::Xuid
+        | crate::ps::cff::dict::Entry::SyntheticBase(..)
+        | crate::ps::cff::dict::Entry::PostScript(..)
+        | crate::ps::cff::dict::Entry::BaseFontName(..)
+        | crate::ps::cff::dict::Entry::BaseFontBlend
+        | crate::ps::cff::dict::Entry::Ros { .. }
+        | crate::ps::cff::dict::Entry::CidFontVersion(..)
+        | crate::ps::cff::dict::Entry::CidFontRevision(..)
+        | crate::ps::cff::dict::Entry::CidFontType(..)
+        | crate::ps::cff::dict::Entry::CidCount(..)
+        | crate::ps::cff::dict::Entry::UidBase(..)
+        | crate::ps::cff::dict::Entry::FontName(..)
+        | crate::ps::cff::dict::Entry::StdHw(..)
+        | crate::ps::cff::dict::Entry::StdVw(..)
+        | crate::ps::cff::dict::Entry::DefaultWidthX(..)
+        | crate::ps::cff::dict::Entry::NominalWidthX(..)
+        | crate::ps::cff::dict::Entry::StemSnapH(..)
+        | crate::ps::cff::dict::Entry::StemSnapV(..)
+        | crate::ps::cff::dict::Entry::ForceBold(..)
+        | crate::ps::cff::dict::Entry::InitialRandomSeed(..) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "This was totally a font matrix"
+          )));
         }
+      }
     };
 
     assert_eq!(

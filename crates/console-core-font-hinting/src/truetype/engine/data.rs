@@ -14,9 +14,11 @@ impl Engine<'_> {
     let p = self.value_stack.pop_index()?;
     let gs = &mut self.graphics;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && !(gs.point_bounds([(gs.zp2, p)]) == Ok(crate::PointBounds::Within)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && !(gs.point_bounds([(gs.zp2, p)]) == Ok(crate::PointBounds::Within)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         self.value_stack.push(0)?;
         return Ok(());
@@ -103,9 +105,11 @@ impl Engine<'_> {
     let p2 = self.value_stack.pop_index()?;
     let gs = &self.graphics;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && !(gs.point_bounds([(gs.zp0, p2), (gs.zp1, p1)]) == Ok(crate::PointBounds::Within)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && !(gs.point_bounds([(gs.zp0, p2), (gs.zp1, p1)]) == Ok(crate::PointBounds::Within)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         self.value_stack.push(0)?;
         return Ok(());

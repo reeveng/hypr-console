@@ -1,7 +1,7 @@
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
-use crate::Fault;
+use crate::Error;
 
 const SPACES: [char; 5] = [' ', '\t', '\n', '\r', '\x0C'];
 
@@ -12,7 +12,7 @@ pub(crate) const NAME: fn(char) -> bool =
   |c| matches!(c, '_' | 'a'..='z' | 'A'..='Z' | '0'..='9' | '-') || u32::from(c) > 237;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Taken {
+pub(crate) enum Consumption {
   Yes,
   No,
 }
@@ -56,13 +56,13 @@ impl<'a> Stream<'a> {
     Ok(())
   }
 
-  pub(crate) fn since(&self, earlier: Stream<'a>) -> Result<&'a str, Fault> {
+  pub(crate) fn since(&self, earlier: Stream<'a>) -> Result<&'a str, Error> {
     match earlier
       .rest
       .split_at_checked(earlier.rest.len().saturating_sub(self.rest.len()))
     {
       Some((walked, _rest)) => Ok(walked),
-      None => Err(Fault::Misaligned),
+      None => Err(Error::Misaligned),
     }
   }
 
@@ -78,30 +78,30 @@ impl<'a> Stream<'a> {
     Ok(())
   }
 
-  pub(crate) fn try_consume(&mut self, text: &str) -> Result<Taken, Never> {
+  pub(crate) fn try_consume(&mut self, text: &str) -> Result<Consumption, Never> {
     Ok(match self.rest.strip_prefix(text) {
       Some(tail) => {
         self.rest = tail;
-        Taken::Yes
+        Consumption::Yes
       }
-      None => Taken::No,
+      None => Consumption::No,
     })
   }
 
-  pub(crate) fn consume(&mut self, text: &str) -> Result<(), Fault> {
+  pub(crate) fn consume(&mut self, text: &str) -> Result<(), Error> {
     match self.rest.strip_prefix(text) {
       Some(tail) => {
         self.rest = tail;
         Ok(())
       }
       None => match self.rest.chars().next() {
-        Some(_other) => Err(Fault::InvalidByte),
-        None => Err(Fault::UnexpectedEnd),
+        Some(_other) => Err(Error::InvalidByte),
+        None => Err(Error::UnexpectedEnd),
       },
     }
   }
 
-  pub(crate) fn take_until(&mut self, stop: char) -> Result<&'a str, Fault> {
+  pub(crate) fn take_until(&mut self, stop: char) -> Result<&'a str, Error> {
     let start = *self;
 
     self.rest = self.rest.trim_start_matches(|c| c != stop);
@@ -109,9 +109,9 @@ impl<'a> Stream<'a> {
     self.since(start)
   }
 
-  pub(crate) fn skip_comment(&mut self) -> Result<(), Fault> {
-    self.consume("/").map_err(|_fault| Fault::InvalidComment)?;
-    self.consume("*").map_err(|_fault| Fault::InvalidComment)?;
+  pub(crate) fn skip_comment(&mut self) -> Result<(), Error> {
+    self.consume("/").map_err(|_fault| Error::InvalidComment)?;
+    self.consume("*").map_err(|_fault| Error::InvalidComment)?;
 
     match self.rest.split_once("*/") {
       Some((_comment, tail)) => {
@@ -120,12 +120,12 @@ impl<'a> Stream<'a> {
       }
       None => {
         self.rest = "";
-        Err(Fault::InvalidComment)
+        Err(Error::InvalidComment)
       }
     }
   }
 
-  pub(crate) fn skip_spaces_and_comments(&mut self) -> Result<(), Fault> {
+  pub(crate) fn skip_spaces_and_comments(&mut self) -> Result<(), Error> {
     self.skip_spaces()?;
 
     let bound = self.budget()?;
@@ -167,7 +167,7 @@ impl<'a> Stream<'a> {
     Ok(())
   }
 
-  pub(crate) fn consume_ident(&mut self) -> Result<&'a str, Fault> {
+  pub(crate) fn consume_ident(&mut self) -> Result<&'a str, Error> {
     let start = *self;
     let dash = self.try_consume("-")?;
 
@@ -176,11 +176,11 @@ impl<'a> Stream<'a> {
         ::core::option::Option::Some(()) => {
           self.bump()?;
         }
-        ::core::option::Option::None => return Err(Fault::InvalidIdent),
+        ::core::option::Option::None => return Err(Error::InvalidIdent),
       },
       None => match dash {
-        Taken::Yes => {}
-        Taken::No => return Err(Fault::InvalidIdent),
+        Consumption::Yes => {}
+        Consumption::No => return Err(Error::InvalidIdent),
       },
     }
 
@@ -189,11 +189,11 @@ impl<'a> Stream<'a> {
     self.since(start)
   }
 
-  pub(crate) fn consume_string(&mut self) -> Result<&'a str, Fault> {
+  pub(crate) fn consume_string(&mut self) -> Result<&'a str, Error> {
     let quote = match self.rest.chars().next() {
       Some(quote @ ('\'' | '"')) => quote,
       Some(_other) => return self.consume_ident(),
-      None => return Err(Fault::UnexpectedEnd),
+      None => return Err(Error::UnexpectedEnd),
     };
 
     self.bump()?;
@@ -216,11 +216,11 @@ impl<'a> Stream<'a> {
 
         let walked = self.since(body)?;
 
-        walked.strip_suffix(quote).ok_or(Fault::Misaligned)
+        walked.strip_suffix(quote).ok_or(Error::Misaligned)
       }
       None => {
         self.rest = "";
-        Err(Fault::UnexpectedEnd)
+        Err(Error::UnexpectedEnd)
       }
     }
   }

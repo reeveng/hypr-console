@@ -13,7 +13,7 @@ use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, narrow_f32};
 use console_core_path_rasterizer::{
-  Color, ColorU8, FillRule, Mask, Paint, Path, PathBuilder, PixmapMut, Rect, Transform,
+  Color, ColorU8, FillRule, Mask, Paint, Path, PathBuilder, PixmapMut, FloatRectangle, Transform,
 };
 use console_core_paths::Point;
 use console_core_shapes::Clip;
@@ -33,15 +33,17 @@ impl<'a> Canvas<'a> {
     device: Size<u32>,
     transform: Transform,
   ) -> Result<Self, Cannot> {
-    match ::core::primitive::bool::then_some(({
-      let Ok(explicit_value) = transform.is_finite();
-      explicit_value == console_core_paths::IsFiniteAnswer::Yes
-    }) && ({
-      let Ok(explicit_value) = transform.is_valid();
-      explicit_value == console_core_paths::IsValidAnswer::Yes
-    }) && transform.sx > 0.0
-      && transform.sy > 0.0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      ({
+        let Ok(explicit_value) = transform.is_finite();
+        explicit_value == console_core_paths::IsFiniteAnswer::Yes
+      }) && ({
+        let Ok(explicit_value) = transform.is_valid();
+        explicit_value == console_core_paths::IsValidAnswer::Yes
+      }) && transform.sx > 0.0
+        && transform.sy > 0.0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Err(Cannot::Transform),
     }
@@ -108,7 +110,7 @@ impl<'a> Canvas<'a> {
         let Ok(height) = narrow_f32(f64::from(size.height));
 
         match {
-          let Ok(explicit_value) = Rect::from_xywh(x, y, width, height);
+          let Ok(explicit_value) = FloatRectangle::from_xywh(x, y, width, height);
           explicit_value
         } {
           Some(rect) => {
@@ -204,7 +206,7 @@ pub fn buffer_pixel(color: ColorU8) -> Result<[u8; 4], Never> {
     reason = "the existing rasterizer entry point accepts a radius in the same logical pixels as Rect"
   )
 )]
-pub fn rounded(rect: Rect, radius: f32) -> Result<Option<Path>, Never> {
+pub fn rounded(rect: FloatRectangle, radius: f32) -> Result<Option<Path>, Never> {
   let radius_2 = radius.max(0.0).min(
     ({
       let Ok(explicit_value) = rect.width();
@@ -279,12 +281,12 @@ fn path_point(point: kurbo::Point) -> Result<Point, Never> {
 
 #[cfg(test)]
 mod tests {
-  use super::{Rect, rounded};
+  use super::{FloatRectangle, rounded};
   use console_core_paths::PathSegment;
 
   #[test]
   fn rounded_panel_has_four_cubic_corners_and_the_original_bounds() -> Result<(), &'static str> {
-    let Ok(rect) = Rect::from_ltrb(1.0, 2.0, 31.0, 22.0);
+    let Ok(rect) = FloatRectangle::from_ltrb(1.0, 2.0, 31.0, 22.0);
     let rectangle = rect.ok_or("positive panel dimensions")?;
     let Ok(rounded_panel) = rounded(rectangle, 8.0);
     let path = rounded_panel.ok_or("rounded panel path")?;
@@ -293,7 +295,10 @@ mod tests {
 
     let Ok(segments) = path.segments();
     assert_eq!(
-      segments.clone().filter(|segment| matches!(segment, PathSegment::CubicTo(..))).count(),
+      segments
+        .clone()
+        .filter(|segment| matches!(segment, PathSegment::CubicTo(..)))
+        .count(),
       4
     );
     assert!(matches!(segments.last(), Some(PathSegment::Close)));

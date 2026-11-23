@@ -198,8 +198,16 @@ fn apart(value: f64) -> Result<Split, Never> {
 fn without_sign<T: TryFrom<u64> + Ends>(taken: Split) -> Result<T, Never> {
   match taken {
     Split::NotANumber => Ok(T::ZERO),
-    Split::Beyond { sign: Sign::Negative } | Split::Whole { sign: Sign::Negative, .. } => Ok(T::LOW),
-    Split::Beyond { sign: Sign::Nonnegative } => Ok(T::HIGH),
+    Split::Beyond {
+      sign: Sign::Negative,
+    }
+    | Split::Whole {
+      sign: Sign::Negative,
+      ..
+    } => Ok(T::LOW),
+    Split::Beyond {
+      sign: Sign::Nonnegative,
+    } => Ok(T::HIGH),
     Split::Whole {
       magnitude,
       sign: Sign::Nonnegative,
@@ -210,8 +218,12 @@ fn without_sign<T: TryFrom<u64> + Ends>(taken: Split) -> Result<T, Never> {
 fn with_sign<T: TryFrom<i128> + Ends>(taken: Split) -> Result<T, Never> {
   match taken {
     Split::NotANumber => Ok(T::ZERO),
-    Split::Beyond { sign: Sign::Negative } => Ok(T::LOW),
-    Split::Beyond { sign: Sign::Nonnegative } => Ok(T::HIGH),
+    Split::Beyond {
+      sign: Sign::Negative,
+    } => Ok(T::LOW),
+    Split::Beyond {
+      sign: Sign::Nonnegative,
+    } => Ok(T::HIGH),
 
     Split::Whole { magnitude, sign } => {
       let held = i128::from(magnitude);

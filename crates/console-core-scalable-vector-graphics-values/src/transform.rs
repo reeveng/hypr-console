@@ -278,9 +278,10 @@ impl core::str::FromStr for Transform {
         TransformListToken::Translate { tx, ty } => {
           AffineTransform::translate(Point { x: tx, y: ty })
         }
-        TransformListToken::Scale { sx, sy } => {
-          AffineTransform::scale(Size { width: sx, height: sy })
-        }
+        TransformListToken::Scale { sx, sy } => AffineTransform::scale(Size {
+          width: sx,
+          height: sy,
+        }),
         TransformListToken::Rotate { angle } => {
           let radians = angle.to_radians();
           let cosine = radians.cos();

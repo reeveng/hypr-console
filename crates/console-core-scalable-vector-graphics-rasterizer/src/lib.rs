@@ -105,7 +105,12 @@ fn max_filter_bbox(size: IntSize) -> Result<Option<IntRect>, Never> {
 
   match bounds {
     Some(bounds_2) => Ok(Some(bounds_2)),
-    None => IntRect::from_ltrb(::core::primitive::i32::wrapping_div(i32::MIN, 2), ::core::primitive::i32::wrapping_div(i32::MIN, 2), ::core::primitive::i32::wrapping_div(i32::MAX, 2), ::core::primitive::i32::wrapping_div(i32::MAX, 2)),
+    None => IntRect::from_ltrb(
+      ::core::primitive::i32::wrapping_div(i32::MIN, 2),
+      ::core::primitive::i32::wrapping_div(i32::MIN, 2),
+      ::core::primitive::i32::wrapping_div(i32::MAX, 2),
+      ::core::primitive::i32::wrapping_div(i32::MAX, 2),
+    ),
   }
 }
 
@@ -117,10 +122,22 @@ mod tests {
     let size_2 = size.ok_or("construct size")?;
     let Ok(bounds) = super::max_filter_bbox(size_2);
     let bbox = bounds.ok_or("construct fallback bounds")?;
-    assert_eq!(bbox.left(), Ok(::core::primitive::i32::wrapping_div(i32::MIN, 2)));
-    assert_eq!(bbox.top(), Ok(::core::primitive::i32::wrapping_div(i32::MIN, 2)));
-    assert_eq!(bbox.right(), Ok(::core::primitive::i32::wrapping_div(i32::MAX, 2)));
-    assert_eq!(bbox.bottom(), Ok(::core::primitive::i32::wrapping_div(i32::MAX, 2)));
+    assert_eq!(
+      bbox.left(),
+      Ok(::core::primitive::i32::wrapping_div(i32::MIN, 2))
+    );
+    assert_eq!(
+      bbox.top(),
+      Ok(::core::primitive::i32::wrapping_div(i32::MIN, 2))
+    );
+    assert_eq!(
+      bbox.right(),
+      Ok(::core::primitive::i32::wrapping_div(i32::MAX, 2))
+    );
+    assert_eq!(
+      bbox.bottom(),
+      Ok(::core::primitive::i32::wrapping_div(i32::MAX, 2))
+    );
 
     Ok(())
   }

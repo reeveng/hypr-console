@@ -191,10 +191,12 @@ impl Forecast {
   pub fn freshness(&self, now: Unix) -> Result<Freshness, Never> {
     let age = Seconds(now.0.saturating_sub(self.asked.0));
 
-    Ok(match ::core::primitive::bool::then_some(age < FRESH_FOR, ()) {
-      ::core::option::Option::Some(()) => Freshness::Fresh,
-      ::core::option::Option::None => Freshness::Stale,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(age < FRESH_FOR, ()) {
+        ::core::option::Option::Some(()) => Freshness::Fresh,
+        ::core::option::Option::None => Freshness::Stale,
+      },
+    )
   }
 }
 

@@ -324,7 +324,8 @@ fn drawn<T: Sample>(
       .saturating_mul(4),
   );
 
-  match ::core::primitive::bool::then_some(area != 0 && area <= luma.len().saturating_mul(4), ()) {
+  match ::core::primitive::bool::then_some(area != 0 && area <= luma.len().saturating_mul(4), ())
+  {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(Vec::new()),
   }

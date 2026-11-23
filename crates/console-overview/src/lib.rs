@@ -383,7 +383,8 @@ fn dividers_of(tiles: &[Tile]) -> Result<Vec<Divider>, Never> {
       .filter_map(|(left, right)| {
         let edge = left.frame.at.x + left.frame.size.width;
 
-        match ::core::primitive::bool::then_some((right.frame.at.x - edge).abs() <= TOUCHING, ()) {
+        match ::core::primitive::bool::then_some((right.frame.at.x - edge).abs() <= TOUCHING, ())
+        {
           ::core::option::Option::Some(()) => Some(Divider {
             left: left.address.clone(),
             x: HorizontalPixels(right.frame.at.x),
@@ -417,7 +418,10 @@ pub fn hit(overview: &Overview, at: Point<f64>) -> Result<Hit, Never> {
     found
   });
 
-  let on_close = match ::core::primitive::bool::then_some(at.y < overview.close.at.y + overview.close.size.height + GAP, ()) {
+  let on_close = match ::core::primitive::bool::then_some(
+    at.y < overview.close.at.y + overview.close.size.height + GAP,
+    (),
+  ) {
     ::core::option::Option::Some(()) => Holds::Yes,
     ::core::option::Option::None => Holds::No,
   };
@@ -484,12 +488,13 @@ impl Side {
       (1.0 - down, Side::Below),
     ]
     .into_iter()
-    .fold((across, Side::Left), |nearer, next| {
-      match ::core::primitive::bool::then_some(next.0 < nearer.0, ()) {
+    .fold(
+      (across, Side::Left),
+      |nearer, next| match ::core::primitive::bool::then_some(next.0 < nearer.0, ()) {
         ::core::option::Option::Some(()) => next,
         ::core::option::Option::None => nearer,
-      }
-    });
+      },
+    );
 
     Ok(side)
   }
@@ -573,14 +578,16 @@ pub fn dropped(overview: &Overview, from: PlaceId, at: Point<f64>) -> Result<Dro
     } => {
       let Ok(side) = Side::nearest(frame, at);
 
-      return Ok(match ::core::primitive::bool::then_some(under == from, ()) {
-        ::core::option::Option::Some(()) => Drop::Back,
-        ::core::option::Option::None => Drop::Beside {
-          place: under,
-          window: address,
-          side,
+      return Ok(
+        match ::core::primitive::bool::then_some(under == from, ()) {
+          ::core::option::Option::Some(()) => Drop::Back,
+          ::core::option::Option::None => Drop::Beside {
+            place: under,
+            window: address,
+            side,
+          },
         },
-      });
+      );
     }
     Hit::Divider { .. } => match overview
       .cards
@@ -638,10 +645,12 @@ impl Stroke {
     let across = self.at.x - self.from.x;
     let down = self.at.y - self.from.y;
 
-    Ok(match ::core::primitive::bool::then_some(across.hypot(down) > SLOP, ()) {
-      ::core::option::Option::Some(()) => Wandered::Yes,
-      ::core::option::Option::None => Wandered::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(across.hypot(down) > SLOP, ()) {
+        ::core::option::Option::Some(()) => Wandered::Yes,
+        ::core::option::Option::None => Wandered::No,
+      },
+    )
   }
 
   pub fn by(&self) -> Result<Point<f64>, Never> {
@@ -1001,10 +1010,12 @@ fn aim_dropped(overview: &Overview, carried: &Carried, aim: Aim) -> Result<Drop,
 
       match overview.cards.get(position).map(|card| card.target) {
         Some(Target::New) => Drop::New,
-        Some(Target::Place(id)) => match ::core::primitive::bool::then_some(id == carried.from, ()) {
-          ::core::option::Option::Some(()) => Drop::Back,
-          ::core::option::Option::None => Drop::Onto(id),
-        },
+        Some(Target::Place(id)) => {
+          match ::core::primitive::bool::then_some(id == carried.from, ()) {
+            ::core::option::Option::Some(()) => Drop::Back,
+            ::core::option::Option::None => Drop::Onto(id),
+          }
+        }
         None => Drop::Back,
       }
     }
@@ -1160,7 +1171,10 @@ fn render_card(
     match ::core::primitive::bool::then_some(lifted, ()) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => {
-        let edge_2 = match ::core::primitive::bool::then_some(drawn.chosen == Some(tile.address.as_str()), ()) {
+        let edge_2 = match ::core::primitive::bool::then_some(
+          drawn.chosen == Some(tile.address.as_str()),
+          (),
+        ) {
           ::core::option::Option::Some(()) => Edge::Of {
             wide: CARD_EDGE,
             color: wearing.pink,

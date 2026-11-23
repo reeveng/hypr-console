@@ -52,7 +52,7 @@ pub use shaders::{FilterQuality, GradientStop, PixmapPaint, SpreadMode};
 pub use shaders::{LinearGradient, Pattern, RadialGradient, Shader, SweepGradient};
 
 pub use console_core_paths::{
-  IntRect, IntSize, NonZeroRect, Point, Rect, ScaleFactors, Size, Transform,
+  IntRect, IntSize, NonZeroRect, Point, FloatRectangle, ScaleFactors, Size, Transform,
 };
 pub use console_core_paths::{LineCap, LineJoin, Stroke, StrokeDash};
 pub use console_core_paths::{Path, PathBuilder, PathSegment, PathSegmentsIter, PathStroker};

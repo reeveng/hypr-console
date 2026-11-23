@@ -97,20 +97,22 @@ fn main() -> std::process::ExitCode {
 }
 
 fn read_shipped(place: &Where) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(place.beneath.is_empty(), ()) {
-    ::core::option::Option::Some(()) => String::new(),
-    ::core::option::Option::None => {
-      let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(place.beneath));
+  Ok(
+    match ::core::primitive::bool::then_some(place.beneath.is_empty(), ()) {
+      ::core::option::Option::Some(()) => String::new(),
+      ::core::option::Option::None => {
+        let Ok(held) = console_core_atomic_writes::read(std::path::Path::new(place.beneath));
 
-      match held {
-        Stored::Text(said) => said,
-        Stored::Absent => String::new(),
-        Stored::Failed(fault) => {
-          eprintln!("console-engine: {}: {fault}", place.beneath);
+        match held {
+          Stored::Text(said) => said,
+          Stored::Absent => String::new(),
+          Stored::Failed(fault) => {
+            eprintln!("console-engine: {}: {fault}", place.beneath);
 
-          String::new()
+            String::new()
+          }
         }
       }
-    }
-  })
+    },
+  )
 }

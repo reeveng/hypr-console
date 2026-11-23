@@ -134,13 +134,15 @@ fn line(
 
   let Ok(says) = job.action.says();
 
-  Ok(match ::core::primitive::bool::then_some(pressed.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(Line {
-      button: pressed.join(" / "),
-      does: says.to_string(),
-    }),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(pressed.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(Line {
+        button: pressed.join(" / "),
+        does: says.to_string(),
+      }),
+    },
+  )
 }
 
 fn chords(table: &Table, on: Input) -> Result<Vec<Vec<String>>, Never> {

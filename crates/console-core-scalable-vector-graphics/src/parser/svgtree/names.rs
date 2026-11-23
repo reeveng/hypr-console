@@ -42,7 +42,7 @@ pub enum EId {
     Polygon,
     Polyline,
     RadialGradient,
-    Rect,
+    Rectangle,
     Stop,
     Style,
     Svg,
@@ -122,7 +122,7 @@ static ELEMENTS: Map<EId> = Map {
         ("feBlend", EId::FeBlend),
         ("feDisplacementMap", EId::FeDisplacementMap),
         ("feDiffuseLighting", EId::FeDiffuseLighting),
-        ("rect", EId::Rect),
+        ("rect", EId::Rectangle),
         ("feFuncR", EId::FeFuncR),
     ],
 };

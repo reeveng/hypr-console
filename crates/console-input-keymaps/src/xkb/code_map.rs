@@ -65,12 +65,25 @@ impl CodeMap {
   }
 
   pub(crate) fn repeat(&mut self, original: Span, include_span: Span) -> Result<Span, Never> {
-    let ::core::result::Result::Ok(found) = ::console_core_number_conversion::fixed_index(match self.ranges.binary_search_by_key(&original.lo, |range| range.span.lo) {
-      Ok(found) => found,
-      Err(_not_registered) => return Ok(original),
+    let ::core::result::Result::Ok(found) = ::console_core_number_conversion::fixed_index(
+      match self
+        .ranges
+        .binary_search_by_key(&original.lo, |range| range.span.lo)
+      {
+        Ok(found) => found,
+        Err(_not_registered) => return Ok(original),
+      },
+    );
+    let Ok(at) = fitted::<_, u32>(match ::console_core_number_conversion::index(found) {
+      ::core::result::Result::Ok(native_position) => native_position,
     });
-    let Ok(at) = fitted::<_, u32>(match ::console_core_number_conversion::index(found) { ::core::result::Result::Ok(native_position) => native_position });
-    let source = match self.ranges.get(match ::console_core_number_conversion::index(found) { ::core::result::Result::Ok(native_position) => native_position }).map(|range| &range.source) {
+    let source = match self
+      .ranges
+      .get(match ::console_core_number_conversion::index(found) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      })
+      .map(|range| &range.source)
+    {
       Some(Source::Original { .. }) => Source::Alias(at),
       Some(Source::Alias(first)) => Source::Alias(*first),
       None => return Ok(original),

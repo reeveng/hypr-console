@@ -123,7 +123,7 @@ fn length(raw: &str, reference: Option<f64>) -> Option<f64> {
     let value = match value.unit {
         LengthUnit::None | LengthUnit::Px => value.number,
         LengthUnit::Percent => value.number * reference? / 100.0,
-        LengthUnit::In => value.number * 96.0,
+        LengthUnit::Inches => value.number * 96.0,
         LengthUnit::Cm => value.number * 96.0 / 2.54,
         LengthUnit::Mm => value.number * 96.0 / 25.4,
         LengthUnit::Pt => value.number * 96.0 / 72.0,

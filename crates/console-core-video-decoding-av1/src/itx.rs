@@ -92,8 +92,15 @@ fn inv_txfm_add_body<BD: BitDepth>(
   let rnd = 1_i32.wrapping_shl(shift).wrapping_shr(1);
   let Ok(w) = console_core_number_conversion::index(width);
   let Ok(h) = console_core_number_conversion::index(height);
-  let Ok(native_stride) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() { ::core::result::Result::Ok(native_stride) => native_stride });
-  let Ok(pxstride) = console_core_number_conversion::fixed_offset(match ::console_core_number_conversion::wrapped_offset(native_stride) { ::core::result::Result::Ok(native_position__) => native_position__ });
+  let Ok(native_stride) =
+    ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+      ::core::result::Result::Ok(native_stride) => native_stride,
+    });
+  let Ok(pxstride) = console_core_number_conversion::fixed_offset(
+    match ::console_core_number_conversion::wrapped_offset(native_stride) {
+      ::core::result::Result::Ok(native_position__) => native_position__,
+    },
+  );
 
   let dc_threshold = match plan.dc_shortcut {
     DcShortcut::Available => 1_i32,
@@ -107,7 +114,9 @@ fn inv_txfm_add_body<BD: BitDepth>(
       *coefficient = BD::Coef::from(0_i16);
 
       dc = match ::core::primitive::bool::then_some(is_rect2, ()) {
-        ::core::option::Option::Some(()) => dc.wrapping_mul(181).wrapping_add(128).wrapping_shr(8),
+        ::core::option::Option::Some(()) => {
+          dc.wrapping_mul(181).wrapping_add(128).wrapping_shr(8)
+        }
         ::core::option::Option::None => dc,
       };
 
@@ -121,7 +130,11 @@ fn inv_txfm_add_body<BD: BitDepth>(
 
       for y in 0..h {
         let Ok(row_offset) = console_core_number_conversion::wrapped_offset(y);
-        let Ok(mut row) = dst.at(row_offset.wrapping_mul(match ::console_core_number_conversion::wrapped_offset(pxstride) { ::core::result::Result::Ok(native_position_) => native_position_ }));
+        let Ok(mut row) = dst.at(row_offset.wrapping_mul(
+          match ::console_core_number_conversion::wrapped_offset(pxstride) {
+            ::core::result::Result::Ok(native_position_) => native_position_,
+          },
+        ));
         let Ok(mut pixels) = row.slice_mut::<BD>(w);
 
         for pixel in pixels.iter_mut() {
@@ -138,11 +151,15 @@ fn inv_txfm_add_body<BD: BitDepth>(
   let active_height = coefficient_height.get();
   let active_width = width.min(32);
   let Ok(sh) = console_core_number_conversion::index(active_height);
-  let active = active_width.checked_mul(active_height).ok_or(Rav1dError::ERANGE)?;
+  let active = active_width
+    .checked_mul(active_height)
+    .ok_or(Rav1dError::ERANGE)?;
   let area = width.checked_mul(height).ok_or(Rav1dError::ERANGE)?;
   let Ok(coefficient_count) = console_core_number_conversion::index(active);
   let Ok(scratch_count) = console_core_number_conversion::index(area);
-  let coeff_2 = coeff.get_mut(..coefficient_count).ok_or(Rav1dError::EINVAL)?;
+  let coeff_2 = coeff
+    .get_mut(..coefficient_count)
+    .ok_or(Rav1dError::EINVAL)?;
   let tmp_2 = tmp.get_mut(..scratch_count).ok_or(Rav1dError::EINVAL)?;
 
   let (row_clip_min, col_clip_min) = match BD::BITDEPTH {
@@ -160,12 +177,21 @@ fn inv_txfm_add_body<BD: BitDepth>(
       let coefficient = column.get(y).ok_or(Rav1dError::EINVAL)?;
       let sample = (*coefficient).as_::<i32>();
       *pixel = match ::core::primitive::bool::then_some(is_rect2, ()) {
-        ::core::option::Option::Some(()) => sample.wrapping_mul(181).wrapping_add(128).wrapping_shr(8),
+        ::core::option::Option::Some(()) => {
+          sample.wrapping_mul(181).wrapping_add(128).wrapping_shr(8)
+        }
         ::core::option::Option::None => sample,
       };
     }
 
-    (plan.row)(row, NonZeroU32::MIN, CoefficientBounds { lower: row_clip_min, upper: row_clip_max })?;
+    (plan.row)(
+      row,
+      NonZeroU32::MIN,
+      CoefficientBounds {
+        lower: row_clip_min,
+        upper: row_clip_max,
+      },
+    )?;
   }
 
   coeff_2.fill(BD::Coef::from(0_i16));
@@ -180,12 +206,23 @@ fn inv_txfm_add_body<BD: BitDepth>(
 
   for x in 0..w {
     let column = tmp_2.get_mut(x..).ok_or(Rav1dError::EINVAL)?;
-    (plan.column)(column, col_stride, CoefficientBounds { lower: col_clip_min, upper: col_clip_max })?;
+    (plan.column)(
+      column,
+      col_stride,
+      CoefficientBounds {
+        lower: col_clip_min,
+        upper: col_clip_max,
+      },
+    )?;
   }
 
   for (y, source) in tmp_2.chunks_exact(w.max(1)).enumerate() {
     let Ok(row_offset) = console_core_number_conversion::wrapped_offset(y);
-    let Ok(mut row) = dst.at(row_offset.wrapping_mul(match ::console_core_number_conversion::wrapped_offset(pxstride) { ::core::result::Result::Ok(native_position_) => native_position_ }));
+    let Ok(mut row) = dst.at(row_offset.wrapping_mul(
+      match ::console_core_number_conversion::wrapped_offset(pxstride) {
+        ::core::result::Result::Ok(native_position_) => native_position_,
+      },
+    ));
     let Ok(mut pixels) = row.slice_mut::<BD>(w);
 
     for (pixel, &coefficient) in pixels.iter_mut().zip(source) {
@@ -256,10 +293,12 @@ fn inv_txfm_add_rust<const W: usize, const H: usize, const TYPE: TxfmType, BD: B
     H_FLIPADST => (Identity, FlipAdst),
     V_ADST => (Adst, Identity),
     V_FLIPADST => (FlipAdst, Identity),
-    WHT_WHT => return match (W, H) {
-      (4, 4) => inv_txfm_add_wht_wht_4x4_rust(dst, coeff, bd),
-      (_, _) => Err(Rav1dError::EINVAL),
-    },
+    WHT_WHT => {
+      return match (W, H) {
+        (4, 4) => inv_txfm_add_wht_wht_4x4_rust(dst, coeff, bd),
+        (_, _) => Err(Rav1dError::EINVAL),
+      };
+    }
     _ => return Err(Rav1dError::EINVAL),
   };
 
@@ -289,7 +328,13 @@ fn inv_txfm_add_rust<const W: usize, const H: usize, const TYPE: TxfmType, BD: B
   let height = u32::try_from(H).map_err(|_overflow| Rav1dError::ERANGE)?;
   let row = resolve_1d_fn(first, width)?;
   let column = resolve_1d_fn(second, height)?;
-  let plan = TransformPlan { size: Size { width, height }, shift, row, column, dc_shortcut };
+  let plan = TransformPlan {
+    size: Size { width, height },
+    shift,
+    row,
+    column,
+    dc_shortcut,
+  };
   let mut tmp = [[0i32; W]; H];
 
   match (width, height, BD::BITDEPTH) {
@@ -486,48 +531,49 @@ impl Rav1dInvTxfmDSPContext {
     let Ok(ordinal) = size.ordinal();
     let Ok(tx_size) = console_core_number_conversion::index(ordinal);
 
-    let simd_handled = match ::core::primitive::bool::then_some(available >= full_coefficients, ()) {
-      ::core::option::Option::Some(()) => {
-        #[cfg(not(target_arch = "x86_64"))]
-        let ::core::result::Result::Ok(tx_type) =
-          ::console_core_number_conversion::index::<::core::primitive::u8>(kind);
+    let simd_handled =
+      match ::core::primitive::bool::then_some(available >= full_coefficients, ()) {
+        ::core::option::Option::Some(()) => {
+          #[cfg(not(target_arch = "x86_64"))]
+          let ::core::result::Result::Ok(tx_type) =
+            ::console_core_number_conversion::index::<::core::primitive::u8>(kind);
 
-        #[cfg(target_arch = "x86_64")]
-        {
-          use crate::src::safe_simd::itx::{TransformDispatch, itxfm_add_dispatch};
+          #[cfg(target_arch = "x86_64")]
+          {
+            use crate::src::safe_simd::itx::{TransformDispatch, itxfm_add_dispatch};
 
-          let Ok(dispatch) = itxfm_add_dispatch::<BD>(size, kind, dst, coeff, eob, bd);
+            let Ok(dispatch) = itxfm_add_dispatch::<BD>(size, kind, dst, coeff, eob, bd);
 
-          match dispatch {
-            TransformDispatch::Applied => true,
-            TransformDispatch::Fallback => false,
+            match dispatch {
+              TransformDispatch::Applied => true,
+              TransformDispatch::Fallback => false,
+            }
+          }
+
+          #[cfg(target_arch = "aarch64")]
+          {
+            crate::src::safe_simd::itx_arm::itxfm_add_dispatch::<BD>(
+              tx_size, tx_type, dst, coeff, eob, bd,
+            )
+          }
+          #[cfg(target_arch = "wasm32")]
+          {
+            crate::src::safe_simd::itx_wasm::itxfm_add_dispatch::<BD>(
+              tx_size, tx_type, dst, coeff, eob, bd,
+            )
+          }
+          #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+          )))]
+          {
+            let _ = (tx_size, tx_type);
+            false
           }
         }
-
-        #[cfg(target_arch = "aarch64")]
-        {
-          crate::src::safe_simd::itx_arm::itxfm_add_dispatch::<BD>(
-            tx_size, tx_type, dst, coeff, eob, bd,
-          )
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-          crate::src::safe_simd::itx_wasm::itxfm_add_dispatch::<BD>(
-            tx_size, tx_type, dst, coeff, eob, bd,
-          )
-        }
-        #[cfg(not(any(
-          target_arch = "x86_64",
-          target_arch = "aarch64",
-          target_arch = "wasm32"
-        )))]
-        {
-          let _ = (tx_size, tx_type);
-          false
-        }
-      }
-      ::core::option::Option::None => false,
-    };
+        ::core::option::Option::None => false,
+      };
     let Ok(()) = crate::src::ablate::note_itx_shape(tx_size, BD::BITDEPTH, simd_handled);
 
     match ::core::primitive::bool::then_some(simd_handled, ()) {
@@ -563,11 +609,18 @@ fn inv_txfm_add_wht_wht_4x4_rust<BD: BitDepth>(
     rav1d_inv_wht4_1d_c(column, stride)?;
   }
 
-  let Ok(pxstride) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() { ::core::result::Result::Ok(pxstride) => pxstride });
+  let Ok(pxstride) =
+    ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+      ::core::result::Result::Ok(pxstride) => pxstride,
+    });
 
   for (y, source) in tmp.as_chunks::<4>().0.iter().enumerate() {
     let Ok(row_offset) = console_core_number_conversion::wrapped_offset(y);
-    let Ok(mut row) = dst.at(row_offset.wrapping_mul(match ::console_core_number_conversion::wrapped_offset(pxstride) { ::core::result::Result::Ok(native_position) => native_position }));
+    let Ok(mut row) = dst.at(row_offset.wrapping_mul(
+      match ::console_core_number_conversion::wrapped_offset(pxstride) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    ));
     let Ok(mut pixels) = row.slice_mut::<BD>(side);
 
     for (pixel, &residual) in pixels.iter_mut().zip(source) {

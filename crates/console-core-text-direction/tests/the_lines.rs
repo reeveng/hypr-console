@@ -9,18 +9,18 @@
 use console_core_never::Never;
 use console_core_text_direction::{BidiInfo, Level, LevelFault, LineFault};
 
-enum Fault {
+enum Error {
   Level(LevelFault),
   Line(LineFault),
   NoParagraph,
 }
 
-impl std::fmt::Debug for Fault {
+impl std::fmt::Debug for Error {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Fault::Level(fault) => write!(to, "{fault}"),
-      Fault::Line(fault) => write!(to, "{fault}"),
-      Fault::NoParagraph => write!(to, "the text came out with no paragraph"),
+      Error::Level(fault) => write!(to, "{fault}"),
+      Error::Line(fault) => write!(to, "{fault}"),
+      Error::NoParagraph => write!(to, "the text came out with no paragraph"),
     }
   }
 }
@@ -29,12 +29,12 @@ fn numbers(levels: &[Level]) -> Result<Vec<u8>, Never> {
   levels.iter().map(|level| level.number()).collect()
 }
 
-fn levels(numbers: &[u8]) -> Result<Vec<Level>, Fault> {
+fn levels(numbers: &[u8]) -> Result<Vec<Level>, Error> {
   numbers
     .iter()
     .map(|&number| Level::new(number))
     .collect::<Result<Vec<Level>, LevelFault>>()
-    .map_err(Fault::Level)
+    .map_err(Error::Level)
 }
 
 #[test]
@@ -67,13 +67,13 @@ fn a_paragraph_takes_its_direction_from_what_is_outside_its_isolates() {
 }
 
 #[test]
-fn a_right_to_left_paragraph_shows_its_runs_from_the_end() -> Result<(), Fault> {
+fn a_right_to_left_paragraph_shows_its_runs_from_the_end() -> Result<(), Error> {
   let Ok(info) = BidiInfo::new("אב abc גד", None);
   let Ok(paragraphs) = info.paragraphs();
-  let paragraph = paragraphs.first().ok_or(Fault::NoParagraph)?;
+  let paragraph = paragraphs.first().ok_or(Error::NoParagraph)?;
   let (levels, runs) = info
     .visual_runs(paragraph, paragraph.range.clone())
-    .map_err(Fault::Line)?;
+    .map_err(Error::Line)?;
 
   assert_eq!(
     numbers(&levels),
@@ -85,13 +85,13 @@ fn a_right_to_left_paragraph_shows_its_runs_from_the_end() -> Result<(), Fault> 
 }
 
 #[test]
-fn whitespace_before_a_tab_is_put_back_at_the_paragraph_level_on_its_line() -> Result<(), Fault> {
+fn whitespace_before_a_tab_is_put_back_at_the_paragraph_level_on_its_line() -> Result<(), Error> {
   let Ok(info) = BidiInfo::new("אב \tגד", Some(Level::LEFT_TO_RIGHT));
   let Ok(paragraphs) = info.paragraphs();
-  let paragraph = paragraphs.first().ok_or(Fault::NoParagraph)?;
+  let paragraph = paragraphs.first().ok_or(Error::NoParagraph)?;
   let (levels, _runs) = info
     .visual_runs(paragraph, paragraph.range.clone())
-    .map_err(Fault::Line)?;
+    .map_err(Error::Line)?;
   let Ok(original) = info.levels();
 
   assert_eq!(numbers(original), Ok(vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
@@ -101,10 +101,10 @@ fn whitespace_before_a_tab_is_put_back_at_the_paragraph_level_on_its_line() -> R
 }
 
 #[test]
-fn a_line_that_is_not_whole_characters_of_the_text_is_refused() -> Result<(), Fault> {
+fn a_line_that_is_not_whole_characters_of_the_text_is_refused() -> Result<(), Error> {
   let Ok(info) = BidiInfo::new("אב", None);
   let Ok(paragraphs) = info.paragraphs();
-  let paragraph = paragraphs.first().ok_or(Fault::NoParagraph)?;
+  let paragraph = paragraphs.first().ok_or(Error::NoParagraph)?;
 
   assert_eq!(
     info.visual_runs(paragraph, 0..1),
@@ -125,7 +125,7 @@ fn a_line_that_is_not_whole_characters_of_the_text_is_refused() -> Result<(), Fa
 }
 
 #[test]
-fn levels_are_put_in_the_order_they_are_shown() -> Result<(), Fault> {
+fn levels_are_put_in_the_order_they_are_shown() -> Result<(), Error> {
   let flat = levels(&[0, 0, 0, 0])?;
   let nested = levels(&[0, 0, 0, 1, 1, 1, 2, 2])?;
 
@@ -146,14 +146,14 @@ fn a_level_is_at_most_126() {
 }
 
 #[test]
-fn a_paragraph_asked_for_at_the_deepest_level_stays_there() -> Result<(), Fault> {
-  let deepest = Level::new(126).map_err(Fault::Level)?;
+fn a_paragraph_asked_for_at_the_deepest_level_stays_there() -> Result<(), Error> {
+  let deepest = Level::new(126).map_err(Error::Level)?;
   let Ok(info) = BidiInfo::new("aא1", Some(deepest));
   let Ok(paragraphs) = info.paragraphs();
-  let paragraph = paragraphs.first().ok_or(Fault::NoParagraph)?;
+  let paragraph = paragraphs.first().ok_or(Error::NoParagraph)?;
   let (levels, runs) = info
     .visual_runs(paragraph, paragraph.range.clone())
-    .map_err(Fault::Line)?;
+    .map_err(Error::Line)?;
   let Ok(original) = info.levels();
 
   assert_eq!(numbers(original), Ok(vec![126, 126, 126, 126]));

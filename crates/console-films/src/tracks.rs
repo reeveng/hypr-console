@@ -137,7 +137,10 @@ pub(crate) fn read(opened: &FileSource) -> Result<Option<Read>, ContainerFault> 
   match begun {
     Ok(()) => {}
     Err(fault) => {
-      return match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::UnexpectedEof, ()) {
+      return match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::UnexpectedEof,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ok(None),
         ::core::option::Option::None => Err(ContainerFault::Unread(fault)),
       };
@@ -351,10 +354,12 @@ fn a_tick(track: &matroska::Track) -> Result<SecondsPerTick, Never> {
   let Ok(over_2) = over.float();
   let Ok(under_2) = under.float();
 
-  Ok(SecondsPerTick(match ::core::primitive::bool::then_some(under_2 > 0.0, ()) {
-    ::core::option::Option::Some(()) => over_2 / under_2,
-    ::core::option::Option::None => 0.001,
-  }))
+  Ok(SecondsPerTick(
+    match ::core::primitive::bool::then_some(under_2 > 0.0, ()) {
+      ::core::option::Option::Some(()) => over_2 / under_2,
+      ::core::option::Option::None => 0.001,
+    },
+  ))
 }
 
 fn matroska_video(file: &matroska::MkvFile) -> Result<Option<Video>, Never> {

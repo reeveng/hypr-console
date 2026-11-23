@@ -217,10 +217,12 @@ fn group3_block(context: &DecoderContext, reader: &mut BitReader<'_>) -> Result<
     context.settings.end_of_block == EndOfBlock::Expected && ends >= RETURN_TO_CONTROL;
   let counted = context.decoded_rows == context.settings.rows;
 
-  Ok(match ::core::primitive::bool::then_some(returned || counted || left == 0, ()) {
-    ::core::option::Option::Some(()) => Block::Ended,
-    ::core::option::Option::None => Block::Continues,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(returned || counted || left == 0, ()) {
+      ::core::option::Option::Some(()) => Block::Ended,
+      ::core::option::Option::None => Block::Continues,
+    },
+  )
 }
 
 fn group4(
@@ -233,7 +235,10 @@ fn group4(
   for _line in 0..lines {
     let ahead = reader.peek_bits(END_OF_BLOCK_LENGTH);
 
-    match ::core::primitive::bool::then_some(context.settings.end_of_block == EndOfBlock::Expected && ahead == Ok(END_OF_BLOCK), ()) {
+    match ::core::primitive::bool::then_some(
+      context.settings.end_of_block == EndOfBlock::Expected && ahead == Ok(END_OF_BLOCK),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let _marker = reader.read_bits(END_OF_BLOCK_LENGTH)?;
 
@@ -244,7 +249,10 @@ fn group4(
 
     let Ok(left) = reader.bits_left();
 
-    match ::core::primitive::bool::then_some(context.decoded_rows == context.settings.rows || left == 0, ()) {
+    match ::core::primitive::bool::then_some(
+      context.decoded_rows == context.settings.rows || left == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(()),
       ::core::option::Option::None => {}
     }

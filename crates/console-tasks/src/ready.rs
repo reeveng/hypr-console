@@ -1,8 +1,7 @@
 //! What must hold before a deploy, in the order it is asked.
 //!
-//! The cheap questions that can fail for a reason nobody meant go first: the
-//! map drawn again and compared, the retired words, the words written out of
-//! proportion. Then the build, because the tests of a panel open its program
+//! The retired-word and word proportion checks go first. Then the build,
+//! because the tests of a panel open its program
 //! and a stale one is a picture of yesterday. Then the tests, clippy, the
 //! feature checks here and the rules, each over only the crates a change since
 //! the last pass could reach.
@@ -17,8 +16,6 @@ use crate::reached::Scope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
-  Map,
-  MapUnchanged,
   RetiredWords,
   WordsInProportion,
   Build,
@@ -30,8 +27,6 @@ pub enum Step {
 
 pub fn steps(scope: &Scope) -> Result<Vec<Step>, Never> {
   Ok(vec![
-    Step::Map,
-    Step::MapUnchanged,
     Step::RetiredWords,
     Step::WordsInProportion,
     Step::Build,
@@ -60,12 +55,14 @@ pub fn earlier(tree: Tree, now: &str, recorded: Option<&str>) -> Result<Earlier,
     .filter(|tree_3| !tree_3.is_empty());
 
   Ok(match (tree, since) {
-    (Tree::Committed, Some(since_2)) => match ::core::primitive::bool::then_some(since_2 == now, ()) {
-      ::core::option::Option::Some(()) => Earlier::Passed,
-      ::core::option::Option::None => Earlier::Ask {
-        since: Some(since_2),
-      },
-    },
+    (Tree::Committed, Some(since_2)) => {
+      match ::core::primitive::bool::then_some(since_2 == now, ()) {
+        ::core::option::Option::Some(()) => Earlier::Passed,
+        ::core::option::Option::None => Earlier::Ask {
+          since: Some(since_2),
+        },
+      }
+    }
     (Tree::Committed, None) | (Tree::Loose, None) => Earlier::Ask { since: None },
     (Tree::Loose, Some(since_3)) => Earlier::Ask {
       since: Some(since_3),
@@ -141,8 +138,9 @@ mod tests {
   fn the_cheap_questions_are_asked_before_the_build_and_the_rules_last() {
     let Ok(asked) = steps(&Scope::Workspace);
 
-    assert_eq!(asked.first(), Some(&Step::Map));
-    assert_eq!(asked.iter().position(|step| *step == Step::Build), Some(4));
+    assert_eq!(asked.first(), Some(&Step::RetiredWords));
+    assert_eq!(asked.get(1), Some(&Step::WordsInProportion));
+    assert_eq!(asked.get(2), Some(&Step::Build));
     assert_eq!(asked.last(), Some(&Step::Rules(Scope::Workspace)));
   }
 }

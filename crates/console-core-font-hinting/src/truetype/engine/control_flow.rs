@@ -10,11 +10,13 @@ use super::{Engine, HintErrorKind, OpResult};
 
 impl Engine<'_> {
   pub(super) fn op_if(&mut self) -> OpResult {
-    match ::core::primitive::bool::then_some({
-      let answer = self.value_stack.pop()?;
-      answer
-    } == 0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      {
+        let answer = self.value_stack.pop()?;
+        answer
+      } == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let mut nest_depth = 1;
         let mut out = false;
@@ -589,14 +591,14 @@ impl Engine<'_> {
   pub(super) fn op_jrot(&mut self) -> OpResult {
     let e = self.value_stack.pop()?;
     self.do_jump(match ::core::primitive::bool::then_some(e != 0, ()) {
-      ::core::option::Option::Some(()) => Jump::Taken,
+      ::core::option::Option::Some(()) => Jump::Branch,
       ::core::option::Option::None => Jump::Skipped,
     })
   }
 
   pub(super) fn op_jmpr(&mut self) -> OpResult {
     self.do_jump(match ::core::primitive::bool::then_some(true, ()) {
-      ::core::option::Option::Some(()) => Jump::Taken,
+      ::core::option::Option::Some(()) => Jump::Branch,
       ::core::option::Option::None => Jump::Skipped,
     })
   }
@@ -604,7 +606,7 @@ impl Engine<'_> {
   pub(super) fn op_jrof(&mut self) -> OpResult {
     let e = self.value_stack.pop()?;
     self.do_jump(match ::core::primitive::bool::then_some(e == 0, ()) {
-      ::core::option::Option::Some(()) => Jump::Taken,
+      ::core::option::Option::Some(()) => Jump::Branch,
       ::core::option::Option::None => Jump::Skipped,
     })
   }
@@ -615,7 +617,7 @@ impl Engine<'_> {
 
     match jump {
       Jump::Skipped => return Ok(()),
-      Jump::Taken => {}
+      Jump::Branch => {}
     }
 
     match jump_offset {
@@ -636,7 +638,7 @@ impl Engine<'_> {
 
 #[derive(Clone, Copy)]
 enum Jump {
-  Taken,
+  Branch,
   Skipped,
 }
 

@@ -8,47 +8,49 @@ impl<'a> Svg<'a> {
   pub fn glyph_data(&self, glyph_id: GlyphId) -> Result<Option<&'a [u8]>, ReadError> {
     let document_list = self.svg_document_list()?;
     let Ok(document_records) = document_list.document_records();
-    let svg_document = match document_records
-      .binary_search_by(|r| {
-        let Ok(value_1) = r.start_glyph_id.get();
+    let svg_document = match document_records.binary_search_by(|r| {
+      let Ok(value_1) = r.start_glyph_id.get();
 
-        match ::core::primitive::bool::then_some(value_1 > glyph_id, ()) {
-          ::core::option::Option::Some(()) => Ordering::Greater,
-          ::core::option::Option::None => {
-            let Ok(value_2) = r.end_glyph_id.get();
+      match ::core::primitive::bool::then_some(value_1 > glyph_id, ()) {
+        ::core::option::Option::Some(()) => Ordering::Greater,
+        ::core::option::Option::None => {
+          let Ok(value_2) = r.end_glyph_id.get();
 
-            match ::core::primitive::bool::then_some(value_2 < glyph_id, ()) {
-              ::core::option::Option::Some(()) => Ordering::Less,
-              ::core::option::Option::None => Ordering::Equal,
-            }
+          match ::core::primitive::bool::then_some(value_2 < glyph_id, ()) {
+            ::core::option::Option::Some(()) => Ordering::Less,
+            ::core::option::Option::None => Ordering::Equal,
           }
         }
-      }) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None }
-      .and_then(|index| {
-        let Ok(document_list_document_records) = document_list.document_records();
+      }
+    }) {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None,
+    }
+    .and_then(|index| {
+      let Ok(document_list_document_records) = document_list.document_records();
 
-        document_list_document_records.get(index)
-      })
-      .and_then(|r| {
-        let Ok(all_data) = document_list.data.as_bytes();
-        let Ok(value_3) = r.svg_doc_offset.get();
-        let Ok(value_4) = r.svg_doc_offset.get();
-        let Ok(value_5) = r.svg_doc_length.get();
+      document_list_document_records.get(index)
+    })
+    .and_then(|r| {
+      let Ok(all_data) = document_list.data.as_bytes();
+      let Ok(value_3) = r.svg_doc_offset.get();
+      let Ok(value_4) = r.svg_doc_offset.get();
+      let Ok(value_5) = r.svg_doc_length.get();
 
-        let Ok(value_6) = console_core_number_conversion::indices(
-          ({
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(value_3);
-            migrated_value
-          })..({
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-              ::core::primitive::u32::wrapping_add(value_4, value_5),
-            );
-            migrated_value
-          }),
-        );
+      let Ok(value_6) = console_core_number_conversion::indices(
+        ({
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(value_3);
+          migrated_value
+        })..({
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
+            ::core::primitive::u32::wrapping_add(value_4, value_5),
+          );
+          migrated_value
+        }),
+      );
 
-        all_data.get(value_6)
-      });
+      all_data.get(value_6)
+    });
 
     Ok(svg_document)
   }

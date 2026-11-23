@@ -364,7 +364,7 @@ impl Clipboard {
     service.device.set_selection(Some(&source));
     self.incoming = None;
 
-    Ok(Reply::Done)
+    Ok(Reply::Finished)
   }
 
   fn cancel(&mut self, id: ObjectId) -> Result<(), Never> {
@@ -400,7 +400,9 @@ impl Clipboard {
             match service.connection.flush() {
               Ok(()) => Ok(reply),
               Err(fault) => {
-                console_core_logging::debug!("couldn’t publish the restored clipboard selection: {fault}");
+                console_core_logging::debug!(
+                  "couldn’t publish the restored clipboard selection: {fault}"
+                );
 
                 Ok(Reply::Unavailable)
               }
@@ -413,7 +415,7 @@ impl Clipboard {
       Request::Clear => {
         self.incoming = None;
         let Ok(()) = self.history.clear();
-        Ok(Reply::Done)
+        Ok(Reply::Finished)
       }
       Request::Pause(capture) => self.change_capture(capture),
     }
@@ -460,7 +462,7 @@ impl Clipboard {
     self.history.capture = capture;
     self.incoming = None;
 
-    Ok(Reply::Done)
+    Ok(Reply::Finished)
   }
 }
 

@@ -491,7 +491,7 @@ impl<'a> MinByteRange<'a> for SharedTuples<'a> {
 }
 
 impl ReadArgs for SharedTuples<'_> {
-    type Args = (u16, u16);
+    type Arguments = (u16, u16);
 }
 
 impl<'a> FontReadWithArgs<'a> for SharedTuples<'a> {

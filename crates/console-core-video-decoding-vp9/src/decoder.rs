@@ -17,7 +17,7 @@ use crate::loopfilter::{LfFrame, PlaneView, filter_superblock};
 use crate::places::{read, span, span_mut};
 use crate::probs::{Counts, FrameContext, adapt_coef_probs, adapt_noncoef_probs};
 use crate::tables::*;
-use crate::tile::{FrameShared, ProbabilityCounts, RefUse, Strip, TileDecoder};
+use crate::tile::{FrameShared, ProbabilityCounts, RefUse, TileBand, TileDecoder};
 use crate::{ColorInfo, DecodeQuality, Picture, Plane};
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index, wrapped};
@@ -85,7 +85,7 @@ enum Pending {
   Ready(Picture),
 
   #[cfg(all(feature = "threads", not(target_arch = "wasm32")))]
-  Job(std::sync::mpsc::Receiver<Picture>),
+  Task(std::sync::mpsc::Receiver<Picture>),
 
   Existing(FrameRef, i64, DecodeQuality),
 }
@@ -128,7 +128,7 @@ fn default_threads() -> std::result::Result<u64, Never> {
 }
 
 struct DecodedStrips {
-  strips: Vec<Strip>,
+  strips: Vec<TileBand>,
   counts: Counts,
 }
 
@@ -444,13 +444,13 @@ impl Decoder {
       match front {
         Pending::Ready(picture) => output.push(picture),
         #[cfg(all(feature = "threads", not(target_arch = "wasm32")))]
-        Pending::Job(rx) => {
+        Pending::Task(rx) => {
           let Ok(delivery) = receive_picture(&rx, mode);
 
           match delivery {
             PictureDelivery::Picture(picture) => output.push(picture),
             PictureDelivery::Waiting => {
-              self.pending.push_front(Pending::Job(rx));
+              self.pending.push_front(Pending::Task(rx));
               break;
             }
             PictureDelivery::Ended => {}
@@ -654,7 +654,7 @@ impl Decoder {
     &self,
     columns: &[TileColumn<'_>],
     shared: &FrameShared<'_>,
-  ) -> std::result::Result<Vec<(Strip, Option<Error>)>, Never> {
+  ) -> std::result::Result<Vec<(TileBand, Option<Error>)>, Never> {
     let h = shared.h;
     let axis = TileAxis {
       extent: u64::from(h.mi_rows),
@@ -695,7 +695,7 @@ impl Decoder {
 
   fn collect_strips(
     &mut self,
-    decoded: Vec<(Strip, Option<Error>)>,
+    decoded: Vec<(TileBand, Option<Error>)>,
     mode: ProbabilityCounts,
   ) -> Result<DecodedStrips> {
     let mut counts = Counts::default();
@@ -741,7 +741,7 @@ impl Decoder {
     &mut self,
     header: &FrameHeader,
     grid: &GridRef,
-    strips: Vec<Strip>,
+    strips: Vec<TileBand>,
     pts: i64,
   ) -> std::result::Result<FrameRef, Never> {
     let info = FrameInfo {
@@ -839,7 +839,7 @@ impl Decoder {
     };
 
     match header.refresh {
-      ContextRefresh::Keep => {}
+      ContextRefresh::Retain => {}
       ContextRefresh::Refresh => *saved = context,
     }
 
@@ -931,7 +931,7 @@ impl Decoder {
         self.jobs.push_back(worker);
 
         match delivery {
-          OutputDelivery::Shown => self.pending.push_back(Pending::Job(receive_picture)),
+          OutputDelivery::Shown => self.pending.push_back(Pending::Task(receive_picture)),
           OutputDelivery::Hidden => {}
         }
 
@@ -1156,7 +1156,7 @@ fn receive_picture(
 }
 
 fn recycle_strips(
-  strips: Vec<Strip>,
+  strips: Vec<TileBand>,
   pools: &Pools,
 ) -> core::result::Result<(), console_core_never::Never> {
   {
@@ -1174,7 +1174,7 @@ fn recycle_strips(
 
 struct PostJob {
   frame: FrameRef,
-  strips: Vec<Strip>,
+  strips: Vec<TileBand>,
   mi: GridRef,
   lf: Option<LfFrame>,
 
@@ -1402,7 +1402,7 @@ fn band_view<'a>(
 }
 
 fn assemble_mi(
-  strips: &mut [Strip],
+  strips: &mut [TileBand],
   dimensions: MiPlace,
   pools: &Pools,
 ) -> core::result::Result<(MiGrid, Vec<u8>), console_core_never::Never> {

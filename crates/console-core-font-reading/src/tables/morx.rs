@@ -29,11 +29,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_logical` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_logical` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_logical` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_logical` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_logical(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -45,11 +51,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_all_directions` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_all_directions` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_all_directions` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_all_directions` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_all_directions(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -61,11 +73,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_backwards` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_backwards` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_backwards` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_backwards` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_backwards(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -77,11 +95,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_vertical` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_vertical` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_vertical` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_vertical` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_vertical(&self) -> bool {
     let Ok(coverage) = self.coverage();
@@ -109,11 +133,11 @@ pub enum SubtableKind<'a> {
 }
 
 impl ReadArgs for SubtableKind<'_> {
-  type Args = u32;
+  type Arguments = u32;
 }
 
 impl<'a> FontReadWithArgs<'a> for SubtableKind<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let format = *args & 0xFF;
 
     match format {
@@ -308,7 +332,9 @@ mod tests {
     let feature = *match <[_]>::get(&*features, 0) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
-        return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds));
+        return ::core::result::Result::Err(crate::test_support::Failure::from(
+          crate::read::ReadError::OutOfBounds,
+        ));
       }
     };
     assert_eq!(feature.feature_type(), Ok(4));
@@ -329,14 +355,14 @@ mod tests {
     let chain = fixture_value?;
     let subtable = {
       let rearrangement_subtable = crate::test_support::fixture_value(
-      ({
-        let Ok(subtables) = chain.subtables();
-        let Ok(explicit_value) = subtables.iter();
-        explicit_value
-      })
-      .next(),
-      "fixture value",
-    )?;
+        ({
+          let Ok(subtables) = chain.subtables();
+          let Ok(explicit_value) = subtables.iter();
+          explicit_value
+        })
+        .next(),
+        "fixture value",
+      )?;
       rearrangement_subtable
     }?;
     assert_eq!(subtable.coverage(), Ok(0x2000_0000));
@@ -348,7 +374,9 @@ mod tests {
       SubtableKind::Contextual(..)
       | SubtableKind::Ligature(..)
       | SubtableKind::NonContextual(..)
-      | SubtableKind::Insertion(..) => Err(crate::test_support::Failure::from("expected a rearrangement subtable")),
+      | SubtableKind::Insertion(..) => Err(crate::test_support::Failure::from(
+        "expected a rearrangement subtable",
+      )),
     }
   }
 
@@ -363,25 +391,32 @@ mod tests {
     let chain = fixture_value?;
     let subtable = {
       let contextual_subtable = crate::test_support::fixture_value(
-      ({
-        let Ok(subtables) = chain.subtables();
-        let Ok(explicit_value) = subtables.iter();
-        explicit_value
-      })
-      .next(),
-      "fixture value",
-    )?;
+        ({
+          let Ok(subtables) = chain.subtables();
+          let Ok(explicit_value) = subtables.iter();
+          explicit_value
+        })
+        .next(),
+        "fixture value",
+      )?;
       contextual_subtable
     }?;
     assert_eq!(subtable.coverage(), Ok(0x2000_0001));
 
     let kind = {
-        let outcome_kind = subtable.kind()?;
+      let outcome_kind = subtable.kind()?;
 
-        match outcome_kind {
-            SubtableKind::Contextual(matched_kind) => matched_kind,
-            crate::tables::morx::SubtableKind::Rearrangement(..) | crate::tables::morx::SubtableKind::Ligature(..) | crate::tables::morx::SubtableKind::NonContextual(..) | crate::tables::morx::SubtableKind::Insertion(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected contextual subtable!"))),
+      match outcome_kind {
+        SubtableKind::Contextual(matched_kind) => matched_kind,
+        crate::tables::morx::SubtableKind::Rearrangement(..)
+        | crate::tables::morx::SubtableKind::Ligature(..)
+        | crate::tables::morx::SubtableKind::NonContextual(..)
+        | crate::tables::morx::SubtableKind::Insertion(..) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "expected contextual subtable!"
+          )));
         }
+      }
     };
 
     let lookup = kind.lookups.get(0)?;
@@ -407,25 +442,32 @@ mod tests {
     let chain = fixture_value?;
     let subtable = {
       let ligature_subtable = crate::test_support::fixture_value(
-      ({
-        let Ok(subtables) = chain.subtables();
-        let Ok(explicit_value) = subtables.iter();
-        explicit_value
-      })
-      .next(),
-      "fixture value",
-    )?;
+        ({
+          let Ok(subtables) = chain.subtables();
+          let Ok(explicit_value) = subtables.iter();
+          explicit_value
+        })
+        .next(),
+        "fixture value",
+      )?;
       ligature_subtable
     }?;
     assert_eq!(subtable.coverage(), Ok(0x2000_0002));
 
     let kind = {
-        let outcome_kind = subtable.kind()?;
+      let outcome_kind = subtable.kind()?;
 
-        match outcome_kind {
-            SubtableKind::Ligature(matched_kind) => matched_kind,
-            crate::tables::morx::SubtableKind::Rearrangement(..) | crate::tables::morx::SubtableKind::Contextual(..) | crate::tables::morx::SubtableKind::NonContextual(..) | crate::tables::morx::SubtableKind::Insertion(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected ligature subtable!"))),
+      match outcome_kind {
+        SubtableKind::Ligature(matched_kind) => matched_kind,
+        crate::tables::morx::SubtableKind::Rearrangement(..)
+        | crate::tables::morx::SubtableKind::Contextual(..)
+        | crate::tables::morx::SubtableKind::NonContextual(..)
+        | crate::tables::morx::SubtableKind::Insertion(..) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "expected ligature subtable!"
+          )));
         }
+      }
     };
 
     let expected_actions = [0x3FFFFFFE, 0xBFFFFFFE];
@@ -485,25 +527,32 @@ mod tests {
     let chain = fixture_value?;
     let subtable = {
       let noncontextual_subtable = crate::test_support::fixture_value(
-      ({
-        let Ok(subtables) = chain.subtables();
-        let Ok(explicit_value) = subtables.iter();
-        explicit_value
-      })
-      .next(),
-      "fixture value",
-    )?;
+        ({
+          let Ok(subtables) = chain.subtables();
+          let Ok(explicit_value) = subtables.iter();
+          explicit_value
+        })
+        .next(),
+        "fixture value",
+      )?;
       noncontextual_subtable
     }?;
     assert_eq!(subtable.coverage(), Ok(0x2000_0004));
 
     let kind = {
-        let outcome_kind = subtable.kind()?;
+      let outcome_kind = subtable.kind()?;
 
-        match outcome_kind {
-            SubtableKind::NonContextual(matched_kind) => matched_kind,
-            crate::tables::morx::SubtableKind::Rearrangement(..) | crate::tables::morx::SubtableKind::Contextual(..) | crate::tables::morx::SubtableKind::Ligature(..) | crate::tables::morx::SubtableKind::Insertion(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected non-contextual subtable!"))),
+      match outcome_kind {
+        SubtableKind::NonContextual(matched_kind) => matched_kind,
+        crate::tables::morx::SubtableKind::Rearrangement(..)
+        | crate::tables::morx::SubtableKind::Contextual(..)
+        | crate::tables::morx::SubtableKind::Ligature(..)
+        | crate::tables::morx::SubtableKind::Insertion(..) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "expected non-contextual subtable!"
+          )));
         }
+      }
     };
 
     let expected_values = [None, None, Some(5u16), None, Some(7)];
@@ -528,25 +577,32 @@ mod tests {
     let chain = fixture_value?;
     let subtable = {
       let insertion_subtable = crate::test_support::fixture_value(
-      ({
-        let Ok(subtables) = chain.subtables();
-        let Ok(explicit_value) = subtables.iter();
-        explicit_value
-      })
-      .next(),
-      "fixture value",
-    )?;
+        ({
+          let Ok(subtables) = chain.subtables();
+          let Ok(explicit_value) = subtables.iter();
+          explicit_value
+        })
+        .next(),
+        "fixture value",
+      )?;
       insertion_subtable
     }?;
     assert_eq!(subtable.coverage(), Ok(0x2000_0005));
 
     let kind = {
-        let outcome_kind = subtable.kind()?;
+      let outcome_kind = subtable.kind()?;
 
-        match outcome_kind {
-            SubtableKind::Insertion(matched_kind) => matched_kind,
-            crate::tables::morx::SubtableKind::Rearrangement(..) | crate::tables::morx::SubtableKind::Contextual(..) | crate::tables::morx::SubtableKind::Ligature(..) | crate::tables::morx::SubtableKind::NonContextual(..) => return Err(crate::test_support::Failure::from(alloc::format!("expected insertion subtable!"))),
+      match outcome_kind {
+        SubtableKind::Insertion(matched_kind) => matched_kind,
+        crate::tables::morx::SubtableKind::Rearrangement(..)
+        | crate::tables::morx::SubtableKind::Contextual(..)
+        | crate::tables::morx::SubtableKind::Ligature(..)
+        | crate::tables::morx::SubtableKind::NonContextual(..) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "expected insertion subtable!"
+          )));
         }
+      }
     };
 
     let mut expected_glyphs = vec![];

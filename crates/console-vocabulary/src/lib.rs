@@ -108,10 +108,12 @@ impl PerMillion {
 
 impl TimesAsOften {
   pub fn past(self, limit: TimesAsOften) -> Result<Further, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.0 >= limit.0, ()) {
-      ::core::option::Option::Some(()) => Further::Yes,
-      ::core::option::Option::None => Further::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.0 >= limit.0, ()) {
+        ::core::option::Option::Some(()) => Further::Yes,
+        ::core::option::Option::None => Further::No,
+      },
+    )
   }
 }
 
@@ -268,7 +270,10 @@ pub enum Belonging {
 
 fn belonging(at: &str, only: &[String]) -> Result<Belonging, Never> {
   Ok(
-    match ::core::primitive::bool::then_some(only.iter().any(|place| at.starts_with(place.as_str())), ()) {
+    match ::core::primitive::bool::then_some(
+      only.iter().any(|place| at.starts_with(place.as_str())),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Belonging::Here,
       ::core::option::Option::None => Belonging::Elsewhere,
     },

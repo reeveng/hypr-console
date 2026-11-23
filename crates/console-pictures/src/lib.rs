@@ -182,7 +182,9 @@ fn file_header(at: &Path) -> std::io::Result<[u8; 12]> {
 
   match ::core::primitive::bool::then_some(listed.is_file(), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+    ::core::option::Option::None => {
+      return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
   }
 
   let mut file = std::fs::File::open(at)?;
@@ -190,7 +192,9 @@ fn file_header(at: &Path) -> std::io::Result<[u8; 12]> {
 
   match ::core::primitive::bool::then_some(opened.is_file(), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+    ::core::option::Option::None => {
+      return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
   }
 
   let mut opening = [0u8; 12];
@@ -248,7 +252,10 @@ fn drawn(opened: (Whole, &[u8]), covering: Size<u32>) -> Result<Option<Bitmap>, 
 
   Ok(match format {
     Whole::Jpeg => {
-      let decoded = match ::core::primitive::bool::then_some(covering.width.max(covering.height) >= SPREAD_FROM, ()) {
+      let decoded = match ::core::primitive::bool::then_some(
+        covering.width.max(covering.height) >= SPREAD_FROM,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(cores) = Cores::counted();
 
@@ -393,7 +400,10 @@ fn webp_shrunk(
   let Ok(scaling) = Scaling::new(region.size.width, kept, made);
   let mut bands = Bands(scaling);
 
-  let decoded = match ::core::primitive::bool::then_some(covering.width.max(covering.height) >= SPREAD_FROM, ()) {
+  let decoded = match ::core::primitive::bool::then_some(
+    covering.width.max(covering.height) >= SPREAD_FROM,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(cores) = Cores::counted();
 
@@ -663,7 +673,10 @@ fn read(at: &Path, within: Size<u32>) -> Result<Option<Pixels>, PictureError> {
   let Ok(had) = picture.size();
   let Ok(made) = fit_within(had, within);
 
-  let Ok(cores) = match ::core::primitive::bool::then_some(within.width.max(within.height) >= SPREAD_FROM, ()) {
+  let Ok(cores) = match ::core::primitive::bool::then_some(
+    within.width.max(within.height) >= SPREAD_FROM,
+    (),
+  ) {
     ::core::option::Option::Some(()) => Cores::counted(),
     ::core::option::Option::None => Cores::one(),
   };
@@ -769,7 +782,10 @@ pub fn from_portable_pixmap(bytes: &[u8]) -> Result<Option<Pixels>, Never> {
 }
 
 /// Read one frame with the three-line P6 header written by `portable_pixmap`.
-pub fn read_portable_pixmap(reader: &mut impl BufRead, limit: Size<u32>) -> io::Result<Option<Pixels>> {
+pub fn read_portable_pixmap(
+  reader: &mut impl BufRead,
+  limit: Size<u32>,
+) -> io::Result<Option<Pixels>> {
   let mut frame = Vec::new();
   for line in 0..3 {
     match reader.take(64).read_until(b'\n', &mut frame)? {
@@ -785,10 +801,15 @@ pub fn read_portable_pixmap(reader: &mut impl BufRead, limit: Size<u32>) -> io::
     }
   }
   let Ok(header) = portable_pixmap_header(&frame);
-  let header = header
-    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid pixmap header"))?;
+  let header =
+    header.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid pixmap header"))?;
   let Size { width, height } = header.size;
-  if width == 0 || height == 0 || width > limit.width || height > limit.height || !header.pixels.is_empty() {
+  if width == 0
+    || height == 0
+    || width > limit.width
+    || height > limit.height
+    || !header.pixels.is_empty()
+  {
     return Err(io::Error::new(
       io::ErrorKind::InvalidData,
       "invalid pixmap dimensions or header",

@@ -285,10 +285,12 @@ pub(crate) fn align_weak_points(outline: &mut Outline, dim: Dimension) -> Option
   for contour in &outline.contours {
     let points = outline.points.get_mut(contour.range())?;
 
-    let first_touched_ix = match points
-      .iter()
-      .position(|point| matches!(point.flags.marker_presence(touch_marker), read_fonts::Presence::Present))
-    {
+    let first_touched_ix = match points.iter().position(|point| {
+      matches!(
+        point.flags.marker_presence(touch_marker),
+        read_fonts::Presence::Present
+      )
+    }) {
       Some(first_touched_ix) => first_touched_ix,
       None => {
         continue;
@@ -298,7 +300,15 @@ pub(crate) fn align_weak_points(outline: &mut Outline, dim: Dimension) -> Option
     let mut point_ix = first_touched_ix;
     let mut last_touched_ix;
     'outer: loop {
-      while point_ix < last_ix && matches!(points.get(point_ix + 1)?.flags.marker_presence(touch_marker), read_fonts::Presence::Present) {
+      while point_ix < last_ix
+        && matches!(
+          points
+            .get(point_ix + 1)?
+            .flags
+            .marker_presence(touch_marker),
+          read_fonts::Presence::Present
+        )
+      {
         point_ix += 1;
       }
       last_touched_ix = point_ix;

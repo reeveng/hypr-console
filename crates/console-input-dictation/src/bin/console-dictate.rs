@@ -501,7 +501,7 @@ fn engine() -> Result<PathBuf, Never> {
   match ours {
     Some(ours_2) => match artifact(&ours_2) {
       Ok(Artifact::Ready) => return Ok(ours_2),
-      Ok(Artifact::Missing) => {}
+      Ok(Artifact::Absent) => {}
       Err(fault) => eprintln!("console-dictate: opening {}: {fault}", ours_2.display()),
     },
     None => {}
@@ -523,13 +523,13 @@ fn engine() -> Result<PathBuf, Never> {
 
 enum Artifact {
   Ready,
-  Missing,
+  Absent,
 }
 
 fn artifact(at: &Path) -> io::Result<Artifact> {
   let file = match open(at, OFlags::PATH | OFlags::CLOEXEC, Mode::empty()) {
     Ok(file) => file,
-    Err(Errno::NOENT) => return Ok(Artifact::Missing),
+    Err(Errno::NOENT) => return Ok(Artifact::Absent),
     Err(fault) => return Err(io::Error::from(fault)),
   };
   let facts = fstat(&file)?;
@@ -604,7 +604,9 @@ impl std::fmt::Display for BuildError {
       BuildError::NoProgram(program, fault) => {
         write!(to, "{} could not be run: {fault}", program.display())
       }
-      BuildError::CommandFailed(program, status) => write!(to, "{} said no: {status}", program.display()),
+      BuildError::CommandFailed(program, status) => {
+        write!(to, "{} said no: {status}", program.display())
+      }
     }
   }
 }
@@ -622,7 +624,7 @@ fn built() -> Result<(), BuildError> {
 
   match present {
     Artifact::Ready => return Ok(()),
-    Artifact::Missing => {}
+    Artifact::Absent => {}
   }
 
   let parent = match ours.parent() {
@@ -639,7 +641,7 @@ fn built() -> Result<(), BuildError> {
 
   match present_after_lock {
     Artifact::Ready => Ok(()),
-    Artifact::Missing => build(&ours),
+    Artifact::Absent => build(&ours),
   }
 }
 
@@ -721,7 +723,7 @@ fn fetched() -> Result<(), DictationError> {
 
   match present {
     Artifact::Ready => return Ok(()),
-    Artifact::Missing => {}
+    Artifact::Absent => {}
   }
 
   let parent = match model_3.parent() {
@@ -743,7 +745,7 @@ fn fetched() -> Result<(), DictationError> {
 
   match present_after_lock {
     Artifact::Ready => Ok(()),
-    Artifact::Missing => {
+    Artifact::Absent => {
       let Ok(()) = notify("Downloading the language…", UNTIL_IT_CHANGES);
       let coming = parent.join("coming.bin");
       let downloaded = download(&model_3, &coming);

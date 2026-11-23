@@ -41,10 +41,10 @@ enum Request {
 
 #[derive(Default)]
 struct Running {
-  jobs: Vec<Job>,
+  jobs: Vec<Task>,
 }
 
-struct Job {
+struct Task {
   panel: Actor<Downloads>,
   tab: u32,
   kind: Kind,
@@ -54,7 +54,7 @@ struct Job {
   received: Receiver<Result<Looked, SearchFailure>>,
 }
 
-impl Job {
+impl Task {
   fn cancel(&self) -> Result<(), Never> {
     let Ok(_reached) = self.identity.interrupt(Insistence::Insist);
 
@@ -67,12 +67,15 @@ impl Searches {
     let (sending, requests) = sync_channel(16);
     let wake = sending.clone();
     let worker = thread::spawn(move || {
-      let Ok(()) = supervise(requests, &wake);
+      let Ok(()) = boot(requests, &wake);
     });
 
     Ok((
       Searches(sending.clone()),
-      SearchOwner { sending, worker: Some(worker) },
+      SearchOwner {
+        sending,
+        worker: Some(worker),
+      },
     ))
   }
 
@@ -83,12 +86,15 @@ impl Searches {
     kind: Kind,
     query: Search,
   ) -> Result<(), Never> {
-    let Ok(()) = requested(&self.0, Request::Start(Start {
-      panel: panel.clone(),
-      tab,
-      kind,
-      query,
-    }));
+    let Ok(()) = requested(
+      &self.0,
+      Request::Start(Start {
+        panel: panel.clone(),
+        tab,
+        kind,
+        query,
+      }),
+    );
 
     console_panel::frames::tell(console_panel::frames::Notice::Rows)
   }
@@ -100,10 +106,10 @@ impl Searches {
 
 impl SearchOwner {
   pub(crate) fn close(mut self) -> Result<(), Never> {
-    self.shutdown()
+    self.stop_worker()
   }
 
-  fn shutdown(&mut self) -> Result<(), Never> {
+  fn stop_worker(&mut self) -> Result<(), Never> {
     match self.worker.take() {
       Some(worker) => {
         let Ok(()) = requested(&self.sending, Request::Close);
@@ -117,7 +123,7 @@ impl SearchOwner {
 
 impl Drop for SearchOwner {
   fn drop(&mut self) {
-    let Ok(()) = self.shutdown();
+    let Ok(()) = self.stop_worker();
   }
 }
 
@@ -137,7 +143,7 @@ fn requested(sending: &SyncSender<Request>, request: Request) -> Result<(), Neve
     reason = "one manager owns the jobs for an open Downloads card. The card owner sends Close and joins this worker before disposing of the surface"
   )
 )]
-fn supervise(requests: Receiver<Request>, wake: &SyncSender<Request>) -> Result<(), Never> {
+fn boot(requests: Receiver<Request>, wake: &SyncSender<Request>) -> Result<(), Never> {
   let mut running = Running::default();
 
   for request in requests.iter() {
@@ -160,12 +166,23 @@ fn supervise(requests: Receiver<Request>, wake: &SyncSender<Request>) -> Result<
 
 impl Running {
   fn start(&mut self, start: Start, wake: &SyncSender<Request>) -> Result<(), Never> {
-    let Start { panel, tab, kind, query } = start;
+    let Start {
+      panel,
+      tab,
+      kind,
+      query,
+    } = start;
     let id = query.id;
     let (child, scratch) = match start_finder(kind, &query.word) {
       Ok(started) => started,
       Err(fault) => {
-        return publish(&panel, tab, kind, id, Err(SearchFailure::Process(fault.to_string())));
+        return publish(
+          &panel,
+          tab,
+          kind,
+          id,
+          Err(SearchFailure::Process(fault.to_string())),
+        );
       }
     };
     let Ok(identity) = child.identity();
@@ -180,17 +197,33 @@ impl Running {
         Ok(()) => {
           let Ok(()) = ready(&wake_2);
         }
-        Err(_closed) => console_core_logging::trace!("downloads: closed before the search finished"),
+        Err(_closed) => {
+          console_core_logging::trace!("downloads: closed before the search finished")
+        }
       }
     });
     let waiting = match worker {
       Ok(waiting) => waiting,
       Err(fault) => {
-        return publish(&panel, tab, kind, id, Err(SearchFailure::Process(fault.to_string())));
+        return publish(
+          &panel,
+          tab,
+          kind,
+          id,
+          Err(SearchFailure::Process(fault.to_string())),
+        );
       }
     };
 
-    self.jobs.push(Job { panel, tab, kind, id, identity, worker: waiting, received });
+    self.jobs.push(Task {
+      panel,
+      tab,
+      kind,
+      id,
+      identity,
+      worker: waiting,
+      received,
+    });
 
     Ok(())
   }
@@ -211,9 +244,9 @@ impl Running {
 
           continue;
         }
-        Err(TryRecvError::Disconnected) => {
-          Err(SearchFailure::Process("the search worker stopped without an answer".to_string()))
-        }
+        Err(TryRecvError::Disconnected) => Err(SearchFailure::Process(
+          "the search worker stopped without an answer".to_string(),
+        )),
       };
       let Ok(()) = joined(job.worker);
       let Ok(()) = publish(&job.panel, job.tab, job.kind, job.id, result);
@@ -256,7 +289,9 @@ fn ready(wake: &SyncSender<Request>) -> Result<(), Never> {
 fn joined(worker: JoinHandle<()>) -> Result<(), Never> {
   match worker.join() {
     Ok(()) => {}
-    Err(_panicked) => console_core_logging::error!("downloads: a search worker stopped unexpectedly"),
+    Err(_panicked) => {
+      console_core_logging::error!("downloads: a search worker stopped unexpectedly")
+    }
   }
 
   Ok(())
@@ -298,7 +333,9 @@ fn reviewed(
       let detail = completed.error_output.trim();
 
       match ::core::primitive::bool::then_some(detail.is_empty(), ()) {
-        ::core::option::Option::Some(()) => Err(SearchFailure::Process("the finder stopped".to_string())),
+        ::core::option::Option::Some(()) => {
+          Err(SearchFailure::Process("the finder stopped".to_string()))
+        }
         ::core::option::Option::None => Err(SearchFailure::Process(detail.to_string())),
       }
     }
@@ -323,7 +360,7 @@ fn publish(
 
   for effect in effects {
     match effect {
-      Effect::Custom(DownloadsEffect::Keep(looked)) => {
+      Effect::Custom(DownloadsEffect::Retain(looked)) => {
         let Ok(()) = keep_result(kind, &looked);
       }
       Effect::Custom(DownloadsEffect::Refresh) => {
@@ -379,7 +416,7 @@ mod tests {
     panel: Actor<Downloads>,
     tab: u32,
     id: SearchId,
-  ) -> std::io::Result<(Job, Receiver<ExitStatus>)> {
+  ) -> std::io::Result<(Task, Receiver<ExitStatus>)> {
     let Ok(mut command) = Program::Sleep.command();
     command.arg("5");
     let child = forked(&mut command)?;
@@ -395,7 +432,7 @@ mod tests {
     });
 
     Ok((
-      Job {
+      Task {
         panel,
         tab,
         kind: Kind::Sound,
@@ -415,7 +452,9 @@ mod tests {
     let (first, heard_first) = waiting(booted.actor.clone(), 0, SearchId(1))?;
     let (fresh, heard_fresh) = waiting(booted.actor.clone(), 0, SearchId(2))?;
     let (other, heard_other) = waiting(booted.actor, 1, SearchId(1))?;
-    let searches = Running { jobs: vec![first, fresh, other] };
+    let searches = Running {
+      jobs: vec![first, fresh, other],
+    };
 
     searches.cancel(0, SearchId(1))?;
     let cancelled = heard_first.recv_timeout(Duration::from_secs(2))?;

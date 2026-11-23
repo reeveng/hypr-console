@@ -49,10 +49,10 @@ impl<'a> Type3<'a> {
       None => return Ok(None),
     };
     let Ok(bbox_entry) =
-      dict.get::<console_core_portable_document_syntax::object::Rect>(FONT_BBOX);
+      dict.get::<console_core_portable_document_syntax::object::Rectangle>(FONT_BBOX);
     let font_bbox = match bbox_entry {
       ::core::option::Option::Some(present) => present,
-      ::core::option::Option::None => console_core_portable_document_syntax::object::Rect::ZERO,
+      ::core::option::Option::None => console_core_portable_document_syntax::object::Rectangle::ZERO,
     }
     .to_kurbo();
 

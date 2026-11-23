@@ -237,7 +237,7 @@ impl<'a> MinByteRange<'a> for SettingNameArray<'a> {
 }
 
 impl ReadArgs for SettingNameArray<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for SettingNameArray<'a> {

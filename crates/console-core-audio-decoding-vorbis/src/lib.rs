@@ -39,7 +39,7 @@ use console_core_audio_decoding_interfaces::errors::{Error, decode_error, unsupp
 use console_core_audio_decoding_interfaces::formats::Packet;
 use console_core_audio_decoding_interfaces::support_codec;
 use console_core_byte_streams::{BitReaderRtl, BufReader, FlagBit, ReadBitsRtl};
-use console_core_frequency_transforms::{Fault as TransformFault, mdct::Imdct};
+use console_core_frequency_transforms::{TransformError as TransformFault, mdct::Imdct};
 use console_core_number_conversion::fitted;
 
 use codebook::{VorbisCodebook, ilog};

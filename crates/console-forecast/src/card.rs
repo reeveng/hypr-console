@@ -259,10 +259,12 @@ fn forget_forecast() -> Result<(), Never> {
 
   match std::fs::remove_file(&at) {
     Ok(()) => {}
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => eprintln!("{WHO}: {}: {fault}", at.display()),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => eprintln!("{WHO}: {}: {fault}", at.display()),
+      }
+    }
   }
 
   Ok(())
@@ -455,10 +457,12 @@ fn headline(place: &str, forecast: &Forecast, since: Duration) -> Result<Row, Ne
 fn light(at: LocalTime) -> Result<Light, Never> {
   let Ok(hour) = at.hour();
 
-  Ok(match ::core::primitive::bool::then_some(DAYLIGHT.contains(&hour), ()) {
-    ::core::option::Option::Some(()) => Light::Day,
-    ::core::option::Option::None => Light::Night,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(DAYLIGHT.contains(&hour), ()) {
+      ::core::option::Option::Some(()) => Light::Day,
+      ::core::option::Option::None => Light::Night,
+    },
+  )
 }
 
 fn icon(code: u32, light: Light) -> Result<Icon, Never> {
@@ -534,10 +538,12 @@ fn hour_named(at: LocalTime, now: LocalTime) -> Result<String, Never> {
   let Ok(at_2) = at.on_the_hour();
   let Ok(now_2) = now.on_the_hour();
 
-  Ok(match ::core::primitive::bool::then_some(at_2 == now_2, ()) {
-    ::core::option::Option::Some(()) => NOW.to_string(),
-    ::core::option::Option::None => format!("{hour:02}"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(at_2 == now_2, ()) {
+      ::core::option::Option::Some(()) => NOW.to_string(),
+      ::core::option::Option::None => format!("{hour:02}"),
+    },
+  )
 }
 
 fn details(forecast: &Forecast) -> Result<Vec<Row>, Never> {

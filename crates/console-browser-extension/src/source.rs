@@ -23,13 +23,17 @@ const PAD_WASM_NAME: &str = "pad.wasm";
 const PAD_WASM: &[u8] = include_bytes!("../web/pad.wasm");
 
 pub fn with_host_selector(palette: &str) -> Result<Option<String>, Never> {
-  Ok(match ::core::primitive::bool::then_some(palette.contains(":host, :root"), ()) {
-    ::core::option::Option::Some(()) => Some(palette.to_string()),
-    ::core::option::Option::None => match ::core::primitive::bool::then_some(palette.contains(":root"), ()) {
-      ::core::option::Option::Some(()) => Some(palette.replace(":root", ":host, :root")),
-      ::core::option::Option::None => None,
+  Ok(
+    match ::core::primitive::bool::then_some(palette.contains(":host, :root"), ()) {
+      ::core::option::Option::Some(()) => Some(palette.to_string()),
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(palette.contains(":root"), ()) {
+          ::core::option::Option::Some(()) => Some(palette.replace(":root", ":host, :root")),
+          ::core::option::Option::None => None,
+        }
+      }
     },
-  })
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

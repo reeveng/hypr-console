@@ -726,10 +726,12 @@ fn parse_language(code: u16) -> Result<String, Never> {
     letter.saturating_add(0x60)
   });
 
-  Ok(match ::core::primitive::bool::then_some(letters.iter().all(u8::is_ascii_lowercase), ()) {
-    ::core::option::Option::Some(()) => letters.into_iter().map(char::from).collect(),
-    ::core::option::Option::None => String::from("und"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(letters.iter().all(u8::is_ascii_lowercase), ()) {
+      ::core::option::Option::Some(()) => letters.into_iter().map(char::from).collect(),
+      ::core::option::Option::None => String::from("und"),
+    },
+  )
 }
 
 #[derive(Clone, Copy)]
@@ -1539,13 +1541,15 @@ impl<'r> ChunkRuns<'r> {
 
   fn at(&mut self, chunk: u32) -> Result<ChunkRun, Never> {
     match self.upcoming.split_first() {
-      Some((next, after)) => match ::core::primitive::bool::then_some(next.first_chunk <= chunk, ()) {
-        ::core::option::Option::Some(()) => {
-          self.current = *next;
-          self.upcoming = after;
+      Some((next, after)) => {
+        match ::core::primitive::bool::then_some(next.first_chunk <= chunk, ()) {
+          ::core::option::Option::Some(()) => {
+            self.current = *next;
+            self.upcoming = after;
+          }
+          ::core::option::Option::None => {}
         }
-        ::core::option::Option::None => {}
-      },
+      }
       None => {}
     }
 
@@ -1944,7 +1948,10 @@ fn track_run(
   let count = cursor.u32()?;
 
   match per_sample {
-    0 => match ::core::primitive::bool::then_some(u64::from(count).saturating_mul(u64::from(defaults.size.max(1))) > file_length, ()) {
+    0 => match ::core::primitive::bool::then_some(
+      u64::from(count).saturating_mul(u64::from(defaults.size.max(1))) > file_length,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Err(Error::TooLarge("trun sample count")),
       ::core::option::Option::None => {}
     },
@@ -1953,7 +1960,10 @@ fn track_run(
 
   let Ok(held) = fitted::<_, u64>(track.samples.len());
 
-  match ::core::primitive::bool::then_some(held.saturating_add(u64::from(count)) > MAX_SAMPLES, ()) {
+  match ::core::primitive::bool::then_some(
+    held.saturating_add(u64::from(count)) > MAX_SAMPLES,
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Err(Error::TooLarge("sample count")),
     ::core::option::Option::None => {}
   }

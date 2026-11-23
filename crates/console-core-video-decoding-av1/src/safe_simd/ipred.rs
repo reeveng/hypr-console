@@ -9,9 +9,11 @@
 //! - Vertical prediction (copy top row)
 //! - Horizontal prediction (fill from left pixels)
 
-use core::num::Wrapping;
+use crate::src::ipred::{
+  EdgeFilter, EdgeUpsampling, PredictionEdge, filter_edge as filter_edge_8bpc, upsample_edge,
+};
 use console_core_geometry::Size;
-use crate::src::ipred::{EdgeFilter, EdgeUpsampling, PredictionEdge, filter_edge as filter_edge_8bpc, upsample_edge};
+use core::num::Wrapping;
 
 #[cfg(target_arch = "x86_64")]
 use crate::src::error::{Rav1dError, Rav1dResult};
@@ -31,10 +33,10 @@ use crate::src::safe_simd::pixel_access::{
   loadu_128, loadu_256, loadu_512, storeu_128, storeu_256, storeu_512,
 };
 
-use core::ops::{Range, RangeFrom, RangeTo};
-use core::slice::SliceIndex;
 use console_core_never::Never;
 use console_core_number_conversion::index;
+use core::ops::{Range, RangeFrom, RangeTo};
+use core::slice::SliceIndex;
 
 trait PredictorSliceIndex<Pixel> {
   type Native: SliceIndex<[Pixel]>;
@@ -45,7 +47,10 @@ trait PredictorSliceIndex<Pixel> {
 impl<Pixel> PredictorSliceIndex<Pixel> for u64 {
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "The standard SliceIndex interface requires native slice coordinates")
+    expect(
+      explicit051_no_machine_width,
+      reason = "The standard SliceIndex interface requires native slice coordinates"
+    )
   )]
   type Native = console_core_api_compatibility::NativeSize;
 
@@ -57,7 +62,10 @@ impl<Pixel> PredictorSliceIndex<Pixel> for u64 {
 impl<Pixel> PredictorSliceIndex<Pixel> for Range<u64> {
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "The standard SliceIndex interface requires native slice coordinates")
+    expect(
+      explicit051_no_machine_width,
+      reason = "The standard SliceIndex interface requires native slice coordinates"
+    )
   )]
   type Native = Range<console_core_api_compatibility::NativeSize>;
 
@@ -69,7 +77,10 @@ impl<Pixel> PredictorSliceIndex<Pixel> for Range<u64> {
 impl<Pixel> PredictorSliceIndex<Pixel> for RangeFrom<u64> {
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "The standard SliceIndex interface requires native slice coordinates")
+    expect(
+      explicit051_no_machine_width,
+      reason = "The standard SliceIndex interface requires native slice coordinates"
+    )
   )]
   type Native = RangeFrom<console_core_api_compatibility::NativeSize>;
 
@@ -82,7 +93,10 @@ impl<Pixel> PredictorSliceIndex<Pixel> for RangeFrom<u64> {
 impl<Pixel> PredictorSliceIndex<Pixel> for RangeTo<u64> {
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "The standard SliceIndex interface requires native slice coordinates")
+    expect(
+      explicit051_no_machine_width,
+      reason = "The standard SliceIndex interface requires native slice coordinates"
+    )
   )]
   type Native = RangeTo<console_core_api_compatibility::NativeSize>;
 
@@ -95,7 +109,10 @@ impl<Pixel> PredictorSliceIndex<Pixel> for RangeTo<u64> {
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "This fixed-width adapter preserves the standard slice lookup's Option")
+  expect(
+    explicit002_infallible_result,
+    reason = "This fixed-width adapter preserves the standard slice lookup's Option"
+  )
 )]
 fn predictor_get<Pixel, Coordinate>(
   slice: &[Pixel],
@@ -110,7 +127,10 @@ where
 
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "This fixed-width adapter preserves the standard slice lookup's Option")
+  expect(
+    explicit002_infallible_result,
+    reason = "This fixed-width adapter preserves the standard slice lookup's Option"
+  )
 )]
 fn predictor_get_mut<Pixel, Coordinate>(
   slice: &mut [Pixel],
@@ -130,7 +150,10 @@ fn advance_predictor_position(step: u64, position: &mut u64) -> Result<(), Never
 
 fn rounded_dc(sum: u32, length: u64) -> Rav1dResult<u32> {
   let Ok(count) = console_core_number_conversion::wrapped::<_, u32>(length);
-  sum.wrapping_add(count.wrapping_shr(1)).checked_div(count).ok_or(Rav1dError::EINVAL)
+  sum
+    .wrapping_add(count.wrapping_shr(1))
+    .checked_div(count)
+    .ok_or(Rav1dError::EINVAL)
 }
 
 struct PredictorOutput {
@@ -140,11 +163,7 @@ struct PredictorOutput {
 }
 
 impl PredictorOutput {
-  fn new(
-    base: u64,
-    stride: i64,
-    size: Size<u64>,
-  ) -> Result<Self, Never> {
+  fn new(base: u64, stride: i64, size: Size<u64>) -> Result<Self, Never> {
     Ok(Self { base, stride, size })
   }
 
@@ -155,9 +174,12 @@ impl PredictorOutput {
   ) -> Rav1dResult<impl Iterator<Item = &mut [u8]>> {
     let width = match samples {
       PredictorStorage::Bytes => self.size.width,
-      PredictorStorage::Words => self.size.width.checked_mul(2).ok_or(Rav1dError::ERANGE)?,
+      PredictorStorage::WordSamples => self.size.width.checked_mul(2).ok_or(Rav1dError::ERANGE)?,
     };
-    let extent = Size { width, height: self.size.height };
+    let extent = Size {
+      width,
+      height: self.size.height,
+    };
     let layout = console_core_pixel_buffers::RowLayout::new(extent, self.base, self.stride)
       .map_err(|_| Rav1dError::EINVAL)?;
     layout.rows_mut(destination).map_err(|_| Rav1dError::EINVAL)
@@ -166,7 +188,7 @@ impl PredictorOutput {
 
 enum PredictorStorage {
   Bytes,
-  Words,
+  WordSamples,
 }
 
 #[archmage::rite]
@@ -266,7 +288,6 @@ fn ipred_dc_128_8bpc_inner(
     height,
   }: IpredDc1288bpcInnerArguments,
 ) -> Rav1dResult {
-
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
   let rows = target.rows(dst, PredictorStorage::Bytes)?;
@@ -298,7 +319,6 @@ fn ipred_dc_128_8bpc_avx512_inner(
     height,
   }: IpredDc1288bpcAvx512InnerArguments,
 ) -> Rav1dResult {
-
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
   let rows = target.rows(dst, PredictorStorage::Bytes)?;
@@ -338,18 +358,17 @@ fn ipred_v_8bpc_avx512_inner(
 
   match width {
     4 => {
-      let top_val = _mm_cvtsi32_si128(i32::from_le_bytes(
-        {
-          let array_window = (*{
-          let checked_value_25 = predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(4)).0)
-          .ok_or(Rav1dError::EINVAL)?;
+      let top_val = _mm_cvtsi32_si128(i32::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 =
+            predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(4)).0)
+              .ok_or(Rav1dError::EINVAL)?;
           checked_value_25
         })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
 
       for y in 0..height {
         let row_off = (Wrapping(dst_base.cast_signed())
@@ -366,18 +385,17 @@ fn ipred_v_8bpc_avx512_inner(
       }
     }
     8 => {
-      let Ok(top_val) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{
-          let checked_value_27 = predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(8)).0)
-          .ok_or(Rav1dError::EINVAL)?;
+      let Ok(top_val) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_27 =
+            predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(8)).0)
+              .ok_or(Rav1dError::EINVAL)?;
           checked_value_27
         })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
 
       for y in 0..height {
         let row_off = (Wrapping(dst_base.cast_signed())
@@ -387,12 +405,13 @@ fn ipred_v_8bpc_avx512_inner(
         let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(
           {
             let array_window = (&mut *{
-            let checked_value_28 = predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(8)).0)
-            .ok_or(Rav1dError::EINVAL)?;
-            checked_value_28
-          })
-            .try_into()
-            .map_err(|_| Rav1dError::EINVAL)?;
+              let checked_value_28 =
+                predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(8)).0)
+                  .ok_or(Rav1dError::EINVAL)?;
+              checked_value_28
+            })
+              .try_into()
+              .map_err(|_| Rav1dError::EINVAL)?;
             array_window
           },
           top_val,
@@ -400,8 +419,9 @@ fn ipred_v_8bpc_avx512_inner(
       }
     }
     16 => {
-      let checked_value = predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(16)).0)
-        .ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(16)).0)
+          .ok_or(Rav1dError::EINVAL)?;
       let top_val = loadu_128!(checked_value, [u8; 16]);
 
       for y in 0..height {
@@ -458,13 +478,15 @@ fn ipred_v_8bpc_avx512_inner(
 
         {
           let checked_copy_destination = predictor_get_mut(
-          &mut *dst_2,
-          row_off..(Wrapping(row_off) + Wrapping(width)).0,
-        ).ok_or(Rav1dError::EINVAL)?;
+            &mut *dst_2,
+            row_off..(Wrapping(row_off) + Wrapping(width)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
           let checked_copy_source = predictor_get(
             &*topleft_2,
             top_off..(Wrapping(top_off) + Wrapping(width)).0,
-          ).ok_or(Rav1dError::EINVAL)?;
+          )
+          .ok_or(Rav1dError::EINVAL)?;
 
           for (destination_element, source_element) in checked_copy_destination
             .iter_mut()
@@ -508,18 +530,17 @@ fn ipred_v_8bpc_inner(
 
   match width {
     4 => {
-      let top_val = _mm_cvtsi32_si128(i32::from_le_bytes(
-        {
-          let array_window = (*{
-          let checked_value_25 = predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(4)).0)
-          .ok_or(Rav1dError::EINVAL)?;
+      let top_val = _mm_cvtsi32_si128(i32::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 =
+            predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(4)).0)
+              .ok_or(Rav1dError::EINVAL)?;
           checked_value_25
         })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
 
       for y in 0..height {
         let row_off = (Wrapping(dst_base.cast_signed())
@@ -536,18 +557,17 @@ fn ipred_v_8bpc_inner(
       }
     }
     8 => {
-      let Ok(top_val) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{
-          let checked_value_27 = predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(8)).0)
-          .ok_or(Rav1dError::EINVAL)?;
+      let Ok(top_val) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_27 =
+            predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(8)).0)
+              .ok_or(Rav1dError::EINVAL)?;
           checked_value_27
         })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
 
       for y in 0..height {
         let row_off = (Wrapping(dst_base.cast_signed())
@@ -557,12 +577,13 @@ fn ipred_v_8bpc_inner(
         let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(
           {
             let array_window = (&mut *{
-            let checked_value_28 = predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(8)).0)
-            .ok_or(Rav1dError::EINVAL)?;
-            checked_value_28
-          })
-            .try_into()
-            .map_err(|_| Rav1dError::EINVAL)?;
+              let checked_value_28 =
+                predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(8)).0)
+                  .ok_or(Rav1dError::EINVAL)?;
+              checked_value_28
+            })
+              .try_into()
+              .map_err(|_| Rav1dError::EINVAL)?;
             array_window
           },
           top_val,
@@ -570,8 +591,9 @@ fn ipred_v_8bpc_inner(
       }
     }
     16 => {
-      let checked_value = predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(16)).0)
-        .ok_or(Rav1dError::EINVAL)?;
+      let checked_value =
+        predictor_get(&*topleft_2, top_off..(Wrapping(top_off) + Wrapping(16)).0)
+          .ok_or(Rav1dError::EINVAL)?;
       let top_val = loadu_128!(checked_value, [u8; 16]);
 
       for y in 0..height {
@@ -640,13 +662,15 @@ fn ipred_v_8bpc_inner(
 
         {
           let checked_copy_destination = predictor_get_mut(
-          &mut *dst_2,
-          row_off..(Wrapping(row_off) + Wrapping(width)).0,
-        ).ok_or(Rav1dError::EINVAL)?;
+            &mut *dst_2,
+            row_off..(Wrapping(row_off) + Wrapping(width)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
           let checked_copy_source = predictor_get(
             &*topleft_2,
             top_off..(Wrapping(top_off) + Wrapping(width)).0,
-          ).ok_or(Rav1dError::EINVAL)?;
+          )
+          .ok_or(Rav1dError::EINVAL)?;
 
           for (destination_element, source_element) in checked_copy_destination
             .iter_mut()
@@ -683,7 +707,6 @@ fn ipred_h_8bpc_inner(
     height,
   }: IpredH8bpcInnerArguments,
 ) -> Rav1dResult {
-
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
   let rows = target.rows(dst, PredictorStorage::Bytes)?;
@@ -718,7 +741,6 @@ fn ipred_h_8bpc_avx512_inner(
     height,
   }: IpredH8bpcAvx512InnerArguments,
 ) -> Rav1dResult {
-
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
   let rows = target.rows(dst, PredictorStorage::Bytes)?;
@@ -758,15 +780,13 @@ fn ipred_dc_8bpc_avx512_inner(
 
   for x in 0..width {
     let checked_value_4 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_4,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -780,15 +800,13 @@ fn ipred_dc_8bpc_avx512_inner(
 
   for y in 0..height {
     let checked_value_5 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_5,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -841,15 +859,13 @@ fn ipred_dc_top_8bpc_avx512_inner(
 
   for x in 0..width {
     let checked_value_4 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_4,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -901,15 +917,13 @@ fn ipred_dc_left_8bpc_avx512_inner(
 
   for y in 0..height {
     let checked_value_4 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_4,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -962,15 +976,13 @@ fn ipred_dc_8bpc_inner(
 
   for x in 0..width {
     let checked_value_3 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_3,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -984,15 +996,13 @@ fn ipred_dc_8bpc_inner(
 
   for y in 0..height {
     let checked_value_4 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_4,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -1046,15 +1056,13 @@ fn ipred_dc_top_8bpc_inner(
 
   for x in 0..width {
     let checked_value_3 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_3,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -1107,15 +1115,13 @@ fn ipred_dc_left_8bpc_inner(
 
   for y in 0..height {
     let checked_value_3 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?;
+      &*topleft_2,
+      (Wrapping((Wrapping(tl_off) - Wrapping(y)).0) - Wrapping(1)).0,
+    )
+    .ok_or(Rav1dError::EINVAL)?;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u8>>::from(
-        *checked_value_3,
-      ),
+      <u32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -1225,13 +1231,13 @@ fn ipred_paeth_8bpc_avx512_inner(
       .ok_or(Rav1dError::EINVAL)?;
       storeu_128!(checked_value_2, [u8; 16], result_u8);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_25 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_25 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_25
       }),
       ..width,
@@ -1255,20 +1261,22 @@ fn ipred_paeth_8bpc_avx512_inner(
       let ldiff = i32::wrapping_sub(left_val, base).abs();
       let tdiff = i32::wrapping_sub(top_val, base).abs();
       let tldiff = i32::wrapping_sub(topleft_val, base).abs();
-      let result = match ::core::primitive::bool::then_some(ldiff <= tdiff && ldiff <= tldiff, ()) {
+      let result = match ::core::primitive::bool::then_some(ldiff <= tdiff && ldiff <= tldiff, ())
+      {
         ::core::option::Option::Some(()) => left_val,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(tdiff <= tldiff, ()) {
-          ::core::option::Option::Some(()) => top_val,
-          ::core::option::Option::None => topleft_val,
-        },
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(tdiff <= tldiff, ()) {
+            ::core::option::Option::Some(()) => top_val,
+            ::core::option::Option::None => topleft_val,
+          }
+        }
       };
       *{
         let checked_value_26 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_26
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -1300,28 +1308,34 @@ fn ipred_smooth_8bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_56 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_56 }),
+    &(*{
+      let checked_value_56 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_56
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
-  let checked_value_4 =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value_4 = predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let right_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
-  let checked_value_5 =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value_5 = predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let bottom_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
   let right_vec = _mm512_set1_epi32(right_val);
   let bottom_vec = _mm512_set1_epi32(bottom_val);
@@ -1360,8 +1374,8 @@ fn ipred_smooth_8bpc_avx512_inner(
       let top_bytes = loadu_128!(checked_value, [u8; 16]);
       let top = _mm512_cvtepu8_epi32(top_bytes);
 
-      let checked_value_2 =
-        predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value_2 = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let wh_bytes = loadu_128!(checked_value_2, [u8; 16]);
       let w_h = _mm512_cvtepu8_epi32(wh_bytes);
       let w_h_inv = _mm512_sub_epi32(c256, w_h);
@@ -1388,13 +1402,13 @@ fn ipred_smooth_8bpc_avx512_inner(
       .ok_or(Rav1dError::EINVAL)?;
       storeu_128!(checked_value_3, [u8; 16], result_u8);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_25 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_25 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_25
       }),
       ..width,
@@ -1432,15 +1446,14 @@ fn ipred_smooth_8bpc_avx512_inner(
       *{
         let checked_value_26 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_26
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 256),
-            9_u32,
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 256),
+          9_u32,
+        ),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -1472,16 +1485,19 @@ fn ipred_smooth_v_8bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
-  let checked_value_3 =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value_3 = predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let bottom_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3);
   let bottom_vec = _mm512_set1_epi32(bottom_val);
   let rounding = _mm512_set1_epi32(128);
@@ -1528,13 +1544,13 @@ fn ipred_smooth_v_8bpc_avx512_inner(
       .ok_or(Rav1dError::EINVAL)?;
       storeu_128!(checked_value_2, [u8; 16], result_u8);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_25 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_25 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_25
       }),
       ..width,
@@ -1561,15 +1577,14 @@ fn ipred_smooth_v_8bpc_avx512_inner(
       *{
         let checked_value_26 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_26
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 128),
-            8_u32,
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 128),
+          8_u32,
+        ),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -1601,16 +1616,19 @@ fn ipred_smooth_h_8bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
-  let checked_value_3 =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value_3 = predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let right_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3);
   let right_vec = _mm512_set1_epi32(right_val);
   let rounding = _mm512_set1_epi32(128);
@@ -1633,8 +1651,8 @@ fn ipred_smooth_h_8bpc_avx512_inner(
     let mut x = 0;
 
     for _ in 0..width.saturating_sub(x).wrapping_div(16) {
-      let checked_value =
-        predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let wh_bytes = loadu_128!(checked_value, [u8; 16]);
       let w_h = _mm512_cvtepu8_epi32(wh_bytes);
       let w_h_inv = _mm512_sub_epi32(c256, w_h);
@@ -1655,13 +1673,13 @@ fn ipred_smooth_h_8bpc_avx512_inner(
       .ok_or(Rav1dError::EINVAL)?;
       storeu_128!(checked_value_2, [u8; 16], result_u8);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_25 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_25 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_25
       }),
       ..width,
@@ -1684,15 +1702,14 @@ fn ipred_smooth_h_8bpc_avx512_inner(
       *{
         let checked_value_26 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_26
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 128),
-            8_u32,
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 128),
+          8_u32,
+        ),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -1743,21 +1760,22 @@ fn ipred_paeth_8bpc_inner(
     let mut x = 0;
 
     for _ in 0..width.saturating_sub(x).wrapping_div(8) {
-      let Ok(top_bytes) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{ let checked_value_25 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0
-            ..(Wrapping((Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0)
-              + Wrapping(8))
-            .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      let Ok(top_bytes) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_25 = predictor_get(
+            &*topleft_2,
+            (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0
+              ..(Wrapping((Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0)
+                + Wrapping(8))
+              .0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
       let top_lo = _mm256_cvtepu8_epi32(top_bytes);
 
       let base = _mm256_sub_epi32(_mm256_add_epi32(left_vec, top_lo), topleft_vec);
@@ -1804,26 +1822,29 @@ fn ipred_paeth_8bpc_inner(
       let combined = _mm_unpacklo_epi32(lo, hi);
       let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(
         {
-          let array_window = (&mut *{ let checked_value_26 = predictor_get_mut(
-          &mut *dst_2,
-          (Wrapping(row_off) + Wrapping(x)).0
-            ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
-          .try_into()
-          .map_err(|_| Rav1dError::EINVAL)?;
+          let array_window = (&mut *{
+            let checked_value_26 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(row_off) + Wrapping(x)).0
+                ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          })
+            .try_into()
+            .map_err(|_| Rav1dError::EINVAL)?;
           array_window
         },
         combined,
       );
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_27 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_27 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_27
       }),
       ..width,
@@ -1848,20 +1869,22 @@ fn ipred_paeth_8bpc_inner(
       let tdiff = i32::wrapping_sub(top_val, base).abs();
       let tldiff = i32::wrapping_sub(topleft_val, base).abs();
 
-      let result = match ::core::primitive::bool::then_some(ldiff <= tdiff && ldiff <= tldiff, ()) {
+      let result = match ::core::primitive::bool::then_some(ldiff <= tdiff && ldiff <= tldiff, ())
+      {
         ::core::option::Option::Some(()) => left_val,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(tdiff <= tldiff, ()) {
-          ::core::option::Option::Some(()) => top_val,
-          ::core::option::Option::None => topleft_val,
-        },
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(tdiff <= tldiff, ()) {
+            ::core::option::Option::Some(()) => top_val,
+            ::core::option::Option::None => topleft_val,
+          }
+        }
       };
       *{
         let checked_value_28 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_28
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -1895,28 +1918,34 @@ fn ipred_smooth_8bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_56 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_56 }),
+    &(*{
+      let checked_value_56 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_56
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
-  let checked_value =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value = predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let right_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value);
-  let checked_value_2 =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value_2 = predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let bottom_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_2);
   let right_vec = _mm256_set1_epi32(right_val);
   let bottom_vec = _mm256_set1_epi32(bottom_val);
@@ -1943,32 +1972,34 @@ fn ipred_smooth_8bpc_inner(
     let mut x = 0;
 
     for _ in 0..width.saturating_sub(x).wrapping_div(8) {
-      let Ok(top_bytes) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{ let checked_value_25 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0
-            ..(Wrapping((Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0)
-              + Wrapping(8))
-            .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      let Ok(top_bytes) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_25 = predictor_get(
+            &*topleft_2,
+            (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0
+              ..(Wrapping((Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0)
+                + Wrapping(8))
+              .0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
       let top = _mm256_cvtepu8_epi32(top_bytes);
 
-      let Ok(w_h_bytes) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{ let checked_value_26 = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(8)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+      let Ok(w_h_bytes) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_26 = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(8)).0)
+            .ok_or(Rav1dError::EINVAL)?;
+          checked_value_26
+        })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
       let w_h = _mm256_cvtepu8_epi32(w_h_bytes);
       let w_h_inv = _mm256_sub_epi32(c256, w_h);
 
@@ -1997,26 +2028,29 @@ fn ipred_smooth_8bpc_inner(
       let combined = _mm_unpacklo_epi32(lo, hi);
       let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(
         {
-          let array_window = (&mut *{ let checked_value_27 = predictor_get_mut(
-          &mut *dst_2,
-          (Wrapping(row_off) + Wrapping(x)).0
-            ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_27 })
-          .try_into()
-          .map_err(|_| Rav1dError::EINVAL)?;
+          let array_window = (&mut *{
+            let checked_value_27 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(row_off) + Wrapping(x)).0
+                ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_27
+          })
+            .try_into()
+            .map_err(|_| Rav1dError::EINVAL)?;
           array_window
         },
         combined,
       );
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_28 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_28 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_28
       }),
       ..width,
@@ -2054,15 +2088,14 @@ fn ipred_smooth_8bpc_inner(
       *{
         let checked_value_29 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_29
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 256),
-            9_u32,
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 256),
+          9_u32,
+        ),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -2094,16 +2127,19 @@ fn ipred_smooth_v_8bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
-  let checked_value =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value = predictor_get(&*topleft_2, (Wrapping(tl_off) - Wrapping(height)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let bottom_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value);
   let bottom_vec = _mm256_set1_epi32(bottom_val);
   let rounding = _mm256_set1_epi32(128);
@@ -2122,21 +2158,22 @@ fn ipred_smooth_v_8bpc_inner(
     let mut x = 0;
 
     for _ in 0..width.saturating_sub(x).wrapping_div(8) {
-      let Ok(top_bytes) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{ let checked_value_25 = predictor_get(
-          &*topleft_2,
-          (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0
-            ..(Wrapping((Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0)
-              + Wrapping(8))
-            .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      let Ok(top_bytes) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_25 = predictor_get(
+            &*topleft_2,
+            (Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0
+              ..(Wrapping((Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(x)).0)
+                + Wrapping(8))
+              .0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
       let top = _mm256_cvtepu8_epi32(top_bytes);
 
       let pred = _mm256_add_epi32(
@@ -2158,26 +2195,29 @@ fn ipred_smooth_v_8bpc_inner(
       let combined = _mm_unpacklo_epi32(lo, hi);
       let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(
         {
-          let array_window = (&mut *{ let checked_value_26 = predictor_get_mut(
-          &mut *dst_2,
-          (Wrapping(row_off) + Wrapping(x)).0
-            ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
-          .try_into()
-          .map_err(|_| Rav1dError::EINVAL)?;
+          let array_window = (&mut *{
+            let checked_value_26 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(row_off) + Wrapping(x)).0
+                ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          })
+            .try_into()
+            .map_err(|_| Rav1dError::EINVAL)?;
           array_window
         },
         combined,
       );
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_27 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_27 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_27
       }),
       ..width,
@@ -2204,15 +2244,14 @@ fn ipred_smooth_v_8bpc_inner(
       *{
         let checked_value_28 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_28
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 128),
-            8_u32,
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 128),
+          8_u32,
+        ),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -2244,16 +2283,19 @@ fn ipred_smooth_h_8bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
-  let checked_value =
-    predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0).ok_or(Rav1dError::EINVAL)?;
+  let checked_value = predictor_get(&*topleft_2, (Wrapping(tl_off) + Wrapping(width)).0)
+    .ok_or(Rav1dError::EINVAL)?;
   let right_val = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value);
   let right_vec = _mm256_set1_epi32(right_val);
   let rounding = _mm256_set1_epi32(128);
@@ -2275,15 +2317,16 @@ fn ipred_smooth_h_8bpc_inner(
     let mut x = 0;
 
     for _ in 0..width.saturating_sub(x).wrapping_div(8) {
-      let Ok(w_h_bytes) = partial_simd::mm_loadl_epi64(
-        {
-          let array_window = (&*{ let checked_value_25 = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(8)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      let Ok(w_h_bytes) = partial_simd::mm_loadl_epi64({
+        let array_window = (&*{
+          let checked_value_25 = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(8)).0)
+            .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      );
+        array_window
+      });
       let w_h = _mm256_cvtepu8_epi32(w_h_bytes);
       let w_h_inv = _mm256_sub_epi32(c256, w_h);
 
@@ -2306,26 +2349,29 @@ fn ipred_smooth_h_8bpc_inner(
       let combined = _mm_unpacklo_epi32(lo, hi);
       let ::core::result::Result::Ok(()) = partial_simd::mm_storel_epi64(
         {
-          let array_window = (&mut *{ let checked_value_26 = predictor_get_mut(
-          &mut *dst_2,
-          (Wrapping(row_off) + Wrapping(x)).0
-            ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
-          .try_into()
-          .map_err(|_| Rav1dError::EINVAL)?;
+          let array_window = (&mut *{
+            let checked_value_26 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(row_off) + Wrapping(x)).0
+                ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          })
+            .try_into()
+            .map_err(|_| Rav1dError::EINVAL)?;
           array_window
         },
         combined,
       );
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     let row = predictor_get_mut(
       &mut (*{
-        let checked_value_27 = predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
+        let checked_value_27 =
+          predictor_get_mut(&mut *dst_2, row_off..).ok_or(Rav1dError::EINVAL)?;
         checked_value_27
       }),
       ..width,
@@ -2348,15 +2394,14 @@ fn ipred_smooth_h_8bpc_inner(
       *{
         let checked_value_28 = predictor_get_mut(&mut *row, x).ok_or(Rav1dError::EINVAL)?;
         checked_value_28
-      } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 128),
-            8_u32,
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 128),
+          8_u32,
+        ),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -2400,16 +2445,22 @@ fn ipred_filter_8bpc_inner(
     explicit_position
   }) & 511;
 
-  let filter = &*{ let checked_value_48 = predictor_get(&dav1d_filter_intra_taps, filt_idx_2).ok_or(Rav1dError::EINVAL)?; checked_value_48 };
+  let filter = &*{
+    let checked_value_48 =
+      predictor_get(&dav1d_filter_intra_taps, filt_idx_2).ok_or(Rav1dError::EINVAL)?;
+    checked_value_48
+  };
 
   for y in (0..height).step_by(2) {
     let ::core::result::Result::Ok(cur_tl_off) =
       ::console_core_number_conversion::fitted::<_, u64>((Wrapping(topleft_off) - Wrapping(y)).0);
     let checked_value = predictor_get(
       &*topleft_2,
-      tl_off.wrapping_add(match ::console_core_number_conversion::fitted::<_, u64>(cur_tl_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }),
+      tl_off.wrapping_add(
+        match ::console_core_number_conversion::fitted::<_, u64>(cur_tl_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ),
     )
     .ok_or(Rav1dError::EINVAL)?;
     let mut tl_pixel =
@@ -2451,98 +2502,119 @@ fn ipred_filter_8bpc_inner(
           .ok_or(Rav1dError::EINVAL)?;
           (
             <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_2),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_25 = predictor_get(
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_25 = predictor_get(
                 &*topleft_2,
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_base) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(1))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(top_base) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(1))
                 .0,
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_25 },
-            ),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_26 = predictor_get(
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_25
+            }),
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_26 = predictor_get(
                 &*topleft_2,
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_base) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(2))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(top_base) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(2))
                 .0,
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_26 },
-            ),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_27 = predictor_get(
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_26
+            }),
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_27 = predictor_get(
                 &*topleft_2,
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_base) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(3))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(top_base) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(3))
                 .0,
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_27 },
-            ),
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_27
+            }),
           )
         }
         ::core::option::Option::None => {
-          let ::core::result::Result::Ok(top_row) = ::console_core_number_conversion::fitted::<_, u64>(
-            (Wrapping(dst_base.cast_signed())
-              + Wrapping(
-                (Wrapping((Wrapping(::core::primitive::u64::cast_signed(y)) - Wrapping(1)).0)
-                  * Wrapping(stride))
-                .0,
-              ))
-            .0
-            .cast_unsigned(),
-          );
+          let ::core::result::Result::Ok(top_row) =
+            ::console_core_number_conversion::fitted::<_, u64>(
+              (Wrapping(dst_base.cast_signed())
+                + Wrapping(
+                  (Wrapping((Wrapping(::core::primitive::u64::cast_signed(y)) - Wrapping(1)).0)
+                    * Wrapping(stride))
+                  .0,
+                ))
+              .0
+              .cast_unsigned(),
+            );
           let checked_value_3 = predictor_get(
             &*dst_2,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           )
           .ok_or(Rav1dError::EINVAL)?;
           (
             <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_28 = predictor_get(
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_28 = predictor_get(
                 &*dst_2,
                 (Wrapping(
-                  (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  }) + Wrapping(x))
+                  (Wrapping(
+                    match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  ) + Wrapping(x))
                   .0,
                 ) + Wrapping(1))
                 .0,
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_28 },
-            ),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_29 = predictor_get(
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_28
+            }),
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_29 = predictor_get(
                 &*dst_2,
                 (Wrapping(
-                  (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  }) + Wrapping(x))
+                  (Wrapping(
+                    match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  ) + Wrapping(x))
                   .0,
                 ) + Wrapping(2))
                 .0,
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_29 },
-            ),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_30 = predictor_get(
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_29
+            }),
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_30 = predictor_get(
                 &*dst_2,
                 (Wrapping(
-                  (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  }) + Wrapping(x))
+                  (Wrapping(
+                    match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  ) + Wrapping(x))
                   .0,
                 ) + Wrapping(3))
                 .0,
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_30 },
-            ),
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_30
+            }),
           )
         }
       };
@@ -2567,45 +2639,52 @@ fn ipred_filter_8bpc_inner(
           .ok_or(Rav1dError::EINVAL)?;
           (
             <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4),
-            <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-              *{ let checked_value_31 = predictor_get(
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+              let checked_value_31 = predictor_get(
                 &*topleft_2,
                 (match ::console_core_number_conversion::fitted::<_, u64>(left_base) {
                   ::core::result::Result::Ok(native_position) => native_position,
                 })
                 .wrapping_sub(1),
               )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_31 },
-            ),
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_31
+            }),
           )
         }
         ::core::option::Option::None => (
-          <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-            *{ let checked_value_32 = predictor_get(
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+            let checked_value_32 = predictor_get(
               &*dst_2,
               (Wrapping(
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(x))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(x))
                 .0,
               ) - Wrapping(1))
               .0,
             )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_32 },
-          ),
-          <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-            *{ let checked_value_33 = predictor_get(
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_32
+          }),
+          <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+            let checked_value_33 = predictor_get(
               &*dst_2,
               (Wrapping(
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(x))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(x))
                 .0,
               ) - Wrapping(1))
               .0,
             )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_33 },
-          ),
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_33
+          }),
         ),
       };
 
@@ -2615,41 +2694,53 @@ fn ipred_filter_8bpc_inner(
       let Ok([first_row, second_row]) = filter_predictions(filter, p);
 
       for (xx, acc) in (0..4).zip(first_row) {
-        let first_filtered_pixel = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(0, 255),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
-        *{ let checked_value_35 = predictor_get_mut(
-          &mut *dst_2,
-          (Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+        let first_filtered_pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(0, 255),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+        *{
+          let checked_value_35 = predictor_get_mut(
+            &mut *dst_2,
+            (Wrapping(
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x))
+              .0,
+            ) + Wrapping(xx))
             .0,
-          ) + Wrapping(xx))
-          .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_35 } = first_filtered_pixel;
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_35
+        } = first_filtered_pixel;
       }
 
       for (xx, acc) in (0..4).zip(second_row) {
-        let second_filtered_pixel = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(0, 255),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
-        *{ let checked_value_37 = predictor_get_mut(
-          &mut *dst_2,
-          (Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+        let second_filtered_pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(0, 255),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+        *{
+          let checked_value_37 = predictor_get_mut(
+            &mut *dst_2,
+            (Wrapping(
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x))
+              .0,
+            ) + Wrapping(xx))
             .0,
-          ) + Wrapping(xx))
-          .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_37 } = second_filtered_pixel;
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_37
+        } = second_filtered_pixel;
       }
 
       tl_pixel = p4;
@@ -2682,8 +2773,16 @@ fn ipred_z1_8bpc_inner(
   topleft: &[u8],
   prediction: DirectionalPrediction,
 ) -> Rav1dResult {
-  let DirectionalPrediction { destination, edge_center: tl_off, angle } = prediction;
-  let PredictorOutput { base: dst_base, stride, size: Size { width, height } } = destination;
+  let DirectionalPrediction {
+    destination,
+    edge_center: tl_off,
+    angle,
+  } = prediction;
+  let PredictorOutput {
+    base: dst_base,
+    stride,
+    size: Size { width, height },
+  } = destination;
   let dst_2 = &mut *dst;
   let width_i =
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(width) {
@@ -2699,16 +2798,14 @@ fn ipred_z1_8bpc_inner(
   let angle_2 = angle & 511;
 
   let checked_value_7 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(angle_2, 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_7,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(angle_2, 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_7);
 
   let upsample_above = enable_intra_edge_filter
     && i32::wrapping_sub(90, angle_2) < 40
@@ -2733,7 +2830,11 @@ fn ipred_z1_8bpc_inner(
       upsample_edge_8bpc(
         &mut top_out,
         i32::wrapping_add(width_i, height_i),
-        PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) + Wrapping(1)).0, window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: (Wrapping(tl_off) + Wrapping(1)).0,
+          window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)),
+        },
       )?;
       dx = ::core::primitive::i32::wrapping_shl(dx, 1_u32);
       top = top_out.as_slice();
@@ -2750,21 +2851,30 @@ fn ipred_z1_8bpc_inner(
       base_inc = 2u64;
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(90, angle_2),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(90, angle_2),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
             &mut top_out,
-            PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) + Wrapping(1)).0, window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)) },
-            EdgeFilter { count: i32::wrapping_add(width_i, height_i), filtered: 0..i32::wrapping_add(width_i, height_i), strength: filter_strength },
+            PredictionEdge {
+              pixels: topleft,
+              origin: (Wrapping(tl_off) + Wrapping(1)).0,
+              window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)),
+            },
+            EdgeFilter {
+              count: i32::wrapping_add(width_i, height_i),
+              filtered: 0..i32::wrapping_add(width_i, height_i),
+              strength: filter_strength,
+            },
           )?;
           top = top_out.as_slice();
           max_base_x = {
@@ -2778,7 +2888,7 @@ fn ipred_z1_8bpc_inner(
         ::core::option::Option::None => {
           top = &*{
             let checked_value_25 = predictor_get(&*topleft, (Wrapping(tl_off) + Wrapping(1)).0..)
-            .ok_or(Rav1dError::EINVAL)?;
+              .ok_or(Rav1dError::EINVAL)?;
             checked_value_25
           };
           max_base_x = (Wrapping((Wrapping(width) + Wrapping(std::cmp::min(width, height))).0)
@@ -2835,14 +2945,20 @@ fn ipred_z1_8bpc_inner(
 
     match ::core::primitive::bool::then_some(base_inc == 1, ()) {
       ::core::option::Option::Some(()) => {
-        let source_remaining = max_base_x.saturating_sub(base0.wrapping_add(x)).saturating_sub(1);
-        let group_count = width.saturating_sub(x).min(source_remaining).wrapping_div(16);
+        let source_remaining = max_base_x
+          .saturating_sub(base0.wrapping_add(x))
+          .saturating_sub(1);
+        let group_count = width
+          .saturating_sub(x)
+          .min(source_remaining)
+          .wrapping_div(16);
 
         for _ in 0..group_count {
-
-          let base = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base0) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping(x))
+          let base = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(base0) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
           .0;
 
           let checked_value = predictor_get(&*top_2, base..(Wrapping(base) + Wrapping(16)).0)
@@ -2869,14 +2985,18 @@ fn ipred_z1_8bpc_inner(
           let combined = _mm_unpacklo_epi64(lo, hi);
           let checked_value_3 = predictor_get_mut(
             &mut *dst_2,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0
               ..(Wrapping(
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(x))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(x))
                 .0,
               ) + Wrapping(16))
               .0,
@@ -2884,8 +3004,7 @@ fn ipred_z1_8bpc_inner(
           .ok_or(Rav1dError::EINVAL)?;
           storeu_128!(checked_value_3, [u8; 16], combined);
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(16, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
         }
       }
       ::core::option::Option::None => {}
@@ -2896,16 +3015,20 @@ fn ipred_z1_8bpc_inner(
       end: width,
     }) {
       let ::core::result::Result::Ok(base) = ::console_core_number_conversion::fitted::<_, u64>(
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base0) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping((Wrapping(base_inc) * Wrapping(x)).0))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(base0) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping((Wrapping(base_inc) * Wrapping(x)).0))
         .0,
       );
 
-      match ::core::primitive::bool::then_some((match ::console_core_number_conversion::fitted::<_, u64>(base) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) < max_base_x, ())
-      {
+      match ::core::primitive::bool::then_some(
+        (match ::console_core_number_conversion::fitted::<_, u64>(base) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) < max_base_x,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let checked_value_4 = predictor_get(
             &*top_2,
@@ -2917,9 +3040,11 @@ fn ipred_z1_8bpc_inner(
           let t0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
           let checked_value_5 = predictor_get(
             &*top_2,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(1))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(1))
             .0,
           )
           .ok_or(Rav1dError::EINVAL)?;
@@ -2934,20 +3059,24 @@ fn ipred_z1_8bpc_inner(
               <i32 as ::core::convert::From<::core::primitive::i16>>::from(frac),
             ),
           );
-          *{ let checked_value_26 = predictor_get_mut(
-            &mut *dst_2,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
-            .0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_26 } = match ::console_core_number_conversion::wrapped::<
-            _,
-            ::core::primitive::u8,
-          >(::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(v, 32),
-            6_u32,
-          )) {
+          *{
+            let checked_value_26 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x))
+              .0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            ::core::primitive::i32::wrapping_shr(
+              ::core::primitive::i32::wrapping_add(v, 32),
+              6_u32,
+            ),
+          ) {
             ::core::result::Result::Ok(converted_position) => converted_position,
           };
         }
@@ -2956,14 +3085,19 @@ fn ipred_z1_8bpc_inner(
           let fill_val = *checked_value_6;
 
           for xx in x..width {
-            *{ let checked_value_27 = predictor_get_mut(
-              &mut *dst_2,
-              (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              }) + Wrapping(xx))
-              .0,
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_27 } = fill_val;
+            *{
+              let checked_value_27 = predictor_get_mut(
+                &mut *dst_2,
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(xx))
+                .0,
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_27
+            } = fill_val;
           }
 
           break 'inner_for_2;
@@ -2985,8 +3119,16 @@ fn ipred_z1_8bpc_v4x_inner(
   topleft: &[u8],
   prediction: DirectionalPrediction,
 ) -> Rav1dResult {
-  let DirectionalPrediction { destination, edge_center: tl_off, angle } = prediction;
-  let PredictorOutput { base: dst_base, stride, size: Size { width, height } } = destination;
+  let DirectionalPrediction {
+    destination,
+    edge_center: tl_off,
+    angle,
+  } = prediction;
+  let PredictorOutput {
+    base: dst_base,
+    stride,
+    size: Size { width, height },
+  } = destination;
   let dst_2 = &mut *dst;
   let width_i =
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(width) {
@@ -3002,16 +3144,14 @@ fn ipred_z1_8bpc_v4x_inner(
   let angle_2 = angle & 511;
 
   let checked_value_6 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(angle_2, 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_6,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(angle_2, 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_6);
 
   let upsample_above = enable_intra_edge_filter
     && i32::wrapping_sub(90, angle_2) < 40
@@ -3036,7 +3176,11 @@ fn ipred_z1_8bpc_v4x_inner(
       upsample_edge_8bpc(
         &mut top_out,
         i32::wrapping_add(width_i, height_i),
-        PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) + Wrapping(1)).0, window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: (Wrapping(tl_off) + Wrapping(1)).0,
+          window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)),
+        },
       )?;
       dx = ::core::primitive::i32::wrapping_shl(dx, 1_u32);
       top = top_out.as_slice();
@@ -3053,21 +3197,30 @@ fn ipred_z1_8bpc_v4x_inner(
       base_inc = 2u64;
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(90, angle_2),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(90, angle_2),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
             &mut top_out,
-            PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) + Wrapping(1)).0, window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)) },
-            EdgeFilter { count: i32::wrapping_add(width_i, height_i), filtered: 0..i32::wrapping_add(width_i, height_i), strength: filter_strength },
+            PredictionEdge {
+              pixels: topleft,
+              origin: (Wrapping(tl_off) + Wrapping(1)).0,
+              window: -1..i32::wrapping_add(width_i, std::cmp::min(width_i, height_i)),
+            },
+            EdgeFilter {
+              count: i32::wrapping_add(width_i, height_i),
+              filtered: 0..i32::wrapping_add(width_i, height_i),
+              strength: filter_strength,
+            },
           )?;
           top = top_out.as_slice();
           max_base_x = {
@@ -3081,7 +3234,7 @@ fn ipred_z1_8bpc_v4x_inner(
         ::core::option::Option::None => {
           top = &*{
             let checked_value_25 = predictor_get(&*topleft, (Wrapping(tl_off) + Wrapping(1)).0..)
-            .ok_or(Rav1dError::EINVAL)?;
+              .ok_or(Rav1dError::EINVAL)?;
             checked_value_25
           };
           max_base_x = (Wrapping((Wrapping(width) + Wrapping(std::cmp::min(width, height))).0)
@@ -3116,15 +3269,9 @@ fn ipred_z1_8bpc_v4x_inner(
   }
 
   let checked_value_27 = predictor_get(&ebuf, 0..64).ok_or(Rav1dError::EINVAL)?;
-  let edge_lo = loadu_512!(
-    checked_value_27,
-    [u8; 64]
-  );
+  let edge_lo = loadu_512!(checked_value_27, [u8; 64]);
   let checked_value_28 = predictor_get(&ebuf, 64..128).ok_or(Rav1dError::EINVAL)?;
-  let edge_hi = loadu_512!(
-    checked_value_28,
-    [u8; 64]
-  );
+  let edge_hi = loadu_512!(checked_value_28, [u8; 64]);
 
   let max_idx8 = _mm512_set1_epi8(
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i8>(
@@ -3226,8 +3373,7 @@ fn ipred_z1_8bpc_v4x_inner(
             *output = sample;
           }
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(32, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(32, &mut x);
         }
       }
       ::core::option::Option::None => {
@@ -3241,10 +3387,12 @@ fn ipred_z1_8bpc_v4x_inner(
             (Wrapping(base0) + Wrapping((Wrapping(base_inc) * Wrapping(x)).0)).0,
           );
 
-          match ::core::primitive::bool::then_some((match ::console_core_number_conversion::fitted::<_, u64>(base) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) < max_base_x, ())
-          {
+          match ::core::primitive::bool::then_some(
+            (match ::console_core_number_conversion::fitted::<_, u64>(base) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            }) < max_base_x,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               let checked_value_3 = predictor_get(
                 &*top_f,
@@ -3257,9 +3405,11 @@ fn ipred_z1_8bpc_v4x_inner(
                 <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_3);
               let checked_value_4 = predictor_get(
                 &*top_f,
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(1))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(1))
                 .0,
               )
               .ok_or(Rav1dError::EINVAL)?;
@@ -3275,36 +3425,46 @@ fn ipred_z1_8bpc_v4x_inner(
                   <i32 as ::core::convert::From<::core::primitive::i16>>::from(frac),
                 ),
               );
-              *{ let checked_value_31 = predictor_get_mut(
-                &mut *dst_2,
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(x))
-                .0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_31 } =
-                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-                  ::core::primitive::i32::wrapping_shr(
-                    ::core::primitive::i32::wrapping_add(v, 32),
-                    6_u32,
-                  ),
-                ) {
-                  ::core::result::Result::Ok(converted_position) => converted_position,
-                };
+              *{
+                let checked_value_31 = predictor_get_mut(
+                  &mut *dst_2,
+                  (Wrapping(
+                    match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  ) + Wrapping(x))
+                  .0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_31
+              } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+                ::core::primitive::i32::wrapping_shr(
+                  ::core::primitive::i32::wrapping_add(v, 32),
+                  6_u32,
+                ),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              };
             }
             ::core::option::Option::None => {
-              let checked_value_5 = predictor_get(&*top_f, max_base_x).ok_or(Rav1dError::EINVAL)?;
+              let checked_value_5 =
+                predictor_get(&*top_f, max_base_x).ok_or(Rav1dError::EINVAL)?;
               let fv = *checked_value_5;
 
               for xx in x..width {
-                *{ let checked_value_32 = predictor_get_mut(
-                  &mut *dst_2,
-                  (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  }) + Wrapping(xx))
-                  .0,
-                )
-                .ok_or(Rav1dError::EINVAL)?; checked_value_32 } = fv;
+                *{
+                  let checked_value_32 = predictor_get_mut(
+                    &mut *dst_2,
+                    (Wrapping(
+                      match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                        ::core::result::Result::Ok(native_position) => native_position,
+                      },
+                    ) + Wrapping(xx))
+                    .0,
+                  )
+                  .ok_or(Rav1dError::EINVAL)?;
+                  checked_value_32
+                } = fv;
               }
 
               break 'inner_for_2;
@@ -3321,7 +3481,14 @@ fn ipred_z1_8bpc_v4x_inner(
 }
 
 fn upsample_edge_8bpc(out: &mut [u8], count: i32, input: PredictionEdge<'_, u8>) -> Rav1dResult {
-  upsample_edge(out, input, EdgeUpsampling { count, ceiling: 255 })
+  upsample_edge(
+    out,
+    input,
+    EdgeUpsampling {
+      count,
+      ceiling: 255,
+    },
+  )
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -3333,9 +3500,20 @@ fn ipred_z2_8bpc_inner(
   prediction: DirectionalPrediction,
   reach: Size<i32>,
 ) -> Rav1dResult {
-  let DirectionalPrediction { destination, edge_center: tl_off, angle } = prediction;
-  let PredictorOutput { base: dst_base, stride, size: Size { width, height } } = destination;
-  let Size { width: max_width, height: max_height } = reach;
+  let DirectionalPrediction {
+    destination,
+    edge_center: tl_off,
+    angle,
+  } = prediction;
+  let PredictorOutput {
+    base: dst_base,
+    stride,
+    size: Size { width, height },
+  } = destination;
+  let Size {
+    width: max_width,
+    height: max_height,
+  } = reach;
   let dst_2 = &mut *dst;
   let width_i =
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(width) {
@@ -3351,27 +3529,23 @@ fn ipred_z2_8bpc_inner(
   let angle_2 = angle & 511;
 
   let checked_value_9 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(angle_2, 90), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dy = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_9,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(angle_2, 90), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dy = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_9);
   let checked_value_10 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(180, angle_2), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_10,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(180, angle_2), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_10);
 
   let upsample_left = enable_intra_edge_filter
     && i32::wrapping_sub(180, angle_2) < 40
@@ -3395,44 +3569,63 @@ fn ipred_z2_8bpc_inner(
     ::core::option::Option::Some(()) => {
       upsample_edge_8bpc(
         &mut *{
-          let checked_value_25 = predictor_get_mut(&mut edge, edge_tl..).ok_or(Rav1dError::EINVAL)?;
+          let checked_value_25 =
+            predictor_get_mut(&mut edge, edge_tl..).ok_or(Rav1dError::EINVAL)?;
           checked_value_25
         },
         i32::wrapping_add(width_i, 1),
-        PredictionEdge { pixels: topleft, origin: tl_off, window: 0..i32::wrapping_add(width_i, 1) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: tl_off,
+          window: 0..i32::wrapping_add(width_i, 1),
+        },
       )?;
       dx = ::core::primitive::i32::wrapping_shl(dx, 1_u32);
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(angle_2, 90),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(angle_2, 90),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
-            &mut *{ let checked_value_26 = predictor_get_mut(&mut edge, edge_tl.wrapping_add(1)..)
-              .ok_or(Rav1dError::EINVAL)?; checked_value_26 },
-            PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) + Wrapping(1)).0, window: -1..width_i },
-            EdgeFilter { count: width_i, filtered: 0..max_width, strength: filter_strength },
+            &mut *{
+              let checked_value_26 = predictor_get_mut(&mut edge, edge_tl.wrapping_add(1)..)
+                .ok_or(Rav1dError::EINVAL)?;
+              checked_value_26
+            },
+            PredictionEdge {
+              pixels: topleft,
+              origin: (Wrapping(tl_off) + Wrapping(1)).0,
+              window: -1..width_i,
+            },
+            EdgeFilter {
+              count: width_i,
+              filtered: 0..max_width,
+              strength: filter_strength,
+            },
           )?;
         }
         ::core::option::Option::None => {
           {
             let checked_copy_destination = predictor_get_mut(
-            &mut edge,
-            edge_tl.wrapping_add(1)..(Wrapping(edge_tl.wrapping_add(1)) + Wrapping(width)).0,
-          ).ok_or(Rav1dError::EINVAL)?;
+              &mut edge,
+              edge_tl.wrapping_add(1)..(Wrapping(edge_tl.wrapping_add(1)) + Wrapping(width)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
             let checked_copy_source = predictor_get(
               &*topleft,
               (Wrapping(tl_off) + Wrapping(1)).0
                 ..(Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(width)).0,
-            ).ok_or(Rav1dError::EINVAL)?;
+            )
+            .ok_or(Rav1dError::EINVAL)?;
 
             for (destination_element, source_element) in checked_copy_destination
               .iter_mut()
@@ -3449,42 +3642,63 @@ fn ipred_z2_8bpc_inner(
   match ::core::primitive::bool::then_some(upsample_left, ()) {
     ::core::option::Option::Some(()) => {
       upsample_edge_8bpc(
-        &mut *{ let checked_value_29 = predictor_get_mut(
-          &mut edge,
-          (Wrapping(edge_tl) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0..,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_29 },
+        &mut *{
+          let checked_value_29 = predictor_get_mut(
+            &mut edge,
+            (Wrapping(edge_tl) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0..,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_29
+        },
         i32::wrapping_add(height_i, 1),
-        PredictionEdge { pixels: topleft, origin: tl_off.wrapping_sub(height), window: 0..i32::wrapping_add(height_i, 1) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: tl_off.wrapping_sub(height),
+          window: 0..i32::wrapping_add(height_i, 1),
+        },
       )?;
       dy = ::core::primitive::i32::wrapping_shl(dy, 1_u32);
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(180, angle_2),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(180, angle_2),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
             &mut *{
-              let checked_value_30 = predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..)
-              .ok_or(Rav1dError::EINVAL)?;
+              let checked_value_30 =
+                predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..)
+                  .ok_or(Rav1dError::EINVAL)?;
               checked_value_30
             },
-            PredictionEdge { pixels: topleft, origin: tl_off.wrapping_sub(height), window: 0..i32::wrapping_add(height_i, 1) },
-            EdgeFilter { count: height_i, filtered: i32::wrapping_sub(height_i, max_height)..height_i, strength: filter_strength },
+            PredictionEdge {
+              pixels: topleft,
+              origin: tl_off.wrapping_sub(height),
+              window: 0..i32::wrapping_add(height_i, 1),
+            },
+            EdgeFilter {
+              count: height_i,
+              filtered: i32::wrapping_sub(height_i, max_height)..height_i,
+              strength: filter_strength,
+            },
           )?;
         }
         ::core::option::Option::None => {
           {
-            let checked_copy_destination = predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..edge_tl).ok_or(Rav1dError::EINVAL)?;
-            let checked_copy_source = predictor_get(&*topleft, (Wrapping(tl_off) - Wrapping(height)).0..tl_off).ok_or(Rav1dError::EINVAL)?;
+            let checked_copy_destination =
+              predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..edge_tl)
+                .ok_or(Rav1dError::EINVAL)?;
+            let checked_copy_source =
+              predictor_get(&*topleft, (Wrapping(tl_off) - Wrapping(height)).0..tl_off)
+                .ok_or(Rav1dError::EINVAL)?;
 
             for (destination_element, source_element) in checked_copy_destination
               .iter_mut()
@@ -3512,9 +3726,7 @@ fn ipred_z2_8bpc_inner(
   let left = (Wrapping(edge_tl)
     - Wrapping(
       (Wrapping(1)
-        + Wrapping(
-          <u64 as ::core::convert::From<::core::primitive::bool>>::from(upsample_left),
-        ))
+        + Wrapping(<u64 as ::core::convert::From<::core::primitive::bool>>::from(upsample_left)))
       .0,
     ))
   .0;
@@ -3560,13 +3772,14 @@ fn ipred_z2_8bpc_inner(
     let left_count = match ::core::primitive::bool::then_some(base_x0 >= 0, ()) {
       ::core::option::Option::Some(()) => 0u64,
       ::core::option::Option::None => {
-        let ::core::result::Result::Ok(needed) = ::console_core_number_conversion::fitted::<_, u64>({
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_neg(base_x0),
-            );
-          explicit_position
-        });
+        let ::core::result::Result::Ok(needed) =
+          ::console_core_number_conversion::fitted::<_, u64>({
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_neg(base_x0),
+              );
+            explicit_position
+          });
         (match ::console_core_number_conversion::fitted::<_, u64>(needed) {
           ::core::result::Result::Ok(native_position) => native_position,
         })
@@ -3639,20 +3852,21 @@ fn ipred_z2_8bpc_inner(
         ::core::primitive::i32::wrapping_mul(l0, inv_frac_y),
         ::core::primitive::i32::wrapping_mul(l1, frac_y),
       );
-      *{ let checked_value_34 = predictor_get_mut(
-        &mut *dst_2,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_34 } = match ::console_core_number_conversion::wrapped::<
-        _,
-        ::core::primitive::u8,
-      >(::core::primitive::i32::wrapping_shr(
-        ::core::primitive::i32::wrapping_add(v, 32),
-        6_u32,
-      )) {
+      *{
+        let checked_value_34 = predictor_get_mut(
+          &mut *dst_2,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_34
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(v, 32), 6_u32),
+      ) {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -3677,12 +3891,20 @@ fn ipred_z2_8bpc_inner(
               explicit_position
             });
           let idx = (Wrapping(edge_tl)
-            + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
           .0;
 
-          match ::core::primitive::bool::then_some((Wrapping(idx) + Wrapping(17)).0 > { let Ok(length) = console_core_number_conversion::fixed_index(edge_2.len()); length }, ()) {
+          match ::core::primitive::bool::then_some(
+            (Wrapping(idx) + Wrapping(17)).0 > {
+              let Ok(length) = console_core_number_conversion::fixed_index(edge_2.len());
+              length
+            },
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               break 'inner_while_2;
             }
@@ -3716,14 +3938,18 @@ fn ipred_z2_8bpc_inner(
           let combined = _mm_unpacklo_epi64(lo, hi);
           let checked_value_3 = predictor_get_mut(
             &mut *dst_2,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0
               ..(Wrapping(
-                (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + Wrapping(x))
+                (Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ) + Wrapping(x))
                 .0,
               ) + Wrapping(16))
               .0,
@@ -3731,8 +3957,7 @@ fn ipred_z2_8bpc_inner(
           .ok_or(Rav1dError::EINVAL)?;
           storeu_128!(checked_value_3, [u8; 16], combined);
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(16, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
         }
       }
       ::core::option::Option::None => {}
@@ -3742,33 +3967,43 @@ fn ipred_z2_8bpc_inner(
       start: x,
       end: width,
     }) {
-      let ::core::result::Result::Ok(base_x) = ::console_core_number_conversion::fitted::<_, u64>({
-        let ::core::result::Result::Ok(explicit_position) =
-          ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-            i32::wrapping_add(
-              base_x0,
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
-                (Wrapping(base_inc_x) * Wrapping(x)).0,
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              },
-            ),
-          );
-        explicit_position
-      });
+      let ::core::result::Result::Ok(base_x) =
+        ::console_core_number_conversion::fitted::<_, u64>({
+          let ::core::result::Result::Ok(explicit_position) =
+            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+              i32::wrapping_add(
+                base_x0,
+                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+                  (Wrapping(base_inc_x) * Wrapping(x)).0,
+                ) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                },
+              ),
+            );
+          explicit_position
+        });
       let ::core::result::Result::Ok(idx) = ::console_core_number_conversion::fitted::<_, u64>(
         (Wrapping(edge_tl)
-          + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }))
+          + Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ))
         .0,
       );
 
-      match ::core::primitive::bool::then_some((Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(idx) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping(2))
-      .0 > { let Ok(length) = console_core_number_conversion::fixed_index(edge_2.len()); length }, ())
-      {
+      match ::core::primitive::bool::then_some(
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(idx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(2))
+        .0 > {
+          let Ok(length) = console_core_number_conversion::fixed_index(edge_2.len());
+          length
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           break 'inner_for_2;
         }
@@ -3785,9 +4020,11 @@ fn ipred_z2_8bpc_inner(
       let t0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_7);
       let checked_value_8 = predictor_get(
         &*edge_2,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(idx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(1))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(idx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(1))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
@@ -3802,20 +4039,21 @@ fn ipred_z2_8bpc_inner(
           <i32 as ::core::convert::From<::core::primitive::i16>>::from(frac_x),
         ),
       );
-      *{ let checked_value_35 = predictor_get_mut(
-        &mut *dst_2,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_35 } = match ::console_core_number_conversion::wrapped::<
-        _,
-        ::core::primitive::u8,
-      >(::core::primitive::i32::wrapping_shr(
-        ::core::primitive::i32::wrapping_add(v, 32),
-        6_u32,
-      )) {
+      *{
+        let checked_value_35 = predictor_get_mut(
+          &mut *dst_2,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_35
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(v, 32), 6_u32),
+      ) {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -3834,9 +4072,20 @@ fn ipred_z2_8bpc_v4x_inner(
   prediction: DirectionalPrediction,
   reach: Size<i32>,
 ) -> Rav1dResult {
-  let DirectionalPrediction { destination, edge_center: tl_off, angle } = prediction;
-  let PredictorOutput { base: dst_base, stride, size: Size { width, height } } = destination;
-  let Size { width: max_width, height: max_height } = reach;
+  let DirectionalPrediction {
+    destination,
+    edge_center: tl_off,
+    angle,
+  } = prediction;
+  let PredictorOutput {
+    base: dst_base,
+    stride,
+    size: Size { width, height },
+  } = destination;
+  let Size {
+    width: max_width,
+    height: max_height,
+  } = reach;
   let dst_2 = &mut *dst;
   let width_i =
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(width) {
@@ -3852,27 +4101,23 @@ fn ipred_z2_8bpc_v4x_inner(
   let angle_2 = angle & 511;
 
   let checked_value_7 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(angle_2, 90), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dy = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_7,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(angle_2, 90), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dy = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_7);
   let checked_value_8 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(180, angle_2), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_8,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(180, angle_2), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_8);
 
   let upsample_left = enable_intra_edge_filter
     && i32::wrapping_sub(180, angle_2) < 40
@@ -3896,44 +4141,63 @@ fn ipred_z2_8bpc_v4x_inner(
     ::core::option::Option::Some(()) => {
       upsample_edge_8bpc(
         &mut *{
-          let checked_value_25 = predictor_get_mut(&mut edge, edge_tl..).ok_or(Rav1dError::EINVAL)?;
+          let checked_value_25 =
+            predictor_get_mut(&mut edge, edge_tl..).ok_or(Rav1dError::EINVAL)?;
           checked_value_25
         },
         i32::wrapping_add(width_i, 1),
-        PredictionEdge { pixels: topleft, origin: tl_off, window: 0..i32::wrapping_add(width_i, 1) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: tl_off,
+          window: 0..i32::wrapping_add(width_i, 1),
+        },
       )?;
       dx = ::core::primitive::i32::wrapping_shl(dx, 1_u32);
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(angle_2, 90),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(angle_2, 90),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
-            &mut *{ let checked_value_26 = predictor_get_mut(&mut edge, edge_tl.wrapping_add(1)..)
-              .ok_or(Rav1dError::EINVAL)?; checked_value_26 },
-            PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) + Wrapping(1)).0, window: -1..width_i },
-            EdgeFilter { count: width_i, filtered: 0..max_width, strength: filter_strength },
+            &mut *{
+              let checked_value_26 = predictor_get_mut(&mut edge, edge_tl.wrapping_add(1)..)
+                .ok_or(Rav1dError::EINVAL)?;
+              checked_value_26
+            },
+            PredictionEdge {
+              pixels: topleft,
+              origin: (Wrapping(tl_off) + Wrapping(1)).0,
+              window: -1..width_i,
+            },
+            EdgeFilter {
+              count: width_i,
+              filtered: 0..max_width,
+              strength: filter_strength,
+            },
           )?;
         }
         ::core::option::Option::None => {
           {
             let checked_copy_destination = predictor_get_mut(
-            &mut edge,
-            edge_tl.wrapping_add(1)..(Wrapping(edge_tl.wrapping_add(1)) + Wrapping(width)).0,
-          ).ok_or(Rav1dError::EINVAL)?;
+              &mut edge,
+              edge_tl.wrapping_add(1)..(Wrapping(edge_tl.wrapping_add(1)) + Wrapping(width)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
             let checked_copy_source = predictor_get(
               &*topleft,
               (Wrapping(tl_off) + Wrapping(1)).0
                 ..(Wrapping((Wrapping(tl_off) + Wrapping(1)).0) + Wrapping(width)).0,
-            ).ok_or(Rav1dError::EINVAL)?;
+            )
+            .ok_or(Rav1dError::EINVAL)?;
 
             for (destination_element, source_element) in checked_copy_destination
               .iter_mut()
@@ -3950,42 +4214,63 @@ fn ipred_z2_8bpc_v4x_inner(
   match ::core::primitive::bool::then_some(upsample_left, ()) {
     ::core::option::Option::Some(()) => {
       upsample_edge_8bpc(
-        &mut *{ let checked_value_29 = predictor_get_mut(
-          &mut edge,
-          (Wrapping(edge_tl) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0..,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_29 },
+        &mut *{
+          let checked_value_29 = predictor_get_mut(
+            &mut edge,
+            (Wrapping(edge_tl) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0..,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_29
+        },
         i32::wrapping_add(height_i, 1),
-        PredictionEdge { pixels: topleft, origin: tl_off.wrapping_sub(height), window: 0..i32::wrapping_add(height_i, 1) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: tl_off.wrapping_sub(height),
+          window: 0..i32::wrapping_add(height_i, 1),
+        },
       )?;
       dy = ::core::primitive::i32::wrapping_shl(dy, 1_u32);
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(180, angle_2),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(180, angle_2),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
             &mut *{
-              let checked_value_30 = predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..)
-              .ok_or(Rav1dError::EINVAL)?;
+              let checked_value_30 =
+                predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..)
+                  .ok_or(Rav1dError::EINVAL)?;
               checked_value_30
             },
-            PredictionEdge { pixels: topleft, origin: tl_off.wrapping_sub(height), window: 0..i32::wrapping_add(height_i, 1) },
-            EdgeFilter { count: height_i, filtered: i32::wrapping_sub(height_i, max_height)..height_i, strength: filter_strength },
+            PredictionEdge {
+              pixels: topleft,
+              origin: tl_off.wrapping_sub(height),
+              window: 0..i32::wrapping_add(height_i, 1),
+            },
+            EdgeFilter {
+              count: height_i,
+              filtered: i32::wrapping_sub(height_i, max_height)..height_i,
+              strength: filter_strength,
+            },
           )?;
         }
         ::core::option::Option::None => {
           {
-            let checked_copy_destination = predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..edge_tl).ok_or(Rav1dError::EINVAL)?;
-            let checked_copy_source = predictor_get(&*topleft, (Wrapping(tl_off) - Wrapping(height)).0..tl_off).ok_or(Rav1dError::EINVAL)?;
+            let checked_copy_destination =
+              predictor_get_mut(&mut edge, (Wrapping(edge_tl) - Wrapping(height)).0..edge_tl)
+                .ok_or(Rav1dError::EINVAL)?;
+            let checked_copy_source =
+              predictor_get(&*topleft, (Wrapping(tl_off) - Wrapping(height)).0..tl_off)
+                .ok_or(Rav1dError::EINVAL)?;
 
             for (destination_element, source_element) in checked_copy_destination
               .iter_mut()
@@ -4014,9 +4299,7 @@ fn ipred_z2_8bpc_v4x_inner(
   let left = (Wrapping(edge_tl)
     - Wrapping(
       (Wrapping(1)
-        + Wrapping(
-          <u64 as ::core::convert::From<::core::primitive::bool>>::from(upsample_left),
-        ))
+        + Wrapping(<u64 as ::core::convert::From<::core::primitive::bool>>::from(upsample_left)))
       .0,
     ))
   .0;
@@ -4034,15 +4317,9 @@ fn ipred_z2_8bpc_v4x_inner(
   }
 
   let checked_value_35 = predictor_get(&tbuf, 0..64).ok_or(Rav1dError::EINVAL)?;
-  let top_lo = loadu_512!(
-    checked_value_35,
-    [u8; 64]
-  );
+  let top_lo = loadu_512!(checked_value_35, [u8; 64]);
   let checked_value_36 = predictor_get(&tbuf, 64..128).ok_or(Rav1dError::EINVAL)?;
-  let top_hi = loadu_512!(
-    checked_value_36,
-    [u8; 64]
-  );
+  let top_hi = loadu_512!(checked_value_36, [u8; 64]);
   let lane_off: [u8; 64] = core::array::from_fn(|i| {
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(i) {
       ::core::result::Result::Ok(converted_position) => converted_position,
@@ -4091,13 +4368,14 @@ fn ipred_z2_8bpc_v4x_inner(
     let left_count = match ::core::primitive::bool::then_some(base_x0 >= 0, ()) {
       ::core::option::Option::Some(()) => 0u64,
       ::core::option::Option::None => {
-        let ::core::result::Result::Ok(needed) = ::console_core_number_conversion::fitted::<_, u64>({
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_neg(base_x0),
-            );
-          explicit_position
-        });
+        let ::core::result::Result::Ok(needed) =
+          ::console_core_number_conversion::fitted::<_, u64>({
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_neg(base_x0),
+              );
+            explicit_position
+          });
         (match ::console_core_number_conversion::fitted::<_, u64>(needed) {
           ::core::result::Result::Ok(native_position) => native_position,
         })
@@ -4170,20 +4448,21 @@ fn ipred_z2_8bpc_v4x_inner(
         ::core::primitive::i32::wrapping_mul(l0, inv_frac_y),
         ::core::primitive::i32::wrapping_mul(l1, frac_y),
       );
-      *{ let checked_value_37 = predictor_get_mut(
-        &mut *dst_2,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_37 } = match ::console_core_number_conversion::wrapped::<
-        _,
-        ::core::primitive::u8,
-      >(::core::primitive::i32::wrapping_shr(
-        ::core::primitive::i32::wrapping_add(v, 32),
-        6_u32,
-      )) {
+      *{
+        let checked_value_37 = predictor_get_mut(
+          &mut *dst_2,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_37
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(v, 32), 6_u32),
+      ) {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -4202,15 +4481,17 @@ fn ipred_z2_8bpc_v4x_inner(
             },
           );
 
-          match ::core::primitive::bool::then_some(({
-            let ::core::result::Result::Ok(explicit_position) =
-              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(base_x);
-            explicit_position
-          })
-          .wrapping_add(31)
-          .wrapping_add(1)
-            > top_k_max, ())
-          {
+          match ::core::primitive::bool::then_some(
+            ({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(base_x);
+              explicit_position
+            })
+            .wrapping_add(31)
+            .wrapping_add(1)
+              > top_k_max,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               break 'inner_while_2;
             }
@@ -4250,10 +4531,10 @@ fn ipred_z2_8bpc_v4x_inner(
           let copy_start = row_off.wrapping_add(x);
           let output_window = predictor_get_mut(dst_2, copy_start..copy_start.wrapping_add(32))
             .ok_or(Rav1dError::EINVAL)?;
-          let predicted_row: &mut [u8; 32] = output_window.try_into().map_err(|_| Rav1dError::EINVAL)?;
+          let predicted_row: &mut [u8; 32] =
+            output_window.try_into().map_err(|_| Rav1dError::EINVAL)?;
           *predicted_row = tmp;
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(32, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(32, &mut x);
         }
       }
       ::core::option::Option::None => {}
@@ -4263,33 +4544,40 @@ fn ipred_z2_8bpc_v4x_inner(
       start: x,
       end: width,
     }) {
-      let ::core::result::Result::Ok(base_x) = ::console_core_number_conversion::fitted::<_, u64>({
-        let ::core::result::Result::Ok(explicit_position) =
-          ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-            i32::wrapping_add(
-              base_x0,
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
-                (Wrapping(base_inc_x) * Wrapping(x)).0,
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              },
-            ),
-          );
-        explicit_position
-      });
+      let ::core::result::Result::Ok(base_x) =
+        ::console_core_number_conversion::fitted::<_, u64>({
+          let ::core::result::Result::Ok(explicit_position) =
+            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+              i32::wrapping_add(
+                base_x0,
+                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+                  (Wrapping(base_inc_x) * Wrapping(x)).0,
+                ) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                },
+              ),
+            );
+          explicit_position
+        });
       let ::core::result::Result::Ok(idx) = ::console_core_number_conversion::fitted::<_, u64>(
         (Wrapping(edge_tl)
-          + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }))
+          + Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ))
         .0,
       );
 
-      match ::core::primitive::bool::then_some((Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(idx) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping(2))
-      .0 > edge_len, ())
-      {
+      match ::core::primitive::bool::then_some(
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(idx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(2))
+        .0 > edge_len,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           break 'inner_for_2;
         }
@@ -4306,9 +4594,11 @@ fn ipred_z2_8bpc_v4x_inner(
       let t0 = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
       let checked_value_6 = predictor_get(
         &*edge_2,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(idx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(1))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(idx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(1))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
@@ -4323,20 +4613,21 @@ fn ipred_z2_8bpc_v4x_inner(
           <i32 as ::core::convert::From<::core::primitive::i16>>::from(frac_x),
         ),
       );
-      *{ let checked_value_39 = predictor_get_mut(
-        &mut *dst_2,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_39 } = match ::console_core_number_conversion::wrapped::<
-        _,
-        ::core::primitive::u8,
-      >(::core::primitive::i32::wrapping_shr(
-        ::core::primitive::i32::wrapping_add(v, 32),
-        6_u32,
-      )) {
+      *{
+        let checked_value_39 = predictor_get_mut(
+          &mut *dst_2,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        ::core::primitive::i32::wrapping_shr(::core::primitive::i32::wrapping_add(v, 32), 6_u32),
+      ) {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -4354,8 +4645,16 @@ fn ipred_z3_8bpc_inner(
   topleft: &[u8],
   prediction: DirectionalPrediction,
 ) -> Rav1dResult {
-  let DirectionalPrediction { destination, edge_center: tl_off, angle } = prediction;
-  let PredictorOutput { base: dst_base, stride, size: Size { width, height } } = destination;
+  let DirectionalPrediction {
+    destination,
+    edge_center: tl_off,
+    angle,
+  } = prediction;
+  let PredictorOutput {
+    base: dst_base,
+    stride,
+    size: Size { width, height },
+  } = destination;
   let dst_2 = &mut *dst;
   let width_i =
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(width) {
@@ -4371,16 +4670,14 @@ fn ipred_z3_8bpc_inner(
   let angle_2 = angle & 511;
 
   let checked_value_4 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(270, angle_2), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dy = <u64 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_4,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(270, angle_2), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dy = <u64 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_4);
 
   let upsample_left = enable_intra_edge_filter
     && i32::wrapping_sub(angle_2, 180) < 40
@@ -4398,7 +4695,12 @@ fn ipred_z3_8bpc_inner(
       upsample_edge_8bpc(
         &mut left_out,
         i32::wrapping_add(width_i, height_i),
-        PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0, window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0,
+          window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)
+            ..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1),
+        },
       )?;
       left_off = {
         let ::core::result::Result::Ok(explicit_position) =
@@ -4416,21 +4718,31 @@ fn ipred_z3_8bpc_inner(
       left = left_out.as_slice();
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(angle_2, 180),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(angle_2, 180),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
             &mut left_out,
-            PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0, window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1) },
-            EdgeFilter { count: i32::wrapping_add(width_i, height_i), filtered: 0..i32::wrapping_add(width_i, height_i), strength: filter_strength },
+            PredictionEdge {
+              pixels: topleft,
+              origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0,
+              window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)
+                ..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1),
+            },
+            EdgeFilter {
+              count: i32::wrapping_add(width_i, height_i),
+              filtered: 0..i32::wrapping_add(width_i, height_i),
+              strength: filter_strength,
+            },
           )?;
           left_off = {
             let ::core::result::Result::Ok(explicit_position) =
@@ -4487,17 +4799,21 @@ fn ipred_z3_8bpc_inner(
         ),
       );
 
-      match ::core::primitive::bool::then_some((match ::console_core_number_conversion::fitted::<_, u64>(base) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) < max_base_y, ())
-      {
+      match ::core::primitive::bool::then_some(
+        (match ::console_core_number_conversion::fitted::<_, u64>(base) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) < max_base_y,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let checked_value = predictor_get(
             &*left_2,
             (Wrapping(left_off)
-              - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              }))
+              - Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ))
             .0,
           )
           .ok_or(Rav1dError::EINVAL)?;
@@ -4506,9 +4822,11 @@ fn ipred_z3_8bpc_inner(
             &*left_2,
             (Wrapping(
               (Wrapping(left_off)
-                - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }))
+                - Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ))
               .0,
             ) - Wrapping(1))
             .0,
@@ -4526,9 +4844,7 @@ fn ipred_z3_8bpc_inner(
                 .wrapping_add(
                   ({
                     let ::core::result::Result::Ok(explicit_position) =
-                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                        y,
-                      );
+                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(y);
                     explicit_position
                   })
                   .wrapping_mul(stride),
@@ -4536,19 +4852,21 @@ fn ipred_z3_8bpc_inner(
                 .cast_unsigned()
                 .wrapping_add(x),
             );
-          *{ let checked_value_25 = predictor_get_mut(
-            &mut *dst_2,
-            match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            },
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 } = match ::console_core_number_conversion::wrapped::<
-            _,
-            ::core::primitive::u8,
-          >(::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(v, 32),
-            6_u32,
-          )) {
+          *{
+            let checked_value_25 = predictor_get_mut(
+              &mut *dst_2,
+              match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_25
+          } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            ::core::primitive::i32::wrapping_shr(
+              ::core::primitive::i32::wrapping_add(v, 32),
+              6_u32,
+            ),
+          ) {
             ::core::result::Result::Ok(converted_position) => converted_position,
           };
         }
@@ -4559,27 +4877,33 @@ fn ipred_z3_8bpc_inner(
           let fill_val = *checked_value_3;
 
           for yy in y..height_i {
-            let ::core::result::Result::Ok(pixel_off) = ::console_core_number_conversion::fitted::<_, u64>(dst_base
-              .cast_signed()
-              .wrapping_add(
-                ({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                      yy,
-                    );
-                  explicit_position
-                })
-                .wrapping_mul(stride),
+            let ::core::result::Result::Ok(pixel_off) =
+              ::console_core_number_conversion::fitted::<_, u64>(
+                dst_base
+                  .cast_signed()
+                  .wrapping_add(
+                    ({
+                      let ::core::result::Result::Ok(explicit_position) =
+                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                          yy,
+                        );
+                      explicit_position
+                    })
+                    .wrapping_mul(stride),
+                  )
+                  .cast_unsigned()
+                  .wrapping_add(x),
+              );
+            *{
+              let checked_value_26 = predictor_get_mut(
+                &mut *dst_2,
+                match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
               )
-              .cast_unsigned()
-              .wrapping_add(x));
-            *{ let checked_value_26 = predictor_get_mut(
-              &mut *dst_2,
-              match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              },
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_26 } = fill_val;
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_26
+            } = fill_val;
           }
 
           break 'over_y_2;
@@ -4599,8 +4923,16 @@ fn ipred_z3_8bpc_v4x_inner(
   topleft: &[u8],
   prediction: DirectionalPrediction,
 ) -> Rav1dResult {
-  let DirectionalPrediction { destination, edge_center: tl_off, angle } = prediction;
-  let PredictorOutput { base: dst_base, stride, size: Size { width, height } } = destination;
+  let DirectionalPrediction {
+    destination,
+    edge_center: tl_off,
+    angle,
+  } = prediction;
+  let PredictorOutput {
+    base: dst_base,
+    stride,
+    size: Size { width, height },
+  } = destination;
   let dst_2 = &mut *dst;
   let width_i =
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(width) {
@@ -4616,16 +4948,14 @@ fn ipred_z3_8bpc_v4x_inner(
   let angle_2 = angle & 511;
 
   let checked_value_5 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(270, angle_2), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dy = <u64 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_5,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(270, angle_2), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dy = <u64 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
 
   let upsample_left = enable_intra_edge_filter
     && i32::wrapping_sub(angle_2, 180) < 40
@@ -4643,7 +4973,12 @@ fn ipred_z3_8bpc_v4x_inner(
       upsample_edge_8bpc(
         &mut left_out,
         i32::wrapping_add(width_i, height_i),
-        PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0, window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1) },
+        PredictionEdge {
+          pixels: topleft,
+          origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0,
+          window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)
+            ..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1),
+        },
       )?;
       left_off = {
         let ::core::result::Result::Ok(explicit_position) =
@@ -4661,21 +4996,31 @@ fn ipred_z3_8bpc_v4x_inner(
       left = left_out.as_slice();
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(angle_2, 180),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(angle_2, 180),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           filter_edge_8bpc(
             &mut left_out,
-            PredictionEdge { pixels: topleft, origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0, window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1) },
-            EdgeFilter { count: i32::wrapping_add(width_i, height_i), filtered: 0..i32::wrapping_add(width_i, height_i), strength: filter_strength },
+            PredictionEdge {
+              pixels: topleft,
+              origin: (Wrapping(tl_off) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0,
+              window: std::cmp::max(i32::wrapping_sub(width_i, height_i), 0)
+                ..i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1),
+            },
+            EdgeFilter {
+              count: i32::wrapping_add(width_i, height_i),
+              filtered: 0..i32::wrapping_add(width_i, height_i),
+              strength: filter_strength,
+            },
           )?;
           left_off = {
             let ::core::result::Result::Ok(explicit_position) =
@@ -4717,26 +5062,17 @@ fn ipred_z3_8bpc_v4x_inner(
   let checked_value_26 = predictor_get(&lbuf, last).ok_or(Rav1dError::EINVAL)?;
   let fill_val = *checked_value_26;
 
-  for b in lbuf
-    .iter_mut()
-    .skip({
-      let Ok(start) = index(last.wrapping_add(1));
-      start
-    })
-  {
+  for b in lbuf.iter_mut().skip({
+    let Ok(start) = index(last.wrapping_add(1));
+    start
+  }) {
     *b = fill_val;
   }
 
   let checked_value_27 = predictor_get(&lbuf, 0..64).ok_or(Rav1dError::EINVAL)?;
-  let edge_lo = loadu_512!(
-    checked_value_27,
-    [u8; 64]
-  );
+  let edge_lo = loadu_512!(checked_value_27, [u8; 64]);
   let checked_value_28 = predictor_get(&lbuf, 64..128).ok_or(Rav1dError::EINVAL)?;
-  let edge_hi = loadu_512!(
-    checked_value_28,
-    [u8; 64]
-  );
+  let edge_hi = loadu_512!(checked_value_28, [u8; 64]);
 
   let max_idx8 = _mm512_set1_epi8(
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i8>(last) {
@@ -4814,32 +5150,35 @@ fn ipred_z3_8bpc_v4x_inner(
           storeu_256!(&mut tmp, [u8; 32], out32);
 
           for k in 0..n {
-            let ::core::result::Result::Ok(off) = ::console_core_number_conversion::fitted::<_, u64>(
-              (Wrapping(
-                (Wrapping(dst_base.cast_signed())
-                  + Wrapping(
-                    (Wrapping(::core::primitive::u64::cast_signed(
-                      (Wrapping(y) + Wrapping(k)).0,
-                    )) * Wrapping(stride))
-                    .0,
-                  ))
-                .0
-                .cast_unsigned(),
-              ) + Wrapping(x))
-              .0,
-            );
+            let ::core::result::Result::Ok(off) =
+              ::console_core_number_conversion::fitted::<_, u64>(
+                (Wrapping(
+                  (Wrapping(dst_base.cast_signed())
+                    + Wrapping(
+                      (Wrapping(::core::primitive::u64::cast_signed(
+                        (Wrapping(y) + Wrapping(k)).0,
+                      )) * Wrapping(stride))
+                      .0,
+                    ))
+                  .0
+                  .cast_unsigned(),
+                ) + Wrapping(x))
+                .0,
+              );
             let checked_value_29 = predictor_get(&tmp, k).ok_or(Rav1dError::EINVAL)?;
-            *{ let checked_value_30 = predictor_get_mut(
-              &mut *dst_2,
-              match ::console_core_number_conversion::fitted::<_, u64>(off) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              },
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_30 } = *checked_value_29;
+            *{
+              let checked_value_30 = predictor_get_mut(
+                &mut *dst_2,
+                match ::console_core_number_conversion::fitted::<_, u64>(off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_30
+            } = *checked_value_29;
           }
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(32, &mut y);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(32, &mut y);
         }
       }
     }
@@ -4874,17 +5213,21 @@ fn ipred_z3_8bpc_v4x_inner(
             ),
           );
 
-          match ::core::primitive::bool::then_some((match ::console_core_number_conversion::fitted::<_, u64>(base) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) < max_base_y, ())
-          {
+          match ::core::primitive::bool::then_some(
+            (match ::console_core_number_conversion::fitted::<_, u64>(base) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            }) < max_base_y,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               let checked_value_2 = predictor_get(
                 &*left_f,
                 (Wrapping(left_off)
-                  - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  }))
+                  - Wrapping(
+                    match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  ))
                 .0,
               )
               .ok_or(Rav1dError::EINVAL)?;
@@ -4894,9 +5237,11 @@ fn ipred_z3_8bpc_v4x_inner(
                 &*left_f,
                 (Wrapping(
                   (Wrapping(left_off)
-                    - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                      ::core::result::Result::Ok(native_position) => native_position,
-                    }))
+                    - Wrapping(
+                      match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                        ::core::result::Result::Ok(native_position) => native_position,
+                      },
+                    ))
                   .0,
                 ) - Wrapping(1))
                 .0,
@@ -4923,21 +5268,23 @@ fn ipred_z3_8bpc_v4x_inner(
                     .cast_unsigned()
                     .wrapping_add(x),
                 );
-              *{ let checked_value_31 = predictor_get_mut(
-                &mut *dst_2,
-                match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_31 } =
-                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
-                  ::core::primitive::i32::wrapping_shr(
-                    ::core::primitive::i32::wrapping_add(v, 32),
-                    6_u32,
-                  ),
-                ) {
-                  ::core::result::Result::Ok(converted_position) => converted_position,
-                };
+              *{
+                let checked_value_31 = predictor_get_mut(
+                  &mut *dst_2,
+                  match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_31
+              } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+                ::core::primitive::i32::wrapping_shr(
+                  ::core::primitive::i32::wrapping_add(v, 32),
+                  6_u32,
+                ),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              };
             }
             ::core::option::Option::None => {
               let checked_value_4 =
@@ -4953,7 +5300,10 @@ fn ipred_z3_8bpc_v4x_inner(
                       .wrapping_add(
                         ({
                           let ::core::result::Result::Ok(explicit_position) =
-                            ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(yy);
+                            ::console_core_number_conversion::wrapped::<
+                              ::core::primitive::i32,
+                              i64,
+                            >(yy);
                           explicit_position
                         })
                         .wrapping_mul(stride),
@@ -4961,13 +5311,16 @@ fn ipred_z3_8bpc_v4x_inner(
                       .cast_unsigned()
                       .wrapping_add(x),
                   );
-                *{ let checked_value_32 = predictor_get_mut(
-                  &mut *dst_2,
-                  match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  },
-                )
-                .ok_or(Rav1dError::EINVAL)?; checked_value_32 } = fv;
+                *{
+                  let checked_value_32 = predictor_get_mut(
+                    &mut *dst_2,
+                    match ::console_core_number_conversion::fitted::<_, u64>(pixel_off) {
+                      ::core::result::Result::Ok(native_position) => native_position,
+                    },
+                  )
+                  .ok_or(Rav1dError::EINVAL)?;
+                  checked_value_32
+                } = fv;
               }
 
               break 'over_y_2;
@@ -4994,7 +5347,6 @@ fn ipred_dc_128_16bpc_inner(
   }: IpredDc12816bpcInnerArguments,
   bitdepth_max: i32,
 ) -> Rav1dResult {
-
   let mid_val = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
     ::core::primitive::i32::wrapping_div(i32::wrapping_add(bitdepth_max, 1), 2),
   ) {
@@ -5003,7 +5355,7 @@ fn ipred_dc_128_16bpc_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words(_token, row, mid_val);
@@ -5054,9 +5406,11 @@ fn ipred_v_16bpc_inner(
         predictor_get(&*topleft_2, load_off..(Wrapping(load_off) + Wrapping(32)).0)
           .ok_or(Rav1dError::EINVAL)?;
       let top_vals = loadu_256!(checked_value, [u8; 32]);
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_2 = predictor_get_mut(
         &mut *dst_2,
@@ -5064,8 +5418,7 @@ fn ipred_v_16bpc_inner(
       )
       .ok_or(Rav1dError::EINVAL)?;
       storeu_256!(checked_value_2, [u8; 32], top_vals);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in 0..width.saturating_sub(x).wrapping_div(8) {
@@ -5074,9 +5427,11 @@ fn ipred_v_16bpc_inner(
         predictor_get(&*topleft_2, load_off..(Wrapping(load_off) + Wrapping(16)).0)
           .ok_or(Rav1dError::EINVAL)?;
       let top_vals = loadu_128!(checked_value_3, [u8; 16]);
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_4 = predictor_get_mut(
         &mut *dst_2,
@@ -5084,8 +5439,7 @@ fn ipred_v_16bpc_inner(
       )
       .ok_or(Rav1dError::EINVAL)?;
       storeu_128!(checked_value_4, [u8; 16], top_vals);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -5093,9 +5447,11 @@ fn ipred_v_16bpc_inner(
       end: width,
     }) {
       let load_off = (Wrapping(top_off) + Wrapping((Wrapping(x) * Wrapping(2)).0)).0;
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
@@ -5136,10 +5492,9 @@ fn ipred_h_16bpc_inner(
     height,
   }: IpredH16bpcInnerArguments,
 ) -> Rav1dResult {
-
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
   let edge_length = height.checked_mul(2).ok_or(Rav1dError::ERANGE)?;
   let start = tl_off.checked_sub(edge_length).ok_or(Rav1dError::EINVAL)?;
   let edge = predictor_get(topleft, start..tl_off).ok_or(Rav1dError::EINVAL)?;
@@ -5180,7 +5535,7 @@ fn ipred_dc_128_16bpc_avx512_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words_wide(_token, row, mid_val);
@@ -5230,9 +5585,11 @@ fn ipred_v_16bpc_avx512_inner(
         predictor_get(&*topleft_2, load_off..(Wrapping(load_off) + Wrapping(64)).0)
           .ok_or(Rav1dError::EINVAL)?;
       let top_vals = loadu_512!(checked_value, [u8; 64]);
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_2 = predictor_get_mut(
         &mut *dst_2,
@@ -5240,8 +5597,7 @@ fn ipred_v_16bpc_avx512_inner(
       )
       .ok_or(Rav1dError::EINVAL)?;
       storeu_512!(checked_value_2, [u8; 64], top_vals);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(32, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(32, &mut x);
     }
 
     for _ in 0..width.saturating_sub(x).wrapping_div(16) {
@@ -5250,9 +5606,11 @@ fn ipred_v_16bpc_avx512_inner(
         predictor_get(&*topleft_2, load_off..(Wrapping(load_off) + Wrapping(32)).0)
           .ok_or(Rav1dError::EINVAL)?;
       let top_vals = loadu_256!(checked_value_3, [u8; 32]);
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_4 = predictor_get_mut(
         &mut *dst_2,
@@ -5260,8 +5618,7 @@ fn ipred_v_16bpc_avx512_inner(
       )
       .ok_or(Rav1dError::EINVAL)?;
       storeu_256!(checked_value_4, [u8; 32], top_vals);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in 0..width.saturating_sub(x).wrapping_div(8) {
@@ -5270,9 +5627,11 @@ fn ipred_v_16bpc_avx512_inner(
         predictor_get(&*topleft_2, load_off..(Wrapping(load_off) + Wrapping(16)).0)
           .ok_or(Rav1dError::EINVAL)?;
       let top_vals = loadu_128!(checked_value_5, [u8; 16]);
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_6 = predictor_get_mut(
         &mut *dst_2,
@@ -5280,8 +5639,7 @@ fn ipred_v_16bpc_avx512_inner(
       )
       .ok_or(Rav1dError::EINVAL)?;
       storeu_128!(checked_value_6, [u8; 16], top_vals);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -5289,9 +5647,11 @@ fn ipred_v_16bpc_avx512_inner(
       end: width,
     }) {
       let load_off = (Wrapping(top_off) + Wrapping((Wrapping(x) * Wrapping(2)).0)).0;
-      let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let store_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
@@ -5332,10 +5692,9 @@ fn ipred_h_16bpc_avx512_inner(
     height,
   }: IpredH16bpcAvx512InnerArguments,
 ) -> Rav1dResult {
-
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
   let edge_length = height.checked_mul(2).ok_or(Rav1dError::ERANGE)?;
   let start = tl_off.checked_sub(edge_length).ok_or(Rav1dError::EINVAL)?;
   let edge = predictor_get(topleft, start..tl_off).ok_or(Rav1dError::EINVAL)?;
@@ -5374,8 +5733,7 @@ fn ipred_dc_16bpc_avx512_inner(
 
   for i in 1..=width {
     let off = (Wrapping(tl_off) + Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
-    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2))
-      .ok_or(Rav1dError::EINVAL)?;
+    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2)).ok_or(Rav1dError::EINVAL)?;
     let pair = bytes
       .try_into()
       .map_err(|_wrong_length| Rav1dError::EINVAL)?;
@@ -5384,8 +5742,7 @@ fn ipred_dc_16bpc_avx512_inner(
 
   for i in 1..=height {
     let off = (Wrapping(tl_off) - Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
-    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2))
-      .ok_or(Rav1dError::EINVAL)?;
+    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2)).ok_or(Rav1dError::EINVAL)?;
     let pair = bytes
       .try_into()
       .map_err(|_wrong_length| Rav1dError::EINVAL)?;
@@ -5402,7 +5759,7 @@ fn ipred_dc_16bpc_avx512_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words_wide(_token, row, avg);
@@ -5439,15 +5796,16 @@ fn ipred_dc_top_16bpc_avx512_inner(
     let off = (Wrapping(tl_off) + Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
+            .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      )),
+        array_window
+      })),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -5464,7 +5822,7 @@ fn ipred_dc_top_16bpc_avx512_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words_wide(_token, row, avg);
@@ -5501,15 +5859,16 @@ fn ipred_dc_left_16bpc_avx512_inner(
     let off = (Wrapping(tl_off) - Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
+            .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      )),
+        array_window
+      })),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -5526,7 +5885,7 @@ fn ipred_dc_left_16bpc_avx512_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words_wide(_token, row, avg);
@@ -5562,8 +5921,7 @@ fn ipred_dc_16bpc_inner(
 
   for i in 1..=width {
     let off = (Wrapping(tl_off) + Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
-    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2))
-      .ok_or(Rav1dError::EINVAL)?;
+    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2)).ok_or(Rav1dError::EINVAL)?;
     let pair = bytes
       .try_into()
       .map_err(|_wrong_length| Rav1dError::EINVAL)?;
@@ -5572,8 +5930,7 @@ fn ipred_dc_16bpc_inner(
 
   for i in 1..=height {
     let off = (Wrapping(tl_off) - Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
-    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2))
-      .ok_or(Rav1dError::EINVAL)?;
+    let bytes = predictor_get(topleft_2, off..off.wrapping_add(2)).ok_or(Rav1dError::EINVAL)?;
     let pair = bytes
       .try_into()
       .map_err(|_wrong_length| Rav1dError::EINVAL)?;
@@ -5590,7 +5947,7 @@ fn ipred_dc_16bpc_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words(_token, row, avg);
@@ -5628,15 +5985,16 @@ fn ipred_dc_top_16bpc_inner(
     let off = (Wrapping(tl_off) + Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
+            .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      )),
+        array_window
+      })),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -5653,7 +6011,7 @@ fn ipred_dc_top_16bpc_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words(_token, row, avg);
@@ -5691,15 +6049,16 @@ fn ipred_dc_left_16bpc_inner(
     let off = (Wrapping(tl_off) - Wrapping((Wrapping(i) * Wrapping(2)).0)).0;
 
     match (
-      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      <u32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 = predictor_get(&*topleft_2, off..(Wrapping(off) + Wrapping(2)).0)
+            .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      )),
+        array_window
+      })),
       &mut sum,
     ) {
       (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -5716,7 +6075,7 @@ fn ipred_dc_left_16bpc_inner(
 
   let dimensions = Size { width, height };
   let Ok(target) = PredictorOutput::new(dst_base, stride, dimensions);
-  let rows = target.rows(dst, PredictorStorage::Words)?;
+  let rows = target.rows(dst, PredictorStorage::WordSamples)?;
 
   for row in rows {
     let Ok(()) = fill_predictor_words(_token, row, avg);
@@ -5749,18 +6108,17 @@ fn ipred_paeth_16bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let topleft_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{
-        let checked_value_25 = predictor_get(&*topleft_2, tl_off..(Wrapping(tl_off) + Wrapping(2)).0)
-        .ok_or(Rav1dError::EINVAL)?;
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 =
+          predictor_get(&*topleft_2, tl_off..(Wrapping(tl_off) + Wrapping(2)).0)
+            .ok_or(Rav1dError::EINVAL)?;
         checked_value_25
       })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
   let topleft_vec = _mm512_set1_epi32(topleft_val);
 
   for y in 0..height {
@@ -5773,18 +6131,19 @@ fn ipred_paeth_16bpc_avx512_inner(
     let left_byte_off =
       (Wrapping(tl_off) - Wrapping((Wrapping((Wrapping(y) + Wrapping(1)).0) * Wrapping(2)).0)).0;
     let left_val =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_26 = predictor_get(
-          &*topleft_2,
-          left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_26 = predictor_get(
+            &*topleft_2,
+            left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_26
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
     let left_vec = _mm512_set1_epi32(left_val);
 
     let mut x = 0;
@@ -5821,16 +6180,17 @@ fn ipred_paeth_16bpc_avx512_inner(
 
       let clamped = _mm512_max_epi32(result, _mm512_setzero_si512());
       let result_u16: __m256i = _mm512_cvtusepi32_epi16(clamped);
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_2 = predictor_get_mut(&mut *dst_2, off..(Wrapping(off) + Wrapping(32)).0)
         .ok_or(Rav1dError::EINVAL)?;
       storeu_256!(checked_value_2, [u8; 32], result_u16);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -5841,18 +6201,19 @@ fn ipred_paeth_16bpc_avx512_inner(
         + Wrapping((Wrapping((Wrapping(x) + Wrapping(1)).0) * Wrapping(2)).0))
       .0;
       let top_val =
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-          {
-            let array_window = (*{ let checked_value_27 = predictor_get(
-            &*topleft_2,
-            top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_27 })
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_27 = predictor_get(
+              &*topleft_2,
+              top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_27
+          })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-            array_window
-          },
-        ));
+          array_window
+        }));
       let base = i32::wrapping_sub(
         ::core::primitive::i32::wrapping_add(left_val, top_val),
         topleft_val,
@@ -5860,26 +6221,32 @@ fn ipred_paeth_16bpc_avx512_inner(
       let l_diff = i32::wrapping_sub(left_val, base).abs();
       let t_diff = i32::wrapping_sub(top_val, base).abs();
       let tl_diff = i32::wrapping_sub(topleft_val, base).abs();
-      let pred = match ::core::primitive::bool::then_some(l_diff <= t_diff && l_diff <= tl_diff, ()) {
-        ::core::option::Option::Some(()) => left_val,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(t_diff <= tl_diff, ()) {
-          ::core::option::Option::Some(()) => top_val,
-          ::core::option::Option::None => topleft_val,
+      let pred =
+        match ::core::primitive::bool::then_some(l_diff <= t_diff && l_diff <= tl_diff, ()) {
+          ::core::option::Option::Some(()) => left_val,
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(t_diff <= tl_diff, ()) {
+              ::core::option::Option::Some(()) => top_val,
+              ::core::option::Option::None => topleft_val,
+            }
+          }
+        };
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
         },
-      };
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
 
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -5913,51 +6280,59 @@ fn ipred_smooth_16bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_56 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_56 }),
+    &(*{
+      let checked_value_56 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_56
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let right_off = (Wrapping(tl_off) + Wrapping((Wrapping(width) * Wrapping(2)).0)).0;
   let right_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_25 = predictor_get(
-        &*topleft_2,
-        right_off..(Wrapping(right_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 = predictor_get(
+          &*topleft_2,
+          right_off..(Wrapping(right_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
   let bottom_off = (Wrapping(tl_off) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0;
   let bottom_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_26 = predictor_get(
-        &*topleft_2,
-        bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_26 = predictor_get(
+          &*topleft_2,
+          bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_26
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
   let right_vec = _mm512_set1_epi32(right_val);
   let bottom_vec = _mm512_set1_epi32(bottom_val);
   let rounding = _mm512_set1_epi32(256);
@@ -5974,18 +6349,19 @@ fn ipred_smooth_16bpc_avx512_inner(
     let left_byte_off =
       (Wrapping(tl_off) - Wrapping((Wrapping((Wrapping(y) + Wrapping(1)).0) * Wrapping(2)).0)).0;
     let left_val =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_27 = predictor_get(
-          &*topleft_2,
-          left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_27 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_27 = predictor_get(
+            &*topleft_2,
+            left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_27
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
     let left_vec = _mm512_set1_epi32(left_val);
     let checked_value_4 = predictor_get(&*weights_ver, y).ok_or(Rav1dError::EINVAL)?;
     let w_v = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4);
@@ -6006,8 +6382,8 @@ fn ipred_smooth_16bpc_avx512_inner(
       let top_u16 = loadu_256!(checked_value, [u8; 32]);
       let top = _mm512_cvtepu16_epi32(top_u16);
 
-      let checked_value_2 =
-        predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value_2 = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let wh_bytes = loadu_128!(checked_value_2, [u8; 16]);
       let w_h = _mm512_cvtepu8_epi32(wh_bytes);
       let w_h_inv = _mm512_sub_epi32(c256, w_h);
@@ -6026,16 +6402,17 @@ fn ipred_smooth_16bpc_avx512_inner(
 
       let clamped = _mm512_max_epi32(result, zero_512);
       let result_u16: __m256i = _mm512_cvtusepi32_epi16(clamped);
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_3 = predictor_get_mut(&mut *dst_2, off..(Wrapping(off) + Wrapping(32)).0)
         .ok_or(Rav1dError::EINVAL)?;
       storeu_256!(checked_value_3, [u8; 32], result_u16);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -6046,18 +6423,19 @@ fn ipred_smooth_16bpc_avx512_inner(
         + Wrapping((Wrapping((Wrapping(1) + Wrapping(x)).0) * Wrapping(2)).0))
       .0;
       let top_val =
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-          {
-            let array_window = (*{ let checked_value_28 = predictor_get(
-            &*topleft_2,
-            top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_28 })
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_28 = predictor_get(
+              &*topleft_2,
+              top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_28
+          })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-            array_window
-          },
-        ));
+          array_window
+        }));
       let checked_value_5 = predictor_get(&*weights_hor, x).ok_or(Rav1dError::EINVAL)?;
       let w_h = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_5);
       let pred = ::core::primitive::i32::wrapping_add(
@@ -6076,21 +6454,24 @@ fn ipred_smooth_16bpc_avx512_inner(
           right_val,
         ),
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(pred, 256),
-            9_u32,
-          ),
-        ) {
+        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<
+          _,
+          ::core::primitive::u16,
+        >(::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(pred, 256),
+          9_u32,
+        )) {
           ::core::result::Result::Ok(converted_position) => converted_position,
         }
         .to_le_bytes();
@@ -6127,28 +6508,32 @@ fn ipred_smooth_v_16bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let bottom_off = (Wrapping(tl_off) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0;
   let bottom_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_25 = predictor_get(
-        &*topleft_2,
-        bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 = predictor_get(
+          &*topleft_2,
+          bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
   let bottom_vec = _mm512_set1_epi32(bottom_val);
   let rounding = _mm512_set1_epi32(128);
   let c256 = _mm512_set1_epi32(256);
@@ -6188,16 +6573,17 @@ fn ipred_smooth_v_16bpc_avx512_inner(
 
       let clamped = _mm512_max_epi32(result, zero_512);
       let result_u16: __m256i = _mm512_cvtusepi32_epi16(clamped);
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_2 = predictor_get_mut(&mut *dst_2, off..(Wrapping(off) + Wrapping(32)).0)
         .ok_or(Rav1dError::EINVAL)?;
       storeu_256!(checked_value_2, [u8; 32], result_u16);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -6208,18 +6594,19 @@ fn ipred_smooth_v_16bpc_avx512_inner(
         + Wrapping((Wrapping((Wrapping(1) + Wrapping(x)).0) * Wrapping(2)).0))
       .0;
       let top_val =
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-          {
-            let array_window = (*{ let checked_value_26 = predictor_get(
-            &*topleft_2,
-            top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_26 = predictor_get(
+              &*topleft_2,
+              top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-            array_window
-          },
-        ));
+          array_window
+        }));
       let pred = ::core::primitive::i32::wrapping_shr(
         ::core::primitive::i32::wrapping_add(
           ::core::primitive::i32::wrapping_add(
@@ -6233,19 +6620,22 @@ fn ipred_smooth_v_16bpc_avx512_inner(
         ),
         8_u32,
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
 
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -6279,28 +6669,32 @@ fn ipred_smooth_h_16bpc_avx512_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let right_off = (Wrapping(tl_off) + Wrapping((Wrapping(width) * Wrapping(2)).0)).0;
   let right_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_25 = predictor_get(
-        &*topleft_2,
-        right_off..(Wrapping(right_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 = predictor_get(
+          &*topleft_2,
+          right_off..(Wrapping(right_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
   let right_vec = _mm512_set1_epi32(right_val);
   let rounding = _mm512_set1_epi32(128);
   let c256 = _mm512_set1_epi32(256);
@@ -6316,25 +6710,26 @@ fn ipred_smooth_h_16bpc_avx512_inner(
     let left_byte_off =
       (Wrapping(tl_off) - Wrapping((Wrapping((Wrapping(y) + Wrapping(1)).0) * Wrapping(2)).0)).0;
     let left_val =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_26 = predictor_get(
-          &*topleft_2,
-          left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_26 = predictor_get(
+            &*topleft_2,
+            left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_26
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
     let left_vec = _mm512_set1_epi32(left_val);
 
     let mut x = 0;
 
     for _ in 0..width.saturating_sub(x).wrapping_div(16) {
-      let checked_value =
-        predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value = predictor_get(&*weights_hor, x..(Wrapping(x) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let wh_bytes = loadu_128!(checked_value, [u8; 16]);
       let w_h = _mm512_cvtepu8_epi32(wh_bytes);
       let w_h_inv = _mm512_sub_epi32(c256, w_h);
@@ -6347,16 +6742,17 @@ fn ipred_smooth_h_16bpc_avx512_inner(
 
       let clamped = _mm512_max_epi32(result, zero_512);
       let result_u16: __m256i = _mm512_cvtusepi32_epi16(clamped);
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
       let checked_value_2 = predictor_get_mut(&mut *dst_2, off..(Wrapping(off) + Wrapping(32)).0)
         .ok_or(Rav1dError::EINVAL)?;
       storeu_256!(checked_value_2, [u8; 32], result_u16);
 
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -6378,19 +6774,22 @@ fn ipred_smooth_h_16bpc_avx512_inner(
         ),
         8_u32,
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
 
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -6424,18 +6823,17 @@ fn ipred_paeth_16bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let topleft_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{
-        let checked_value_25 = predictor_get(&*topleft_2, tl_off..(Wrapping(tl_off) + Wrapping(2)).0)
-        .ok_or(Rav1dError::EINVAL)?;
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 =
+          predictor_get(&*topleft_2, tl_off..(Wrapping(tl_off) + Wrapping(2)).0)
+            .ok_or(Rav1dError::EINVAL)?;
         checked_value_25
       })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
 
   for y in 0..height {
     let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fitted::<_, u64>(
@@ -6447,36 +6845,38 @@ fn ipred_paeth_16bpc_inner(
     let left_byte_off =
       (Wrapping(tl_off) - Wrapping((Wrapping((Wrapping(y) + Wrapping(1)).0) * Wrapping(2)).0)).0;
     let left_val =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_26 = predictor_get(
-          &*topleft_2,
-          left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_26 = predictor_get(
+            &*topleft_2,
+            left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_26
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
 
     for x in 0..width {
       let top_byte_off = (Wrapping(tl_off)
         + Wrapping((Wrapping((Wrapping(x) + Wrapping(1)).0) * Wrapping(2)).0))
       .0;
       let top_val =
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-          {
-            let array_window = (*{ let checked_value_27 = predictor_get(
-            &*topleft_2,
-            top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_27 })
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_27 = predictor_get(
+              &*topleft_2,
+              top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_27
+          })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-            array_window
-          },
-        ));
+          array_window
+        }));
 
       let base = i32::wrapping_sub(
         ::core::primitive::i32::wrapping_add(left_val, top_val),
@@ -6486,27 +6886,33 @@ fn ipred_paeth_16bpc_inner(
       let t_diff = i32::wrapping_sub(top_val, base).abs();
       let tl_diff = i32::wrapping_sub(topleft_val, base).abs();
 
-      let pred = match ::core::primitive::bool::then_some(l_diff <= t_diff && l_diff <= tl_diff, ()) {
-        ::core::option::Option::Some(()) => left_val,
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(t_diff <= tl_diff, ()) {
-          ::core::option::Option::Some(()) => top_val,
-          ::core::option::Option::None => topleft_val,
-        },
-      };
+      let pred =
+        match ::core::primitive::bool::then_some(l_diff <= t_diff && l_diff <= tl_diff, ()) {
+          ::core::option::Option::Some(()) => left_val,
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(t_diff <= tl_diff, ()) {
+              ::core::option::Option::Some(()) => top_val,
+              ::core::option::Option::None => topleft_val,
+            }
+          }
+        };
 
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
     }
   }
@@ -6538,51 +6944,59 @@ fn ipred_smooth_16bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_56 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_56 }),
+    &(*{
+      let checked_value_56 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_56
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let right_off = (Wrapping(tl_off) + Wrapping((Wrapping(width) * Wrapping(2)).0)).0;
   let right_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_25 = predictor_get(
-        &*topleft_2,
-        right_off..(Wrapping(right_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 = predictor_get(
+          &*topleft_2,
+          right_off..(Wrapping(right_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
   let bottom_off = (Wrapping(tl_off) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0;
   let bottom_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_26 = predictor_get(
-        &*topleft_2,
-        bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_26 = predictor_get(
+          &*topleft_2,
+          bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_26
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
 
   for y in 0..height {
     let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fitted::<_, u64>(
@@ -6594,18 +7008,19 @@ fn ipred_smooth_16bpc_inner(
     let left_byte_off =
       (Wrapping(tl_off) - Wrapping((Wrapping((Wrapping(y) + Wrapping(1)).0) * Wrapping(2)).0)).0;
     let left_val =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_27 = predictor_get(
-          &*topleft_2,
-          left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_27 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_27 = predictor_get(
+            &*topleft_2,
+            left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_27
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
     let checked_value = predictor_get(&*weights_ver, y).ok_or(Rav1dError::EINVAL)?;
     let w_v = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value);
 
@@ -6614,18 +7029,19 @@ fn ipred_smooth_16bpc_inner(
         + Wrapping((Wrapping((Wrapping(1) + Wrapping(x)).0) * Wrapping(2)).0))
       .0;
       let top_val =
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-          {
-            let array_window = (*{ let checked_value_28 = predictor_get(
-            &*topleft_2,
-            top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_28 })
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_28 = predictor_get(
+              &*topleft_2,
+              top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_28
+          })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-            array_window
-          },
-        ));
+          array_window
+        }));
       let checked_value_2 = predictor_get(&*weights_hor, x).ok_or(Rav1dError::EINVAL)?;
       let w_h = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_2);
 
@@ -6652,19 +7068,22 @@ fn ipred_smooth_16bpc_inner(
         ),
         9_u32,
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
     }
   }
@@ -6696,28 +7115,32 @@ fn ipred_smooth_v_16bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_ver = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      height..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        height..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..height,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let bottom_off = (Wrapping(tl_off) - Wrapping((Wrapping(height) * Wrapping(2)).0)).0;
   let bottom_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_25 = predictor_get(
-        &*topleft_2,
-        bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 = predictor_get(
+          &*topleft_2,
+          bottom_off..(Wrapping(bottom_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
 
   for y in 0..height {
     let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fitted::<_, u64>(
@@ -6734,18 +7157,19 @@ fn ipred_smooth_v_16bpc_inner(
         + Wrapping((Wrapping((Wrapping(1) + Wrapping(x)).0) * Wrapping(2)).0))
       .0;
       let top_val =
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-          {
-            let array_window = (*{ let checked_value_26 = predictor_get(
-            &*topleft_2,
-            top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_26 = predictor_get(
+              &*topleft_2,
+              top_byte_off..(Wrapping(top_byte_off) + Wrapping(2)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          })
           .try_into()
           .map_err(|_| Rav1dError::EINVAL)?;
-            array_window
-          },
-        ));
+          array_window
+        }));
       let pred = ::core::primitive::i32::wrapping_shr(
         ::core::primitive::i32::wrapping_add(
           ::core::primitive::i32::wrapping_add(
@@ -6759,19 +7183,22 @@ fn ipred_smooth_v_16bpc_inner(
         ),
         8_u32,
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
     }
   }
@@ -6803,28 +7230,32 @@ fn ipred_smooth_h_16bpc_inner(
   let dst_2 = &mut *dst;
   let topleft_2 = &*topleft;
   let weights_hor = predictor_get(
-    &(*{ let checked_value_55 = predictor_get(
-      &*crate::src::align::aligned_inner(&dav1d_sm_weights),
-      width..,
-    )
-    .ok_or(Rav1dError::EINVAL)?; checked_value_55 }),
+    &(*{
+      let checked_value_55 = predictor_get(
+        &*crate::src::align::aligned_inner(&dav1d_sm_weights),
+        width..,
+      )
+      .ok_or(Rav1dError::EINVAL)?;
+      checked_value_55
+    }),
     ..width,
   )
   .ok_or(Rav1dError::EINVAL)?;
   let right_off = (Wrapping(tl_off) + Wrapping((Wrapping(width) * Wrapping(2)).0)).0;
   let right_val =
-    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-      {
-        let array_window = (*{ let checked_value_25 = predictor_get(
-        &*topleft_2,
-        right_off..(Wrapping(right_off) + Wrapping(2)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+    <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+      let array_window = (*{
+        let checked_value_25 = predictor_get(
+          &*topleft_2,
+          right_off..(Wrapping(right_off) + Wrapping(2)).0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
       .try_into()
       .map_err(|_| Rav1dError::EINVAL)?;
-        array_window
-      },
-    ));
+      array_window
+    }));
 
   for y in 0..height {
     let ::core::result::Result::Ok(row_off) = ::console_core_number_conversion::fitted::<_, u64>(
@@ -6836,18 +7267,19 @@ fn ipred_smooth_h_16bpc_inner(
     let left_byte_off =
       (Wrapping(tl_off) - Wrapping((Wrapping((Wrapping(y) + Wrapping(1)).0) * Wrapping(2)).0)).0;
     let left_val =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_26 = predictor_get(
-          &*topleft_2,
-          left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_26 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_26 = predictor_get(
+            &*topleft_2,
+            left_byte_off..(Wrapping(left_byte_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_26
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
 
     for x in 0..width {
       let checked_value = predictor_get(&*weights_hor, x).ok_or(Rav1dError::EINVAL)?;
@@ -6865,19 +7297,22 @@ fn ipred_smooth_h_16bpc_inner(
         ),
         8_u32,
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        }
-        .to_le_bytes();
+        *explicit_byte_copy_destination =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(pred) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+          .to_le_bytes();
       };
     }
   }
@@ -6923,16 +7358,14 @@ fn ipred_z1_16bpc_inner(
   let angle_2 = angle & 511;
 
   let checked_value_9 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(angle_2, 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_9,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(angle_2, 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_9);
 
   let tl_pix = tl_off.wrapping_div(2);
 
@@ -6977,42 +7410,46 @@ fn ipred_z1_16bpc_inner(
             explicit_position
           }),
         )?;
-        *{ let checked_value_25 = predictor_get_mut(&mut top_px, {
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_mul(i, 2),
-            );
-          explicit_position
-        })
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 } = checked_value_4;
+        *{
+          let checked_value_25 = predictor_get_mut(&mut top_px, {
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_mul(i, 2),
+              );
+            explicit_position
+          })
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        } = checked_value_4;
         let mut s = 0i32;
 
         for j in 0..4i32 {
           let checked_value_26 = rd(
-                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                })
-                .wrapping_add_signed({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                      i32::wrapping_sub(i32::wrapping_add(i, j), 1)
-                        .clamp(from, i32::wrapping_sub(to, 1)),
-                    );
-                  explicit_position
-                }),
-              )?;
+            (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            })
+            .wrapping_add_signed({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                  i32::wrapping_sub(i32::wrapping_add(i, j), 1)
+                    .clamp(from, i32::wrapping_sub(to, 1)),
+                );
+              explicit_position
+            }),
+          )?;
 
           match (
             ::core::primitive::i32::wrapping_mul(
               <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_26),
-              <i32 as ::core::convert::From<::core::primitive::i8>>::from(
-                *{ let checked_value_27 = predictor_get(&kernel, {
+              <i32 as ::core::convert::From<::core::primitive::i8>>::from(*{
+                let checked_value_27 = predictor_get(&kernel, {
                   let ::core::result::Result::Ok(explicit_position) =
                     ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(j);
                   explicit_position
                 })
-                .ok_or(Rav1dError::EINVAL)?; checked_value_27 },
-              ),
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_27
+              }),
             ),
             &mut s,
           ) {
@@ -7025,20 +7462,22 @@ fn ipred_z1_16bpc_inner(
           };
         }
 
-        *{ let checked_value_28 = predictor_get_mut(&mut top_px, {
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
-            );
-          explicit_position
-        })
-        .ok_or(Rav1dError::EINVAL)?; checked_value_28 } =
-          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
-              .clamp(0, bitdepth_max),
-          ) {
-            ::core::result::Result::Ok(converted_position) => converted_position,
-          };
+        *{
+          let checked_value_28 = predictor_get_mut(&mut top_px, {
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
+              );
+            explicit_position
+          })
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_28
+        } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
+            .clamp(0, bitdepth_max),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
 
       let i = i32::wrapping_sub(hsz, 1);
@@ -7054,14 +7493,17 @@ fn ipred_z1_16bpc_inner(
           explicit_position
         }),
       )?;
-      *{ let checked_value_29 = predictor_get_mut(&mut top_px, {
-        let ::core::result::Result::Ok(explicit_position) =
-          ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-            i32::wrapping_mul(i, 2),
-          );
-        explicit_position
-      })
-      .ok_or(Rav1dError::EINVAL)?; checked_value_29 } = checked_value_5;
+      *{
+        let checked_value_29 = predictor_get_mut(&mut top_px, {
+          let ::core::result::Result::Ok(explicit_position) =
+            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+              i32::wrapping_mul(i, 2),
+            );
+          explicit_position
+        })
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_29
+      } = checked_value_5;
       dx = ::core::primitive::i32::wrapping_shl(dx, 1_u32);
       max_base_x = {
         let ::core::result::Result::Ok(explicit_position) =
@@ -7076,20 +7518,23 @@ fn ipred_z1_16bpc_inner(
       base_inc = 2u64;
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(90, angle_2),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(90, angle_2),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           static KERNEL: [[u8; 5]; 3] = [[0, 4, 8, 4, 0], [0, 5, 6, 5, 0], [2, 4, 4, 4, 2]];
-          let ::core::result::Result::Ok(in_off) =
-            ::console_core_number_conversion::fitted::<_, u64>((Wrapping(tl_pix) + Wrapping(1)).0);
+          let ::core::result::Result::Ok(in_off) = ::console_core_number_conversion::fitted::<
+            _,
+            u64,
+          >((Wrapping(tl_pix) + Wrapping(1)).0);
           let from = -1i32;
           let to = i32::wrapping_add(width_i, std::cmp::min(width_i, height_i));
           let lim_from = 0i32;
@@ -7112,12 +7557,15 @@ fn ipred_z1_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_30 = predictor_get_mut(&mut top_px, {
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-              explicit_position
-            })
-            .ok_or(Rav1dError::EINVAL)?; checked_value_30 } = checked_value_6;
+            *{
+              let checked_value_30 = predictor_get_mut(&mut top_px, {
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                explicit_position
+              })
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_30
+            } = checked_value_6;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -7129,55 +7577,77 @@ fn ipred_z1_16bpc_inner(
 
             for j in 0..5i32 {
               let checked_value_31 = rd(
-                  (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  })
-                  .wrapping_add_signed({
-                    let ::core::result::Result::Ok(explicit_position) =
-                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                        i32::wrapping_add(i32::wrapping_sub(i, 2), j)
-                          .clamp(from, i32::wrapping_sub(to, 1)),
-                      );
-                    explicit_position
-                  }),
-                )?;
+                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                })
+                .wrapping_add_signed({
+                  let ::core::result::Result::Ok(explicit_position) =
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                      i32::wrapping_add(i32::wrapping_sub(i, 2), j)
+                        .clamp(from, i32::wrapping_sub(to, 1)),
+                    );
+                  explicit_position
+                }),
+              )?;
 
-              match (::core::primitive::i32::wrapping_mul(
-                <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_31),
-                <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-                  *{ let checked_value_52 = predictor_get(
-                    &(*{ let checked_value_51 = predictor_get(&KERNEL, {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          i32::wrapping_sub(filter_strength, 1),
-                        );
-                      explicit_position
-                    })
-                    .ok_or(Rav1dError::EINVAL)?; checked_value_51 }),
-                    {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          j,
-                        );
-                      explicit_position
-                    },
-                  )
-                  .ok_or(Rav1dError::EINVAL)?; checked_value_52 },
+              match (
+                ::core::primitive::i32::wrapping_mul(
+                  <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_31),
+                  <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+                    let checked_value_52 =
+                      predictor_get(
+                        &(*{
+                          let checked_value_51 = predictor_get(&KERNEL, {
+                            let ::core::result::Result::Ok(explicit_position) =
+                              ::console_core_number_conversion::wrapped::<
+                                ::core::primitive::i32,
+                                u64,
+                              >(i32::wrapping_sub(
+                                filter_strength,
+                                1,
+                              ));
+                            explicit_position
+                          })
+                          .ok_or(Rav1dError::EINVAL)?;
+                          checked_value_51
+                        }),
+                        {
+                          let ::core::result::Result::Ok(explicit_position) =
+                            ::console_core_number_conversion::wrapped::<
+                              ::core::primitive::i32,
+                              u64,
+                            >(j);
+                          explicit_position
+                        },
+                      )
+                      .ok_or(Rav1dError::EINVAL)?;
+                    checked_value_52
+                  }),
                 ),
-              ), &mut s) { (explicit_arithmetic_amount, explicit_arithmetic_place) => *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(*explicit_arithmetic_place, explicit_arithmetic_amount) };
+                &mut s,
+              ) {
+                (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+                  *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(
+                    *explicit_arithmetic_place,
+                    explicit_arithmetic_amount,
+                  )
+                }
+              };
             }
 
-            *{ let checked_value_32 = predictor_get_mut(&mut top_px, {
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-              explicit_position
-            })
-            .ok_or(Rav1dError::EINVAL)?; checked_value_32 } =
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-                ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              };
+            *{
+              let checked_value_32 = predictor_get_mut(&mut top_px, {
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                explicit_position
+              })
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_32
+            } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+              ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            };
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -7197,12 +7667,15 @@ fn ipred_z1_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_33 = predictor_get_mut(&mut top_px, {
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-              explicit_position
-            })
-            .ok_or(Rav1dError::EINVAL)?; checked_value_33 } = checked_value_7;
+            *{
+              let checked_value_33 = predictor_get_mut(&mut top_px, {
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                explicit_position
+              })
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_33
+            } = checked_value_7;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -7219,7 +7692,8 @@ fn ipred_z1_16bpc_inner(
             let checked_value_8 =
               rd((Wrapping((Wrapping(tl_pix) + Wrapping(1)).0) + Wrapping(i)).0)?;
             *{
-              let checked_value_34 = predictor_get_mut(&mut top_px, i).ok_or(Rav1dError::EINVAL)?;
+              let checked_value_34 =
+                predictor_get_mut(&mut top_px, i).ok_or(Rav1dError::EINVAL)?;
               checked_value_34
             } = checked_value_8;
           }
@@ -7279,26 +7753,36 @@ fn ipred_z1_16bpc_inner(
 
     match ::core::primitive::bool::then_some(base_inc == 1, ()) {
       ::core::option::Option::Some(()) => {
-        let source_remaining = max_base_x.saturating_sub(base0.wrapping_add(x)).saturating_sub(1);
-        let group_count = width.saturating_sub(x).min(source_remaining).wrapping_div(8);
+        let source_remaining = max_base_x
+          .saturating_sub(base0.wrapping_add(x))
+          .saturating_sub(1);
+        let group_count = width
+          .saturating_sub(x)
+          .min(source_remaining)
+          .wrapping_div(8);
 
         for _ in 0..group_count {
-
           let ::core::result::Result::Ok(base) = ::console_core_number_conversion::fitted::<_, u64>(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base0) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(base0) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           );
 
-          let load0 = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) * Wrapping(2))
+          let load0 = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(base) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) * Wrapping(2))
           .0;
           let load1 = (Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(1))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(1))
             .0,
           ) * Wrapping(2))
           .0;
@@ -7323,9 +7807,11 @@ fn ipred_z1_16bpc_inner(
           let lo = _mm256_castsi256_si128(packed);
           let hi = _mm256_extracti128_si256::<1>(packed);
           let combined = _mm_unpacklo_epi64(lo, hi);
-          let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+          let store_off = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
           .0;
           let checked_value_3 = predictor_get_mut(
             &mut *dst_2,
@@ -7334,8 +7820,7 @@ fn ipred_z1_16bpc_inner(
           .ok_or(Rav1dError::EINVAL)?;
           storeu_128!(checked_value_3, [u8; 16], combined);
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(8, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
         }
       }
       ::core::option::Option::None => {}
@@ -7346,60 +7831,67 @@ fn ipred_z1_16bpc_inner(
       end: width,
     }) {
       let ::core::result::Result::Ok(base) = ::console_core_number_conversion::fitted::<_, u64>(
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base0) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping((Wrapping(base_inc) * Wrapping(x)).0))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(base0) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping((Wrapping(base_inc) * Wrapping(x)).0))
         .0,
       );
 
-      match ::core::primitive::bool::then_some((match ::console_core_number_conversion::fitted::<_, u64>(base) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) < max_base_x, ())
-      {
+      match ::core::primitive::bool::then_some(
+        (match ::console_core_number_conversion::fitted::<_, u64>(base) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) < max_base_x,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let checked_value_35 = predictor_get(
-              &top_px,
+            &top_px,
+            match ::console_core_number_conversion::fitted::<_, u64>(base) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          let t0 =
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_35);
+          let checked_value_36 = predictor_get(
+            &top_px,
+            (Wrapping(
               match ::console_core_number_conversion::fitted::<_, u64>(base) {
                 ::core::result::Result::Ok(native_position) => native_position,
               },
-            )
-            .ok_or(Rav1dError::EINVAL)?;
-          let t0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-            *checked_value_35,
-          );
-          let checked_value_36 = predictor_get(
-              &top_px,
-              (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              }) + Wrapping(1))
-              .0,
-            )
-            .ok_or(Rav1dError::EINVAL)?;
-          let t1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-            *checked_value_36,
-          );
+            ) + Wrapping(1))
+            .0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          let t1 =
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_36);
           let v = ::core::primitive::i32::wrapping_add(
             ::core::primitive::i32::wrapping_mul(t0, inv_frac),
             ::core::primitive::i32::wrapping_mul(t1, frac),
           );
-          let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+          let off = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
           .0;
 
           {
             let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
               .and_then(<[_]>::first_chunk_mut::<2>)
               .ok_or(Rav1dError::EINVAL)?;
-            *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-              ::core::primitive::i32::wrapping_shr(
-                ::core::primitive::i32::wrapping_add(v, 32),
-                6_u32,
-              ),
-            ) {
-              ::core::result::Result::Ok(converted_position) => converted_position,
-            }
-            .to_le_bytes();
+            *explicit_byte_copy_destination =
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+                ::core::primitive::i32::wrapping_shr(
+                  ::core::primitive::i32::wrapping_add(v, 32),
+                  6_u32,
+                ),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              }
+              .to_le_bytes();
           };
         }
         ::core::option::Option::None => {
@@ -7407,9 +7899,11 @@ fn ipred_z1_16bpc_inner(
           let fill_val = *checked_value_38;
 
           for xx in x..width {
-            let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping((Wrapping(xx) * Wrapping(2)).0))
+            let off = (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping((Wrapping(xx) * Wrapping(2)).0))
             .0;
 
             {
@@ -7473,27 +7967,23 @@ fn ipred_z2_16bpc_inner(
   let angle_2 = angle & 511;
 
   let checked_value_15 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(angle_2, 90), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dy = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_15,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(angle_2, 90), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dy = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_15);
   let checked_value_16 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(180, angle_2), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_16,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(180, angle_2), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dx = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_16);
 
   let upsample_left = enable_intra_edge_filter
     && i32::wrapping_sub(180, angle_2) < 40
@@ -7543,47 +8033,51 @@ fn ipred_z2_16bpc_inner(
             explicit_position
           }),
         )?;
-        *{ let checked_value_25 = predictor_get_mut(
-          &mut edge_px,
-          (::core::num::Wrapping(edge_tl)
-            + ::core::num::Wrapping({
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                  i32::wrapping_mul(i, 2),
-                );
-              explicit_position
-            }))
-          .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 } = checked_value_4;
+        *{
+          let checked_value_25 = predictor_get_mut(
+            &mut edge_px,
+            (::core::num::Wrapping(edge_tl)
+              + ::core::num::Wrapping({
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                    i32::wrapping_mul(i, 2),
+                  );
+                explicit_position
+              }))
+            .0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        } = checked_value_4;
         let mut s = 0i32;
 
         for j in 0..4i32 {
           let checked_value_26 = rd(
-                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                })
-                .wrapping_add({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                      i32::wrapping_sub(i32::wrapping_add(i, j), 1)
-                        .clamp(0, i32::wrapping_sub(hsz, 1)),
-                    );
-                  explicit_position
-                }),
-              )?;
+            (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            })
+            .wrapping_add({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                  i32::wrapping_sub(i32::wrapping_add(i, j), 1)
+                    .clamp(0, i32::wrapping_sub(hsz, 1)),
+                );
+              explicit_position
+            }),
+          )?;
 
           match (
             ::core::primitive::i32::wrapping_mul(
               <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_26),
-              <i32 as ::core::convert::From<::core::primitive::i8>>::from(
-                *{ let checked_value_27 = predictor_get(&kernel, {
+              <i32 as ::core::convert::From<::core::primitive::i8>>::from(*{
+                let checked_value_27 = predictor_get(&kernel, {
                   let ::core::result::Result::Ok(explicit_position) =
                     ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(j);
                   explicit_position
                 })
-                .ok_or(Rav1dError::EINVAL)?; checked_value_27 },
-              ),
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_27
+              }),
             ),
             &mut s,
           ) {
@@ -7596,25 +8090,27 @@ fn ipred_z2_16bpc_inner(
           };
         }
 
-        *{ let checked_value_28 = predictor_get_mut(
-          &mut edge_px,
-          (::core::num::Wrapping(edge_tl)
-            + ::core::num::Wrapping({
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                  i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
-                );
-              explicit_position
-            }))
-          .0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_28 } =
-          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
-              .clamp(0, bitdepth_max),
-          ) {
-            ::core::result::Result::Ok(converted_position) => converted_position,
-          };
+        *{
+          let checked_value_28 = predictor_get_mut(
+            &mut edge_px,
+            (::core::num::Wrapping(edge_tl)
+              + ::core::num::Wrapping({
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                    i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
+                  );
+                explicit_position
+              }))
+            .0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_28
+        } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
+            .clamp(0, bitdepth_max),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
 
       let i = i32::wrapping_sub(hsz, 1);
@@ -7630,36 +8126,42 @@ fn ipred_z2_16bpc_inner(
           explicit_position
         }),
       )?;
-      *{ let checked_value_29 = predictor_get_mut(
-        &mut edge_px,
-        (::core::num::Wrapping(edge_tl)
-          + ::core::num::Wrapping({
-            let ::core::result::Result::Ok(explicit_position) =
-              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                i32::wrapping_mul(i, 2),
-              );
-            explicit_position
-          }))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_29 } = checked_value_5;
+      *{
+        let checked_value_29 = predictor_get_mut(
+          &mut edge_px,
+          (::core::num::Wrapping(edge_tl)
+            + ::core::num::Wrapping({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                  i32::wrapping_mul(i, 2),
+                );
+              explicit_position
+            }))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_29
+      } = checked_value_5;
       dx = ::core::primitive::i32::wrapping_shl(dx, 1_u32);
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(angle_2, 90),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(angle_2, 90),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           static KERNEL: [[u8; 5]; 3] = [[0, 4, 8, 4, 0], [0, 5, 6, 5, 0], [2, 4, 4, 4, 2]];
-          let ::core::result::Result::Ok(in_off) =
-            ::console_core_number_conversion::fitted::<_, u64>((Wrapping(tl_pix) + Wrapping(1)).0);
+          let ::core::result::Result::Ok(in_off) = ::console_core_number_conversion::fitted::<
+            _,
+            u64,
+          >((Wrapping(tl_pix) + Wrapping(1)).0);
           let from = -1i32;
           let to = width_i;
           let lim_from = 0i32;
@@ -7682,15 +8184,18 @@ fn ipred_z2_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_30 = predictor_get_mut(
-              &mut edge_px,
-              edge_tl.wrapping_add(1).wrapping_add({
-                let ::core::result::Result::Ok(explicit_position) =
-                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-                explicit_position
-              }),
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_30 } = checked_value_6;
+            *{
+              let checked_value_30 = predictor_get_mut(
+                &mut edge_px,
+                edge_tl.wrapping_add(1).wrapping_add({
+                  let ::core::result::Result::Ok(explicit_position) =
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                  explicit_position
+                }),
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_30
+            } = checked_value_6;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -7702,58 +8207,80 @@ fn ipred_z2_16bpc_inner(
 
             for j in 0..5i32 {
               let checked_value_31 = rd(
-                  (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  })
-                  .wrapping_add_signed({
-                    let ::core::result::Result::Ok(explicit_position) =
-                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                        i32::wrapping_add(i32::wrapping_sub(i, 2), j)
-                          .clamp(from, i32::wrapping_sub(to, 1)),
-                      );
-                    explicit_position
-                  }),
-                )?;
+                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                })
+                .wrapping_add_signed({
+                  let ::core::result::Result::Ok(explicit_position) =
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                      i32::wrapping_add(i32::wrapping_sub(i, 2), j)
+                        .clamp(from, i32::wrapping_sub(to, 1)),
+                    );
+                  explicit_position
+                }),
+              )?;
 
-              match (::core::primitive::i32::wrapping_mul(
-                <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_31),
-                <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-                  *{ let checked_value_52 = predictor_get(
-                    &(*{ let checked_value_51 = predictor_get(&KERNEL, {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          i32::wrapping_sub(filter_strength, 1),
-                        );
-                      explicit_position
-                    })
-                    .ok_or(Rav1dError::EINVAL)?; checked_value_51 }),
-                    {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          j,
-                        );
-                      explicit_position
-                    },
-                  )
-                  .ok_or(Rav1dError::EINVAL)?; checked_value_52 },
+              match (
+                ::core::primitive::i32::wrapping_mul(
+                  <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_31),
+                  <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+                    let checked_value_52 =
+                      predictor_get(
+                        &(*{
+                          let checked_value_51 = predictor_get(&KERNEL, {
+                            let ::core::result::Result::Ok(explicit_position) =
+                              ::console_core_number_conversion::wrapped::<
+                                ::core::primitive::i32,
+                                u64,
+                              >(i32::wrapping_sub(
+                                filter_strength,
+                                1,
+                              ));
+                            explicit_position
+                          })
+                          .ok_or(Rav1dError::EINVAL)?;
+                          checked_value_51
+                        }),
+                        {
+                          let ::core::result::Result::Ok(explicit_position) =
+                            ::console_core_number_conversion::wrapped::<
+                              ::core::primitive::i32,
+                              u64,
+                            >(j);
+                          explicit_position
+                        },
+                      )
+                      .ok_or(Rav1dError::EINVAL)?;
+                    checked_value_52
+                  }),
                 ),
-              ), &mut s) { (explicit_arithmetic_amount, explicit_arithmetic_place) => *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(*explicit_arithmetic_place, explicit_arithmetic_amount) };
+                &mut s,
+              ) {
+                (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+                  *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(
+                    *explicit_arithmetic_place,
+                    explicit_arithmetic_amount,
+                  )
+                }
+              };
             }
 
-            *{ let checked_value_32 = predictor_get_mut(
-              &mut edge_px,
-              edge_tl.wrapping_add(1).wrapping_add({
-                let ::core::result::Result::Ok(explicit_position) =
-                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-                explicit_position
-              }),
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_32 } =
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-                ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              };
+            *{
+              let checked_value_32 = predictor_get_mut(
+                &mut edge_px,
+                edge_tl.wrapping_add(1).wrapping_add({
+                  let ::core::result::Result::Ok(explicit_position) =
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                  explicit_position
+                }),
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_32
+            } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+              ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            };
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -7773,15 +8300,18 @@ fn ipred_z2_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_33 = predictor_get_mut(
-              &mut edge_px,
-              edge_tl.wrapping_add(1).wrapping_add({
-                let ::core::result::Result::Ok(explicit_position) =
-                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-                explicit_position
-              }),
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_33 } = checked_value_7;
+            *{
+              let checked_value_33 = predictor_get_mut(
+                &mut edge_px,
+                edge_tl.wrapping_add(1).wrapping_add({
+                  let ::core::result::Result::Ok(explicit_position) =
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                  explicit_position
+                }),
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_33
+            } = checked_value_7;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
         }
@@ -7789,11 +8319,14 @@ fn ipred_z2_16bpc_inner(
           for i in 0..width {
             let checked_value_8 =
               rd((Wrapping((Wrapping(tl_pix) + Wrapping(1)).0) + Wrapping(i)).0)?;
-            *{ let checked_value_34 = predictor_get_mut(
-              &mut edge_px,
-              (Wrapping(edge_tl.wrapping_add(1)) + Wrapping(i)).0,
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_34 } = checked_value_8;
+            *{
+              let checked_value_34 = predictor_get_mut(
+                &mut edge_px,
+                (Wrapping(edge_tl.wrapping_add(1)) + Wrapping(i)).0,
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_34
+            } = checked_value_8;
           }
         }
       }
@@ -7804,14 +8337,17 @@ fn ipred_z2_16bpc_inner(
     ::core::option::Option::Some(()) => {
       let kernel: [i8; 4] = [-1, 9, 9, -1];
       let hsz = i32::wrapping_add(height_i, 1);
-      let ::core::result::Result::Ok(in_off) =
-        ::console_core_number_conversion::fitted::<_, u64>((Wrapping(tl_pix) - Wrapping(height)).0);
+      let ::core::result::Result::Ok(in_off) = ::console_core_number_conversion::fitted::<_, u64>(
+        (Wrapping(tl_pix) - Wrapping(height)).0,
+      );
 
       for i in 0..i32::wrapping_sub(hsz, 1) {
         let checked_value_9 = rd(
-          (::core::num::Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + ::core::num::Wrapping({
+          (::core::num::Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + ::core::num::Wrapping({
             let ::core::result::Result::Ok(explicit_position) =
               ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
                 i.clamp(0, i32::wrapping_sub(hsz, 1)),
@@ -7820,47 +8356,53 @@ fn ipred_z2_16bpc_inner(
           }))
           .0,
         )?;
-        *{ let checked_value_35 = predictor_get_mut(
-          &mut edge_px,
-          (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height.wrapping_mul(2)))
-            .0
-            .wrapping_add({
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                  i32::wrapping_mul(i, 2),
-                );
-              explicit_position
-            }),
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_35 } = checked_value_9;
+        *{
+          let checked_value_35 = predictor_get_mut(
+            &mut edge_px,
+            (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height.wrapping_mul(2)))
+              .0
+              .wrapping_add({
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                    i32::wrapping_mul(i, 2),
+                  );
+                explicit_position
+              }),
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_35
+        } = checked_value_9;
         let mut s = 0i32;
 
         for j in 0..4i32 {
           let checked_value_36 = rd(
-                (::core::num::Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }) + ::core::num::Wrapping({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                      i32::wrapping_sub(i32::wrapping_add(i, j), 1)
-                        .clamp(0, i32::wrapping_sub(hsz, 1)),
-                    );
-                  explicit_position
-                }))
-                .0,
-              )?;
+            (::core::num::Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + ::core::num::Wrapping({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                  i32::wrapping_sub(i32::wrapping_add(i, j), 1)
+                    .clamp(0, i32::wrapping_sub(hsz, 1)),
+                );
+              explicit_position
+            }))
+            .0,
+          )?;
 
           match (
             ::core::primitive::i32::wrapping_mul(
               <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_36),
-              <i32 as ::core::convert::From<::core::primitive::i8>>::from(
-                *{ let checked_value_37 = predictor_get(&kernel, {
+              <i32 as ::core::convert::From<::core::primitive::i8>>::from(*{
+                let checked_value_37 = predictor_get(&kernel, {
                   let ::core::result::Result::Ok(explicit_position) =
                     ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(j);
                   explicit_position
                 })
-                .ok_or(Rav1dError::EINVAL)?; checked_value_37 },
-              ),
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_37
+              }),
             ),
             &mut s,
           ) {
@@ -7873,32 +8415,36 @@ fn ipred_z2_16bpc_inner(
           };
         }
 
-        *{ let checked_value_38 = predictor_get_mut(
-          &mut edge_px,
-          (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height.wrapping_mul(2)))
-            .0
-            .wrapping_add({
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                  i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
-                );
-              explicit_position
-            }),
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_38 } =
-          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
-              .clamp(0, bitdepth_max),
-          ) {
-            ::core::result::Result::Ok(converted_position) => converted_position,
-          };
+        *{
+          let checked_value_38 = predictor_get_mut(
+            &mut edge_px,
+            (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height.wrapping_mul(2)))
+              .0
+              .wrapping_add({
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                    i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
+                  );
+                explicit_position
+              }),
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_38
+        } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
+            .clamp(0, bitdepth_max),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
 
       let i = i32::wrapping_sub(hsz, 1);
       let checked_value_10 = rd(
-        (::core::num::Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + ::core::num::Wrapping({
+        (::core::num::Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + ::core::num::Wrapping({
           let ::core::result::Result::Ok(explicit_position) =
             ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
               i.clamp(0, i32::wrapping_sub(hsz, 1)),
@@ -7907,37 +8453,42 @@ fn ipred_z2_16bpc_inner(
         }))
         .0,
       )?;
-      *{ let checked_value_39 = predictor_get_mut(
-        &mut edge_px,
-        (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height.wrapping_mul(2)))
-          .0
-          .wrapping_add({
-            let ::core::result::Result::Ok(explicit_position) =
-              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                i32::wrapping_mul(i, 2),
-              );
-            explicit_position
-          }),
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_39 } = checked_value_10;
+      *{
+        let checked_value_39 = predictor_get_mut(
+          &mut edge_px,
+          (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height.wrapping_mul(2)))
+            .0
+            .wrapping_add({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                  i32::wrapping_mul(i, 2),
+                );
+              explicit_position
+            }),
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_39
+      } = checked_value_10;
       dy = ::core::primitive::i32::wrapping_shl(dy, 1_u32);
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(180, angle_2),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(180, angle_2),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           static KERNEL: [[u8; 5]; 3] = [[0, 4, 8, 4, 0], [0, 5, 6, 5, 0], [2, 4, 4, 4, 2]];
-          let ::core::result::Result::Ok(in_off) = ::console_core_number_conversion::fitted::<_, u64>(
-            (Wrapping(tl_pix) - Wrapping(height)).0,
-          );
+          let ::core::result::Result::Ok(in_off) =
+            ::console_core_number_conversion::fitted::<_, u64>(
+              (Wrapping(tl_pix) - Wrapping(height)).0,
+            );
           let from = 0i32;
           let to = i32::wrapping_add(height_i, 1);
           let lim_from = i32::wrapping_sub(height_i, max_height);
@@ -7960,17 +8511,20 @@ fn ipred_z2_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_40 = predictor_get_mut(
-              &mut edge_px,
-              (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height))
-                .0
-                .wrapping_add({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-                  explicit_position
-                }),
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_40 } = checked_value_11;
+            *{
+              let checked_value_40 = predictor_get_mut(
+                &mut edge_px,
+                (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height))
+                  .0
+                  .wrapping_add({
+                    let ::core::result::Result::Ok(explicit_position) =
+                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                    explicit_position
+                  }),
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_40
+            } = checked_value_11;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -7982,60 +8536,82 @@ fn ipred_z2_16bpc_inner(
 
             for j in 0..5i32 {
               let checked_value_41 = rd(
-                  (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  })
-                  .wrapping_add_signed({
-                    let ::core::result::Result::Ok(explicit_position) =
-                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                        i32::wrapping_add(i32::wrapping_sub(i, 2), j)
-                          .clamp(from, i32::wrapping_sub(to, 1)),
-                      );
-                    explicit_position
-                  }),
-                )?;
-
-              match (::core::primitive::i32::wrapping_mul(
-                <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_41),
-                <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-                  *{ let checked_value_54 = predictor_get(
-                    &(*{ let checked_value_53 = predictor_get(&KERNEL, {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          i32::wrapping_sub(filter_strength, 1),
-                        );
-                      explicit_position
-                    })
-                    .ok_or(Rav1dError::EINVAL)?; checked_value_53 }),
-                    {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          j,
-                        );
-                      explicit_position
-                    },
-                  )
-                  .ok_or(Rav1dError::EINVAL)?; checked_value_54 },
-                ),
-              ), &mut s) { (explicit_arithmetic_amount, explicit_arithmetic_place) => *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(*explicit_arithmetic_place, explicit_arithmetic_amount) };
-            }
-
-            *{ let checked_value_42 = predictor_get_mut(
-              &mut edge_px,
-              (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height))
-                .0
-                .wrapping_add({
+                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                })
+                .wrapping_add_signed({
                   let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                      i32::wrapping_add(i32::wrapping_sub(i, 2), j)
+                        .clamp(from, i32::wrapping_sub(to, 1)),
+                    );
                   explicit_position
                 }),
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_42 } =
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-                ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
+              )?;
+
+              match (
+                ::core::primitive::i32::wrapping_mul(
+                  <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_41),
+                  <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+                    let checked_value_54 =
+                      predictor_get(
+                        &(*{
+                          let checked_value_53 = predictor_get(&KERNEL, {
+                            let ::core::result::Result::Ok(explicit_position) =
+                              ::console_core_number_conversion::wrapped::<
+                                ::core::primitive::i32,
+                                u64,
+                              >(i32::wrapping_sub(
+                                filter_strength,
+                                1,
+                              ));
+                            explicit_position
+                          })
+                          .ok_or(Rav1dError::EINVAL)?;
+                          checked_value_53
+                        }),
+                        {
+                          let ::core::result::Result::Ok(explicit_position) =
+                            ::console_core_number_conversion::wrapped::<
+                              ::core::primitive::i32,
+                              u64,
+                            >(j);
+                          explicit_position
+                        },
+                      )
+                      .ok_or(Rav1dError::EINVAL)?;
+                    checked_value_54
+                  }),
+                ),
+                &mut s,
               ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
+                (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+                  *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(
+                    *explicit_arithmetic_place,
+                    explicit_arithmetic_amount,
+                  )
+                }
               };
+            }
+
+            *{
+              let checked_value_42 = predictor_get_mut(
+                &mut edge_px,
+                (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height))
+                  .0
+                  .wrapping_add({
+                    let ::core::result::Result::Ok(explicit_position) =
+                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                    explicit_position
+                  }),
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_42
+            } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+              ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            };
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -8055,17 +8631,20 @@ fn ipred_z2_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_43 = predictor_get_mut(
-              &mut edge_px,
-              (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height))
-                .0
-                .wrapping_add({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-                  explicit_position
-                }),
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_43 } = checked_value_12;
+            *{
+              let checked_value_43 = predictor_get_mut(
+                &mut edge_px,
+                (::core::num::Wrapping(edge_tl) - ::core::num::Wrapping(height))
+                  .0
+                  .wrapping_add({
+                    let ::core::result::Result::Ok(explicit_position) =
+                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                    explicit_position
+                  }),
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_43
+            } = checked_value_12;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
         }
@@ -8073,11 +8652,14 @@ fn ipred_z2_16bpc_inner(
           for i in 0..height {
             let checked_value_13 =
               rd((Wrapping((Wrapping(tl_pix) - Wrapping(height)).0) + Wrapping(i)).0)?;
-            *{ let checked_value_44 = predictor_get_mut(
-              &mut edge_px,
-              (Wrapping((Wrapping(edge_tl) - Wrapping(height)).0) + Wrapping(i)).0,
-            )
-            .ok_or(Rav1dError::EINVAL)?; checked_value_44 } = checked_value_13;
+            *{
+              let checked_value_44 = predictor_get_mut(
+                &mut edge_px,
+                (Wrapping((Wrapping(edge_tl) - Wrapping(height)).0) + Wrapping(i)).0,
+              )
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_44
+            } = checked_value_13;
           }
         }
       }
@@ -8099,9 +8681,7 @@ fn ipred_z2_16bpc_inner(
   let left = (Wrapping(edge_tl)
     - Wrapping(
       (Wrapping(1)
-        + Wrapping(
-          <u64 as ::core::convert::From<::core::primitive::bool>>::from(upsample_left),
-        ))
+        + Wrapping(<u64 as ::core::convert::From<::core::primitive::bool>>::from(upsample_left)))
       .0,
     ))
   .0;
@@ -8143,13 +8723,14 @@ fn ipred_z2_16bpc_inner(
     let left_count = match ::core::primitive::bool::then_some(base_x0 >= 0, ()) {
       ::core::option::Option::Some(()) => 0u64,
       ::core::option::Option::None => {
-        let ::core::result::Result::Ok(needed) = ::console_core_number_conversion::fitted::<_, u64>({
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_neg(base_x0),
-            );
-          explicit_position
-        });
+        let ::core::result::Result::Ok(needed) =
+          ::console_core_number_conversion::fitted::<_, u64>({
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_neg(base_x0),
+              );
+            explicit_position
+          });
         (match ::console_core_number_conversion::fitted::<_, u64>(needed) {
           ::core::result::Result::Ok(native_position) => native_position,
         })
@@ -8202,51 +8783,64 @@ fn ipred_z2_16bpc_inner(
             );
           explicit_position
         }));
-      let l0_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(l0_pix) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) * Wrapping(2))
-      .0;
-      let l1_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(l1_pix) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) * Wrapping(2))
-      .0;
-      let l0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_46 = predictor_get(&*edge, l0_off..(Wrapping(l0_off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_46 })
-        .try_into()
-        .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
+      let l0_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(l0_pix) {
+          ::core::result::Result::Ok(native_position) => native_position,
         },
-      ));
-      let l1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_47 = predictor_get(&*edge, l1_off..(Wrapping(l1_off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_47 })
-        .try_into()
-        .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
+      ) * Wrapping(2))
+      .0;
+      let l1_off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(l1_pix) {
+          ::core::result::Result::Ok(native_position) => native_position,
         },
-      ));
+      ) * Wrapping(2))
+      .0;
+      let l0 =
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_46 =
+              predictor_get(&*edge, l0_off..(Wrapping(l0_off) + Wrapping(2)).0)
+                .ok_or(Rav1dError::EINVAL)?;
+            checked_value_46
+          })
+          .try_into()
+          .map_err(|_| Rav1dError::EINVAL)?;
+          array_window
+        }));
+      let l1 =
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_47 =
+              predictor_get(&*edge, l1_off..(Wrapping(l1_off) + Wrapping(2)).0)
+                .ok_or(Rav1dError::EINVAL)?;
+            checked_value_47
+          })
+          .try_into()
+          .map_err(|_| Rav1dError::EINVAL)?;
+          array_window
+        }));
       let v = ::core::primitive::i32::wrapping_add(
         ::core::primitive::i32::wrapping_mul(l0, inv_frac_y),
         ::core::primitive::i32::wrapping_mul(l1, frac_y),
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(v, 32),
-            6_u32,
-          ),
-        ) {
+        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<
+          _,
+          ::core::primitive::u16,
+        >(::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(v, 32),
+          6_u32,
+        )) {
           ::core::result::Result::Ok(converted_position) => converted_position,
         }
         .to_le_bytes();
@@ -8275,25 +8869,35 @@ fn ipred_z2_16bpc_inner(
             });
           let load0 = (Wrapping(
             (Wrapping(edge_tl)
-              + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              }))
+              + Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ))
             .0,
           ) * Wrapping(2))
           .0;
           let load1 = (Wrapping(
             (Wrapping(
               (Wrapping(edge_tl)
-                + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                }))
+                + Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+                    ::core::result::Result::Ok(native_position) => native_position,
+                  },
+                ))
               .0,
             ) + Wrapping(1))
             .0,
           ) * Wrapping(2))
           .0;
 
-          match ::core::primitive::bool::then_some((Wrapping(load1) + Wrapping(16)).0 > { let Ok(length) = console_core_number_conversion::fixed_index(edge.len()); length }, ()) {
+          match ::core::primitive::bool::then_some(
+            (Wrapping(load1) + Wrapping(16)).0 > {
+              let Ok(length) = console_core_number_conversion::fixed_index(edge.len());
+              length
+            },
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               break 'inner_while_2;
             }
@@ -8322,9 +8926,11 @@ fn ipred_z2_16bpc_inner(
           let lo = _mm256_castsi256_si128(packed);
           let hi = _mm256_extracti128_si256::<1>(packed);
           let combined = _mm_unpacklo_epi64(lo, hi);
-          let store_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+          let store_off = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
           .0;
           let checked_value_3 = predictor_get_mut(
             &mut *dst_2,
@@ -8333,8 +8939,7 @@ fn ipred_z2_16bpc_inner(
           .ok_or(Rav1dError::EINVAL)?;
           storeu_128!(checked_value_3, [u8; 16], combined);
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(8, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
         }
       }
       ::core::option::Option::None => {}
@@ -8344,84 +8949,104 @@ fn ipred_z2_16bpc_inner(
       start: x,
       end: width,
     }) {
-      let ::core::result::Result::Ok(base_x) = ::console_core_number_conversion::fitted::<_, u64>({
-        let ::core::result::Result::Ok(explicit_position) =
-          ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-            i32::wrapping_add(
-              base_x0,
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
-                (Wrapping(base_inc_x) * Wrapping(x)).0,
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              },
-            ),
-          );
-        explicit_position
-      });
+      let ::core::result::Result::Ok(base_x) =
+        ::console_core_number_conversion::fitted::<_, u64>({
+          let ::core::result::Result::Ok(explicit_position) =
+            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+              i32::wrapping_add(
+                base_x0,
+                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+                  (Wrapping(base_inc_x) * Wrapping(x)).0,
+                ) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                },
+              ),
+            );
+          explicit_position
+        });
       let t0_off = (Wrapping(
         (Wrapping(edge_tl)
-          + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }))
+          + Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ))
         .0,
       ) * Wrapping(2))
       .0;
       let t1_off = (Wrapping(
         (Wrapping(
           (Wrapping(edge_tl)
-            + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(base_x) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
           .0,
         ) + Wrapping(1))
         .0,
       ) * Wrapping(2))
       .0;
 
-      match ::core::primitive::bool::then_some((Wrapping(t1_off) + Wrapping(2)).0 > { let Ok(length) = console_core_number_conversion::fixed_index(edge.len()); length }, ()) {
+      match ::core::primitive::bool::then_some(
+        (Wrapping(t1_off) + Wrapping(2)).0 > {
+          let Ok(length) = console_core_number_conversion::fixed_index(edge.len());
+          length
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           break 'inner_for_2;
         }
         ::core::option::Option::None => {}
       }
 
-      let t0 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_49 = predictor_get(&*edge, t0_off..(Wrapping(t0_off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_49 })
-        .try_into()
-        .map_err(|_| Rav1dError::EINVAL)?;
+      let t0 =
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_49 =
+              predictor_get(&*edge, t0_off..(Wrapping(t0_off) + Wrapping(2)).0)
+                .ok_or(Rav1dError::EINVAL)?;
+            checked_value_49
+          })
+          .try_into()
+          .map_err(|_| Rav1dError::EINVAL)?;
           array_window
-        },
-      ));
-      let t1 = <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_50 = predictor_get(&*edge, t1_off..(Wrapping(t1_off) + Wrapping(2)).0)
-          .ok_or(Rav1dError::EINVAL)?; checked_value_50 })
-        .try_into()
-        .map_err(|_| Rav1dError::EINVAL)?;
+        }));
+      let t1 =
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+          let array_window = (*{
+            let checked_value_50 =
+              predictor_get(&*edge, t1_off..(Wrapping(t1_off) + Wrapping(2)).0)
+                .ok_or(Rav1dError::EINVAL)?;
+            checked_value_50
+          })
+          .try_into()
+          .map_err(|_| Rav1dError::EINVAL)?;
           array_window
-        },
-      ));
+        }));
       let v = ::core::primitive::i32::wrapping_add(
         ::core::primitive::i32::wrapping_mul(t0, inv_frac_x),
         ::core::primitive::i32::wrapping_mul(t1, frac_x),
       );
-      let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+      let off = (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
       .0;
 
       {
         let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, off..)
           .and_then(<[_]>::first_chunk_mut::<2>)
           .ok_or(Rav1dError::EINVAL)?;
-        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-          ::core::primitive::i32::wrapping_shr(
-            ::core::primitive::i32::wrapping_add(v, 32),
-            6_u32,
-          ),
-        ) {
+        *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<
+          _,
+          ::core::primitive::u16,
+        >(::core::primitive::i32::wrapping_shr(
+          ::core::primitive::i32::wrapping_add(v, 32),
+          6_u32,
+        )) {
           ::core::result::Result::Ok(converted_position) => converted_position,
         }
         .to_le_bytes();
@@ -8476,16 +9101,14 @@ fn ipred_z3_16bpc_inner(
   let angle_2 = angle & 511;
 
   let checked_value_5 = predictor_get(&dav1d_dr_intra_derivative, {
-      let ::core::result::Result::Ok(explicit_position) =
-        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(270, angle_2), 1_u32),
-        );
-      explicit_position
-    })
-    .ok_or(Rav1dError::EINVAL)?;
-  let mut dy = <u64 as ::core::convert::From<::core::primitive::u16>>::from(
-    *checked_value_5,
-  );
+    let ::core::result::Result::Ok(explicit_position) =
+      ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+        ::core::primitive::i32::wrapping_shr(i32::wrapping_sub(270, angle_2), 1_u32),
+      );
+    explicit_position
+  })
+  .ok_or(Rav1dError::EINVAL)?;
+  let mut dy = <u64 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_5);
 
   let tl_pix = tl_off.wrapping_div(2);
 
@@ -8532,42 +9155,46 @@ fn ipred_z3_16bpc_inner(
             explicit_position
           }),
         )?;
-        *{ let checked_value_25 = predictor_get_mut(&mut left_px, {
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_mul(i, 2),
-            );
-          explicit_position
-        })
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 } = checked_value;
+        *{
+          let checked_value_25 = predictor_get_mut(&mut left_px, {
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_mul(i, 2),
+              );
+            explicit_position
+          })
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        } = checked_value;
         let mut s = 0i32;
 
         for j in 0..4i32 {
           let checked_value_26 = rd(
-                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                })
-                .wrapping_add_signed({
-                  let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                      i32::wrapping_sub(i32::wrapping_add(i, j), 1)
-                        .clamp(from, i32::wrapping_sub(to, 1)),
-                    );
-                  explicit_position
-                }),
-              )?;
+            (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            })
+            .wrapping_add_signed({
+              let ::core::result::Result::Ok(explicit_position) =
+                ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                  i32::wrapping_sub(i32::wrapping_add(i, j), 1)
+                    .clamp(from, i32::wrapping_sub(to, 1)),
+                );
+              explicit_position
+            }),
+          )?;
 
           match (
             ::core::primitive::i32::wrapping_mul(
               <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_26),
-              <i32 as ::core::convert::From<::core::primitive::i8>>::from(
-                *{ let checked_value_27 = predictor_get(&kernel, {
+              <i32 as ::core::convert::From<::core::primitive::i8>>::from(*{
+                let checked_value_27 = predictor_get(&kernel, {
                   let ::core::result::Result::Ok(explicit_position) =
                     ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(j);
                   explicit_position
                 })
-                .ok_or(Rav1dError::EINVAL)?; checked_value_27 },
-              ),
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_27
+              }),
             ),
             &mut s,
           ) {
@@ -8580,20 +9207,22 @@ fn ipred_z3_16bpc_inner(
           };
         }
 
-        *{ let checked_value_28 = predictor_get_mut(&mut left_px, {
-          let ::core::result::Result::Ok(explicit_position) =
-            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-              i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
-            );
-          explicit_position
-        })
-        .ok_or(Rav1dError::EINVAL)?; checked_value_28 } =
-          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
-              .clamp(0, bitdepth_max),
-          ) {
-            ::core::result::Result::Ok(converted_position) => converted_position,
-          };
+        *{
+          let checked_value_28 = predictor_get_mut(&mut left_px, {
+            let ::core::result::Result::Ok(explicit_position) =
+              ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+                i32::wrapping_add(i32::wrapping_mul(i, 2), 1),
+              );
+            explicit_position
+          })
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_28
+        } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32)
+            .clamp(0, bitdepth_max),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        };
       }
 
       let i = i32::wrapping_sub(hsz, 1);
@@ -8609,14 +9238,17 @@ fn ipred_z3_16bpc_inner(
           explicit_position
         }),
       )?;
-      *{ let checked_value_29 = predictor_get_mut(&mut left_px, {
-        let ::core::result::Result::Ok(explicit_position) =
-          ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-            i32::wrapping_mul(i, 2),
-          );
-        explicit_position
-      })
-      .ok_or(Rav1dError::EINVAL)?; checked_value_29 } = checked_value_2;
+      *{
+        let checked_value_29 = predictor_get_mut(&mut left_px, {
+          let ::core::result::Result::Ok(explicit_position) =
+            ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
+              i32::wrapping_mul(i, 2),
+            );
+          explicit_position
+        })
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_29
+      } = checked_value_2;
       left_off = {
         let ::core::result::Result::Ok(explicit_position) =
           ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
@@ -8633,21 +9265,23 @@ fn ipred_z3_16bpc_inner(
       use_left_px = true;
     }
     ::core::option::Option::None => {
-      let Ok(filter_strength) = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-        ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
-          length: i32::wrapping_add(width_i, height_i),
-          angle_delta: i32::wrapping_sub(angle_2, 180),
-          smoothing: is_sm,
-        }),
-        ::core::option::Option::None => Ok(0),
-      };
+      let Ok(filter_strength) =
+        match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
+          ::core::option::Option::Some(()) => get_filter_strength(EdgeFilterSelection {
+            length: i32::wrapping_add(width_i, height_i),
+            angle_delta: i32::wrapping_sub(angle_2, 180),
+            smoothing: is_sm,
+          }),
+          ::core::option::Option::None => Ok(0),
+        };
 
       match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
         ::core::option::Option::Some(()) => {
           static KERNEL: [[u8; 5]; 3] = [[0, 4, 8, 4, 0], [0, 5, 6, 5, 0], [2, 4, 4, 4, 2]];
-          let ::core::result::Result::Ok(in_off) = ::console_core_number_conversion::fitted::<_, u64>(
-            (Wrapping(tl_pix) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0,
-          );
+          let ::core::result::Result::Ok(in_off) =
+            ::console_core_number_conversion::fitted::<_, u64>(
+              (Wrapping(tl_pix) - Wrapping((Wrapping(width) + Wrapping(height)).0)).0,
+            );
           let from = std::cmp::max(i32::wrapping_sub(width_i, height_i), 0);
           let to = i32::wrapping_add(i32::wrapping_add(width_i, height_i), 1);
           let lim_from = 0i32;
@@ -8670,12 +9304,15 @@ fn ipred_z3_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_30 = predictor_get_mut(&mut left_px, {
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-              explicit_position
-            })
-            .ok_or(Rav1dError::EINVAL)?; checked_value_30 } = checked_value_3;
+            *{
+              let checked_value_30 = predictor_get_mut(&mut left_px, {
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                explicit_position
+              })
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_30
+            } = checked_value_3;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -8687,55 +9324,77 @@ fn ipred_z3_16bpc_inner(
 
             for j in 0..5i32 {
               let checked_value_31 = rd(
-                  (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
-                    ::core::result::Result::Ok(native_position) => native_position,
-                  })
-                  .wrapping_add_signed({
-                    let ::core::result::Result::Ok(explicit_position) =
-                      ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                        i32::wrapping_add(i32::wrapping_sub(i, 2), j)
-                          .clamp(from, i32::wrapping_sub(to, 1)),
-                      );
-                    explicit_position
-                  }),
-                )?;
+                (match ::console_core_number_conversion::fitted::<_, u64>(in_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                })
+                .wrapping_add_signed({
+                  let ::core::result::Result::Ok(explicit_position) =
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
+                      i32::wrapping_add(i32::wrapping_sub(i, 2), j)
+                        .clamp(from, i32::wrapping_sub(to, 1)),
+                    );
+                  explicit_position
+                }),
+              )?;
 
-              match (::core::primitive::i32::wrapping_mul(
-                <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_31),
-                <i32 as ::core::convert::From<::core::primitive::u8>>::from(
-                  *{ let checked_value_52 = predictor_get(
-                    &(*{ let checked_value_51 = predictor_get(&KERNEL, {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          i32::wrapping_sub(filter_strength, 1),
-                        );
-                      explicit_position
-                    })
-                    .ok_or(Rav1dError::EINVAL)?; checked_value_51 }),
-                    {
-                      let ::core::result::Result::Ok(explicit_position) =
-                        ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(
-                          j,
-                        );
-                      explicit_position
-                    },
-                  )
-                  .ok_or(Rav1dError::EINVAL)?; checked_value_52 },
+              match (
+                ::core::primitive::i32::wrapping_mul(
+                  <i32 as ::core::convert::From<::core::primitive::u16>>::from(checked_value_31),
+                  <i32 as ::core::convert::From<::core::primitive::u8>>::from(*{
+                    let checked_value_52 =
+                      predictor_get(
+                        &(*{
+                          let checked_value_51 = predictor_get(&KERNEL, {
+                            let ::core::result::Result::Ok(explicit_position) =
+                              ::console_core_number_conversion::wrapped::<
+                                ::core::primitive::i32,
+                                u64,
+                              >(i32::wrapping_sub(
+                                filter_strength,
+                                1,
+                              ));
+                            explicit_position
+                          })
+                          .ok_or(Rav1dError::EINVAL)?;
+                          checked_value_51
+                        }),
+                        {
+                          let ::core::result::Result::Ok(explicit_position) =
+                            ::console_core_number_conversion::wrapped::<
+                              ::core::primitive::i32,
+                              u64,
+                            >(j);
+                          explicit_position
+                        },
+                      )
+                      .ok_or(Rav1dError::EINVAL)?;
+                    checked_value_52
+                  }),
                 ),
-              ), &mut s) { (explicit_arithmetic_amount, explicit_arithmetic_place) => *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(*explicit_arithmetic_place, explicit_arithmetic_amount) };
+                &mut s,
+              ) {
+                (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+                  *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(
+                    *explicit_arithmetic_place,
+                    explicit_arithmetic_amount,
+                  )
+                }
+              };
             }
 
-            *{ let checked_value_32 = predictor_get_mut(&mut left_px, {
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-              explicit_position
-            })
-            .ok_or(Rav1dError::EINVAL)?; checked_value_32 } =
-              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-                ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              };
+            *{
+              let checked_value_32 = predictor_get_mut(&mut left_px, {
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                explicit_position
+              })
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_32
+            } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+              ::core::primitive::i32::wrapping_shr(i32::wrapping_add(s, 8), 4_u32),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            };
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -8755,12 +9414,15 @@ fn ipred_z3_16bpc_inner(
                 explicit_position
               }),
             )?;
-            *{ let checked_value_33 = predictor_get_mut(&mut left_px, {
-              let ::core::result::Result::Ok(explicit_position) =
-                ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
-              explicit_position
-            })
-            .ok_or(Rav1dError::EINVAL)?; checked_value_33 } = checked_value_4;
+            *{
+              let checked_value_33 = predictor_get_mut(&mut left_px, {
+                let ::core::result::Result::Ok(explicit_position) =
+                  ::console_core_number_conversion::wrapped::<::core::primitive::i32, u64>(i);
+                explicit_position
+              })
+              .ok_or(Rav1dError::EINVAL)?;
+              checked_value_33
+            } = checked_value_4;
             i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
           }
 
@@ -8817,46 +9479,56 @@ fn ipred_z3_16bpc_inner(
         ),
       );
 
-      match ::core::primitive::bool::then_some((match ::console_core_number_conversion::fitted::<_, u64>(base) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) < max_base_y, ())
-      {
+      match ::core::primitive::bool::then_some(
+        (match ::console_core_number_conversion::fitted::<_, u64>(base) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        }) < max_base_y,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let (l0, l1) = match ::core::primitive::bool::then_some(use_left_px, ()) {
             ::core::option::Option::Some(()) => (
-              <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-                *{ let checked_value_34 = predictor_get(
+              <i32 as ::core::convert::From<::core::primitive::u16>>::from(*{
+                let checked_value_34 = predictor_get(
                   &left_px,
                   (Wrapping(left_off)
-                    - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                      ::core::result::Result::Ok(native_position) => native_position,
-                    }))
+                    - Wrapping(
+                      match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                        ::core::result::Result::Ok(native_position) => native_position,
+                      },
+                    ))
                   .0,
                 )
-                .ok_or(Rav1dError::EINVAL)?; checked_value_34 },
-              ),
-              <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-                *{ let checked_value_35 = predictor_get(
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_34
+              }),
+              <i32 as ::core::convert::From<::core::primitive::u16>>::from(*{
+                let checked_value_35 = predictor_get(
                   &left_px,
                   (Wrapping(
                     (Wrapping(left_off)
-                      - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                        ::core::result::Result::Ok(native_position) => native_position,
-                      }))
+                      - Wrapping(
+                        match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                          ::core::result::Result::Ok(native_position) => native_position,
+                        },
+                      ))
                     .0,
                   ) - Wrapping(1))
                   .0,
                 )
-                .ok_or(Rav1dError::EINVAL)?; checked_value_35 },
-              ),
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_35
+              }),
             ),
             ::core::option::Option::None => {
               let first = rd(
                 (Wrapping(
                   (Wrapping(tl_pix)
-                    - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                      ::core::result::Result::Ok(native_position) => native_position,
-                    }))
+                    - Wrapping(
+                      match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                        ::core::result::Result::Ok(native_position) => native_position,
+                      },
+                    ))
                   .0,
                 ) - Wrapping(1))
                 .0,
@@ -8864,15 +9536,17 @@ fn ipred_z3_16bpc_inner(
               let second = rd(
                 (Wrapping(
                   (Wrapping(tl_pix)
-                    - Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(base) {
-                      ::core::result::Result::Ok(native_position) => native_position,
-                    }))
+                    - Wrapping(
+                      match ::console_core_number_conversion::fitted::<_, u64>(base) {
+                        ::core::result::Result::Ok(native_position) => native_position,
+                      },
+                    ))
                   .0,
                 ) - Wrapping(2))
                 .0,
               )?;
               (i32::from(first), i32::from(second))
-            },
+            }
           };
           let v = i32::wrapping_add(i32::wrapping_mul(l0, inv_frac), i32::wrapping_mul(l1, frac));
           let pixel_off = dst_base
@@ -8892,22 +9566,26 @@ fn ipred_z3_16bpc_inner(
             let explicit_byte_copy_destination = predictor_get_mut(&mut *dst_2, pixel_off..)
               .and_then(<[_]>::first_chunk_mut::<2>)
               .ok_or(Rav1dError::EINVAL)?;
-            *explicit_byte_copy_destination = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-              ::core::primitive::i32::wrapping_shr(i32::wrapping_add(v, 32), 6_u32),
-            ) {
-              ::core::result::Result::Ok(converted_position) => converted_position,
-            }
-            .to_le_bytes();
+            *explicit_byte_copy_destination =
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+                ::core::primitive::i32::wrapping_shr(i32::wrapping_add(v, 32), 6_u32),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              }
+              .to_le_bytes();
           };
         }
         ::core::option::Option::None => {
           let fill_val = match ::core::primitive::bool::then_some(use_left_px, ()) {
             ::core::option::Option::Some(()) => {
-              let checked_value_37 = predictor_get(&left_px, (Wrapping(left_off) - Wrapping(max_base_y)).0)
-                .ok_or(Rav1dError::EINVAL)?;
+              let checked_value_37 =
+                predictor_get(&left_px, (Wrapping(left_off) - Wrapping(max_base_y)).0)
+                  .ok_or(Rav1dError::EINVAL)?;
               *checked_value_37
             }
-            ::core::option::Option::None => rd((Wrapping((Wrapping(tl_pix) - Wrapping(max_base_y)).0) - Wrapping(1)).0)?,
+            ::core::option::Option::None => {
+              rd((Wrapping((Wrapping(tl_pix) - Wrapping(max_base_y)).0) - Wrapping(1)).0)?
+            }
           };
 
           for yy in y..height_i {
@@ -8916,9 +9594,7 @@ fn ipred_z3_16bpc_inner(
               .wrapping_add(
                 ({
                   let ::core::result::Result::Ok(explicit_position) =
-                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(
-                      yy,
-                    );
+                    ::console_core_number_conversion::wrapped::<::core::primitive::i32, i64>(yy);
                   explicit_position
                 })
                 .wrapping_mul(stride),
@@ -8982,31 +9658,38 @@ fn ipred_filter_16bpc_inner(
     explicit_position
   }) & 511;
 
-  let filter = &*{ let checked_value_48 = predictor_get(&dav1d_filter_intra_taps, filt_idx_2).ok_or(Rav1dError::EINVAL)?; checked_value_48 };
+  let filter = &*{
+    let checked_value_48 =
+      predictor_get(&dav1d_filter_intra_taps, filt_idx_2).ok_or(Rav1dError::EINVAL)?;
+    checked_value_48
+  };
 
   for y in (0..height).step_by(2) {
     let ::core::result::Result::Ok(cur_tl_off) =
       ::console_core_number_conversion::fitted::<_, u64>((Wrapping(topleft_off) - Wrapping(y)).0);
 
     let tl_pixel_off = tl_off.wrapping_add(
-      (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(cur_tl_off) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      }) * Wrapping(2))
+      (Wrapping(
+        match ::console_core_number_conversion::fitted::<_, u64>(cur_tl_off) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        },
+      ) * Wrapping(2))
       .0,
     );
     let mut tl_pixel =
-      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-        {
-          let array_window = (*{ let checked_value_25 = predictor_get(
-          &*topleft_2,
-          tl_pixel_off..(Wrapping(tl_pixel_off) + Wrapping(2)).0,
-        )
-        .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+      <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+        let array_window = (*{
+          let checked_value_25 = predictor_get(
+            &*topleft_2,
+            tl_pixel_off..(Wrapping(tl_pixel_off) + Wrapping(2)).0,
+          )
+          .ok_or(Rav1dError::EINVAL)?;
+          checked_value_25
+        })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
-          array_window
-        },
-      ));
+        array_window
+      }));
 
     let ::core::result::Result::Ok(row0_off) = ::console_core_number_conversion::fitted::<_, u64>(
       (Wrapping(dst_base.cast_signed())
@@ -9035,117 +9718,126 @@ fn ipred_filter_16bpc_inner(
             .0,
           );
           (
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{
-                let checked_value_26 = predictor_get(&*topleft_2, top_base..(Wrapping(top_base) + Wrapping(2)).0)
-                .ok_or(Rav1dError::EINVAL)?;
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_26 =
+                  predictor_get(&*topleft_2, top_base..(Wrapping(top_base) + Wrapping(2)).0)
+                    .ok_or(Rav1dError::EINVAL)?;
                 checked_value_26
               })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_27 = predictor_get(
-                &*topleft_2,
-                (Wrapping(top_base) + Wrapping(2)).0..(Wrapping(top_base) + Wrapping(4)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_27 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_27 = predictor_get(
+                  &*topleft_2,
+                  (Wrapping(top_base) + Wrapping(2)).0..(Wrapping(top_base) + Wrapping(4)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_27
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_28 = predictor_get(
-                &*topleft_2,
-                (Wrapping(top_base) + Wrapping(4)).0..(Wrapping(top_base) + Wrapping(6)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_28 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_28 = predictor_get(
+                  &*topleft_2,
+                  (Wrapping(top_base) + Wrapping(4)).0..(Wrapping(top_base) + Wrapping(6)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_28
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_29 = predictor_get(
-                &*topleft_2,
-                (Wrapping(top_base) + Wrapping(6)).0..(Wrapping(top_base) + Wrapping(8)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_29 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_29 = predictor_get(
+                  &*topleft_2,
+                  (Wrapping(top_base) + Wrapping(6)).0..(Wrapping(top_base) + Wrapping(8)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_29
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
+              array_window
+            })),
           )
         }
         ::core::option::Option::None => {
-          let ::core::result::Result::Ok(top_row) = ::console_core_number_conversion::fitted::<_, u64>(
-            (Wrapping(dst_base.cast_signed())
-              + Wrapping(
-                (Wrapping((Wrapping(::core::primitive::u64::cast_signed(y)) - Wrapping(1)).0)
-                  * Wrapping(stride))
-                .0,
-              ))
-            .0
-            .cast_unsigned(),
-          );
-          let tb = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping((Wrapping(x) * Wrapping(2)).0))
+          let ::core::result::Result::Ok(top_row) =
+            ::console_core_number_conversion::fitted::<_, u64>(
+              (Wrapping(dst_base.cast_signed())
+                + Wrapping(
+                  (Wrapping((Wrapping(::core::primitive::u64::cast_signed(y)) - Wrapping(1)).0)
+                    * Wrapping(stride))
+                  .0,
+                ))
+              .0
+              .cast_unsigned(),
+            );
+          let tb = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(top_row) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping((Wrapping(x) * Wrapping(2)).0))
           .0;
           (
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_30 = predictor_get(&*dst_2, tb..(Wrapping(tb) + Wrapping(2)).0)
-                .ok_or(Rav1dError::EINVAL)?; checked_value_30 })
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_30 = predictor_get(&*dst_2, tb..(Wrapping(tb) + Wrapping(2)).0)
+                  .ok_or(Rav1dError::EINVAL)?;
+                checked_value_30
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_31 = predictor_get(
-                &*dst_2,
-                (Wrapping(tb) + Wrapping(2)).0..(Wrapping(tb) + Wrapping(4)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_31 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_31 = predictor_get(
+                  &*dst_2,
+                  (Wrapping(tb) + Wrapping(2)).0..(Wrapping(tb) + Wrapping(4)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_31
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_32 = predictor_get(
-                &*dst_2,
-                (Wrapping(tb) + Wrapping(4)).0..(Wrapping(tb) + Wrapping(6)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_32 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_32 = predictor_get(
+                  &*dst_2,
+                  (Wrapping(tb) + Wrapping(4)).0..(Wrapping(tb) + Wrapping(6)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_32
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_33 = predictor_get(
-                &*dst_2,
-                (Wrapping(tb) + Wrapping(6)).0..(Wrapping(tb) + Wrapping(8)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_33 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_33 = predictor_get(
+                  &*dst_2,
+                  (Wrapping(tb) + Wrapping(6)).0..(Wrapping(tb) + Wrapping(8)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_33
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
+              array_window
+            })),
           )
         }
       };
@@ -9171,66 +9863,70 @@ fn ipred_filter_16bpc_inner(
             .0,
           );
           (
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_34 = predictor_get(
-                &*topleft_2,
-                left_base..(Wrapping(left_base) + Wrapping(2)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_34 })
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_34 = predictor_get(
+                  &*topleft_2,
+                  left_base..(Wrapping(left_base) + Wrapping(2)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_34
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{ let checked_value_35 = predictor_get(
-                &*topleft_2,
-                left_base2..(Wrapping(left_base2) + Wrapping(2)).0,
-              )
-              .ok_or(Rav1dError::EINVAL)?; checked_value_35 })
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_35 = predictor_get(
+                  &*topleft_2,
+                  left_base2..(Wrapping(left_base2) + Wrapping(2)).0,
+                )
+                .ok_or(Rav1dError::EINVAL)?;
+                checked_value_35
+              })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
+              array_window
+            })),
           )
         }
         ::core::option::Option::None => {
-          let p5_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping((Wrapping((Wrapping(x) - Wrapping(1)).0) * Wrapping(2)).0))
+          let p5_off = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping((Wrapping((Wrapping(x) - Wrapping(1)).0) * Wrapping(2)).0))
           .0;
-          let p6_off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping((Wrapping((Wrapping(x) - Wrapping(1)).0) * Wrapping(2)).0))
+          let p6_off = (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping((Wrapping((Wrapping(x) - Wrapping(1)).0) * Wrapping(2)).0))
           .0;
           (
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{
-                let checked_value_36 = predictor_get(&*dst_2, p5_off..(Wrapping(p5_off) + Wrapping(2)).0)
-                .ok_or(Rav1dError::EINVAL)?;
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_36 =
+                  predictor_get(&*dst_2, p5_off..(Wrapping(p5_off) + Wrapping(2)).0)
+                    .ok_or(Rav1dError::EINVAL)?;
                 checked_value_36
               })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
-            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes(
-              {
-                let array_window = (*{
-                let checked_value_37 = predictor_get(&*dst_2, p6_off..(Wrapping(p6_off) + Wrapping(2)).0)
-                .ok_or(Rav1dError::EINVAL)?;
+              array_window
+            })),
+            <i32 as ::core::convert::From<::core::primitive::u16>>::from(u16::from_le_bytes({
+              let array_window = (*{
+                let checked_value_37 =
+                  predictor_get(&*dst_2, p6_off..(Wrapping(p6_off) + Wrapping(2)).0)
+                    .ok_or(Rav1dError::EINVAL)?;
                 checked_value_37
               })
               .try_into()
               .map_err(|_| Rav1dError::EINVAL)?;
-                array_window
-              },
-            )),
+              array_window
+            })),
           )
         }
       };
@@ -9241,21 +9937,24 @@ fn ipred_filter_16bpc_inner(
       let Ok([first_row, second_row]) = filter_predictions(filter, p);
 
       for (xx, acc) in (0..4).zip(first_row) {
-        let first_filtered_pixel = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(
-            0,
-            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
-              bitdepth_max,
-            ) {
-              ::core::result::Result::Ok(converted_position) => converted_position,
-            },
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
-        let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping((Wrapping((Wrapping(x) + Wrapping(xx)).0) * Wrapping(2)).0))
+        let first_filtered_pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(
+              0,
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+                bitdepth_max,
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              },
+            ),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+        let off = (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row0_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping((Wrapping((Wrapping(x) + Wrapping(xx)).0) * Wrapping(2)).0))
         .0;
 
         {
@@ -9264,25 +9963,27 @@ fn ipred_filter_16bpc_inner(
             .ok_or(Rav1dError::EINVAL)?;
           *explicit_byte_copy_destination = first_filtered_pixel.to_le_bytes();
         };
-
       }
 
       for (xx, acc) in (0..4).zip(second_row) {
-        let second_filtered_pixel = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-          ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(
-            0,
-            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
-              bitdepth_max,
-            ) {
-              ::core::result::Result::Ok(converted_position) => converted_position,
-            },
-          ),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
-        let off = (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping((Wrapping((Wrapping(x) + Wrapping(xx)).0) * Wrapping(2)).0))
+        let second_filtered_pixel =
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+            ::core::primitive::i32::wrapping_shr(i32::wrapping_add(acc, 8), 4_u32).clamp(
+              0,
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+                bitdepth_max,
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              },
+            ),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
+        let off = (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping((Wrapping((Wrapping(x) + Wrapping(xx)).0) * Wrapping(2)).0))
         .0;
 
         {
@@ -9291,7 +9992,6 @@ fn ipred_filter_16bpc_inner(
             .ok_or(Rav1dError::EINVAL)?;
           *explicit_byte_copy_destination = second_filtered_pixel.to_le_bytes();
         };
-
       }
 
       tl_pixel = p4;
@@ -9365,17 +10065,19 @@ fn cfl_pred_8bpc_inner(
           let p16_lo = _mm256_castsi256_si128(p16_ordered);
           let p8 = _mm_packus_epi16(p16_lo, p16_lo);
 
-          let dst_chunk: &mut [u8; 8] = (&mut *{ let checked_value_25 = predictor_get_mut(
-            &mut *dst_2,
-            (Wrapping(row_off) + Wrapping(x)).0
-              ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+          let dst_chunk: &mut [u8; 8] = (&mut *{
+            let checked_value_25 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(row_off) + Wrapping(x)).0
+                ..(Wrapping((Wrapping(row_off) + Wrapping(x)).0) + Wrapping(8)).0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_25
+          })
             .try_into()
             .map_err(|_| Rav1dError::EINVAL)?;
           archmage::intrinsics::x86_64::_mm_storeu_si64(dst_chunk, p8);
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(8, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
         }
       }
       ::core::option::Option::None => match ::core::primitive::bool::then_some(width == 4, ()) {
@@ -9383,8 +10085,8 @@ fn cfl_pred_8bpc_inner(
           let mut buf = [0i16; 8];
 
           {
-            let checked_copy_destination = <[_]>::first_chunk_mut::<4>(&mut buf)
-              .ok_or(Rav1dError::EINVAL)?;
+            let checked_copy_destination =
+              <[_]>::first_chunk_mut::<4>(&mut buf).ok_or(Rav1dError::EINVAL)?;
             let checked_copy_source = predictor_get(&*ac, ac_off..)
               .and_then(<[_]>::first_chunk::<4>)
               .ok_or(Rav1dError::EINVAL)?;
@@ -9404,14 +10106,14 @@ fn cfl_pred_8bpc_inner(
           let p16 = _mm256_packus_epi32(result, result);
           let p16_lo = _mm256_castsi256_si128(p16);
           let p8 = _mm_packus_epi16(p16_lo, p16_lo);
-          let dst_chunk: &mut [u8; 4] =
-            (&mut *{
-              let checked_value_28 = predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(4)).0)
-              .ok_or(Rav1dError::EINVAL)?;
-              checked_value_28
-            })
-              .try_into()
-              .map_err(|_| Rav1dError::EINVAL)?;
+          let dst_chunk: &mut [u8; 4] = (&mut *{
+            let checked_value_28 =
+              predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(4)).0)
+                .ok_or(Rav1dError::EINVAL)?;
+            checked_value_28
+          })
+            .try_into()
+            .map_err(|_| Rav1dError::EINVAL)?;
           archmage::intrinsics::x86_64::_mm_storeu_si32(dst_chunk, p8);
         }
         ::core::option::Option::None => {}
@@ -9490,28 +10192,34 @@ fn cfl_pred_16bpc_inner(
 
           let ::core::result::Result::Ok(byte_x) =
             ::console_core_number_conversion::fitted::<_, u64>((Wrapping(x) * Wrapping(2)).0);
-          let dst_chunk: &mut [u8; 16] = (&mut *{ let checked_value_25 = predictor_get_mut(
-            &mut *dst_2,
-            (Wrapping(row_off)
-              + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(byte_x) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              }))
-            .0
-              ..(Wrapping(
-                (Wrapping(row_off)
-                  + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(byte_x) {
+          let dst_chunk: &mut [u8; 16] = (&mut *{
+            let checked_value_25 = predictor_get_mut(
+              &mut *dst_2,
+              (Wrapping(row_off)
+                + Wrapping(
+                  match ::console_core_number_conversion::fitted::<_, u64>(byte_x) {
                     ::core::result::Result::Ok(native_position) => native_position,
-                  }))
+                  },
+                ))
+              .0
+                ..(Wrapping(
+                  (Wrapping(row_off)
+                    + Wrapping(
+                      match ::console_core_number_conversion::fitted::<_, u64>(byte_x) {
+                        ::core::result::Result::Ok(native_position) => native_position,
+                      },
+                    ))
+                  .0,
+                ) + Wrapping(16))
                 .0,
-              ) + Wrapping(16))
-              .0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_25
+          })
             .try_into()
             .map_err(|_| Rav1dError::EINVAL)?;
           storeu_128!(dst_chunk, p16_lo);
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(8, &mut x);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
         }
       }
       ::core::option::Option::None => match ::core::primitive::bool::then_some(width == 4, ()) {
@@ -9519,8 +10227,8 @@ fn cfl_pred_16bpc_inner(
           let mut buf = [0i16; 8];
 
           {
-            let checked_copy_destination = <[_]>::first_chunk_mut::<4>(&mut buf)
-              .ok_or(Rav1dError::EINVAL)?;
+            let checked_copy_destination =
+              <[_]>::first_chunk_mut::<4>(&mut buf).ok_or(Rav1dError::EINVAL)?;
             let checked_copy_source = predictor_get(&*ac, ac_off..)
               .and_then(<[_]>::first_chunk::<4>)
               .ok_or(Rav1dError::EINVAL)?;
@@ -9542,14 +10250,14 @@ fn cfl_pred_16bpc_inner(
           let p16 = _mm256_packus_epi32(result, result);
           let p16_lo = _mm256_castsi256_si128(p16);
 
-          let dst_chunk: &mut [u8; 8] =
-            (&mut *{
-              let checked_value_28 = predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(8)).0)
-              .ok_or(Rav1dError::EINVAL)?;
-              checked_value_28
-            })
-              .try_into()
-              .map_err(|_| Rav1dError::EINVAL)?;
+          let dst_chunk: &mut [u8; 8] = (&mut *{
+            let checked_value_28 =
+              predictor_get_mut(&mut *dst_2, row_off..(Wrapping(row_off) + Wrapping(8)).0)
+                .ok_or(Rav1dError::EINVAL)?;
+            checked_value_28
+          })
+            .try_into()
+            .map_err(|_| Rav1dError::EINVAL)?;
           archmage::intrinsics::x86_64::_mm_storeu_si64(dst_chunk, p16_lo);
         }
         ::core::option::Option::None => {}
@@ -9570,10 +10278,12 @@ struct CflPred16bpcInnerArguments {
 }
 
 use crate::include::common::bitdepth::BitDepth;
-use crate::src::internal::SCRATCH_EDGE_LEN;
-use crate::src::ipred::{CflAcExtraction, CflProjection, EdgeFilterSelection, IntraPrediction, PredictionDispatch, get_filter_strength};
 use crate::include::dav1d::headers::Rav1dPixelLayoutSubSampled;
-
+use crate::src::internal::SCRATCH_EDGE_LEN;
+use crate::src::ipred::{
+  CflAcExtraction, CflProjection, EdgeFilterSelection, IntraPrediction, PredictionDispatch,
+  get_filter_strength,
+};
 
 #[cfg(target_arch = "x86_64")]
 pub fn intra_pred_dispatch<BD: BitDepth>(
@@ -9605,7 +10315,10 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
     mode,
     edge_center: topleft_off,
     size: Size { width, height },
-    reach: Size { width: max_width, height: max_height },
+    reach: Size {
+      width: max_width,
+      height: max_height,
+    },
     angle,
   } = prediction;
   let Ok(w) = console_core_number_conversion::wrapped::<_, u64>(width);
@@ -9616,8 +10329,11 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
 
   let Ok(columns) = index(w);
   let Ok(rows) = index(h);
-  let Ok(with_block_mut) =
-    dst.with_block_mut::<BD, _, _>(columns, rows, tl_bytes, |dst_bytes, native_base, native_pitch, edge_bytes| {
+  let Ok(with_block_mut) = dst.with_block_mut::<BD, _, _>(
+    columns,
+    rows,
+    tl_bytes,
+    |dst_bytes, native_base, native_pitch, edge_bytes| {
       let Ok(dst_base_bytes) = console_core_number_conversion::fixed_index(native_base);
       let Ok(byte_stride) = console_core_number_conversion::fixed_offset(native_pitch);
 
@@ -9783,13 +10499,16 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
               destination: PredictorOutput {
                 base: dst_base_bytes,
                 stride: byte_stride,
-                size: Size { width: w, height: h },
+                size: Size {
+                  width: w,
+                  height: h,
+                },
               },
               edge_center: topleft_off,
               angle: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
-            },
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+                numeric_value
+              },
             },
           ),
           None => ipred_z1_8bpc_inner(
@@ -9800,13 +10519,16 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
               destination: PredictorOutput {
                 base: dst_base_bytes,
                 stride: byte_stride,
-                size: Size { width: w, height: h },
+                size: Size {
+                  width: w,
+                  height: h,
+                },
               },
               edge_center: topleft_off,
               angle: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
-            },
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+                numeric_value
+              },
             },
           ),
         },
@@ -9819,15 +10541,21 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
               destination: PredictorOutput {
                 base: dst_base_bytes,
                 stride: byte_stride,
-                size: Size { width: w, height: h },
+                size: Size {
+                  width: w,
+                  height: h,
+                },
               },
               edge_center: topleft_off,
               angle: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+                numeric_value
+              },
             },
+            Size {
+              width: max_width,
+              height: max_height,
             },
-            Size { width: max_width, height: max_height },
           ),
           None => ipred_z2_8bpc_inner(
             token,
@@ -9837,15 +10565,21 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
               destination: PredictorOutput {
                 base: dst_base_bytes,
                 stride: byte_stride,
-                size: Size { width: w, height: h },
+                size: Size {
+                  width: w,
+                  height: h,
+                },
               },
               edge_center: topleft_off,
               angle: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+                numeric_value
+              },
             },
+            Size {
+              width: max_width,
+              height: max_height,
             },
-            Size { width: max_width, height: max_height },
           ),
         },
         (BPC::BPC8, 8) => match avx512x_token {
@@ -9857,13 +10591,16 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
               destination: PredictorOutput {
                 base: dst_base_bytes,
                 stride: byte_stride,
-                size: Size { width: w, height: h },
+                size: Size {
+                  width: w,
+                  height: h,
+                },
               },
               edge_center: topleft_off,
               angle: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
-            },
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+                numeric_value
+              },
             },
           ),
           None => ipred_z3_8bpc_inner(
@@ -9874,13 +10611,16 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
               destination: PredictorOutput {
                 base: dst_base_bytes,
                 stride: byte_stride,
-                size: Size { width: w, height: h },
+                size: Size {
+                  width: w,
+                  height: h,
+                },
               },
               edge_center: topleft_off,
               angle: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
-            },
+                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+                numeric_value
+              },
             },
           ),
         },
@@ -10444,7 +11184,8 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
         ),
         _ => Err(Rav1dError::EINVAL),
       }
-    });
+    },
+  );
 
   with_block_mut.map(|()| PredictionDispatch::Applied)
 }
@@ -10475,14 +11216,20 @@ pub fn cfl_pred_dispatch<BD: BitDepth>(
   let Ok(w) = console_core_number_conversion::wrapped::<_, u64>(width);
   let Ok(h) = console_core_number_conversion::wrapped::<_, u64>(height);
 
-  match ::core::primitive::bool::then_some(!(w == 4 || w == 8 || w == 16 || w == 32 || w == 64), ()) {
+  match ::core::primitive::bool::then_some(
+    !(w == 4 || w == 8 || w == 16 || w == 32 || w == 64),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(PredictionDispatch::ScalarFallback);
     }
     ::core::option::Option::None => {}
   }
 
-  let ac_slice = match w.checked_mul(h).and_then(|count| predictor_get(ac, ..count)) {
+  let ac_slice = match w
+    .checked_mul(h)
+    .and_then(|count| predictor_get(ac, ..count))
+  {
     Some(block) => block,
     None => return Ok(PredictionDispatch::ScalarFallback),
   };
@@ -10498,33 +11245,33 @@ pub fn cfl_pred_dispatch<BD: BitDepth>(
       let Ok(byte_stride) = console_core_number_conversion::fixed_offset(native_pitch);
 
       match BD::BPC {
-      BPC::BPC8 => cfl_pred_8bpc_inner(
-        token,
-        dst_bytes,
-        dst_base_bytes,
-        byte_stride,
-        ac_slice_2,
-        self::CflPred8bpcInnerArguments {
-          width: w,
-          height: h,
-          dc,
-          alpha,
-        },
-      ),
-      BPC::BPC16 => cfl_pred_16bpc_inner(
-        token,
-        dst_bytes,
-        dst_base_bytes,
-        byte_stride,
-        ac_slice_2,
-        self::CflPred16bpcInnerArguments {
-          width: w,
-          height: h,
-          dc,
-          alpha,
-          bitdepth_max: bd.bitdepth_max().as_::<i32>(),
-        },
-      ),
+        BPC::BPC8 => cfl_pred_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          ac_slice_2,
+          self::CflPred8bpcInnerArguments {
+            width: w,
+            height: h,
+            dc,
+            alpha,
+          },
+        ),
+        BPC::BPC16 => cfl_pred_16bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          ac_slice_2,
+          self::CflPred16bpcInnerArguments {
+            width: w,
+            height: h,
+            dc,
+            alpha,
+            bitdepth_max: bd.bitdepth_max().as_::<i32>(),
+          },
+        ),
       }
     },
   );
@@ -10580,18 +11327,26 @@ fn cfl_ac_420_8bpc_inner(
         ::console_core_number_conversion::fitted::<_, u64>((Wrapping(2) * Wrapping(x)).0);
       let checked_value = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
             .0,
           ) + Wrapping(32))
           .0,
@@ -10602,18 +11357,26 @@ fn cfl_ac_420_8bpc_inner(
       let r1 = loadu_256!(checked_value_16);
       let checked_value_2 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
             .0,
           ) + Wrapping(32))
           .0,
@@ -10629,14 +11392,18 @@ fn cfl_ac_420_8bpc_inner(
 
       let checked_value_3 = predictor_get_mut(
         &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(16))
           .0,
@@ -10645,8 +11412,7 @@ fn cfl_ac_420_8bpc_inner(
       let checked_value_18 = <&mut [i16; 16]>::try_from(checked_value_3)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_256!(checked_value_18, shifted);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in 0..active_w.saturating_sub(x).wrapping_div(8) {
@@ -10654,18 +11420,26 @@ fn cfl_ac_420_8bpc_inner(
         ::console_core_number_conversion::fitted::<_, u64>((Wrapping(2) * Wrapping(x)).0);
       let checked_value_4 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
             .0,
           ) + Wrapping(16))
           .0,
@@ -10676,18 +11450,26 @@ fn cfl_ac_420_8bpc_inner(
       let r1 = loadu_128!(checked_value_19);
       let checked_value_5 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
             .0,
           ) + Wrapping(16))
           .0,
@@ -10703,14 +11485,18 @@ fn cfl_ac_420_8bpc_inner(
       let shifted = _mm_slli_epi16::<1>(sum);
       let checked_value_6 = predictor_get_mut(
         &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(8))
           .0,
@@ -10719,8 +11505,7 @@ fn cfl_ac_420_8bpc_inner(
       let checked_value_21 = <&mut [i16; 8]>::try_from(checked_value_6)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_128!(checked_value_21, shifted);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -10731,11 +11516,15 @@ fn cfl_ac_420_8bpc_inner(
         ::console_core_number_conversion::fitted::<_, u64>((Wrapping(2) * Wrapping(x)).0);
       let checked_value_7 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
@@ -10743,11 +11532,15 @@ fn cfl_ac_420_8bpc_inner(
       let checked_value_8 = predictor_get(
         &*src_bytes,
         (Wrapping(
-          (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }))
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row1_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ))
           .0,
         ) + Wrapping(1))
         .0,
@@ -10756,11 +11549,15 @@ fn cfl_ac_420_8bpc_inner(
       let b = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_8);
       let checked_value_9 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
@@ -10768,34 +11565,42 @@ fn cfl_ac_420_8bpc_inner(
       let checked_value_10 = predictor_get(
         &*src_bytes,
         (Wrapping(
-          (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }))
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row2_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ))
           .0,
         ) + Wrapping(1))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
       let d = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_10);
-      *{ let checked_value_25 = predictor_get_mut(
-        &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 } = match ::console_core_number_conversion::wrapped::<
-        _,
-        ::core::primitive::i16,
-      >(::core::primitive::i32::wrapping_shl(
-        ::core::primitive::i32::wrapping_add(
-          ::core::primitive::i32::wrapping_add(::core::primitive::i32::wrapping_add(a, b), c),
-          d,
+      *{
+        let checked_value_25 = predictor_get_mut(
+          &mut *ac,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+        ::core::primitive::i32::wrapping_shl(
+          ::core::primitive::i32::wrapping_add(
+            ::core::primitive::i32::wrapping_add(::core::primitive::i32::wrapping_add(a, b), c),
+            d,
+          ),
+          1_u32,
         ),
-        1_u32,
-      )) {
+      ) {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
@@ -10806,9 +11611,11 @@ fn cfl_ac_420_8bpc_inner(
         let checked_value_11 = predictor_get(
           &*ac,
           (Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(active_w))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(active_w))
             .0,
           ) - Wrapping(1))
           .0,
@@ -10817,14 +11624,19 @@ fn cfl_ac_420_8bpc_inner(
         let pad = *checked_value_11;
 
         for x_2 in active_w..width {
-          *{ let checked_value_26 = predictor_get_mut(
-            &mut *ac,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x_2))
-            .0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_26 } = pad;
+          *{
+            let checked_value_26 = predictor_get_mut(
+              &mut *ac,
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x_2))
+              .0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          } = pad;
         }
       }
       ::core::option::Option::None => {}
@@ -10838,7 +11650,9 @@ fn cfl_ac_420_8bpc_inner(
       for y in active_h..height {
         let dst_off = (Wrapping(y) * Wrapping(width)).0;
 
-        let Ok(row) = console_core_number_conversion::indices(src_row_start..src_row_start.wrapping_add(width));
+        let Ok(row) = console_core_number_conversion::indices(
+          src_row_start..src_row_start.wrapping_add(width),
+        );
         let Ok(destination) = index(dst_off);
         ac.copy_within(row, destination);
       }
@@ -10871,8 +11685,7 @@ fn cfl_ac_420_8bpc_inner(
       let hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256::<1>(v));
       acc = _mm256_add_epi32(acc, lo);
       acc = _mm256_add_epi32(acc, hi);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut i);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut i);
     }
 
     let acc_lo = _mm256_castsi256_si128(acc);
@@ -10884,12 +11697,10 @@ fn cfl_ac_420_8bpc_inner(
 
     for _ in (::core::ops::Range { start: i, end: n }) {
       sum_i32 = sum_i32.wrapping_add(
-        <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-          *{
-            let checked_value_27 = predictor_get(&*ac, i).ok_or(Rav1dError::EINVAL)?;
-            checked_value_27
-          },
-        ),
+        <i32 as ::core::convert::From<::core::primitive::i16>>::from(*{
+          let checked_value_27 = predictor_get(&*ac, i).ok_or(Rav1dError::EINVAL)?;
+          checked_value_27
+        }),
       );
       i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
@@ -10912,13 +11723,12 @@ fn cfl_ac_420_8bpc_inner(
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       let v = loadu_256!(checked_value_23);
       let r = _mm256_sub_epi16(v, mean_v);
-      let checked_value_14 =
-        predictor_get_mut(&mut *ac, i..(Wrapping(i) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value_14 = predictor_get_mut(&mut *ac, i..(Wrapping(i) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let checked_value_24 = <&mut [i16; 16]>::try_from(checked_value_14)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_256!(checked_value_24, r);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut i);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut i);
     }
 
     for _ in (::core::ops::Range { start: i, end: n }) {
@@ -10926,8 +11736,7 @@ fn cfl_ac_420_8bpc_inner(
       *{
         let checked_value_28 = predictor_get_mut(&mut *ac, i).ok_or(Rav1dError::EINVAL)?;
         checked_value_28
-      } =
-        (*checked_value_15).wrapping_sub(mean);
+      } = (*checked_value_15).wrapping_sub(mean);
       i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -10977,18 +11786,26 @@ fn cfl_ac_422_8bpc_inner(
         ::console_core_number_conversion::fitted::<_, u64>((Wrapping(2) * Wrapping(x)).0);
       let checked_value = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
             .0,
           ) + Wrapping(32))
           .0,
@@ -11002,14 +11819,18 @@ fn cfl_ac_422_8bpc_inner(
       let shifted = _mm256_slli_epi16::<2>(s1);
       let checked_value_2 = predictor_get_mut(
         &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(16))
           .0,
@@ -11018,8 +11839,7 @@ fn cfl_ac_422_8bpc_inner(
       let checked_value_13 = <&mut [i16; 16]>::try_from(checked_value_2)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_256!(checked_value_13, shifted);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in 0..active_w.saturating_sub(x).wrapping_div(8) {
@@ -11027,18 +11847,26 @@ fn cfl_ac_422_8bpc_inner(
         ::console_core_number_conversion::fitted::<_, u64>((Wrapping(2) * Wrapping(x)).0);
       let checked_value_3 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ))
             .0,
           ) + Wrapping(16))
           .0,
@@ -11052,14 +11880,18 @@ fn cfl_ac_422_8bpc_inner(
       let shifted = _mm_slli_epi16::<2>(s1);
       let checked_value_4 = predictor_get_mut(
         &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(8))
           .0,
@@ -11068,8 +11900,7 @@ fn cfl_ac_422_8bpc_inner(
       let checked_value_15 = <&mut [i16; 8]>::try_from(checked_value_4)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_128!(checked_value_15, shifted);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -11080,11 +11911,15 @@ fn cfl_ac_422_8bpc_inner(
         ::console_core_number_conversion::fitted::<_, u64>((Wrapping(2) * Wrapping(x)).0);
       let checked_value_5 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
@@ -11092,30 +11927,38 @@ fn cfl_ac_422_8bpc_inner(
       let checked_value_6 = predictor_get(
         &*src_bytes,
         (Wrapping(
-          (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }) + Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(lx) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          }))
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(lx) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ))
           .0,
         ) + Wrapping(1))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
       let b = <i32 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_6);
-      *{ let checked_value_25 = predictor_get_mut(
-        &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 } =
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
-          ::core::primitive::i32::wrapping_shl(::core::primitive::i32::wrapping_add(a, b), 2_u32),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        };
+      *{
+        let checked_value_25 = predictor_get_mut(
+          &mut *ac,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+        ::core::primitive::i32::wrapping_shl(::core::primitive::i32::wrapping_add(a, b), 2_u32),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
       x = (::core::num::Wrapping(x) + ::core::num::Wrapping(1)).0;
     }
 
@@ -11124,9 +11967,11 @@ fn cfl_ac_422_8bpc_inner(
         let checked_value_7 = predictor_get(
           &*ac,
           (Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(active_w))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(active_w))
             .0,
           ) - Wrapping(1))
           .0,
@@ -11135,14 +11980,19 @@ fn cfl_ac_422_8bpc_inner(
         let pad = *checked_value_7;
 
         for x_2 in active_w..width {
-          *{ let checked_value_26 = predictor_get_mut(
-            &mut *ac,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x_2))
-            .0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_26 } = pad;
+          *{
+            let checked_value_26 = predictor_get_mut(
+              &mut *ac,
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x_2))
+              .0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_26
+          } = pad;
         }
       }
       ::core::option::Option::None => {}
@@ -11155,7 +12005,9 @@ fn cfl_ac_422_8bpc_inner(
 
       for y in active_h..height {
         let dst_off = (Wrapping(y) * Wrapping(width)).0;
-        let Ok(row) = console_core_number_conversion::indices(src_row_start..src_row_start.wrapping_add(width));
+        let Ok(row) = console_core_number_conversion::indices(
+          src_row_start..src_row_start.wrapping_add(width),
+        );
         let Ok(destination) = index(dst_off);
         ac.copy_within(row, destination);
       }
@@ -11187,8 +12039,7 @@ fn cfl_ac_422_8bpc_inner(
       let hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256::<1>(v));
       acc = _mm256_add_epi32(acc, lo);
       acc = _mm256_add_epi32(acc, hi);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut i);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut i);
     }
 
     let acc_lo = _mm256_castsi256_si128(acc);
@@ -11200,12 +12051,10 @@ fn cfl_ac_422_8bpc_inner(
 
     for _ in (::core::ops::Range { start: i, end: n }) {
       sum_i32 = sum_i32.wrapping_add(
-        <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-          *{
-            let checked_value_27 = predictor_get(&*ac, i).ok_or(Rav1dError::EINVAL)?;
-            checked_value_27
-          },
-        ),
+        <i32 as ::core::convert::From<::core::primitive::i16>>::from(*{
+          let checked_value_27 = predictor_get(&*ac, i).ok_or(Rav1dError::EINVAL)?;
+          checked_value_27
+        }),
       );
       i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
@@ -11228,13 +12077,12 @@ fn cfl_ac_422_8bpc_inner(
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       let v = loadu_256!(checked_value_17);
       let r = _mm256_sub_epi16(v, mean_v);
-      let checked_value_10 =
-        predictor_get_mut(&mut *ac, i..(Wrapping(i) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value_10 = predictor_get_mut(&mut *ac, i..(Wrapping(i) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let checked_value_18 = <&mut [i16; 16]>::try_from(checked_value_10)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_256!(checked_value_18, r);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut i);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut i);
     }
 
     for _ in (::core::ops::Range { start: i, end: n }) {
@@ -11242,8 +12090,7 @@ fn cfl_ac_422_8bpc_inner(
       *{
         let checked_value_28 = predictor_get_mut(&mut *ac, i).ok_or(Rav1dError::EINVAL)?;
         checked_value_28
-      } =
-        (*checked_value_11).wrapping_sub(mean);
+      } = (*checked_value_11).wrapping_sub(mean);
       i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -11289,14 +12136,18 @@ fn cfl_ac_444_8bpc_inner(
     for _ in 0..active_w.saturating_sub(x).wrapping_div(16) {
       let checked_value = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(16))
           .0,
@@ -11310,14 +12161,18 @@ fn cfl_ac_444_8bpc_inner(
       let shifted = _mm256_slli_epi16::<3>(widened);
       let checked_value_2 = predictor_get_mut(
         &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(16))
           .0,
@@ -11326,26 +12181,32 @@ fn cfl_ac_444_8bpc_inner(
       let checked_value_11 = <&mut [i16; 16]>::try_from(checked_value_2)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_256!(checked_value_11, shifted);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut x);
     }
 
     for _ in 0..active_w.saturating_sub(x).wrapping_div(8) {
-      let arr: &[u8; 8] = (&*{ let checked_value_25 = predictor_get(
-        &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0
-          ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+      let arr: &[u8; 8] = (&*{
+        let checked_value_25 = predictor_get(
+          &*src_bytes,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
               ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            },
+          ) + Wrapping(x))
+          .0
+            ..(Wrapping(
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x))
+              .0,
+            ) + Wrapping(8))
             .0,
-          ) + Wrapping(8))
-          .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_25 })
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_25
+      })
         .try_into()
         .map_err(|_| Rav1dError::EINVAL)?;
 
@@ -11357,14 +12218,18 @@ fn cfl_ac_444_8bpc_inner(
       let shifted = _mm_slli_epi16::<3>(widened);
       let checked_value_3 = predictor_get_mut(
         &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0
           ..(Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(x))
             .0,
           ) + Wrapping(8))
           .0,
@@ -11373,8 +12238,7 @@ fn cfl_ac_444_8bpc_inner(
       let checked_value_12 = <&mut [i16; 8]>::try_from(checked_value_3)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_128!(checked_value_12, shifted);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(8, &mut x);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(8, &mut x);
     }
 
     for _ in (::core::ops::Range {
@@ -11383,20 +12247,27 @@ fn cfl_ac_444_8bpc_inner(
     }) {
       let checked_value_4 = predictor_get(
         &*src_bytes,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
+        (Wrapping(
+          match ::console_core_number_conversion::fitted::<_, u64>(row_off) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          },
+        ) + Wrapping(x))
         .0,
       )
       .ok_or(Rav1dError::EINVAL)?;
-      *{ let checked_value_27 = predictor_get_mut(
-        &mut *ac,
-        (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-          ::core::result::Result::Ok(native_position) => native_position,
-        }) + Wrapping(x))
-        .0,
-      )
-      .ok_or(Rav1dError::EINVAL)?; checked_value_27 } = ::core::primitive::i16::wrapping_shl(
+      *{
+        let checked_value_27 = predictor_get_mut(
+          &mut *ac,
+          (Wrapping(
+            match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+          ) + Wrapping(x))
+          .0,
+        )
+        .ok_or(Rav1dError::EINVAL)?;
+        checked_value_27
+      } = ::core::primitive::i16::wrapping_shl(
         <i16 as ::core::convert::From<::core::primitive::u8>>::from(*checked_value_4),
         3_u32,
       );
@@ -11408,9 +12279,11 @@ fn cfl_ac_444_8bpc_inner(
         let checked_value_5 = predictor_get(
           &*ac,
           (Wrapping(
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(active_w))
+            (Wrapping(
+              match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+            ) + Wrapping(active_w))
             .0,
           ) - Wrapping(1))
           .0,
@@ -11419,14 +12292,19 @@ fn cfl_ac_444_8bpc_inner(
         let pad = *checked_value_5;
 
         for x_2 in active_w..width {
-          *{ let checked_value_28 = predictor_get_mut(
-            &mut *ac,
-            (Wrapping(match ::console_core_number_conversion::fitted::<_, u64>(aci) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            }) + Wrapping(x_2))
-            .0,
-          )
-          .ok_or(Rav1dError::EINVAL)?; checked_value_28 } = pad;
+          *{
+            let checked_value_28 = predictor_get_mut(
+              &mut *ac,
+              (Wrapping(
+                match ::console_core_number_conversion::fitted::<_, u64>(aci) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                },
+              ) + Wrapping(x_2))
+              .0,
+            )
+            .ok_or(Rav1dError::EINVAL)?;
+            checked_value_28
+          } = pad;
         }
       }
       ::core::option::Option::None => {}
@@ -11439,7 +12317,9 @@ fn cfl_ac_444_8bpc_inner(
 
       for y in active_h..height {
         let dst_off = (Wrapping(y) * Wrapping(width)).0;
-        let Ok(row) = console_core_number_conversion::indices(src_row_start..src_row_start.wrapping_add(width));
+        let Ok(row) = console_core_number_conversion::indices(
+          src_row_start..src_row_start.wrapping_add(width),
+        );
         let Ok(destination) = index(dst_off);
         ac.copy_within(row, destination);
       }
@@ -11471,8 +12351,7 @@ fn cfl_ac_444_8bpc_inner(
       let hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256::<1>(v));
       acc = _mm256_add_epi32(acc, lo);
       acc = _mm256_add_epi32(acc, hi);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut i);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut i);
     }
 
     let acc_lo = _mm256_castsi256_si128(acc);
@@ -11484,12 +12363,10 @@ fn cfl_ac_444_8bpc_inner(
 
     for _ in (::core::ops::Range { start: i, end: n }) {
       sum_i32 = sum_i32.wrapping_add(
-        <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-          *{
-            let checked_value_29 = predictor_get(&*ac, i).ok_or(Rav1dError::EINVAL)?;
-            checked_value_29
-          },
-        ),
+        <i32 as ::core::convert::From<::core::primitive::i16>>::from(*{
+          let checked_value_29 = predictor_get(&*ac, i).ok_or(Rav1dError::EINVAL)?;
+          checked_value_29
+        }),
       );
       i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
@@ -11512,13 +12389,12 @@ fn cfl_ac_444_8bpc_inner(
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       let v = loadu_256!(checked_value_14);
       let r = _mm256_sub_epi16(v, mean_v);
-      let checked_value_8 =
-        predictor_get_mut(&mut *ac, i..(Wrapping(i) + Wrapping(16)).0).ok_or(Rav1dError::EINVAL)?;
+      let checked_value_8 = predictor_get_mut(&mut *ac, i..(Wrapping(i) + Wrapping(16)).0)
+        .ok_or(Rav1dError::EINVAL)?;
       let checked_value_15 = <&mut [i16; 16]>::try_from(checked_value_8)
         .map_err(|_| crate::src::error::Rav1dError::EINVAL)?;
       storeu_256!(checked_value_15, r);
-      let ::core::result::Result::Ok(()) =
-        advance_predictor_position(16, &mut i);
+      let ::core::result::Result::Ok(()) = advance_predictor_position(16, &mut i);
     }
 
     for _ in (::core::ops::Range { start: i, end: n }) {
@@ -11526,8 +12402,7 @@ fn cfl_ac_444_8bpc_inner(
       *{
         let checked_value_30 = predictor_get_mut(&mut *ac, i).ok_or(Rav1dError::EINVAL)?;
         checked_value_30
-      } =
-        (*checked_value_9).wrapping_sub(mean);
+      } = (*checked_value_9).wrapping_sub(mean);
       i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
   }
@@ -11566,10 +12441,17 @@ pub fn cfl_ac_dispatch<BD: BitDepth>(
     }
   };
 
-  let CflAcExtraction { size, padding, layout } = extraction;
+  let CflAcExtraction {
+    size,
+    padding,
+    layout,
+  } = extraction;
   let Ok(width) = console_core_number_conversion::wrapped::<_, u64>(size.width);
   let Ok(height) = console_core_number_conversion::wrapped::<_, u64>(size.height);
-  let Size { width: w_pad, height: h_pad } = padding;
+  let Size {
+    width: w_pad,
+    height: h_pad,
+  } = padding;
   let (is_ss_hor, is_ss_ver) = match layout {
     Rav1dPixelLayoutSubSampled::I420 => (true, true),
     Rav1dPixelLayoutSubSampled::I422 => (true, false),
@@ -11579,8 +12461,10 @@ pub fn cfl_ac_dispatch<BD: BitDepth>(
     (Ok(columns), Ok(rows)) => (columns, rows),
     (_horizontal, _vertical) => return Ok(PredictionDispatch::ScalarFallback),
   };
-  let Ok(padded_columns) = console_core_number_conversion::fitted::<_, u64>(u64::from(column_units).wrapping_mul(4));
-  let Ok(padded_rows) = console_core_number_conversion::fitted::<_, u64>(u64::from(row_units).wrapping_mul(4));
+  let Ok(padded_columns) =
+    console_core_number_conversion::fitted::<_, u64>(u64::from(column_units).wrapping_mul(4));
+  let Ok(padded_rows) =
+    console_core_number_conversion::fitted::<_, u64>(u64::from(row_units).wrapping_mul(4));
 
   match (padded_columns < width && padded_rows < height).then_some(()) {
     Some(()) => {}
@@ -11589,8 +12473,14 @@ pub fn cfl_ac_dispatch<BD: BitDepth>(
 
   let active_w = width.wrapping_sub(padded_columns);
   let active_h = height.wrapping_sub(padded_rows);
-  let ::core::result::Result::Ok(ss_hor) = ::console_core_number_conversion::fitted::<::core::primitive::u8, u64>(::core::primitive::u8::from(is_ss_hor));
-  let ::core::result::Result::Ok(ss_ver) = ::console_core_number_conversion::fitted::<::core::primitive::u8, u64>(::core::primitive::u8::from(is_ss_ver));
+  let ::core::result::Result::Ok(ss_hor) = ::console_core_number_conversion::fitted::<
+    ::core::primitive::u8,
+    u64,
+  >(::core::primitive::u8::from(is_ss_hor));
+  let ::core::result::Result::Ok(ss_ver) = ::console_core_number_conversion::fitted::<
+    ::core::primitive::u8,
+    u64,
+  >(::core::primitive::u8::from(is_ss_ver));
   let src_w = active_w.wrapping_shl({
     let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
     numeric_value
@@ -11615,22 +12505,25 @@ pub fn cfl_ac_dispatch<BD: BitDepth>(
       height: src_h,
     },
     ac_block,
-    |output, src_bytes, src_base, src_stride_i| {
-      match ::core::primitive::bool::then_some(is_ss_hor && is_ss_ver, ()) {
-        ::core::option::Option::Some(()) => cfl_ac_420_8bpc_inner(
-          token,
-          output,
-          self::CflAc4208bpcInnerArguments {
-            width,
-            height,
-            active_w,
-            active_h,
-          },
-          src_bytes,
-          src_base,
-          src_stride_i,
-        ),
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(is_ss_hor && !is_ss_ver, ()) {
+    |output, src_bytes, src_base, src_stride_i| match ::core::primitive::bool::then_some(
+      is_ss_hor && is_ss_ver,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => cfl_ac_420_8bpc_inner(
+        token,
+        output,
+        self::CflAc4208bpcInnerArguments {
+          width,
+          height,
+          active_w,
+          active_h,
+        },
+        src_bytes,
+        src_base,
+        src_stride_i,
+      ),
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(is_ss_hor && !is_ss_ver, ()) {
           ::core::option::Option::Some(()) => cfl_ac_422_8bpc_inner(
             token,
             output,
@@ -11657,7 +12550,7 @@ pub fn cfl_ac_dispatch<BD: BitDepth>(
             src_base,
             src_stride_i,
           ),
-        },
+        }
       }
     },
   );
@@ -11670,7 +12563,7 @@ mod v4x_dir_tests {
 
   fn make_topleft() -> core::result::Result<(Vec<u8>, u64), console_core_never::Never> {
     Ok({
-            let tl_off = 200u64;
+      let tl_off = 200u64;
       let mut buf = vec![0u8; 512];
       let mut st: u32 = 0x1234_5678;
 
@@ -11711,7 +12604,10 @@ mod v4x_dir_tests {
             destination: PredictorOutput {
               base: 0,
               stride: stride,
-              size: Size { width: w, height: h },
+              size: Size {
+                width: w,
+                height: h
+              },
             },
             edge_center: tl_off,
             angle: angle,
@@ -11728,7 +12624,10 @@ mod v4x_dir_tests {
             destination: PredictorOutput {
               base: 0,
               stride: stride,
-              size: Size { width: w, height: h },
+              size: Size {
+                width: w,
+                height: h
+              },
             },
             edge_center: tl_off,
             angle: angle,
@@ -11767,7 +12666,10 @@ mod v4x_dir_tests {
             destination: PredictorOutput {
               base: 0,
               stride: stride,
-              size: Size { width: w, height: h },
+              size: Size {
+                width: w,
+                height: h
+              },
             },
             edge_center: tl_off,
             angle: angle,
@@ -11784,7 +12686,10 @@ mod v4x_dir_tests {
             destination: PredictorOutput {
               base: 0,
               stride: stride,
-              size: Size { width: w, height: h },
+              size: Size {
+                width: w,
+                height: h
+              },
             },
             edge_center: tl_off,
             angle: angle,
@@ -11820,20 +12725,26 @@ mod v4x_dir_tests {
       let Ok(summon_avx512x) = crate::src::cpu::summon_avx512x();
       let t4x = summon_avx512x.ok_or(Rav1dError::EINVAL)?;
       let baseline = ipred_z2_8bpc_inner(
-          t3,
-          &mut dst_a,
-          &tl,
-          DirectionalPrediction {
-            destination: PredictorOutput {
-              base: 0,
-              stride: stride,
-              size: Size { width: w, height: h },
+        t3,
+        &mut dst_a,
+        &tl,
+        DirectionalPrediction {
+          destination: PredictorOutput {
+            base: 0,
+            stride: stride,
+            size: Size {
+              width: w,
+              height: h,
             },
-            edge_center: tl_off,
-            angle: angle,
           },
-          Size { width: mw, height: mh },
-        );
+          edge_center: tl_off,
+          angle: angle,
+        },
+        Size {
+          width: mw,
+          height: mh,
+        },
+      );
 
       match baseline {
         Ok(()) => {}
@@ -11850,12 +12761,18 @@ mod v4x_dir_tests {
             destination: PredictorOutput {
               base: 0,
               stride: stride,
-              size: Size { width: w, height: h },
+              size: Size {
+                width: w,
+                height: h
+              },
             },
             edge_center: tl_off,
             angle: angle,
           },
-          Size { width: mw, height: mh },
+          Size {
+            width: mw,
+            height: mh
+          },
         ),
         Ok(())
       );
@@ -11880,8 +12797,9 @@ mod v4x_dir_tests {
     {
       for y in 0..h {
         for x in 0..w {
-          let ::core::result::Result::Ok(off) =
-            ::console_core_number_conversion::fitted::<_, u64>(y.wrapping_mul(stride).wrapping_add(x));
+          let ::core::result::Result::Ok(off) = ::console_core_number_conversion::fitted::<_, u64>(
+            y.wrapping_mul(stride).wrapping_add(x),
+          );
 
           let actual = predictor_get(a, off).ok_or(Rav1dError::EINVAL)?;
           let expected = predictor_get(b, off).ok_or(Rav1dError::EINVAL)?;
@@ -11901,27 +12819,27 @@ mod v4x_dir_tests {
   }
 
   const DIRECTIONS: [i32; 3] = [
-      0i32,
-      i32::wrapping_shl(1, 10_u32),
-      i32::wrapping_shl(1, 10_u32) | i32::wrapping_shl(1, 9_u32),
-    ];
+    0i32,
+    i32::wrapping_shl(1, 10_u32),
+    i32::wrapping_shl(1, 10_u32) | i32::wrapping_shl(1, 9_u32),
+  ];
   const SHAPES: [(u64, u64); 15] = [
-      (4, 4),
-      (4, 8),
-      (8, 4),
-      (8, 8),
-      (8, 16),
-      (16, 8),
-      (16, 16),
-      (16, 32),
-      (32, 16),
-      (32, 32),
-      (32, 64),
-      (64, 32),
-      (64, 64),
-      (4, 16),
-      (16, 4),
-    ];
+    (4, 4),
+    (4, 8),
+    (8, 4),
+    (8, 8),
+    (8, 16),
+    (16, 8),
+    (16, 16),
+    (16, 32),
+    (32, 16),
+    (32, 32),
+    (32, 64),
+    (64, 32),
+    (64, 64),
+    (4, 16),
+    (16, 4),
+  ];
 
   #[test]
   fn z1_v4x_matches_avx2() -> Rav1dResult {
@@ -12015,7 +12933,13 @@ mod v4x_dir_tests {
 
           let Ok(mw) = console_core_number_conversion::wrapped::<_, i32>(w);
           let Ok(mh) = console_core_number_conversion::wrapped::<_, i32>(h);
-          let case = run_z2(RunZ2Arguments { w, h, angle, mw, mh })?;
+          let case = run_z2(RunZ2Arguments {
+            w,
+            h,
+            angle,
+            mw,
+            mh,
+          })?;
           let (a, b) = match case {
             Some(samples) => samples,
             None => continue 'inner_for_3,
@@ -12027,8 +12951,7 @@ mod v4x_dir_tests {
             &format!("z2 w={w} h={h} angle={angle} mw={mw} mh={mh}"),
           )?;
 
-          let ::core::result::Result::Ok(()) =
-            advance_predictor_position(1, &mut compared);
+          let ::core::result::Result::Ok(()) = advance_predictor_position(1, &mut compared);
         }
       }
     }

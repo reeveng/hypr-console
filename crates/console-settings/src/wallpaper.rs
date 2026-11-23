@@ -83,10 +83,12 @@ pub fn wallpaper_rows(
   for picture in pictures {
     let Ok(row) = Row::new(
       &picture.says,
-      Aside(match ::core::primitive::bool::then_some(picture.name == up, ()) {
-        ::core::option::Option::Some(()) => NOW,
-        ::core::option::Option::None => picture.by.as_str(),
-      }),
+      Aside(
+        match ::core::primitive::bool::then_some(picture.name == up, ()) {
+          ::core::option::Option::Some(()) => NOW,
+          ::core::option::Option::None => picture.by.as_str(),
+        },
+      ),
       show(&picture.name),
     );
 

@@ -60,7 +60,9 @@ pub fn instances() -> Result<BTreeSet<String>, Never> {
         found.insert(signature);
       }
       (true, Err(invalid)) => {
-        console_core_logging::debug!("console-desktop: compositor signature is not UTF-8: {invalid:?}");
+        console_core_logging::debug!(
+          "console-desktop: compositor signature is not UTF-8: {invalid:?}"
+        );
       }
       (false, _) => continue,
     }
@@ -82,7 +84,10 @@ pub fn classify_socket(name: &str) -> Result<Names, Never> {
   };
 
   Ok(
-    match ::core::primitive::bool::then_some(!rest.is_empty() && rest.chars().all(|said| said.is_ascii_digit()), ()) {
+    match ::core::primitive::bool::then_some(
+      !rest.is_empty() && rest.chars().all(|said| said.is_ascii_digit()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Names::ADisplay,
       ::core::option::Option::None => Names::SomethingElse,
     },
@@ -147,33 +152,35 @@ pub fn wait_for_one(was: &BTreeSet<String>) -> Result<Option<Came>, Never> {
     let Ok(instances) = instances();
     let Ok(runtime) = runtime();
 
-    instances
-      .difference(was)
-      .find_map(|name| {
-        let Ok(directory) = instance_directory(&runtime, name);
-        let at = directory?;
+    instances.difference(was).find_map(|name| {
+      let Ok(directory) = instance_directory(&runtime, name);
+      let at = directory?;
 
-        match connect_to_instance(&at.join(".socket.sock")) {
-          Ok(()) => {}
-          Err(fault) => {
-            console_core_logging::trace!("console-desktop: compositor {name} is not listening yet: {fault}");
+      match connect_to_instance(&at.join(".socket.sock")) {
+        Ok(()) => {}
+        Err(fault) => {
+          console_core_logging::trace!(
+            "console-desktop: compositor {name} is not listening yet: {fault}"
+          );
 
-            return None;
-          }
+          return None;
         }
+      }
 
-        let Ok(said) = display_in(&at);
+      let Ok(said) = display_in(&at);
 
-        said.map(|display| Came {
-          signature: name.clone(),
-          display,
-        })
+      said.map(|display| Came {
+        signature: name.clone(),
+        display,
       })
+    })
   })
 }
 
 fn connect_to_instance(at: &Path) -> rustix::io::Result<()> {
-  use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with};
+  use rustix::net::{
+    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with,
+  };
 
   let address = SocketAddrUnix::new(at)?;
   let socket = socket_with(
@@ -304,9 +311,13 @@ pub fn left_behind(signature: &str) -> Result<(), Never> {
   match directory {
     Some(at) => match remove_tree(&at) {
       Ok(()) => {}
-      Err(fault) => console_core_logging::warn!("console-desktop: clearing {}: {fault}", at.display()),
+      Err(fault) => {
+        console_core_logging::warn!("console-desktop: clearing {}: {fault}", at.display())
+      }
     },
-    None => console_core_logging::warn!("console-desktop: invalid compositor signature {signature:?}"),
+    None => {
+      console_core_logging::warn!("console-desktop: invalid compositor signature {signature:?}")
+    }
   }
 
   Ok(())
@@ -327,7 +338,9 @@ pub fn swept() -> Result<(), Never> {
 
     match remove_tree(&path) {
       Ok(()) => {}
-      Err(fault) => console_core_logging::warn!("console-desktop: clearing {}: {fault}", path.display()),
+      Err(fault) => {
+        console_core_logging::warn!("console-desktop: clearing {}: {fault}", path.display())
+      }
     }
   }
 
@@ -348,7 +361,10 @@ pub fn abandoned() -> Result<Vec<PathBuf>, Never> {
     .filter_map(|path| {
       let name = path.file_name().and_then(std::ffi::OsStr::to_str)?;
       let raw = name.strip_prefix("session-")?;
-      let digits = raw.bytes().all(|byte| byte.is_ascii_digit()).then_some(raw)?;
+      let digits = raw
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then_some(raw)?;
       let number = match digits.parse::<i32>() {
         Ok(number) => number,
         Err(fault) => {
@@ -437,7 +453,9 @@ impl Starting {
       Ok(file) => match rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive) {
         Ok(()) => Some(file),
         Err(fault) => {
-          console_core_logging::warn!("console-desktop: the startup lock would not be taken: {fault}");
+          console_core_logging::warn!(
+            "console-desktop: the startup lock would not be taken: {fault}"
+          );
 
           None
         }
@@ -531,7 +549,8 @@ mod tests {
   }
 
   #[test]
-  fn a_stage_is_abandoned_only_when_the_session_it_names_has_ended() -> Result<(), crate::Unnested> {
+  fn a_stage_is_abandoned_only_when_the_session_it_names_has_ended() -> Result<(), crate::Unnested>
+  {
     let stage = crate::stage()?;
     let Ok(abandoned) = abandoned();
 

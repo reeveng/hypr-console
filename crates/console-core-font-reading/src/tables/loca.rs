@@ -56,7 +56,10 @@ impl<'a> Loca<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Loca::len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Loca::len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn len(&self) -> u64 {
     match self {
@@ -78,7 +81,10 @@ impl<'a> Loca<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Loca::is_empty` method returns `Emptiness` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Loca::is_empty` method returns `Emptiness` directly in the existing parser interface"
+    )
   )]
   pub fn is_empty(&self) -> Emptiness {
     match self.len() {
@@ -90,19 +96,31 @@ impl<'a> Loca<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Loca::offset_order` method returns `OffsetOrder` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Loca::offset_order` method returns `OffsetOrder` directly in the existing parser interface"
+    )
   )]
   pub fn offset_order(&self) -> OffsetOrder {
     OffsetOrder::from(match self {
-      Loca::Short(data) => data.iter().zip(data.iter().skip(1)).all(|(start, end)| start <= end),
-      Loca::Long(data) => data.iter().zip(data.iter().skip(1)).all(|(start, end)| start <= end),
+      Loca::Short(data) => data
+        .iter()
+        .zip(data.iter().skip(1))
+        .all(|(start, end)| start <= end),
+      Loca::Long(data) => data
+        .iter()
+        .zip(data.iter().skip(1))
+        .all(|(start, end)| start <= end),
     })
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Loca::get_raw` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Loca::get_raw` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn get_raw(&self, idx: u64) -> Option<u32> {
     match self {
@@ -178,11 +196,11 @@ impl<'a> Loca<'a> {
 }
 
 impl ReadArgs for Loca<'_> {
-  type Args = OffsetFormat;
+  type Arguments = OffsetFormat;
 }
 
 impl<'a> FontReadWithArgs<'a> for Loca<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, crate::ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, crate::ReadError> {
     let Ok(length) = data.len();
 
     match args {
@@ -243,7 +261,9 @@ mod tests {
 
   use super::{Loca, OffsetFormat, OffsetOrder};
 
-  fn to_loca_bytes<T: Scalar + Copy>(values: &[T]) -> Result<BeBuffer, console_core_never::Never> {
+  fn to_loca_bytes<T: Scalar + Copy>(
+    values: &[T],
+  ) -> Result<BeBuffer, console_core_never::Never> {
     let mut bytes = BeBuffer::default();
 
     for &value in values {

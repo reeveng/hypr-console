@@ -444,7 +444,10 @@ impl MpaReader {
 
     scan.parsed = scan.parsed.saturating_add(1);
 
-    match ::core::primitive::bool::then_some(self.next_packet_ts.saturating_add(header.duration) > required_ts, ()) {
+    match ::core::primitive::bool::then_some(
+      self.next_packet_ts.saturating_add(header.duration) > required_ts,
+      (),
+    ) {
       ::core::option::Option::Some(()) => self.reference(&header, pos, scan),
       ::core::option::Option::None => self.pass(&header),
     }

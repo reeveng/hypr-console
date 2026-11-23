@@ -34,7 +34,10 @@ impl Endpoint {
       _ => return Ok(None),
     };
 
-    match ::core::primitive::bool::then_some(usize::from(total) == bytes.len() && configuration != 0, ()) {
+    match ::core::primitive::bool::then_some(
+      usize::from(total) == bytes.len() && configuration != 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Ok(None),
     }
@@ -88,13 +91,13 @@ impl Endpoint {
 
 #[derive(Clone, Copy)]
 pub enum Shift {
-  Held,
+  Pressed,
   Clear,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Presence {
-  Held,
+  Present,
   Clear,
 }
 
@@ -124,16 +127,18 @@ impl BootReport {
   ) -> Result<Option<Self>, Never> {
     let keys = [one, two, three, four, five, six];
 
-    Ok(match ::core::primitive::bool::then_some(keys.iter().any(|key| (1..=3).contains(key)), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => Some(Self { modifiers, keys }),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(keys.iter().any(|key| (1..=3).contains(key)), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(Self { modifiers, keys }),
+      },
+    )
   }
 
   pub fn shifted(self) -> Result<Shift, Never> {
     Ok(match self.modifiers & 0x22 {
       0 => Shift::Clear,
-      _ => Shift::Held,
+      _ => Shift::Pressed,
     })
   }
 
@@ -147,7 +152,7 @@ impl BootReport {
     };
 
     Ok(match ::core::primitive::bool::then_some(held, ()) {
-      ::core::option::Option::Some(()) => Presence::Held,
+      ::core::option::Option::Some(()) => Presence::Present,
       ::core::option::Option::None => Presence::Clear,
     })
   }
@@ -179,9 +184,9 @@ impl BootReport {
           let Ok(after) = next.presence(usage);
 
           match (before, after) {
-            (Presence::Clear, Presence::Held) => Some((usage, KeyEdge::Press)),
-            (Presence::Held, Presence::Clear) => Some((usage, KeyEdge::Release)),
-            (Presence::Clear, Presence::Clear) | (Presence::Held, Presence::Held) => None,
+            (Presence::Clear, Presence::Present) => Some((usage, KeyEdge::Press)),
+            (Presence::Present, Presence::Clear) => Some((usage, KeyEdge::Release)),
+            (Presence::Clear, Presence::Clear) | (Presence::Present, Presence::Present) => None,
           }
         }),
     )
@@ -199,7 +204,7 @@ pub fn character(usage: u16, shift: Shift) -> Result<Option<char>, Never> {
   Ok(match usage {
     0x04..=0x1d => {
       let base = match shift {
-        Shift::Held => b'A',
+        Shift::Pressed => b'A',
         Shift::Clear => b'a',
       };
       let code = u16::from(base).saturating_add(usage.saturating_sub(0x04));
@@ -208,7 +213,7 @@ pub fn character(usage: u16, shift: Shift) -> Result<Option<char>, Never> {
     }
     0x1e..=0x27 => {
       let digits = match shift {
-        Shift::Held => b"!@#$%^&*()",
+        Shift::Pressed => b"!@#$%^&*()",
         Shift::Clear => b"1234567890",
       };
 

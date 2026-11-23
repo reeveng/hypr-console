@@ -98,19 +98,23 @@ const PROGRAM: &str = "music-player";
 fn answering(seen: &mut Device) -> Result<Ready, Never> {
   let Ok(said) = shuffle(seen);
 
-  Ok(match ::core::primitive::bool::then_some(said.trim().starts_with("b "), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.trim().starts_with("b "), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn shuffling(seen: &mut Device) -> Result<Ready, Never> {
   let Ok(said) = shuffle(seen);
 
-  Ok(match ::core::primitive::bool::then_some(said.trim() == "b true", ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.trim() == "b true", ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn shuffle(seen: &mut Device) -> Result<String, Never> {
@@ -369,10 +373,12 @@ fn locked(stage: &mut Device) -> Result<Ready, Never> {
     "systemd-inhibit --list --no-legend --no-pager 2>/dev/null | grep -c '{who}' || true"
   ));
 
-  Ok(match ::core::primitive::bool::then_some(said.trim() == "0", ()) {
-    ::core::option::Option::Some(()) => Ready::NotYet,
-    ::core::option::Option::None => Ready::Yes,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.trim() == "0", ()) {
+      ::core::option::Option::Some(()) => Ready::NotYet,
+      ::core::option::Option::None => Ready::Yes,
+    },
+  )
 }
 
 fn unlocked(stage: &mut Device) -> Result<Ready, Never> {
@@ -454,10 +460,12 @@ fn status_is(stage: &mut Device, status: Status) -> Result<Ready, Never> {
     "busctl --user get-property {NAME} {OBJECT} {PLAYER} PlaybackStatus 2>&1"
   ));
 
-  Ok(match ::core::primitive::bool::then_some(said.trim() == format!("s \"{word}\""), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.trim() == format!("s \"{word}\""), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn paused(stage: &mut Device) -> Result<Ready, Never> {
@@ -494,10 +502,12 @@ fn put_back(stage: &mut Device, note: &str) -> Result<(), Never> {
 fn sounding(stage: &mut Device) -> Result<Ready, Never> {
   let Ok(said) = stage.user("pactl list short sinks");
 
-  Ok(match ::core::primitive::bool::then_some(said.contains("RUNNING"), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.contains("RUNNING"), ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn at_rest(stage: &mut Device) -> Result<Ready, Never> {

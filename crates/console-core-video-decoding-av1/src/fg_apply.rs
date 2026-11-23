@@ -9,8 +9,8 @@ use crate::src::align::ArrayDefault;
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
 use crate::src::filmgrain::FG_BLOCK_SIZE;
 use crate::src::filmgrain::{
-  ClipMatrix, GrainChroma, GrainChromaApplication, GrainRowApplication,
-  Rav1dFilmGrainDSPContext, grain_sampling,
+  ClipMatrix, GrainChroma, GrainChromaApplication, GrainRowApplication, Rav1dFilmGrainDSPContext,
+  grain_sampling,
 };
 use crate::src::internal::GrainBD;
 use crate::src::strided::Strided as _;
@@ -28,7 +28,8 @@ fn sample_depth<BD: BitDepth>(depth: u8) -> Rav1dResult<BD> {
 }
 
 fn grain_points<const N: usize>(points: &[[u8; 2]; N], count: i32) -> Rav1dResult<&[[u8; 2]]> {
-  let length = console_core_number_conversion::checked_index(count).map_err(|_negative_count| EINVAL)?;
+  let length =
+    console_core_number_conversion::checked_index(count).map_err(|_negative_count| EINVAL)?;
   points.get(..length).ok_or(EINVAL)
 }
 
@@ -41,7 +42,9 @@ fn fill_scaling_segment(
   let distance = i32::from(span);
   let numerator = 65_536i32.wrapping_add(distance.wrapping_shr(1));
   let slope = numerator.checked_div(distance).ok_or(EINVAL)?;
-  let delta = i32::from(high).wrapping_sub(i32::from(low)).wrapping_mul(slope);
+  let delta = i32::from(high)
+    .wrapping_sub(i32::from(low))
+    .wrapping_mul(slope);
   let mut fraction = 32_768i32;
 
   for position in start..end {
@@ -102,7 +105,8 @@ fn generate_scaling<BD: BitDepth>(bd: BD, points: &[[u8; 2]]) -> Rav1dResult<BD:
   let length = 1u16.checked_shl(u32::from(depth)).ok_or(EINVAL)?;
   let Ok(available) = console_core_number_conversion::index(length);
   let scaling = output.as_mut().get_mut(..available).ok_or(EINVAL)?;
-  let Ok(first_sample) = console_core_number_conversion::index(u16::from(first).wrapping_shl(shift));
+  let Ok(first_sample) =
+    console_core_number_conversion::index(u16::from(first).wrapping_shl(shift));
   let prefix = scaling.get_mut(..first_sample).ok_or(EINVAL)?;
   prefix.fill(leading);
 
@@ -110,7 +114,8 @@ fn generate_scaling<BD: BitDepth>(bd: BD, points: &[[u8; 2]]) -> Rav1dResult<BD:
     fill_scaling_segment(scaling, [left, right], shift)?;
   }
 
-  let Ok(last_sample) = console_core_number_conversion::index(u16::from(last).wrapping_shl(shift));
+  let Ok(last_sample) =
+    console_core_number_conversion::index(u16::from(last).wrapping_shl(shift));
   let tail = scaling.get_mut(last_sample..).ok_or(EINVAL)?;
   tail.fill(trailing);
 
@@ -142,14 +147,21 @@ pub(crate) fn rav1d_prep_grain<BD: BitDepth>(
   let cb_curve = grain_points(u_points, u_count)?;
   let cr_curve = grain_points(v_points, v_count)?;
 
-  let [[input_pitch, input_chroma_pitch], [output_pitch, output_chroma_pitch]] =
-    [input, &*out].map(|picture| picture.stride.map(|pitch| {
+  let [
+    [input_pitch, input_chroma_pitch],
+    [output_pitch, output_chroma_pitch],
+  ] = [input, &*out].map(|picture| {
+    picture.stride.map(|pitch| {
       let Ok(bytes) = console_core_number_conversion::fixed_offset(pitch);
       bytes
-    }));
+    })
+  });
   let copy_chroma = input.p.layout != Rav1dPixelLayout::I400 && !data.chroma_scaling_from_luma;
 
-  match (output_pitch == input_pitch && (!copy_chroma || output_chroma_pitch == input_chroma_pitch)).then_some(()) {
+  match (output_pitch == input_pitch
+    && (!copy_chroma || output_chroma_pitch == input_chroma_pitch))
+    .then_some(())
+  {
     Some(()) => {}
     None => return Err(EINVAL),
   }
@@ -165,7 +177,10 @@ pub(crate) fn rav1d_prep_grain<BD: BitDepth>(
 
   let [y_grain, cb_grain, cr_grain] = &mut **grain_lut;
   dsp.generate_grain_y.call(y_grain, data, output_depth)?;
-  let chroma = [(GrainChroma::Cb, cb_curve, cb_grain), (GrainChroma::Cr, cr_curve, cr_grain)];
+  let chroma = [
+    (GrainChroma::Cb, cb_curve, cb_grain),
+    (GrainChroma::Cr, cr_curve, cr_grain),
+  ];
 
   for (plane, curve, lookup) in chroma {
     match (curve.is_empty() && !data.chroma_scaling_from_luma).then_some(()) {
@@ -188,7 +203,10 @@ pub(crate) fn rav1d_prep_grain<BD: BitDepth>(
 
   match copy_chroma.then_some(()) {
     Some(()) => {
-      for (curve, output, source) in [(cb_curve, cb_output, cb_source), (cr_curve, cr_output, cr_source)] {
+      for (curve, output, source) in [
+        (cb_curve, cb_output, cb_source),
+        (cr_curve, cr_output, cr_source),
+      ] {
         match curve {
           [] => output.copy_from(source),
           [_, ..] => {}
@@ -219,7 +237,12 @@ impl GrainRow {
 
     match (width, visible_height) {
       (0, _) | (_, 0) => Err(EINVAL),
-      (1.., 1..) => Ok(Self { row, luma_start: start, luma_width: width, luma_height: visible_height }),
+      (1.., 1..) => Ok(Self {
+        row,
+        luma_start: start,
+        luma_width: width,
+        luma_height: visible_height,
+      }),
     }
   }
 }
@@ -250,9 +273,21 @@ fn extend_grain_luma<BD: BitDepth>(
   let base = origin.checked_add(row_offset).ok_or(EINVAL)?;
   let start = base.checked_add(column).ok_or(EINVAL)?;
   let first = u64::try_from(start).map_err(|_before_plane| EINVAL)?;
-  let stride = pitch.checked_mul(1i64.wrapping_shl(vertical_shift)).ok_or(EINVAL)?;
-  let layout = RowLayout::new(Size { width: 2, height: chroma_height }, first, stride).map_err(|_geometry| EINVAL)?;
-  layout.validate_len(source.pixel_len::<BD>()).map_err(|_short_plane| EINVAL)?;
+  let stride = pitch
+    .checked_mul(1i64.wrapping_shl(vertical_shift))
+    .ok_or(EINVAL)?;
+  let layout = RowLayout::new(
+    Size {
+      width: 2,
+      height: chroma_height,
+    },
+    first,
+    stride,
+  )
+  .map_err(|_geometry| EINVAL)?;
+  layout
+    .validate_len(source.pixel_len::<BD>())
+    .map_err(|_short_plane| EINVAL)?;
   let mut position = first;
 
   for _ in 0..chroma_height {
@@ -294,7 +329,10 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
         destination: destination_y,
         source: source_y,
         parameters: data,
-        size: Size { width: geometry.luma_width, height: geometry.luma_height },
+        size: Size {
+          width: geometry.luma_width,
+          height: geometry.luma_height,
+        },
         row: u64::from(geometry.row),
         scaling: scale_y,
         grain: lut_y,
@@ -311,13 +349,22 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
   }
 
   let layout = input.p.layout.try_into().map_err(|_monochrome| EINVAL)?;
-  let Ok(Point { x: horizontal, y: vertical }) = grain_sampling(layout);
+  let Ok(Point {
+    x: horizontal,
+    y: vertical,
+  }) = grain_sampling(layout);
   let horizontal_shift = u32::from(u8::from(horizontal));
   let vertical_shift = u32::from(u8::from(vertical));
   let h_round = u64::from(u8::from(horizontal));
   let v_round = u64::from(u8::from(vertical));
-  let chroma_width = geometry.luma_width.wrapping_add(h_round).wrapping_shr(horizontal_shift);
-  let chroma_height = geometry.luma_height.wrapping_add(v_round).wrapping_shr(vertical_shift);
+  let chroma_width = geometry
+    .luma_width
+    .wrapping_add(h_round)
+    .wrapping_shr(horizontal_shift);
+  let chroma_height = geometry
+    .luma_height
+    .wrapping_add(v_round)
+    .wrapping_shr(vertical_shift);
 
   match geometry.luma_width & h_round {
     0 => {}
@@ -327,10 +374,27 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
   let matrix = ClipMatrix::from(sequence.mtrx == Rav1dMatrixCoefficients::IDENTITY);
   let filter = dsp.fguv_32x32xn.checked(layout)?;
   let planes = [
-    (GrainChroma::Cb, destination_cb, source_cb, scale_cb, lut_cb, cb_count),
-    (GrainChroma::Cr, destination_cr, source_cr, scale_cr, lut_cr, cr_count),
+    (
+      GrainChroma::Cb,
+      destination_cb,
+      source_cb,
+      scale_cb,
+      lut_cb,
+      cb_count,
+    ),
+    (
+      GrainChroma::Cr,
+      destination_cr,
+      source_cr,
+      scale_cr,
+      lut_cr,
+      cr_count,
+    ),
   ];
-  let size = Size { width: chroma_width, height: chroma_height };
+  let size = Size {
+    width: chroma_width,
+    height: chroma_height,
+  };
   let chroma_row = u64::from(geometry.row);
 
   for (plane, chroma_destination, chroma_source, plane_scaling, lut, points) in planes {
@@ -341,10 +405,21 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
     };
     filter.call(
       GrainRowApplication {
-        destination: chroma_destination, source: chroma_source, parameters: data, size,
-        row: chroma_row, scaling: chroma_scaling, grain: lut, bitdepth: depth,
+        destination: chroma_destination,
+        source: chroma_source,
+        parameters: data,
+        size,
+        row: chroma_row,
+        scaling: chroma_scaling,
+        grain: lut,
+        bitdepth: depth,
       },
-      GrainChromaApplication { layout, luma: source_y, plane, matrix },
+      GrainChromaApplication {
+        layout,
+        luma: source_y,
+        plane,
+        matrix,
+      },
     )?;
   }
 

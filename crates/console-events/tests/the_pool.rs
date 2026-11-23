@@ -118,14 +118,16 @@ fn what_lands_anywhere_under_a_watched_folder_is_heard_and_a_program_cannot_spea
     }
 
     Ok(match heard.recv_timeout(Duration::from_millis(200)) {
-      Ok(Received::Event(change)) => match ::core::primitive::bool::then_some(change.event_group == watched, ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => {
-          *spoken_for = Some(change);
+      Ok(Received::Event(change)) => {
+        match ::core::primitive::bool::then_some(change.event_group == watched, ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => {
+            *spoken_for = Some(change);
 
-          Ready::Yes
+            Ready::Yes
+          }
         }
-      },
+      }
       Ok(Received::Connected) => Ready::NotYet,
       Err(_nothing_arrived_yet) => Ready::NotYet,
     })

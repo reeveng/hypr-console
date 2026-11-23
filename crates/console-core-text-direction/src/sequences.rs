@@ -31,7 +31,7 @@ pub(crate) struct Sequence {
   pub(crate) end_class: BidiClass,
 }
 
-struct Kept {
+struct Retained {
   positions: Vec<u32>,
 }
 
@@ -46,7 +46,7 @@ pub(crate) fn found(
   runs: Vec<LevelRun>,
   isolates: Isolates,
 ) -> Result<Vec<Sequence>, Never> {
-  let Ok(kept) = Kept::listed(paragraph.classes);
+  let Ok(kept) = Retained::listed(paragraph.classes);
 
   match isolates {
     Isolates::Absent => runs
@@ -64,7 +64,7 @@ pub(crate) fn found(
   }
 }
 
-fn alone(paragraph: &Paragraph<'_>, kept: &Kept, run: LevelRun) -> Result<Sequence, Never> {
+fn alone(paragraph: &Paragraph<'_>, kept: &Retained, run: LevelRun) -> Result<Sequence, Never> {
   let Ok(first) = kept.first_from(run.start);
   let Ok(last) = kept.last_before(run.end);
   let own_start = match first.filter(|&position| position < run.end) {
@@ -89,7 +89,7 @@ fn alone(paragraph: &Paragraph<'_>, kept: &Kept, run: LevelRun) -> Result<Sequen
 
 fn joined(
   paragraph: &Paragraph<'_>,
-  kept: &Kept,
+  kept: &Retained,
   runs: Vec<LevelRun>,
 ) -> Result<Vec<Vec<LevelRun>>, Never> {
   let mut finished = Vec::with_capacity(runs.len());
@@ -131,7 +131,7 @@ fn joined(
   Ok(finished)
 }
 
-fn ended(paragraph: &Paragraph<'_>, kept: &Kept, runs: Vec<LevelRun>) -> Result<Sequence, Never> {
+fn ended(paragraph: &Paragraph<'_>, kept: &Retained, runs: Vec<LevelRun>) -> Result<Sequence, Never> {
   let start = match runs.first() {
     Some(first) => first.start,
     None => 0,
@@ -236,8 +236,8 @@ fn higher(paragraph: &Paragraph<'_>, own: u32, outside: Option<u32>) -> Result<B
   own_level.max(outside_level).strong_class()
 }
 
-impl Kept {
-  fn listed(classes: &[BidiClass]) -> Result<Kept, Never> {
+impl Retained {
+  fn listed(classes: &[BidiClass]) -> Result<Retained, Never> {
     let positions = classes
       .iter()
       .zip(0_u32..)
@@ -245,7 +245,7 @@ impl Kept {
       .map(|(_, position)| position)
       .collect();
 
-    Ok(Kept { positions })
+    Ok(Retained { positions })
   }
 
   fn last_before(&self, position: u32) -> Result<Option<u32>, Never> {

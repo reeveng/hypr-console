@@ -125,10 +125,12 @@ fn wait_for_highlight_to_move(stage: &mut Device, says: &str) -> Result<Outcome,
         None => Ok(None),
       };
 
-      Ok(match ::core::primitive::bool::then_some(on.is_some_and(|(_, on_2)| on_2 != says), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(on.is_some_and(|(_, on_2)| on_2 != says), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   )
@@ -230,7 +232,9 @@ fn there(stage: &mut Device) -> CheckResult {
   let Ok(zones) = hours::zones(&listed);
 
   match ::core::primitive::bool::then_some(zones.is_empty(), ()) {
-    ::core::option::Option::Some(()) => return cannot("this machine will not say what zones it has"),
+    ::core::option::Option::Some(()) => {
+      return cannot("this machine will not say what zones it has");
+    }
     ::core::option::Option::None => {}
   }
 
@@ -297,10 +301,12 @@ fn there(stage: &mut Device) -> CheckResult {
   let there = |seen: &mut Device| -> Result<Ready, Never> {
     let Ok(now) = zone(seen);
 
-    Ok(match ::core::primitive::bool::then_some(now == going_3, ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(now == going_3, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   };
 
   let Ok(moved) = stage.until(there, ANSWERS);
@@ -347,14 +353,16 @@ fn first_row(stage: &mut Device) -> CheckResult {
   let Ok(on) = highlighted(&card_3);
 
   match (first, on) {
-    (Some(first_2), Some((at, _))) => match ::core::primitive::bool::then_some(first_2.at == at, ()) {
-      ::core::option::Option::Some(()) => Ok(()),
-      ::core::option::Option::None => failed(format!(
-        "{tab} opened with {} highlighted and not {}, the row under a pointer resting in the middle of the screen",
-        on.map_or("nothing", |(_, says)| says),
-        first_2.says
-      )),
-    },
+    (Some(first_2), Some((at, _))) => {
+      match ::core::primitive::bool::then_some(first_2.at == at, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => failed(format!(
+          "{tab} opened with {} highlighted and not {}, the row under a pointer resting in the middle of the screen",
+          on.map_or("nothing", |(_, says)| says),
+          first_2.says
+        )),
+      }
+    }
     (Some(first_3), None) => failed(format!(
       "{tab} opened with nothing highlighted rather than {}",
       first_3.says

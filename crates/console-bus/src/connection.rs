@@ -172,7 +172,7 @@ pub struct Receiver {
 #[derive(Debug, PartialEq)]
 pub enum Incoming {
   Message(Message),
-  Woken,
+  Wake,
 }
 
 pub struct Sender {
@@ -464,7 +464,7 @@ impl Receiver {
     let [bus, waker] = events?;
 
     match (bus.revents().is_empty(), waker.revents().is_empty()) {
-      (_, false) => Ok(Incoming::Woken),
+      (_, false) => Ok(Incoming::Wake),
       (false, true) => self.receive().map(Incoming::Message),
       (true, true) => Err(ConnectionError::Ended),
     }
@@ -687,8 +687,11 @@ impl Sender {
   fn say_before(&self, message: &Message, deadline: Deadline) -> Result<u32, ConnectionError> {
     self
       .held
-      .with_until(deadline.end, |held| {
-        let serial = held.serial.checked_add(1).ok_or(ConnectionError::SerialExhausted)?;
+      .with_until(deadline.end, deadline.clock, |held| {
+        let serial = held
+          .serial
+          .checked_add(1)
+          .ok_or(ConnectionError::SerialExhausted)?;
         let bytes = message.bytes(serial)?;
 
         write_full(&held.stream, &bytes, deadline)?;
@@ -702,7 +705,9 @@ impl Sender {
   fn plainly(&self, value: &[u8], deadline: Deadline) -> Result<(), ConnectionError> {
     self
       .held
-      .with_until(deadline.end, |held| write_full(&held.stream, value, deadline))
+      .with_until(deadline.end, deadline.clock, |held| {
+        write_full(&held.stream, value, deadline)
+      })
       .ok_or(ConnectionError::TimedOut)?
   }
 }
@@ -838,7 +843,7 @@ mod tests {
 
     let attempted_write = sender
       .held
-      .with_until(outer.end, |_| -> Result<(), ConnectionError> {
+      .with_until(outer.end, outer.clock, |_| -> Result<(), ConnectionError> {
         let deadline = Deadline::after(SHORT, Instant::now)?;
         assert_eq!(
           sender.say_before(&Message::default(), deadline),
@@ -874,7 +879,7 @@ mod tests {
     peer.write_all(&bytes).map_err(ConnectionError::from)?;
     wake.write_all(b"x").map_err(ConnectionError::from)?;
 
-    assert_eq!(receiver.receive_with(woken.as_fd()), Ok(Incoming::Woken));
+    assert_eq!(receiver.receive_with(woken.as_fd()), Ok(Incoming::Wake));
 
     let mut signal = [0];
     let deadline = Deadline::after(SHORT, Instant::now)?;
@@ -883,7 +888,10 @@ mod tests {
 
     assert!(matches!(next, Incoming::Message(message) if message.serial == 1));
     drop(peer);
-    assert_eq!(receiver.receive_with(woken.as_fd()), Err(ConnectionError::Ended));
+    assert_eq!(
+      receiver.receive_with(woken.as_fd()),
+      Err(ConnectionError::Ended)
+    );
 
     Ok(())
   }

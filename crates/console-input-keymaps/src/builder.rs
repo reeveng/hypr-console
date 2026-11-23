@@ -45,17 +45,19 @@ impl Redirect {
   pub(crate) fn apply(self, group: GroupIndex, groups: NonZeroU32) -> Result<u32, Never> {
     let at = group.0;
 
-    Ok(match ::core::primitive::bool::then_some(at >= groups.get(), ()) {
-      ::core::option::Option::Some(()) => match self {
-        Redirect::Wrap => at % groups,
-        Redirect::Clamp => match ::core::primitive::bool::then_some(at.cast_signed() < 0, ()) {
-          ::core::option::Option::Some(()) => 0,
-          ::core::option::Option::None => groups.get().saturating_sub(1),
+    Ok(
+      match ::core::primitive::bool::then_some(at >= groups.get(), ()) {
+        ::core::option::Option::Some(()) => match self {
+          Redirect::Wrap => at % groups,
+          Redirect::Clamp => match ::core::primitive::bool::then_some(at.cast_signed() < 0, ()) {
+            ::core::option::Option::Some(()) => 0,
+            ::core::option::Option::None => groups.get().saturating_sub(1),
+          },
+          Redirect::Fixed(fixed) => fixed,
         },
-        Redirect::Fixed(fixed) => fixed,
+        ::core::option::Option::None => at,
       },
-      ::core::option::Option::None => at,
-    })
+    )
   }
 }
 

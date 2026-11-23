@@ -3,13 +3,13 @@ pub mod hairline_aa;
 pub mod path;
 pub mod path_aa;
 
-use crate::{IntRect, Rect};
+use crate::{IntRect, FloatRectangle};
 
 use crate::blitter::Blitter;
 use crate::geom::{IntRectExt, ScreenIntRect};
 
 pub fn fill_rect(
-  rect: &Rect,
+  rect: &FloatRectangle,
   clip: &ScreenIntRect,
   blitter: &mut dyn Blitter,
 ) -> core::result::Result<(), console_core_never::Never> {
@@ -49,7 +49,7 @@ fn fill_int_rect(
 }
 
 pub fn fill_rect_aa(
-  rect: &Rect,
+  rect: &FloatRectangle,
   clip: &ScreenIntRect,
   blitter: &mut dyn Blitter,
 ) -> core::result::Result<(), console_core_never::Never> {

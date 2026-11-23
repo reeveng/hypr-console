@@ -769,7 +769,11 @@ fn grain_picture_offset<'a, BD: BitDepth>(
   Ok(base + offset)
 }
 
-#[cfg(all(test, not(feature = "c-ffi"), any(target_arch = "aarch64", target_arch = "x86_64")))]
+#[cfg(all(
+  test,
+  not(feature = "c-ffi"),
+  any(target_arch = "aarch64", target_arch = "x86_64")
+))]
 fn scalar_grain_row<BD: BitDepth>(
   application: GrainRowApplication<'_, BD>,
   input_chroma: Option<GrainChromaApplication<'_>>,
@@ -937,7 +941,9 @@ fn grain_scale<BD: BitDepth>(
 ) -> Rav1dResult<u8> {
   let input = match luma {
     None => sample.as_::<i32>(),
-    Some((chroma, pixels)) => grain_chroma_index::<BD>(chroma, pixels, sample, row.sampling.x, x, row.bitdepth)?,
+    Some((chroma, pixels)) => {
+      grain_chroma_index::<BD>(chroma, pixels, sample, row.sampling.x, x, row.bitdepth)?
+    }
   };
   let Ok(value) = wrapped::<_, u32>(input);
   let Ok(position) = index(value);
@@ -983,26 +989,39 @@ fn process_grain_lanes<BD: BitDepth, const N: usize>(
   let Ok(lookup_x) = index(grain_x.wrapping_add(first));
   let Ok(lookup_y) = index(grain_y.wrapping_add(line.y));
   let Ok(lookup_end) = index(grain_x.wrapping_add(after));
-  let grain = sampler.lookup.get(lookup_y).and_then(|row| row.get(lookup_x..lookup_end)).ok_or(EINVAL)?;
+  let grain = sampler
+    .lookup
+    .get(lookup_y)
+    .and_then(|row| row.get(lookup_x..lookup_end))
+    .ok_or(EINVAL)?;
   let source = line.source.get(start..end).ok_or(EINVAL)?;
   let destination = line.destination.get_mut(start..end).ok_or(EINVAL)?;
   let (source_2, _read_tail) = source.as_chunks::<N>();
   let (destination_2, _write_tail) = destination.as_chunks_mut::<N>();
   let (grain_2, _lookup_tail) = grain.as_chunks::<N>();
 
-  for (part, ((source_3, destination_3), samples)) in (0..blocks)
-    .zip(source_2.iter().zip(destination_2).zip(grain_2))
+  for (part, ((source_3, destination_3), samples)) in
+    (0..blocks).zip(source_2.iter().zip(destination_2).zip(grain_2))
   {
     let start_2 = first.wrapping_add(part.wrapping_mul(lane_width));
     let mut scaling = [0_i16; N];
 
-    for ((factor, &sample), x) in scaling.iter_mut().zip(source_3).zip(start_2..start_2.wrapping_add(lane_width)) {
+    for ((factor, &sample), x) in scaling
+      .iter_mut()
+      .zip(source_3)
+      .zip(start_2..start_2.wrapping_add(lane_width))
+    {
       let value = grain_scale::<BD>(line.row, line.luma, sample, x)?;
       *factor = i16::from(value);
     }
 
     visit(
-      GrainLanes { source: source_3, destination: destination_3, samples, scaling },
+      GrainLanes {
+        source: source_3,
+        destination: destination_3,
+        samples,
+        scaling,
+      },
       line.limits,
       line.row.parameters.scaling_shift,
     )?;
@@ -1017,7 +1036,9 @@ fn render_grain_neon<BD: BitDepth>(
   line: &mut GrainVectorLine<'_, '_, BD>,
 ) -> Rav1dResult<u8> {
   use crate::include::common::bitdepth::BPC;
-  use crate::src::safe_simd::filmgrain_arm::{GrainNeon8, GrainNeon16, apply_grain8, apply_grain16};
+  use crate::src::safe_simd::filmgrain_arm::{
+    GrainNeon8, GrainNeon16, apply_grain8, apply_grain16,
+  };
   use zerocopy::{FromBytes, IntoBytes};
 
   match (line.y >= line.patch.sampler.overlap.y).then_some(()) {
@@ -1029,22 +1050,48 @@ fn render_grain_neon<BD: BitDepth>(
 
   match BD::BPC {
     BPC::BPC8 => process_grain_lanes::<BD, 16>(line, first, |lanes, limits, shift| {
-      let source = FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
-      let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes()).map_err(|_representation| EINVAL)?;
-      let noise = FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
+      let source =
+        FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
+      let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes())
+        .map_err(|_representation| EINVAL)?;
+      let noise =
+        FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
       let Ok(minimum) = wrapped::<_, u8>(limits.minimum);
       let Ok(maximum) = wrapped::<_, u8>(limits.maximum);
-      let Ok(()) = apply_grain8(token, GrainNeon8 { source, destination, noise, scaling: lanes.scaling, minimum, maximum, shift });
+      let Ok(()) = apply_grain8(
+        token,
+        GrainNeon8 {
+          source,
+          destination,
+          noise,
+          scaling: lanes.scaling,
+          minimum,
+          maximum,
+          shift,
+        },
+      );
       Ok(())
     }),
     BPC::BPC16 => process_grain_lanes::<BD, 8>(line, first, |lanes, limits, shift| {
-      let source = FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
-      let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes()).map_err(|_representation| EINVAL)?;
-      let samples = FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
+      let source =
+        FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
+      let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes())
+        .map_err(|_representation| EINVAL)?;
+      let samples =
+        FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
       let Ok(noise) = grain_word_noise(samples, lanes.scaling, shift);
       let Ok(minimum) = wrapped::<_, i16>(limits.minimum);
       let Ok(maximum) = wrapped::<_, i16>(limits.maximum);
-      let Ok(()) = apply_grain16(token, GrainNeon16 { source, destination, noise, minimum, maximum });
+      let Ok(()) = apply_grain16(
+        token,
+        GrainNeon16 {
+          source,
+          destination,
+          noise,
+          minimum,
+          maximum,
+        },
+      );
       Ok(())
     }),
   }
@@ -1073,20 +1120,35 @@ fn render_grain_bytes<BD: BitDepth, const N: usize>(
   token: archmage::Desktop64,
   line: &mut GrainVectorLine<'_, '_, BD>,
   first: u8,
-  apply: impl Fn(archmage::Desktop64, crate::src::safe_simd::filmgrain::GrainByteBlock<'_, N>) -> Result<(), Never>,
+  apply: impl Fn(
+    archmage::Desktop64,
+    crate::src::safe_simd::filmgrain::GrainByteBlock<'_, N>,
+  ) -> Result<(), Never>,
 ) -> Rav1dResult<u8> {
   use crate::src::safe_simd::filmgrain::GrainByteBlock;
   use zerocopy::{FromBytes, IntoBytes};
 
   process_grain_lanes::<BD, N>(line, first, |lanes, limits, shift| {
-    let source = FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
-    let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes()).map_err(|_representation| EINVAL)?;
-    let grain = FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
+    let source =
+      FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
+    let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes())
+      .map_err(|_representation| EINVAL)?;
+    let grain =
+      FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
     let Ok(minimum) = wrapped::<_, u8>(limits.minimum);
     let Ok(maximum) = wrapped::<_, u8>(limits.maximum);
-    let Ok(()) = apply(token, GrainByteBlock {
-      source, destination, grain, scaling: lanes.scaling, minimum, maximum, shift,
-    });
+    let Ok(()) = apply(
+      token,
+      GrainByteBlock {
+        source,
+        destination,
+        grain,
+        scaling: lanes.scaling,
+        minimum,
+        maximum,
+        shift,
+      },
+    );
     Ok(())
   })
 }
@@ -1097,7 +1159,9 @@ fn render_grain_avx2<BD: BitDepth>(
   line: &mut GrainVectorLine<'_, '_, BD>,
 ) -> Rav1dResult<u8> {
   use crate::include::common::bitdepth::BPC;
-  use crate::src::safe_simd::filmgrain::{GrainWordBlock, apply_grain16, apply_grain32, apply_grain_words};
+  use crate::src::safe_simd::filmgrain::{
+    GrainWordBlock, apply_grain_words, apply_grain16, apply_grain32,
+  };
   use zerocopy::{FromBytes, IntoBytes};
 
   let first = line.patch.sampler.overlap.x;
@@ -1113,13 +1177,25 @@ fn render_grain_avx2<BD: BitDepth>(
       render_grain_bytes::<BD, 16>(token, line, after_wide, apply_grain16)
     }
     BPC::BPC16 => process_grain_lanes::<BD, 16>(line, first, |lanes, limits, shift| {
-      let source = FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
-      let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes()).map_err(|_representation| EINVAL)?;
-      let samples = FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
+      let source =
+        FromBytes::ref_from_bytes(lanes.source.as_bytes()).map_err(|_representation| EINVAL)?;
+      let destination = FromBytes::mut_from_bytes(lanes.destination.as_mut_bytes())
+        .map_err(|_representation| EINVAL)?;
+      let samples =
+        FromBytes::ref_from_bytes(lanes.samples.as_bytes()).map_err(|_representation| EINVAL)?;
       let Ok(noise) = grain_word_noise(samples, lanes.scaling, shift);
       let Ok(minimum) = wrapped::<_, i16>(limits.minimum);
       let Ok(maximum) = wrapped::<_, i16>(limits.maximum);
-      let Ok(()) = apply_grain_words(token, GrainWordBlock { source, destination, noise, minimum, maximum });
+      let Ok(()) = apply_grain_words(
+        token,
+        GrainWordBlock {
+          source,
+          destination,
+          noise,
+          minimum,
+          maximum,
+        },
+      );
       Ok(())
     }),
   }
@@ -1316,7 +1392,8 @@ mod row_tests {
       let mut scaling = BD::Scaling::default();
 
       for (position, factor) in (0_u64..).zip(scaling.as_mut()) {
-        let Ok(sample) = console_core_number_conversion::wrapped::<_, u8>(position.wrapping_mul(37));
+        let Ok(sample) =
+          console_core_number_conversion::wrapped::<_, u8>(position.wrapping_mul(37));
         *factor = sample;
       }
 
@@ -1324,7 +1401,10 @@ mod row_tests {
 
       for (y, row) in (0_u32..).zip(grain.iter_mut()) {
         for (x, entry) in (0_u32..).zip(row.iter_mut()) {
-          let value = x.wrapping_mul(19).wrapping_add(y.wrapping_mul(43)).wrapping_rem(255);
+          let value = x
+            .wrapping_mul(19)
+            .wrapping_add(y.wrapping_mul(43))
+            .wrapping_rem(255);
           *entry = value.cast_signed().wrapping_sub(127).as_();
         }
       }
@@ -1348,11 +1428,17 @@ mod row_tests {
   }
 
   fn fixture_pixels<BD: BitDepth>(pattern: FixturePattern) -> Result<Vec<BD::Pixel>, Never> {
-    Ok((0..pattern.count).map(|position| {
-      let value = position.wrapping_mul(pattern.step).wrapping_rem(pattern.sample_levels.get());
-      let Ok(sample) = console_core_number_conversion::wrapped::<_, i32>(value);
-      sample.as_()
-    }).collect())
+    Ok(
+      (0..pattern.count)
+        .map(|position| {
+          let value = position
+            .wrapping_mul(pattern.step)
+            .wrapping_rem(pattern.sample_levels.get());
+          let Ok(sample) = console_core_number_conversion::wrapped::<_, i32>(value);
+          sample.as_()
+        })
+        .collect(),
+    )
   }
 
   struct FixtureOutput<'a, Pixel> {
@@ -1371,18 +1457,28 @@ mod row_tests {
     let guard = application.destination.slice_mut::<BD, _>((start.., ..1));
 
     match chroma {
-      Some(chroma_plane) => fguv_32x32xn_direct(GrainRowApplication { ..application }, chroma_plane)?,
+      Some(chroma_plane) => {
+        fguv_32x32xn_direct(GrainRowApplication { ..application }, chroma_plane)?
+      }
       None => fgy_32x32xn_direct(GrainRowApplication { ..application })?,
     }
 
     drop(guard);
-    scalar_grain_row(GrainRowApplication {
-      destination: output.reference,
-      ..application
-    }, chroma)?;
+    scalar_grain_row(
+      GrainRowApplication {
+        destination: output.reference,
+        ..application
+      },
+      chroma,
+    )?;
     application.destination.copy_pixels_to::<BD>(output.actual);
     output.reference.copy_pixels_to::<BD>(output.expected);
-    assert_eq!(output.actual.as_bytes(), output.expected.as_bytes(), "grain fixture width {}", application.size.width);
+    assert_eq!(
+      output.actual.as_bytes(),
+      output.expected.as_bytes(),
+      "grain fixture width {}",
+      application.size.width
+    );
     Ok(())
   }
 
@@ -1416,7 +1512,11 @@ mod row_tests {
     let src = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut source, native_stride);
     let dst = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut actual, native_stride);
     let reference = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut expected, native_stride);
-    let mut output = FixtureOutput { actual: &mut actual, expected: &mut expected, reference: &reference };
+    let mut output = FixtureOutput {
+      actual: &mut actual,
+      expected: &mut expected,
+      reference: &reference,
+    };
     let application = GrainRowApplication {
       destination: &dst,
       source: &src,
@@ -1428,14 +1528,27 @@ mod row_tests {
       bitdepth: bd,
     };
     let luma_padding = first.wrapping_mul(stride).wrapping_add(width);
-    compare_fixture_output(GrainRowApplication { ..application }, None, &mut output, luma_padding)?;
+    compare_fixture_output(
+      GrainRowApplication { ..application },
+      None,
+      &mut output,
+      luma_padding,
+    )?;
 
-    let chroma_height = height.wrapping_add(u64::from(case.shifts.y)).wrapping_shr(case.shifts.y);
-    let chroma_padding = first.wrapping_shr(case.shifts.y).wrapping_mul(stride).wrapping_add(width);
+    let chroma_height = height
+      .wrapping_add(u64::from(case.shifts.y))
+      .wrapping_shr(case.shifts.y);
+    let chroma_padding = first
+      .wrapping_shr(case.shifts.y)
+      .wrapping_mul(stride)
+      .wrapping_add(width);
 
     for plane in [GrainChroma::Cb, GrainChroma::Cr] {
       let grain_row = GrainRowApplication {
-        size: Size { width, height: chroma_height },
+        size: Size {
+          width,
+          height: chroma_height,
+        },
         ..application
       };
       let chroma = GrainChromaApplication {
@@ -1474,9 +1587,17 @@ mod row_tests {
           (Rav1dPixelLayoutSubSampled::I422, 1, 0),
           (Rav1dPixelLayoutSubSampled::I444, 0, 0),
         ] {
-          check_fixture_layout(bd, &tables, &data, FixtureLayout {
-            size: Size { width, height }, row, layout, shifts: Point { x, y },
-          })?;
+          check_fixture_layout(
+            bd,
+            &tables,
+            &data,
+            FixtureLayout {
+              size: Size { width, height },
+              row,
+              layout,
+              shifts: Point { x, y },
+            },
+          )?;
         }
       }
     }

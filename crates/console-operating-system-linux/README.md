@@ -71,7 +71,7 @@ child tree when its owner goes away.
 
 Add `portable = true` under `[package.metadata.console]` in the crate's
 `Cargo.toml` to opt in. WebP decoding and pixel buffers use this declaration.
-`just map` and `just ready` check opted-in packages for direct host API use,
+`just map` checks opted-in packages for direct host API use,
 links to libraries that use those APIs, and links to operating-system adapters.
 Pass the required behavior as a narrow trait or callback where the workflow
 needs it.

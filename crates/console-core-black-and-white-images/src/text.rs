@@ -20,7 +20,7 @@ use crate::standard::Standard;
 const MAX_INSTANCES: u32 = 10_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Corner {
+pub(crate) enum CornerPosition {
   BottomLeft,
   TopLeft,
   BottomRight,
@@ -43,7 +43,7 @@ pub(crate) enum Refining {
 pub(crate) struct Settings {
   pub(crate) refining: Refining,
   pub(crate) log_strip_size: u8,
-  pub(crate) corner: Corner,
+  pub(crate) corner: CornerPosition,
   pub(crate) orientation: Orientation,
   pub(crate) operator: Operator,
   pub(crate) default_pixel: Color,
@@ -389,7 +389,7 @@ impl Selections {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Strip {
+struct Band {
   t: i32,
   first_s: i32,
 }
@@ -459,10 +459,10 @@ fn corners(settings: &Settings, size: Size<i32>) -> Result<(i32, i32), Never> {
   let tall = size.height.saturating_sub(1);
 
   Ok(match (settings.orientation, settings.corner) {
-    (Orientation::Upright, Corner::TopRight | Corner::BottomRight) => (wide, 0),
-    (Orientation::Upright, Corner::TopLeft | Corner::BottomLeft) => (0, wide),
-    (Orientation::Transposed, Corner::BottomLeft | Corner::BottomRight) => (tall, 0),
-    (Orientation::Transposed, Corner::TopLeft | Corner::TopRight) => (0, tall),
+    (Orientation::Upright, CornerPosition::TopRight | CornerPosition::BottomRight) => (wide, 0),
+    (Orientation::Upright, CornerPosition::TopLeft | CornerPosition::BottomLeft) => (0, wide),
+    (Orientation::Transposed, CornerPosition::BottomLeft | CornerPosition::BottomRight) => (tall, 0),
+    (Orientation::Transposed, CornerPosition::TopLeft | CornerPosition::TopRight) => (0, tall),
   })
 }
 
@@ -479,19 +479,19 @@ fn placed(
   };
 
   Ok(match (settings.orientation, settings.corner) {
-    (_, Corner::TopLeft) => Point {
+    (_, CornerPosition::TopLeft) => Point {
       x: along,
       y: across,
     },
-    (_, Corner::TopRight) => Point {
+    (_, CornerPosition::TopRight) => Point {
       x: along.saturating_sub(wide),
       y: across,
     },
-    (_, Corner::BottomLeft) => Point {
+    (_, CornerPosition::BottomLeft) => Point {
       x: along,
       y: across.saturating_sub(tall),
     },
-    (_, Corner::BottomRight) => Point {
+    (_, CornerPosition::BottomRight) => Point {
       x: along.saturating_sub(wide),
       y: across.saturating_sub(tall),
     },
@@ -543,7 +543,7 @@ fn strip(
   symbols: &[&Bitmap],
   settings: &Settings,
   region: &mut Bitmap,
-  state: (&mut Strip, i32, u32),
+  state: (&mut Band, i32, u32),
 ) -> Result<u32, DecodeError> {
   let (strip, size, mut count) = state;
   let delta = source.strip_delta(size)?;
@@ -619,7 +619,7 @@ pub(crate) fn decode_with(
     .ok_or(DecodeError::Overflow)?;
   let first = source.strip_delta(size)?;
   let top = first.checked_neg().ok_or(DecodeError::Overflow)?;
-  let mut state = Strip { t: top, first_s: 0 };
+  let mut state = Band { t: top, first_s: 0 };
   let mut count = 0u32;
 
   for _strip in 0..settings.instances {
@@ -659,12 +659,12 @@ pub(crate) struct Header<'a> {
   data: &'a [u8],
 }
 
-fn corner_of(bits: u16) -> Result<Corner, Never> {
+fn corner_of(bits: u16) -> Result<CornerPosition, Never> {
   Ok(match bits & 0x03 {
-    0 => Corner::BottomLeft,
-    1 => Corner::TopLeft,
-    2 => Corner::BottomRight,
-    _ => Corner::TopRight,
+    0 => CornerPosition::BottomLeft,
+    1 => CornerPosition::TopLeft,
+    2 => CornerPosition::BottomRight,
+    _ => CornerPosition::TopRight,
   })
 }
 

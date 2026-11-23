@@ -1,10 +1,10 @@
 use console_core_extensible_markup_writer::{
-  AttributeQuote, Fault, Options, Whitespace, XmlWriter,
+  AttributeQuote, Error, Options, Whitespace, XmlWriter,
 };
 use std::fmt;
 
 #[test]
-fn an_oversized_capacity_hint_still_opens_a_writer() -> Result<(), Fault> {
+fn an_oversized_capacity_hint_still_opens_a_writer() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::with_capacity(u64::MAX, Options::default());
 
   writer.start_element("empty")?;
@@ -16,7 +16,7 @@ fn an_oversized_capacity_hint_still_opens_a_writer() -> Result<(), Fault> {
 }
 
 #[test]
-fn nesting_attributes_and_text_keep_their_layout() -> Result<(), Fault> {
+fn nesting_attributes_and_text_keep_their_layout() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::new(Options::default());
 
   writer.start_element("svg")?;
@@ -35,7 +35,7 @@ fn nesting_attributes_and_text_keep_their_layout() -> Result<(), Fault> {
 }
 
 #[test]
-fn single_quotes_and_whitespace_have_named_modes() -> Result<(), Fault> {
+fn single_quotes_and_whitespace_have_named_modes() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::new(Options {
     attribute_quote: AttributeQuote::Single,
     ..Options::default()
@@ -60,23 +60,23 @@ fn single_quotes_and_whitespace_have_named_modes() -> Result<(), Fault> {
 }
 
 #[test]
-fn an_invalid_call_order_is_a_fault() -> Result<(), Fault> {
+fn an_invalid_call_order_is_a_fault() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::new(Options::default());
 
   assert!(matches!(
     writer.write_attribute("x", "value"),
-    Err(Fault::AttributeOutsideElement)
+    Err(Error::AttributeOutsideElement)
   ));
   assert!(matches!(
     writer.write_text("value"),
-    Err(Fault::TextOutsideElement)
+    Err(Error::TextOutsideElement)
   ));
 
   writer.write_declaration()?;
 
   assert!(matches!(
     writer.write_declaration(),
-    Err(Fault::DeclarationAlreadyWritten)
+    Err(Error::DeclarationAlreadyWritten)
   ));
 
   Ok(())
@@ -91,21 +91,21 @@ impl fmt::Display for Unformattable {
 }
 
 #[test]
-fn a_display_failure_is_returned() -> Result<(), Fault> {
+fn a_display_failure_is_returned() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::new(Options::default());
 
   writer.start_element("svg")?;
 
   assert!(matches!(
     writer.write_attribute("value", &Unformattable),
-    Err(Fault::Formatting(_fault))
+    Err(Error::Formatting(_fault))
   ));
 
   Ok(())
 }
 
 #[test]
-fn invalid_raw_utf8_is_returned() -> Result<(), Fault> {
+fn invalid_raw_utf8_is_returned() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::new(Options::default());
 
   writer.start_element("svg")?;
@@ -113,21 +113,21 @@ fn invalid_raw_utf8_is_returned() -> Result<(), Fault> {
 
   assert!(matches!(
     writer.end_document(),
-    Err(Fault::InvalidText(_fault))
+    Err(Error::InvalidText(_fault))
   ));
 
   Ok(())
 }
 
 #[test]
-fn removing_the_raw_attribute_prefix_is_a_fault() -> Result<(), Fault> {
+fn removing_the_raw_attribute_prefix_is_a_fault() -> Result<(), Error> {
   let Ok(mut writer) = XmlWriter::new(Options::default());
 
   writer.start_element("svg")?;
 
   assert!(matches!(
     writer.write_attribute_raw("value", Vec::clear),
-    Err(Fault::InvalidElementName)
+    Err(Error::InvalidElementName)
   ));
 
   Ok(())

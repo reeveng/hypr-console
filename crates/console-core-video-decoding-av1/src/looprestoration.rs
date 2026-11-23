@@ -11,13 +11,15 @@ use crate::src::cpu::CpuFlags;
 use crate::src::cursor::CursorMut;
 use crate::src::disjoint_mut::DisjointMut;
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
-use console_core_geometry::Size;
-use console_core_never::Never;
-use console_core_pixel_buffers::RowLayoutError;
-use console_core_number_conversion::{const_u16_index, fixed_index, fixed_offset, index, wrapped_index, wrapped_offset};
 use crate::src::strided::Strided as _;
 use crate::src::tables::dav1d_sgr_x_by_x;
 use crate::src::wrap_fn_ptr::wrap_fn_ptr;
+use console_core_geometry::Size;
+use console_core_never::Never;
+use console_core_number_conversion::{
+  const_u16_index, fixed_index, fixed_offset, index, wrapped_index, wrapped_offset,
+};
+use console_core_pixel_buffers::RowLayoutError;
 use std::mem;
 
 use zerocopy::FromBytes;
@@ -69,15 +71,16 @@ pub struct LooprestorationParams {
 
 impl LooprestorationParams {
   pub fn sgr(&self) -> Rav1dResult<&LooprestorationParamsSgr> {
-    let (parameters, _remaining) = FromBytes::ref_from_prefix(IntoBytes::as_bytes(&self.filter))
-      .map_err(|_layout| EINVAL)?;
+    let (parameters, _remaining) =
+      FromBytes::ref_from_prefix(IntoBytes::as_bytes(&self.filter)).map_err(|_layout| EINVAL)?;
 
     Ok(parameters)
   }
 
   pub fn sgr_mut(&mut self) -> Rav1dResult<&mut LooprestorationParamsSgr> {
-    let (parameters, _remaining) = FromBytes::mut_from_prefix(IntoBytes::as_mut_bytes(&mut self.filter))
-      .map_err(|_layout| EINVAL)?;
+    let (parameters, _remaining) =
+      FromBytes::mut_from_prefix(IntoBytes::as_mut_bytes(&mut self.filter))
+        .map_err(|_layout| EINVAL)?;
 
     Ok(parameters)
   }
@@ -138,8 +141,15 @@ fn lr_filter_direct<BD: BitDepth>(request: RestorationRequest<'_, BD>) -> Rav1dR
   }
 
   match request.kernel {
-    RestorationKernel::Wiener => wiener_rust(request.padding, request.parameters, request.bitdepth),
-    RestorationKernel::SelfGuided(selection) => sgr_rust(request.padding, request.parameters, selection, request.bitdepth),
+    RestorationKernel::Wiener => {
+      wiener_rust(request.padding, request.parameters, request.bitdepth)
+    }
+    RestorationKernel::SelfGuided(selection) => sgr_rust(
+      request.padding,
+      request.parameters,
+      selection,
+      request.bitdepth,
+    ),
   }
 }
 
@@ -227,7 +237,11 @@ fn finish_padding_row<BD: BitDepth>(
 }
 
 fn copy_lpf_padding<BD: BitDepth>(
-  rows: [&mut [BD::Pixel; { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }]; 3],
+  rows: [&mut [BD::Pixel; {
+         match const_u16_index(REST_UNIT_STRIDE) {
+           Ok(length) => length,
+         }
+       }]; 3],
 
   request: &RestorationPadding<'_, BD>,
   layout: &PaddingLayout,
@@ -263,7 +277,11 @@ fn copy_lpf_padding<BD: BitDepth>(
 }
 
 fn repeat_picture_padding<BD: BitDepth>(
-  rows: [&mut [BD::Pixel; { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }]; 3],
+  rows: [&mut [BD::Pixel; {
+         match const_u16_index(REST_UNIT_STRIDE) {
+           Ok(length) => length,
+         }
+       }]; 3],
 
   request: &RestorationPadding<'_, BD>,
   layout: &PaddingLayout,
@@ -276,7 +294,12 @@ fn repeat_picture_padding<BD: BitDepth>(
   let Ok(native_row) = index(row_pos);
   let backup = request.backup.get(native_row).ok_or(EINVAL)?;
   let [_unused, first, second, third] = *backup;
-  let Ok(pos) = wrapped_offset(row_pos.cast_signed().wrapping_mul(layout.stride).wrapping_sub(layout.left.cast_signed()));
+  let Ok(pos) = wrapped_offset(
+    row_pos
+      .cast_signed()
+      .wrapping_mul(layout.stride)
+      .wrapping_sub(layout.left.cast_signed()),
+  );
   let start = request.picture + pos;
   let Ok(length) = index(layout.columns.end.wrapping_sub(layout.columns.start));
   let source = start.slice::<BD>(length);
@@ -299,7 +322,11 @@ fn repeat_picture_padding<BD: BitDepth>(
 }
 
 fn pad_restoration_boundary<BD: BitDepth>(
-  rows: [&mut [BD::Pixel; { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }]; 3],
+  rows: [&mut [BD::Pixel; {
+         match const_u16_index(REST_UNIT_STRIDE) {
+           Ok(length) => length,
+         }
+       }]; 3],
 
   request: &RestorationPadding<'_, BD>,
   layout: &PaddingLayout,
@@ -324,7 +351,11 @@ pub(crate) fn padding<BD: BitDepth>(
   let Ok(height) = index(request.size.height);
   let backup = request.backup.get(..height).ok_or(EINVAL)?;
 
-  let (rows, _unused) = destination.as_chunks_mut::<{ match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }>();
+  let (rows, _unused) = destination.as_chunks_mut::<{
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }>();
 
   let ([top_0, top_1, top_2], other) = rows.split_first_chunk_mut::<3>().ok_or(EINVAL)?;
 
@@ -339,14 +370,26 @@ pub(crate) fn padding<BD: BitDepth>(
     Ok(native) => native,
   });
   let layout = PaddingLayout {
-    stride, left, columns: PaddingColumns { start: 3_u64.wrapping_sub(left), end },
+    stride,
+    left,
+    columns: PaddingColumns {
+      start: 3_u64.wrapping_sub(left),
+      end,
+    },
   };
 
   pad_restoration_boundary([top_0, top_1, top_2], &request, &layout, PaddingEdge::Top)?;
-  pad_restoration_boundary([bottom_0, bottom_1, bottom_2], &request, &layout, PaddingEdge::Bottom)?;
+  pad_restoration_boundary(
+    [bottom_0, bottom_1, bottom_2],
+    &request,
+    &layout,
+    PaddingEdge::Bottom,
+  )?;
   let Ok(length) = index(end.wrapping_sub(3));
 
-  for (line, (row, &[_unused, first, second, third])) in (0..request.size.height).zip(body.iter_mut().zip(backup)) {
+  for (line, (row, &[_unused, first, second, third])) in
+    (0..request.size.height).zip(body.iter_mut().zip(backup))
+  {
     let Ok(offset) = wrapped_offset(line.cast_signed().wrapping_mul(stride));
     let source = (request.picture + offset).slice::<BD>(length);
     copy_padding_row::<BD>(row, &source, PaddingColumns { start: 3, end })?;
@@ -393,7 +436,9 @@ fn wiener_horizontal<BD: BitDepth>(
       sum = sum.wrapping_add(sample.as_::<i32>().wrapping_mul(i32::from(coefficient)));
     }
 
-    let value = sum.wrapping_add(rounding.offset).wrapping_shr(rounding.shift);
+    let value = sum
+      .wrapping_add(rounding.offset)
+      .wrapping_shr(rounding.shift);
     let Ok(clipped) = console_core_number_conversion::wrapped::<_, u16>(iclip(value, 0, maximum));
     *pixel = clipped;
   }
@@ -402,7 +447,11 @@ fn wiener_horizontal<BD: BitDepth>(
 }
 
 struct WienerVertical<'a> {
-  samples: &'a [[u16; { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }]],
+  samples: &'a [[u16; {
+         match const_u16_index(REST_UNIT_STRIDE) {
+           Ok(length) => length,
+         }
+       }]],
 
   coefficients: &'a [i16; 8],
   rounding: WienerRounding,
@@ -415,13 +464,25 @@ fn wiener_vertical<BD: BitDepth>(
   bd: BD,
 ) -> Rav1dResult {
   let Ok(position) = index(row);
-  let neighbors = stage.samples.get(position..).and_then(<[_]>::first_chunk::<7>).ok_or(EINVAL)?;
+  let neighbors = stage
+    .samples
+    .get(position..)
+    .and_then(<[_]>::first_chunk::<7>)
+    .ok_or(EINVAL)?;
   let mut taps = neighbors.each_ref().map(|source| source.iter());
 
   for pixel in output {
     let values = taps.each_mut().map(Iterator::next);
     let samples = match values {
-      [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f), Some(g)] => [a, b, c, d, e, f, g],
+      [
+        Some(a),
+        Some(b),
+        Some(c),
+        Some(d),
+        Some(e),
+        Some(f),
+        Some(g),
+      ] => [a, b, c, d, e, f, g],
       _incomplete => return Err(EINVAL),
     };
     let mut sum = stage.rounding.bias;
@@ -430,7 +491,9 @@ fn wiener_vertical<BD: BitDepth>(
       sum = sum.wrapping_add(i32::from(sample).wrapping_mul(i32::from(coefficient)));
     }
 
-    let value = sum.wrapping_add(stage.rounding.offset).wrapping_shr(stage.rounding.shift);
+    let value = sum
+      .wrapping_add(stage.rounding.offset)
+      .wrapping_shr(stage.rounding.shift);
     *pixel = iclip(value, 0, bd.into_c()).as_();
   }
 
@@ -447,11 +510,19 @@ pub(super) fn wiener_rust<BD: BitDepth>(
   let Ok(width) = index(extent.width);
   let Ok(rows) = index(extent.height.wrapping_add(6));
 
-  let mut padded = [BD::Pixel::from(0_u8); { match const_u16_index(RESTORATION_PIXELS) { Ok(length) => length } }];
+  let mut padded = [BD::Pixel::from(0_u8); {
+    match const_u16_index(RESTORATION_PIXELS) {
+      Ok(length) => length,
+    }
+  }];
 
   padding::<BD>(&mut padded, padding_request)?;
 
-  let mut horizontal_output = [[0_u16; { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }]; 70];
+  let mut horizontal_output = [[0_u16; {
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }]; 70];
 
   let [horizontal, vertical] = &params.filter;
   let bitdepth = u32::from(bd.bitdepth());
@@ -465,7 +536,11 @@ pub(super) fn wiener_rust<BD: BitDepth>(
   let clipping_bits = bitdepth.wrapping_add(8).wrapping_sub(horizontal_shift);
   let maximum = 1_i32.wrapping_shl(clipping_bits).wrapping_sub(1);
 
-  let (input, _tail) = padded.as_chunks::<{ match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }>();
+  let (input, _tail) = padded.as_chunks::<{
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }>();
 
   for (source, destination) in input.iter().zip(&mut horizontal_output).take(rows) {
     let output = destination.get_mut(..width).ok_or(EINVAL)?;
@@ -474,18 +549,30 @@ pub(super) fn wiener_rust<BD: BitDepth>(
 
   let vertical_shift = 11_u32.wrapping_sub(twelve_bit.wrapping_mul(2));
   let offset_bits = vertical_shift.wrapping_sub(1);
-  let mut context = (WienerVertical {
-    samples: &horizontal_output,
-    coefficients: vertical,
-    rounding: WienerRounding {
-      bias: 1_i32.wrapping_shl(bitdepth.wrapping_add(offset_bits)).wrapping_neg(),
-      offset: 1_i32.wrapping_shl(offset_bits),
-      shift: vertical_shift,
+  let mut context = (
+    WienerVertical {
+      samples: &horizontal_output,
+      coefficients: vertical,
+      rounding: WienerRounding {
+        bias: 1_i32
+          .wrapping_shl(bitdepth.wrapping_add(offset_bits))
+          .wrapping_neg(),
+        offset: 1_i32.wrapping_shl(offset_bits),
+        shift: vertical_shift,
+      },
     },
-  }, bd);
-  picture.checked_for_rows_mut_with_context::<BD, _>(extent, &mut context, |row, output, (stage, depth)| {
-    wiener_vertical::<BD>(output, row, stage, *depth).map_err(|_scratch| RowLayoutError::Bounds)
-  }).map_err(|_layout| EINVAL)
+    bd,
+  );
+  picture
+    .checked_for_rows_mut_with_context::<BD, _>(
+      extent,
+      &mut context,
+      |row, output, (stage, depth)| {
+        wiener_vertical::<BD>(output, row, stage, *depth)
+          .map_err(|_scratch| RowLayoutError::Bounds)
+      },
+    )
+    .map_err(|_layout| EINVAL)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -496,7 +583,10 @@ struct BoxMoments {
 
 impl From<i32> for BoxMoments {
   fn from(sample: i32) -> Self {
-    Self { sum: sample, square_sum: sample.wrapping_mul(sample) }
+    Self {
+      sum: sample,
+      square_sum: sample.wrapping_mul(sample),
+    }
   }
 }
 
@@ -504,7 +594,10 @@ impl core::ops::Add for BoxMoments {
   type Output = Self;
 
   fn add(self, other: Self) -> Self {
-    Self { sum: self.sum.wrapping_add(other.sum), square_sum: self.square_sum.wrapping_add(other.square_sum) }
+    Self {
+      sum: self.sum.wrapping_add(other.sum),
+      square_sum: self.square_sum.wrapping_add(other.square_sum),
+    }
   }
 }
 
@@ -512,7 +605,10 @@ impl core::ops::Sub for BoxMoments {
   type Output = Self;
 
   fn sub(self, other: Self) -> Self {
-    Self { sum: self.sum.wrapping_sub(other.sum), square_sum: self.square_sum.wrapping_sub(other.square_sum) }
+    Self {
+      sum: self.sum.wrapping_sub(other.sum),
+      square_sum: self.square_sum.wrapping_sub(other.square_sum),
+    }
   }
 }
 
@@ -541,11 +637,18 @@ fn horizontal_boxsum<BD: BitDepth>(
   let Ok(first) = index(2_u8);
   let leading = vertical.get(..prefix).ok_or(EINVAL)?;
   let additions = vertical.get(prefix..).ok_or(EINVAL)?;
-  let mut running = leading.iter().copied().fold(BoxMoments::default(), core::ops::Add::add);
+  let mut running = leading
+    .iter()
+    .copied()
+    .fold(BoxMoments::default(), core::ops::Add::add);
   let target = sum.get_mut(first..).ok_or(EINVAL)?;
   let target_squares = square_sum.get_mut(first..).ok_or(EINVAL)?;
 
-  for ((&departure, &arrival), (value, square)) in vertical.iter().zip(additions).zip(target.iter_mut().zip(target_squares)) {
+  for ((&departure, &arrival), (value, square)) in vertical
+    .iter()
+    .zip(additions)
+    .zip(target.iter_mut().zip(target_squares))
+  {
     let combined = running + arrival;
     *value = combined.sum.as_::<BD::Coef>();
     *square = combined.square_sum;
@@ -568,19 +671,39 @@ fn boxsum<BD: BitDepth>(
   let Ok(bottom) = index(size.height.wrapping_sub(u64::from(margin)));
   let Ok(prefix) = index(span.wrapping_sub(1));
 
-  let (rows, _trailing_source) = source.as_chunks::<{ match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }>();
+  let (rows, _trailing_source) = source.as_chunks::<{
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }>();
 
   let rows_inside = rows.get(edge..bottom).ok_or(EINVAL)?;
   let leading = rows_inside.get(..prefix).ok_or(EINVAL)?;
   let additions = rows_inside.get(prefix..).ok_or(EINVAL)?;
 
-  let (target_rows, _trailing_sums) = sum.as_chunks_mut::<{ match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }>();
+  let (target_rows, _trailing_sums) = sum.as_chunks_mut::<{
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }>();
 
-  let (target_squares, _trailing_squares) = square_sum.as_chunks_mut::<{ match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }>();
+  let (target_squares, _trailing_squares) = square_sum.as_chunks_mut::<{
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }>();
 
-  let mut partial = [BoxMoments::default(); { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }];
+  let mut partial = [BoxMoments::default(); {
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }];
 
-  let mut vertical = [BoxMoments::default(); { match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }];
+  let mut vertical = [BoxMoments::default(); {
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }];
 
   let running = partial.get_mut(edge..right).ok_or(EINVAL)?;
   let complete = vertical.get_mut(edge..right).ok_or(EINVAL)?;
@@ -594,13 +717,20 @@ fn boxsum<BD: BitDepth>(
   }
 
   let sources = rows_inside.iter().zip(additions);
-  let targets = target_rows.iter_mut().skip(1).zip(target_squares.iter_mut().skip(1));
+  let targets = target_rows
+    .iter_mut()
+    .skip(1)
+    .zip(target_squares.iter_mut().skip(1));
 
   for ((departure, arrival), (target, target_square)) in sources.zip(targets) {
     let leaving = departure.get(edge..right).ok_or(EINVAL)?;
     let entering = arrival.get(edge..right).ok_or(EINVAL)?;
 
-    for ((total, moments), (&old, &new)) in running.iter_mut().zip(complete.iter_mut()).zip(leaving.iter().zip(entering)) {
+    for ((total, moments), (&old, &new)) in running
+      .iter_mut()
+      .zip(complete.iter_mut())
+      .zip(leaving.iter().zip(entering))
+    {
       let sample = *total + BoxMoments::from(new.as_::<i32>());
       *moments = sample;
       *total = sample - BoxMoments::from(old.as_::<i32>());
@@ -627,24 +757,44 @@ pub(crate) struct SgrTaps {
 pub(crate) const SGR_STRIDE: i64 = 256_i64.wrapping_mul(3).wrapping_div(2).wrapping_add(6);
 const SGR_ABOVE: i64 = SGR_STRIDE.wrapping_neg();
 const SGR_CORNERS: [i64; 4] = [
-  SGR_ABOVE.wrapping_sub(1), SGR_ABOVE.wrapping_add(1),
-  SGR_STRIDE.wrapping_sub(1), SGR_STRIDE.wrapping_add(1),
+  SGR_ABOVE.wrapping_sub(1),
+  SGR_ABOVE.wrapping_add(1),
+  SGR_STRIDE.wrapping_sub(1),
+  SGR_STRIDE.wrapping_add(1),
 ];
 
 impl SgrStencil {
   pub(crate) fn taps(self) -> Result<[SgrTaps; 2], Never> {
     Ok(match self {
       Self::Alternate => [
-        SgrTaps { positions: &[SGR_ABOVE, SGR_STRIDE], weight: 6 },
-        SgrTaps { positions: &SGR_CORNERS, weight: 5 },
+        SgrTaps {
+          positions: &[SGR_ABOVE, SGR_STRIDE],
+          weight: 6,
+        },
+        SgrTaps {
+          positions: &SGR_CORNERS,
+          weight: 5,
+        },
       ],
       Self::Middle => [
-        SgrTaps { positions: &[0], weight: 6 },
-        SgrTaps { positions: &[-1, 1], weight: 5 },
+        SgrTaps {
+          positions: &[0],
+          weight: 6,
+        },
+        SgrTaps {
+          positions: &[-1, 1],
+          weight: 5,
+        },
       ],
       Self::Full => [
-        SgrTaps { positions: &[0, -1, 1, SGR_ABOVE, SGR_STRIDE], weight: 4 },
-        SgrTaps { positions: &SGR_CORNERS, weight: 3 },
+        SgrTaps {
+          positions: &[0, -1, 1, SGR_ABOVE, SGR_STRIDE],
+          weight: 4,
+        },
+        SgrTaps {
+          positions: &SGR_CORNERS,
+          weight: 3,
+        },
       ],
     })
   }
@@ -663,16 +813,21 @@ const RESTORATION_MOMENTS: u16 = REST_UNIT_STRIDE.wrapping_mul(68);
 const RESTORATION_PIXELS: u16 = REST_UNIT_STRIDE.wrapping_mul(70);
 const RESTORATION_DELTAS: u16 = RESTORATION_INTERIOR.wrapping_mul(RESTORATION_HEIGHT);
 
-pub(crate) type RestorationRow<T> =
-  [T; match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length }];
-pub(crate) type RestorationPixels<T> =
-  [T; match const_u16_index(RESTORATION_PIXELS) { Ok(length) => length }];
-pub(crate) type RestorationMoments<T> =
-  [T; match const_u16_index(RESTORATION_MOMENTS) { Ok(length) => length }];
-pub(crate) type RestorationDeltas<T> =
-  [T; match const_u16_index(RESTORATION_DELTAS) { Ok(length) => length }];
-pub(crate) type RestorationInteriorRow<T> =
-  [T; match const_u16_index(RESTORATION_INTERIOR) { Ok(length) => length }];
+pub(crate) type RestorationRow<T> = [T; match const_u16_index(REST_UNIT_STRIDE) {
+  Ok(length) => length,
+}];
+pub(crate) type RestorationPixels<T> = [T; match const_u16_index(RESTORATION_PIXELS) {
+  Ok(length) => length,
+}];
+pub(crate) type RestorationMoments<T> = [T; match const_u16_index(RESTORATION_MOMENTS) {
+  Ok(length) => length,
+}];
+pub(crate) type RestorationDeltas<T> = [T; match const_u16_index(RESTORATION_DELTAS) {
+  Ok(length) => length,
+}];
+pub(crate) type RestorationInteriorRow<T> = [T; match const_u16_index(RESTORATION_INTERIOR) {
+  Ok(length) => length,
+}];
 
 #[inline]
 pub(crate) fn restoration_rows<T>(samples: &[T]) -> Result<&[RestorationRow<T>], Never> {
@@ -681,7 +836,9 @@ pub(crate) fn restoration_rows<T>(samples: &[T]) -> Result<&[RestorationRow<T>],
 }
 
 #[inline]
-pub(crate) fn restoration_rows_mut<T>(samples: &mut [T]) -> Result<&mut [RestorationRow<T>], Never> {
+pub(crate) fn restoration_rows_mut<T>(
+  samples: &mut [T],
+) -> Result<&mut [RestorationRow<T>], Never> {
   let (rows, _tail) = samples.as_chunks_mut();
   Ok(rows)
 }
@@ -721,14 +878,30 @@ fn update_restoration_moments<BD: BitDepth>(
     for column in -1..limit {
       let squares = intercept.get(column)?;
       let samples = weight.get(column)?;
-      let a = squares.wrapping_add(round_square).wrapping_shr(square_shift);
-      let b = samples.as_::<i32>().wrapping_add(round).wrapping_shr(depth_shift);
-      let difference = a.wrapping_mul(area).wrapping_sub(b.wrapping_mul(b)).max(0).cast_unsigned();
-      let z = difference.wrapping_mul(filter.strength).wrapping_add(1_u32.wrapping_shl(19)).wrapping_shr(20);
+      let a = squares
+        .wrapping_add(round_square)
+        .wrapping_shr(square_shift);
+      let b = samples
+        .as_::<i32>()
+        .wrapping_add(round)
+        .wrapping_shr(depth_shift);
+      let difference = a
+        .wrapping_mul(area)
+        .wrapping_sub(b.wrapping_mul(b))
+        .max(0)
+        .cast_unsigned();
+      let z = difference
+        .wrapping_mul(filter.strength)
+        .wrapping_add(1_u32.wrapping_shl(19))
+        .wrapping_shr(20);
       let Ok(position) = index(z.min(255));
       let &x = dav1d_sgr_x_by_x.get(position).ok_or(EINVAL)?;
-      let new_intercept = u32::from(x).wrapping_mul(samples.as_::<u32>()).wrapping_mul(multiply)
-        .wrapping_add(2048).wrapping_shr(12).cast_signed();
+      let new_intercept = u32::from(x)
+        .wrapping_mul(samples.as_::<u32>())
+        .wrapping_mul(multiply)
+        .wrapping_add(2048)
+        .wrapping_shr(12)
+        .cast_signed();
       intercept.set(column, new_intercept)?;
       weight.set(column, i32::from(x).as_::<BD::Coef>())?;
     }
@@ -784,11 +957,19 @@ fn scalar_sgr_output<BD: BitDepth>(
   let stride = u64::from(REST_UNIT_STRIDE);
   let left_pad = 3_u64;
 
-  let (source, _source_tail) = output.pixels.as_chunks::<{ match const_u16_index(REST_UNIT_STRIDE) { Ok(length) => length } }>();
+  let (source, _source_tail) = output.pixels.as_chunks::<{
+    match const_u16_index(REST_UNIT_STRIDE) {
+      Ok(length) => length,
+    }
+  }>();
 
   let source_2 = source.get(3..).ok_or(EINVAL)?;
 
-  let (rows, _destination_tail) = output.destination.as_chunks_mut::<{ match const_u16_index(RESTORATION_INTERIOR) { Ok(length) => length } }>();
+  let (rows, _destination_tail) = output.destination.as_chunks_mut::<{
+    match const_u16_index(RESTORATION_INTERIOR) {
+      Ok(length) => length,
+    }
+  }>();
 
   let Ok(start) = index(left_pad);
   let Ok(end) = index(left_pad.wrapping_add(output.extent.width));
@@ -803,8 +984,11 @@ fn scalar_sgr_output<BD: BitDepth>(
     for (x, (&sample, result)) in (0..output.extent.width).zip(input_pixels.iter().zip(target)) {
       let coefficient = scalar_stencil_sample(&weight, x.cast_signed(), stencil)?;
       let offset = scalar_stencil_sample(&intercept, x.cast_signed(), stencil)?;
-      *result = offset.wrapping_sub(coefficient.wrapping_mul(sample.as_::<i32>()))
-        .wrapping_add(rounding).wrapping_shr(shift).as_::<BD::Coef>();
+      *result = offset
+        .wrapping_sub(coefficient.wrapping_mul(sample.as_::<i32>()))
+        .wrapping_add(rounding)
+        .wrapping_shr(shift)
+        .as_::<BD::Coef>();
     }
 
     intercept.advance(stride)?;
@@ -822,19 +1006,45 @@ fn selfguided_filter<BD: BitDepth>(
   filter: SgrFilter,
   bitdepth: BD,
 ) -> Rav1dResult {
-  let mut square_moments = [0_i32; { match const_u16_index(RESTORATION_MOMENTS) { Ok(length) => length } }];
+  let mut square_moments = [0_i32; {
+    match const_u16_index(RESTORATION_MOMENTS) {
+      Ok(length) => length,
+    }
+  }];
 
-  let mut sample_moments = [0.as_::<BD::Coef>(); { match const_u16_index(RESTORATION_MOMENTS) { Ok(length) => length } }];
+  let mut sample_moments = [0.as_::<BD::Coef>(); {
+    match const_u16_index(RESTORATION_MOMENTS) {
+      Ok(length) => length,
+    }
+  }];
 
-  let padded = Size { width: extent.width.wrapping_add(6), height: extent.height.wrapping_add(6) };
-  boxsum::<BD>(&mut square_moments, &mut sample_moments, source, padded, filter.radius)?;
+  let padded = Size {
+    width: extent.width.wrapping_add(6),
+    height: extent.height.wrapping_add(6),
+  };
+  boxsum::<BD>(
+    &mut square_moments,
+    &mut sample_moments,
+    source,
+    padded,
+    filter.radius,
+  )?;
   let stride = u64::from(REST_UNIT_STRIDE);
   let origin = stride.wrapping_mul(2).wrapping_add(3);
   let mut intercept = CursorMut::new(&mut square_moments, origin)?;
   let mut weight = CursorMut::new(&mut sample_moments, origin)?;
   update_restoration_moments(&mut intercept, &mut weight, extent, filter, bitdepth)?;
 
-  scalar_sgr_output::<BD>(ScalarSgrOutput { destination: output, pixels: source, extent, radius: filter.radius }, intercept, weight)
+  scalar_sgr_output::<BD>(
+    ScalarSgrOutput {
+      destination: output,
+      pixels: source,
+      extent,
+      radius: filter.radius,
+    },
+    intercept,
+    weight,
+  )
 }
 
 #[derive(Clone, Copy)]
@@ -855,48 +1065,57 @@ fn apply_sgr_blend<BD: BitDepth>(
   let Ok(pixel_bytes) = fixed_index(mem::size_of::<BD::Pixel>());
   let output_stride = u64::from(RESTORATION_INTERIOR);
 
-  crate::include::dav1d::picture::with_pixel_guard_mut::<BD, _>(&destination, width, height, |bytes, base, stride| {
-    let pixels: &mut [BD::Pixel] = FromBytes::mut_from_bytes(bytes).map_err(|_pixel_layout| EINVAL)?;
-    let Ok(byte_origin) = fixed_index(base);
-    let Ok(byte_step) = fixed_offset(stride);
+  crate::include::dav1d::picture::with_pixel_guard_mut::<BD, _>(
+    &destination,
+    width,
+    height,
+    |bytes, base, stride| {
+      let pixels: &mut [BD::Pixel] =
+        FromBytes::mut_from_bytes(bytes).map_err(|_pixel_layout| EINVAL)?;
+      let Ok(byte_origin) = fixed_index(base);
+      let Ok(byte_step) = fixed_offset(stride);
 
-    for line in 0..extent.height {
-      let byte_start = byte_origin.wrapping_add_signed(line.cast_signed().wrapping_mul(byte_step));
-      let first_pixel = byte_start.checked_div(pixel_bytes).ok_or(EINVAL)?;
-      let Ok(start) = index(first_pixel);
-      let Ok(end) = index(first_pixel.wrapping_add(extent.width));
-      let output = pixels.get_mut(start..end).ok_or(EINVAL)?;
-      let coeff_start = line.wrapping_mul(output_stride);
-      let Ok(first) = index(coeff_start);
-      let Ok(last) = index(coeff_start.wrapping_add(extent.width));
-      let first_delta = primary.deltas.get(first..last).ok_or(EINVAL)?;
-      let second_delta = match secondary {
-        Some(filter) => {
-          let delta = filter.deltas.get(first..last).ok_or(EINVAL)?;
-          Some((delta, filter.weight))
-        }
-        None => None,
-      };
-
-      for (position, (pixel, &delta)) in (0..extent.width).zip(output.iter_mut().zip(first_delta)) {
-        let mut noise = delta.as_::<i32>().wrapping_mul(primary.weight);
-
-        match second_delta {
-          Some((samples, scale)) => {
-            let Ok(coefficient) = index(position);
-            let &sample = samples.get(coefficient).ok_or(EINVAL)?;
-            noise = noise.wrapping_add(sample.as_::<i32>().wrapping_mul(scale));
+      for line in 0..extent.height {
+        let byte_start =
+          byte_origin.wrapping_add_signed(line.cast_signed().wrapping_mul(byte_step));
+        let first_pixel = byte_start.checked_div(pixel_bytes).ok_or(EINVAL)?;
+        let Ok(start) = index(first_pixel);
+        let Ok(end) = index(first_pixel.wrapping_add(extent.width));
+        let output = pixels.get_mut(start..end).ok_or(EINVAL)?;
+        let coeff_start = line.wrapping_mul(output_stride);
+        let Ok(first) = index(coeff_start);
+        let Ok(last) = index(coeff_start.wrapping_add(extent.width));
+        let first_delta = primary.deltas.get(first..last).ok_or(EINVAL)?;
+        let second_delta = match secondary {
+          Some(filter) => {
+            let delta = filter.deltas.get(first..last).ok_or(EINVAL)?;
+            Some((delta, filter.weight))
           }
-          None => {}
+          None => None,
+        };
+
+        for (position, (pixel, &delta)) in
+          (0..extent.width).zip(output.iter_mut().zip(first_delta))
+        {
+          let mut noise = delta.as_::<i32>().wrapping_mul(primary.weight);
+
+          match second_delta {
+            Some((samples, scale)) => {
+              let Ok(coefficient) = index(position);
+              let &sample = samples.get(coefficient).ok_or(EINVAL)?;
+              noise = noise.wrapping_add(sample.as_::<i32>().wrapping_mul(scale));
+            }
+            None => {}
+          }
+
+          let adjustment = noise.wrapping_add(1024).wrapping_shr(11);
+          *pixel = bitdepth.iclip_pixel((*pixel).as_::<i32>().wrapping_add(adjustment));
         }
-
-        let adjustment = noise.wrapping_add(1024).wrapping_shr(11);
-        *pixel = bitdepth.iclip_pixel((*pixel).as_::<i32>().wrapping_add(adjustment));
       }
-    }
 
-    Ok(())
-  })
+      Ok(())
+    },
+  )
 }
 
 #[derive(Clone, Copy)]
@@ -915,28 +1134,52 @@ fn sgr_rust<BD: BitDepth>(
   let destination = request.picture;
   let extent = request.size;
 
-  let mut source = [0.as_::<BD::Pixel>(); { match const_u16_index(RESTORATION_PIXELS) { Ok(length) => length } }];
+  let mut source = [0.as_::<BD::Pixel>(); {
+    match const_u16_index(RESTORATION_PIXELS) {
+      Ok(length) => length,
+    }
+  }];
 
   padding::<BD>(&mut source, request)?;
   let sgr = params.sgr()?;
-  let wide = SgrFilter { radius: BoxRadius::Two, strength: sgr.s0 };
-  let narrow = SgrFilter { radius: BoxRadius::One, strength: sgr.s1 };
+  let wide = SgrFilter {
+    radius: BoxRadius::Two,
+    strength: sgr.s0,
+  };
+  let narrow = SgrFilter {
+    radius: BoxRadius::One,
+    strength: sgr.s1,
+  };
   let (primary_filter, coefficient) = match selection {
     SgrSelection::FiveByFive | SgrSelection::Mixed => (wide, sgr.w0),
     SgrSelection::ThreeByThree => (narrow, sgr.w1),
   };
 
-  let mut first = [0.as_::<BD::Coef>(); { match const_u16_index(RESTORATION_DELTAS) { Ok(length) => length } }];
+  let mut first = [0.as_::<BD::Coef>(); {
+    match const_u16_index(RESTORATION_DELTAS) {
+      Ok(length) => length,
+    }
+  }];
 
   selfguided_filter(&mut first, &source, extent, primary_filter, bitdepth)?;
-  let primary = SgrBlend { deltas: &first, weight: i32::from(coefficient) };
+  let primary = SgrBlend {
+    deltas: &first,
+    weight: i32::from(coefficient),
+  };
 
   match selection {
     SgrSelection::Mixed => {
-      let mut second = [0.as_::<BD::Coef>(); { match const_u16_index(RESTORATION_DELTAS) { Ok(length) => length } }];
+      let mut second = [0.as_::<BD::Coef>(); {
+        match const_u16_index(RESTORATION_DELTAS) {
+          Ok(length) => length,
+        }
+      }];
 
       selfguided_filter(&mut second, &source, extent, narrow, bitdepth)?;
-      let blend = SgrBlend { deltas: &second, weight: i32::from(sgr.w1) };
+      let blend = SgrBlend {
+        deltas: &second,
+        weight: i32::from(sgr.w1),
+      };
       apply_sgr_blend(destination, extent, primary, Some(blend), bitdepth)
     }
     SgrSelection::FiveByFive | SgrSelection::ThreeByThree => {

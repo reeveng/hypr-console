@@ -532,24 +532,16 @@ pub(crate) use storei64;
 
 #[cfg(target_arch = "wasm32")]
 macro_rules! wasm_load_128 {
-  ($src:expr) => {{
-    archmage::intrinsics::wasm32::v128_load($src)
-  }};
-  ($slice:expr, $T:ty) => {{
-    archmage::intrinsics::wasm32::v128_load::<$T>(($slice).try_into().unwrap())
-  }};
+  ($src:expr) => {{ archmage::intrinsics::wasm32::v128_load($src) }};
+  ($slice:expr, $T:ty) => {{ archmage::intrinsics::wasm32::v128_load::<$T>(($slice).try_into().unwrap()) }};
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) use wasm_load_128;
 
 #[cfg(target_arch = "wasm32")]
 macro_rules! wasm_store_128 {
-  ($dst:expr, $val:expr) => {{
-    archmage::intrinsics::wasm32::v128_store($dst, $val)
-  }};
-  ($slice:expr, $T:ty, $val:expr) => {{
-    archmage::intrinsics::wasm32::v128_store::<$T>(($slice).try_into().unwrap(), $val)
-  }};
+  ($dst:expr, $val:expr) => {{ archmage::intrinsics::wasm32::v128_store($dst, $val) }};
+  ($slice:expr, $T:ty, $val:expr) => {{ archmage::intrinsics::wasm32::v128_store::<$T>(($slice).try_into().unwrap(), $val) }};
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) use wasm_store_128;

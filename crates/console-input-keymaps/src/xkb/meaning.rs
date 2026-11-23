@@ -81,7 +81,10 @@ impl MeaningCache {
 
         let Ok(lowercase) = meaning.lowercase();
 
-        let res = match ::core::primitive::bool::then_some(lowercase.as_bytes() == lowered.as_slice(), ()) {
+        let res = match ::core::primitive::bool::then_some(
+          lowercase.as_bytes() == lowered.as_slice(),
+          (),
+        ) {
           ::core::option::Option::Some(()) => meaning,
           ::core::option::Option::None => Meaning::__Unknown,
         };

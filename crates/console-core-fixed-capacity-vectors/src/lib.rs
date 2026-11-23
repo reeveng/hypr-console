@@ -15,7 +15,10 @@ pub struct FixedVec<T, const N: usize> {
   elements: Option<[T; N]>,
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the occupied prefix is a native array index bounded by the array's const capacity")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the occupied prefix is a native array index bounded by the array's const capacity"
+    )
   )]
   len: usize,
 }
@@ -24,7 +27,10 @@ impl<T, const N: usize> FixedVec<T, N> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the constructor preserves the direct vector value used by fixed-capacity geometry callers")
+    expect(
+      explicit002_infallible_result,
+      reason = "the constructor preserves the direct vector value used by fixed-capacity geometry callers"
+    )
   )]
   pub const fn new() -> Self {
     Self {
@@ -35,11 +41,17 @@ impl<T, const N: usize> FixedVec<T, N> {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the vector API exposes immutable slices directly, matching the Deref interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the vector API exposes immutable slices directly, matching the Deref interface"
+    )
   )]
   #[must_use]
   pub fn as_slice(&self) -> &[T] {
-    let occupied = self.elements.as_ref().and_then(|elements| elements.get(..self.len));
+    let occupied = self
+      .elements
+      .as_ref()
+      .and_then(|elements| elements.get(..self.len));
 
     match occupied {
       Some(elements) => elements,
@@ -49,10 +61,16 @@ impl<T, const N: usize> FixedVec<T, N> {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the vector API exposes mutable slices directly, matching the DerefMut interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the vector API exposes mutable slices directly, matching the DerefMut interface"
+    )
   )]
   pub fn as_mut_slice(&mut self) -> &mut [T] {
-    let occupied = self.elements.as_mut().and_then(|elements| elements.get_mut(..self.len));
+    let occupied = self
+      .elements
+      .as_mut()
+      .and_then(|elements| elements.get_mut(..self.len));
 
     match occupied {
       Some(elements) => elements,
@@ -62,7 +80,10 @@ impl<T, const N: usize> FixedVec<T, N> {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "clear preserves the in-place vector operation used by geometry callers")
+    expect(
+      explicit002_infallible_result,
+      reason = "clear preserves the in-place vector operation used by geometry callers"
+    )
   )]
   pub fn clear(&mut self) {
     self.len = 0;
@@ -71,7 +92,10 @@ impl<T, const N: usize> FixedVec<T, N> {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the vector API reports exhaustion through Option, matching callers that consume the optional last value")
+    expect(
+      explicit002_infallible_result,
+      reason = "the vector API reports exhaustion through Option, matching callers that consume the optional last value"
+    )
   )]
   pub fn pop(&mut self) -> Option<T>
   where
@@ -113,7 +137,10 @@ impl<T: Clone, const N: usize> FixedVec<T, N> {
   #[track_caller]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "push preserves the capacity contract used by Extend and existing geometry callers")
+    expect(
+      explicit002_infallible_result,
+      reason = "push preserves the capacity contract used by Extend and existing geometry callers"
+    )
   )]
   pub fn push(&mut self, value: T) {
     assert!(
@@ -230,7 +257,10 @@ impl<T, const N: usize> Iterator for IntoIter<T, N> {
 
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "Iterator::size_hint requires native element counts in both result fields")
+    expect(
+      explicit051_no_machine_width,
+      reason = "Iterator::size_hint requires native element counts in both result fields"
+    )
   )]
   fn size_hint(&self) -> (usize, Option<usize>) {
     self

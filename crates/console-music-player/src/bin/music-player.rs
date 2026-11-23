@@ -50,7 +50,7 @@ impl Answering {
 
     match arrived {
       Incoming::Message(message) => self.answer(&message),
-      Incoming::Woken => self.progress(),
+      Incoming::Wake => self.progress(),
     }
   }
 

@@ -14,8 +14,8 @@ use console_core_byte_streams::vlc::{
   BitOrder, Codebook, CodebookBuilder, CodebookEntry, Entry8x16, Entry16x16, Entry32x32,
 };
 use console_core_byte_streams::{
-  BitReaderLtr, BitReaderRtl, BitStreamLtr, BufReader, FiniteBitStream, FlagBit, ReadBitsLtr, ReadBitsRtl,
-  ReadBytes,
+  BitReaderLtr, BitReaderRtl, BitStreamLtr, BufReader, FiniteBitStream, FlagBit, ReadBitsLtr,
+  ReadBitsRtl, ReadBytes,
 };
 use console_core_never::Never;
 
@@ -324,7 +324,20 @@ fn a_left_to_right_reader_skips_and_reads_single_bits() -> Result<(), Failure> {
   assert_eq!(
     seen,
     [
-      FlagBit::One, FlagBit::One, FlagBit::Zero, FlagBit::Zero, FlagBit::One, FlagBit::One, FlagBit::Zero, FlagBit::Zero, FlagBit::Zero, FlagBit::Zero, FlagBit::One, FlagBit::Zero, FlagBit::One, FlagBit::Zero
+      FlagBit::One,
+      FlagBit::One,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::One,
+      FlagBit::One,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::One,
+      FlagBit::Zero,
+      FlagBit::One,
+      FlagBit::Zero
     ]
   );
 
@@ -360,7 +373,20 @@ fn a_right_to_left_reader_skips_and_reads_single_bits() -> Result<(), Failure> {
   assert_eq!(
     seen,
     [
-      FlagBit::One, FlagBit::One, FlagBit::Zero, FlagBit::Zero, FlagBit::One, FlagBit::One, FlagBit::Zero, FlagBit::Zero, FlagBit::Zero, FlagBit::Zero, FlagBit::One, FlagBit::Zero, FlagBit::One, FlagBit::Zero
+      FlagBit::One,
+      FlagBit::One,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::One,
+      FlagBit::One,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::Zero,
+      FlagBit::One,
+      FlagBit::Zero,
+      FlagBit::One,
+      FlagBit::Zero
     ]
   );
 

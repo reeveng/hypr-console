@@ -226,7 +226,7 @@ struct TilingGeometry {
 }
 
 fn tiling_geometry(dict: &Dict<'_>) -> Result<Option<TilingGeometry>, Never> {
-  let Ok(bounds) = dict.get::<console_core_portable_document_syntax::object::Rect>(BBOX);
+  let Ok(bounds) = dict.get::<console_core_portable_document_syntax::object::Rectangle>(BBOX);
   let Ok(step_across) = dict.get::<f32>(X_STEP);
   let Ok(step_down) = dict.get::<f32>(Y_STEP);
   let (bbox, x_step, y_step) = match (bounds, step_across, step_down) {

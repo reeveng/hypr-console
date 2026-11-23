@@ -40,7 +40,10 @@ impl<'a> Charset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Charset::kind` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Charset::kind` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn kind(&self) -> &CharsetKind<'a> {
     &self.kind
@@ -49,7 +52,10 @@ impl<'a> Charset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Charset::num_glyphs` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Charset::num_glyphs` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn num_glyphs(&self) -> u32 {
     self.num_glyphs
@@ -150,7 +156,10 @@ impl<'a> Charset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Charset::iter` method returns `Iter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Charset::iter` method returns `Iter` directly in the existing parser interface"
+    )
   )]
   pub fn iter(&self) -> Iter<'a> {
     match &self.kind {
@@ -340,7 +349,10 @@ fn glyph_id_from_ranges<T: CharsetRange>(
     let first = range.first();
     let n_left = range.n_left();
 
-    match ::core::primitive::bool::then_some(first <= sid && sid <= ::core::primitive::u32::wrapping_add(first, n_left), ()) {
+    match ::core::primitive::bool::then_some(
+      first <= sid && sid <= ::core::primitive::u32::wrapping_add(first, n_left),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         match (::core::primitive::u32::wrapping_sub(sid, first), &mut gid) {
           (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -440,14 +452,14 @@ impl Iterator for Iter<'_> {
         Some((value_10, sid))
       }
       IterKind::Custom1(custom) => {
-          let Ok(next) = custom.next();
+        let Ok(next) = custom.next();
 
-          next
+        next
       }
       IterKind::Custom2(custom) => {
-          let Ok(next) = custom.next();
+        let Ok(next) = custom.next();
 
-          next
+        next
       }
     }
   }
@@ -475,100 +487,117 @@ where
   T: CharsetRange,
 {
   #[must_use]
-  fn new(ranges: &'a [T], num_glyphs: u32) -> core::result::Result<Self, console_core_never::Never> {
-      let mut ranges_2 = ranges.iter();
-      let Ok(range) = next_range(&mut ranges_2);
-      let (first, end) = match range {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => (0, 0),
-      };
+  fn new(
+    ranges: &'a [T],
+    num_glyphs: u32,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    let mut ranges_2 = ranges.iter();
+    let Ok(range) = next_range(&mut ranges_2);
+    let (first, end) = match range {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => (0, 0),
+    };
 
-      Ok(Self {
-        ranges: ranges_2,
-        num_glyphs,
-        gid: 0,
-        first,
-        end,
-        prev_end: 0,
-      })
+    Ok(Self {
+      ranges: ranges_2,
+      num_glyphs,
+      gid: 0,
+      first,
+      end,
+      prev_end: 0,
+    })
   }
 
   fn next(&mut self) -> core::result::Result<Option<(GlyphId, Sid)>, console_core_never::Never> {
-      match ::core::primitive::bool::then_some(self.gid >= self.num_glyphs, ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(None);
-        }
-        ::core::option::Option::None => {}
+    match ::core::primitive::bool::then_some(self.gid >= self.num_glyphs, ()) {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
       }
+      ::core::option::Option::None => {}
+    }
 
-      match ::core::primitive::bool::then_some(self.gid == 0, ()) {
-        ::core::option::Option::Some(()) => {
-          match (1, &mut self.gid) {
-            (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-              *explicit_arithmetic_place = ::core::primitive::u32::wrapping_add(
-                *explicit_arithmetic_place,
-                explicit_arithmetic_amount,
-              )
-            }
+    match ::core::primitive::bool::then_some(self.gid == 0, ()) {
+      ::core::option::Option::Some(()) => {
+        match (1, &mut self.gid) {
+          (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+            *explicit_arithmetic_place = ::core::primitive::u32::wrapping_add(
+              *explicit_arithmetic_place,
+              explicit_arithmetic_amount,
+            )
+          }
+        };
+
+        let Ok(value_11) = GlyphId::new(0);
+
+        return Ok(Some((value_11, Sid::new(0))));
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let gid = ::core::primitive::u32::wrapping_sub(self.gid, 1);
+    let checked_value_2 = match self.gid.checked_add(1) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    self.gid = checked_value_2;
+
+    match gid.cmp(&self.end) {
+      core::cmp::Ordering::Less => {}
+      core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
+        for range in self.ranges.by_ref() {
+          self.prev_end = self.end;
+          self.first = range.first();
+          let length = range.n_left().wrapping_add(1);
+          self.end = match self.prev_end.checked_add(length) {
+            Some(end) => end,
+            None => return Ok(None),
           };
 
-          let Ok(value_11) = GlyphId::new(0);
-
-          return Ok(Some((value_11, Sid::new(0))));
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let gid = ::core::primitive::u32::wrapping_sub(self.gid, 1);
-      let checked_value_2 = match self.gid.checked_add(1) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      self.gid = checked_value_2;
-
-      match gid.cmp(&self.end) {
-        core::cmp::Ordering::Less => {}
-        core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
-          for range in self.ranges.by_ref() {
-            self.prev_end = self.end;
-            self.first = range.first();
-            let length = range.n_left().wrapping_add(1);
-            self.end = match self.prev_end.checked_add(length) {
-              Some(end) => end,
-              None => return Ok(None),
-            };
-
-            match gid.cmp(&self.end) {
-              core::cmp::Ordering::Less => break,
-              core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {}
-            }
+          match gid.cmp(&self.end) {
+            core::cmp::Ordering::Less => break,
+            core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {}
           }
         }
       }
+    }
 
-      match gid.cmp(&self.end) {
-        core::cmp::Ordering::Less => {}
-        core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => return Ok(None),
-      }
+    match gid.cmp(&self.end) {
+      core::cmp::Ordering::Less => {}
+      core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => return Ok(None),
+    }
 
-      let checked_value = match self.first.checked_add({
-        let checked_value_4 = match gid.checked_sub(self.prev_end) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-        checked_value_4
-      }) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let sid = match match checked_value.try_into() {
-        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let Ok(value_12) = GlyphId::new(::core::primitive::u32::wrapping_add(gid, 1));
+    let checked_value = match self.first.checked_add({
+      let checked_value_4 = match gid.checked_sub(self.prev_end) {
+        Some(explicit_value) => explicit_value,
+        None => return Ok(None),
+      };
+      checked_value_4
+    }) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let sid = match match checked_value.try_into() {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let Ok(value_12) = GlyphId::new(::core::primitive::u32::wrapping_add(gid, 1));
 
-      Ok(Some((value_12, Sid::new(sid))))
+    Ok(Some((value_12, Sid::new(sid))))
   }
 }
 
-fn next_range<T: CharsetRange>(ranges: &mut std::slice::Iter<T>) -> core::result::Result<Option<(u32, u32)>, console_core_never::Never> {
-    Ok(ranges.next().map(|range| {
-      (
-        range.first(),
-        ::core::primitive::u32::wrapping_add(range.n_left(), 1),
-      )
-    }))
+fn next_range<T: CharsetRange>(
+  ranges: &mut std::slice::Iter<T>,
+) -> core::result::Result<Option<(u32, u32)>, console_core_never::Never> {
+  Ok(ranges.next().map(|range| {
+    (
+      range.first(),
+      ::core::primitive::u32::wrapping_add(range.n_left(), 1),
+    )
+  }))
 }
 
 #[rustfmt::skip]
@@ -674,7 +703,8 @@ mod tests {
 
     for id in 0..num_glyphs {
       let Ok(glyph) = GlyphId::new(id);
-      let raw_sid = crate::test_support::fixture_value(expected(glyph), "expected CFF string ID")?;
+      let raw_sid =
+        crate::test_support::fixture_value(expected(glyph), "expected CFF string ID")?;
       let sid = charset.string_id(glyph)?;
       let Ok(actual) = sid.to_u16();
       assert_eq!(u32::from(actual), raw_sid);

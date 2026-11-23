@@ -85,7 +85,10 @@ where
 
     match placement {
       Placement::First => self.first.initialize(input).map_err(PlacementError::First),
-      Placement::Second => self.second.initialize(input).map_err(PlacementError::Second),
+      Placement::Second => self
+        .second
+        .initialize(input)
+        .map_err(PlacementError::Second),
     }
   }
 
@@ -97,8 +100,14 @@ where
     let Ok(placement) = self.place();
 
     match placement {
-      Placement::First => self.first.transition(state, request).map_err(PlacementError::First),
-      Placement::Second => self.second.transition(state, request).map_err(PlacementError::Second),
+      Placement::First => self
+        .first
+        .transition(state, request)
+        .map_err(PlacementError::First),
+      Placement::Second => self
+        .second
+        .transition(state, request)
+        .map_err(PlacementError::Second),
     }
   }
 }

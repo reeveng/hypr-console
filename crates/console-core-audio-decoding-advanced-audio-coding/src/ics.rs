@@ -10,7 +10,7 @@ use console_core_audio_decoding_interfaces::errors::{Result, decode_error, unsup
 use console_core_byte_streams::{FlagBit, ReadBitsLtr};
 use console_core_number_conversion::fitted;
 
-use crate::lane::{Fields, Grid, Constraint, Lane, Sure, invalid};
+use crate::lane::{Constraint, Fields, Grid, Lane, Sure, invalid};
 use crate::pulse::Pulse;
 use crate::spectrum::{BandType, Scale, decode_band};
 use crate::subbands::{Bands, Lcg, Scales, Spectrum, Subbands, Windows};

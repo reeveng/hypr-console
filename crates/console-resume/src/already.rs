@@ -66,10 +66,12 @@ pub fn check() -> Result<Already, Never> {
 
   Ok(match std::fs::metadata(&at) {
     Ok(_mark) => Already::Restore,
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Already::NotYet,
-      ::core::option::Option::None => Already::CannotTell,
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Already::NotYet,
+        ::core::option::Option::None => Already::CannotTell,
+      }
+    }
   })
 }
 

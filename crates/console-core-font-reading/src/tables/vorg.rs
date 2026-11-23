@@ -6,7 +6,10 @@ impl Vorg<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Vorg::vertical_origin_y` method returns `i16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Vorg::vertical_origin_y` method returns `i16` directly in the existing parser interface"
+    )
   )]
   pub fn vertical_origin_y(&self, glyph_id: GlyphId) -> i16 {
     let Ok(gid) = glyph_id.to_u32();

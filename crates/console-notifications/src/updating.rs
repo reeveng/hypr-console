@@ -121,13 +121,16 @@ pub fn parse(held: &str) -> Result<Option<Progress>, Never> {
     Err(_not_a_number) => return Ok(None),
   };
 
-  Ok(match ::core::primitive::bool::then_some(permille_3 <= WHOLE && !label.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => Some(Progress {
-      permille: permille_3,
-      label: label.trim().to_string(),
-    }),
-    ::core::option::Option::None => None,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(permille_3 <= WHOLE && !label.trim().is_empty(), ())
+    {
+      ::core::option::Option::Some(()) => Some(Progress {
+        permille: permille_3,
+        label: label.trim().to_string(),
+      }),
+      ::core::option::Option::None => None,
+    },
+  )
 }
 
 pub fn wrote(progress: &Progress) -> Result<(), Never> {

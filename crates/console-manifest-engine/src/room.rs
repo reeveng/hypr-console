@@ -105,10 +105,14 @@ fn where_it_went(went: &[Place]) -> Result<String, Never> {
     })
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(named.is_empty(), ()) {
-    ::core::option::Option::Some(()) => String::new(),
-    ::core::option::Option::None => format!(" Most of the room has gone to {}.", named.join(", ")),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(named.is_empty(), ()) {
+      ::core::option::Option::Some(()) => String::new(),
+      ::core::option::Option::None => {
+        format!(" Most of the room has gone to {}.", named.join(", "))
+      }
+    },
+  )
 }
 
 pub fn free_in(said: &str) -> Result<Left, Never> {

@@ -80,10 +80,7 @@ impl LexerError {
 }
 
 impl Lexer {
-  pub(crate) fn new(
-    code: Code,
-    span_lo: SpanUnit,
-  ) -> Result<Self, Never> {
+  pub(crate) fn new(code: Code, span_lo: SpanUnit) -> Result<Self, Never> {
     Ok(Self {
       code,
       span_lo,

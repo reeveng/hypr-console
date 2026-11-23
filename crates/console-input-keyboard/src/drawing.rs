@@ -9,7 +9,7 @@ use console_core_fonts::{Font, Weight};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{narrow_f32, toward_zero_i32};
-use console_core_path_rasterizer::{BlendMode, Color as Ink, FillRule, Paint, Rect, Transform};
+use console_core_path_rasterizer::{BlendMode, Color as Ink, FillRule, Paint, FloatRectangle, Transform};
 use console_draw_painting::raster::{Canvas, rounded};
 use console_draw_painting::text;
 
@@ -121,7 +121,7 @@ impl<'a> Surface<'a> {
     let Ok(width) = narrow_f32(at.size.width);
     let Ok(height) = narrow_f32(at.size.height);
     let rect = match {
-      let Ok(explicit_value) = Rect::from_xywh(x, y, width, height);
+      let Ok(explicit_value) = FloatRectangle::from_xywh(x, y, width, height);
       explicit_value
     } {
       Some(rect) => rect,

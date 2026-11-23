@@ -123,7 +123,8 @@ impl Discovery {
         let Ok(bridge) = function.read(0x18);
         let [_, secondary, subordinate, _] = bridge.to_le_bytes();
 
-        match ::core::primitive::bool::then_some(secondary > bus && secondary <= subordinate, ()) {
+        match ::core::primitive::bool::then_some(secondary > bus && secondary <= subordinate, ())
+        {
           ::core::option::Option::Some(()) => {
             let Ok(()) = self.mark(secondary);
           }

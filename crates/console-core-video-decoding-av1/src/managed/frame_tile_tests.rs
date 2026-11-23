@@ -68,11 +68,18 @@ fn a_partial_worker_start_joins_the_workers_that_started() -> Result<(), Error> 
   }
 
   let (sender, receiver) = sync_channel(1);
-  let workers = OneStart { joined: Cell::new(Some(sender)) };
-  let settings = Settings { threads: 2, ..Default::default() };
+  let workers = OneStart {
+    joined: Cell::new(Some(sender)),
+  };
+  let settings = Settings {
+    threads: 2,
+    ..Default::default()
+  };
   let result = Decoder::with_workers(settings, &workers).map_err(|fault| fault.decompose().0);
   assert!(matches!(result, Err(Error::InitFailed)));
-  receiver.try_recv().map_err(|_worker_not_joined| Error::InitFailed)
+  receiver
+    .try_recv()
+    .map_err(|_worker_not_joined| Error::InitFailed)
 }
 
 const STREAM: &[u8] =
@@ -82,11 +89,14 @@ const STREAM_MD5: [u8; 16] = [
 ];
 
 fn open_fixture(settings: Settings) -> Result<Decoder, Error> {
-  Decoder::with_workers(settings, &console_concurrency::HostWorkers).map_err(|fault| fault.decompose().0)
+  Decoder::with_workers(settings, &console_concurrency::HostWorkers)
+    .map_err(|fault| fault.decompose().0)
 }
 
 fn decode_fixture(decoder: &mut Decoder) -> Result<Frame, Error> {
-  let decoded = decoder.decode(STREAM).map_err(|fault| fault.decompose().0)?;
+  let decoded = decoder
+    .decode(STREAM)
+    .map_err(|fault| fault.decompose().0)?;
 
   decoded.ok_or(Error::NeedMoreData)
 }
@@ -150,7 +160,10 @@ fn assert_picture_policy(frame: &Frame, threads: u32) -> Result<(), Error> {
     let Ok(declared) = plane.threading_policy();
     let policy = declared.ok_or(Error::InvalidData)?;
     assert_eq!(
-      matches!(policy, PictureThreading::MultipleWorkersOneTile | PictureThreading::MultipleWorkersMultipleTiles),
+      matches!(
+        policy,
+        PictureThreading::MultipleWorkersOneTile | PictureThreading::MultipleWorkersMultipleTiles
+      ),
       threads > 1,
     );
     let Ok(mode) = plane.guard_mode();
@@ -202,7 +215,8 @@ fn picture_policy_is_local_and_survives_decoder_lifetimes() -> Result<(), Error>
         &mut copy,
         frame.inner.p.w,
         &frame.inner,
-      ).map_err(Error::from)?;
+      )
+      .map_err(Error::from)?;
       assert_picture_policy(&Frame { inner: copy }, *threads)?;
     }
   }
@@ -228,7 +242,8 @@ fn copied_picture_can_allocate_after_decoder_and_source_drop() -> Result<(), Err
       &mut copy,
       frame.inner.p.w,
       &frame.inner,
-    ).map_err(Error::from)?;
+    )
+    .map_err(Error::from)?;
     drop(frame);
     frame = Frame { inner: copy };
     assert_picture_policy(&frame, 4)?;
@@ -259,7 +274,10 @@ fn retained_allocator_allocates_after_decoder_drop() -> Result<(), Error> {
     let seq_hdr = crate::src::obu::rav1d_parse_sequence_header(STREAM).map_err(Error::from)?;
     #[cfg_attr(
       dylint_lib = "explicit081_no_shared_ownership",
-      expect(explicit081_no_shared_ownership, reason = "the allocated C picture needs a retained sequence header across copies and source release")
+      expect(
+        explicit081_no_shared_ownership,
+        reason = "the allocated C picture needs a retained sequence header across copies and source release"
+      )
     )]
     let shared_header = Arc::new(seq_hdr);
     let mut picture = allocator_2
@@ -269,7 +287,8 @@ fn retained_allocator_allocates_after_decoder_drop() -> Result<(), Error> {
 
     for _ in 0..4 {
       let mut next = Rav1dPicture::default();
-      crate::src::picture::rav1d_picture_alloc_copy(&None, &mut next, 16, &picture).map_err(Error::from)?;
+      crate::src::picture::rav1d_picture_alloc_copy(&None, &mut next, 16, &picture)
+        .map_err(Error::from)?;
       drop(picture);
       picture = next;
     }
@@ -340,7 +359,10 @@ fn serial_and_threaded_decoders_run_concurrently_with_local_policies() -> Result
     for handle in handles {
       #[cfg_attr(
         dylint_lib = "explicit057_no_unbounded_wait",
-        expect(explicit057_no_unbounded_wait, reason = "both fixture workers decode a fixed eight-frame stream and are scoped to this test")
+        expect(
+          explicit057_no_unbounded_wait,
+          reason = "both fixture workers decode a fixed eight-frame stream and are scoped to this test"
+        )
       )]
       let joined = match handle.join() {
         Ok(worker_result) => worker_result,
@@ -407,7 +429,9 @@ fn submit_fixture_packet(decoder: &mut Decoder, output: &mut Vec<Frame>) -> Resu
   use std::time::{Duration, Instant};
 
   let timeout = Duration::from_secs(30);
-  let deadline = Instant::now().checked_add(timeout).ok_or(Error::InvalidData)?;
+  let deadline = Instant::now()
+    .checked_add(timeout)
+    .ok_or(Error::InvalidData)?;
   let attempts = (0..timeout.as_nanos()).take_while(|_| Instant::now() < deadline);
 
   for _ in attempts {
@@ -431,7 +455,11 @@ fn submit_fixture_packet(decoder: &mut Decoder, output: &mut Vec<Frame>) -> Resu
 fn parallel_frame_tile_contexts_preserve_frames() -> Result<(), Error> {
   let mut serial = Decoder::new().map_err(|fault| fault.decompose().0)?;
   let reference = decode_fixture(&mut serial)?;
-  let frame_header = reference.inner.frame_hdr.as_ref().ok_or(Error::InvalidData)?;
+  let frame_header = reference
+    .inner
+    .frame_hdr
+    .as_ref()
+    .ok_or(Error::InvalidData)?;
   let header = &frame_header.tiling;
   let Ok(cols) = console_core_number_conversion::wrapped_index(header.cols);
   let Ok(rows) = console_core_number_conversion::wrapped_index(header.rows);

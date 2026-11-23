@@ -80,6 +80,10 @@ fn describe(arguments: &[&str]) -> Result<Vec<Description>, console_test_stages:
   panel.descriptions()
 }
 
+// Viewer consumes the first key when its controls have timed out. Send this
+// unbound key with the action to wake the controls without moving selection.
+const WAKE: &str = "F24";
+
 fn holds(every: &[Description], rule: Rule) -> Result<(), console_test_stages::Error> {
   for card in every {
     rule(card)?;
@@ -145,7 +149,7 @@ fn a_picture_opened_over_the_whole_screen_can_still_be_left() -> Result<(), Box<
   let path = argument(&at)?;
   let Ok(mut panel) = Panel::opening("viewer", &[path]);
 
-  panel.key("space")?;
+  panel.keys(&[WAKE, "space"])?;
 
   let every = panel.descriptions()?;
 
@@ -175,7 +179,7 @@ fn every_row_of_the_media_page_offers_what_else_there_is_to_do_with_it()
   let path = argument(folder)?;
   let Ok(mut panel) = Panel::opening("viewer", &[path]);
 
-  panel.key("Page_Down")?;
+  panel.keys(&[WAKE, "Page_Down"])?;
 
   let every = panel.descriptions()?;
 
@@ -218,7 +222,8 @@ fn right_off_a_row_stands_on_what_else_it_offers() -> Result<(), Box<dyn Error>>
   let path = argument(folder)?;
   let Ok(mut panel) = Panel::opening("viewer", &[path]);
 
-  for key in ["Page_Down", "Down", "Right"] {
+  panel.keys(&[WAKE, "Page_Down"])?;
+  for key in ["Down", "Right"] {
     panel.key(key)?;
   }
 
@@ -279,7 +284,10 @@ fn a_folder_with_the_film_further_in() -> Result<PathBuf, Box<dyn Error>> {
 fn a_folder_holding_nothing_itself_opens_on_what_the_shelf_found() -> Result<(), Box<dyn Error>> {
   let here = a_folder_with_the_film_further_in()?;
   let path = argument(&here)?;
-  let every = describe(&[path])?;
+  let Ok(mut panel) = Panel::opening("viewer", &[path]);
+
+  panel.key(WAKE)?;
+  let every = panel.descriptions()?;
 
   assert!(!every.is_empty(), "the viewer drew no card at all");
 

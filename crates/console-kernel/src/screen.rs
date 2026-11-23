@@ -157,10 +157,12 @@ impl Screen<'static> {
 impl Panel {
   #[must_use]
   pub fn orientation(&self) -> Result<Orientation, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.height.0 > self.width.0, ()) {
-      ::core::option::Option::Some(()) => Orientation::LeftSideUp,
-      ::core::option::Option::None => Orientation::Upright,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.height.0 > self.width.0, ()) {
+        ::core::option::Option::Some(()) => Orientation::LeftSideUp,
+        ::core::option::Option::None => Orientation::Upright,
+      },
+    )
   }
 
   fn pixels(&self) -> Result<u64, ScreenError> {
@@ -302,7 +304,10 @@ impl<'a> Screen<'a> {
     };
     let Size { width, height } = size;
 
-    match ::core::primitive::bool::then_some(width == 0 || height == 0 || width > wide || height > tall, ()) {
+    match ::core::primitive::bool::then_some(
+      width == 0 || height == 0 || width > wide || height > tall,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(Presentation::Skipped);
       }
@@ -613,10 +618,12 @@ mod tests {
         .map(|line| {
           line
             .iter()
-            .map(|pixel| match ::core::primitive::bool::then_some(*pixel == DARK, ()) {
-              ::core::option::Option::Some(()) => '.',
-              ::core::option::Option::None => '#',
-            })
+            .map(
+              |pixel| match ::core::primitive::bool::then_some(*pixel == DARK, ()) {
+                ::core::option::Option::Some(()) => '.',
+                ::core::option::Option::None => '#',
+              },
+            )
             .collect()
         })
         .collect(),

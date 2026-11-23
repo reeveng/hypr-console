@@ -124,14 +124,16 @@ fn request(
   };
   let Ok(operands) = line.operands();
 
-  Ok(match ::core::primitive::bool::then_some(operands.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["FILE"]));
+  Ok(
+    match ::core::primitive::bool::then_some(operands.is_empty(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(refusal) = line.refusal(Reason::MissingOperands(vec!["FILE"]));
 
-      Err(refusal)
-    }
-    ::core::option::Option::None => Ok((side, operands.to_vec())),
-  })
+        Err(refusal)
+      }
+      ::core::option::Option::None => Ok((side, operands.to_vec())),
+    },
+  )
 }
 
 fn hold_store() -> Result<Option<File>, Never> {

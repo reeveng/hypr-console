@@ -6,7 +6,10 @@ use core::ops::Deref;
 #[derive(Clone)]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "the public Shared variant accepts immutable byte storage with externally owned lifetime, including mapped files")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the public Shared variant accepts immutable byte storage with externally owned lifetime, including mapped files"
+  )
 )]
 pub enum FontBlob {
   Static(&'static [u8]),
@@ -38,7 +41,10 @@ impl From<&'static [u8]> for FontBlob {
 
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "the published conversion accepts existing cross-thread byte storage without copying the font")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the published conversion accepts existing cross-thread byte storage without copying the font"
+  )
 )]
 impl From<Arc<dyn AsRef<[u8]> + Send + Sync>> for FontBlob {
   fn from(value: Arc<dyn AsRef<[u8]> + Send + Sync>) -> Self {
@@ -49,7 +55,10 @@ impl From<Arc<dyn AsRef<[u8]> + Send + Sync>> for FontBlob {
 impl From<Vec<u8>> for FontBlob {
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "conversion moves the vector into the public cloneable Shared variant without copying bytes")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "conversion moves the vector into the public cloneable Shared variant without copying bytes"
+    )
   )]
   fn from(value: Vec<u8>) -> Self {
     Self::Shared(Arc::new(value))

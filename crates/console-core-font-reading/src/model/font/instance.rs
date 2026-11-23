@@ -27,7 +27,10 @@ impl FontInstance {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstance::builder` method returns `FontInstanceBuilder` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstance::builder` method returns `FontInstanceBuilder` directly in the existing parser interface"
+    )
   )]
   pub fn builder(font: &Font) -> FontInstanceBuilder {
     FontInstanceBuilder {
@@ -35,7 +38,10 @@ impl FontInstance {
         font: font.clone(),
         size: None,
         coords: CoordStorage::default(),
-        feature_vars: ({ let Ok(explicit_value) = FeatureVarsStorage::new(); explicit_value }),
+        feature_vars: ({
+          let Ok(explicit_value) = FeatureVarsStorage::new();
+          explicit_value
+        }),
       },
     }
   }
@@ -43,7 +49,10 @@ impl FontInstance {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstance::font` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstance::font` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn font(&self) -> &Font {
     &self.font
@@ -52,7 +61,10 @@ impl FontInstance {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstance::size` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstance::size` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn size(&self) -> Option<f32> {
     self.size
@@ -61,7 +73,10 @@ impl FontInstance {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstance::normalized_coords` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstance::normalized_coords` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn normalized_coords(&self) -> &[NormalizedCoord] {
     let Ok(slice) = self.coords.as_slice();
@@ -72,10 +87,16 @@ impl FontInstance {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstance::feature_variations` method returns `FontFeatureVariations` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstance::feature_variations` method returns `FontFeatureVariations` directly in the existing parser interface"
+    )
   )]
   pub fn feature_variations(&self) -> FontFeatureVariations {
-    let Ok(load) = self.feature_vars.load(&self.font, { let Ok(explicit_value) = self.coords.as_slice(); explicit_value });
+    let Ok(load) = self.feature_vars.load(&self.font, {
+      let Ok(explicit_value) = self.coords.as_slice();
+      explicit_value
+    });
 
     load
   }
@@ -97,7 +118,10 @@ impl FontInstanceBuilder {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstanceBuilder::size` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstanceBuilder::size` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn size(mut self, size: Option<f32>) -> Self {
     self.instance.size = size;
@@ -107,7 +131,10 @@ impl FontInstanceBuilder {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstanceBuilder::variations` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstanceBuilder::variations` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn variations<V>(mut self, variations: V) -> Self
   where
@@ -121,7 +148,10 @@ impl FontInstanceBuilder {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstanceBuilder::normalized_coords` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstanceBuilder::normalized_coords` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn normalized_coords(mut self, coords: impl IntoIterator<Item = NormalizedCoord>) -> Self {
     let Ok(()) = self.set_coords(coords);
@@ -131,7 +161,10 @@ impl FontInstanceBuilder {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstanceBuilder::named_instance` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstanceBuilder::named_instance` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn named_instance(mut self, index: u64) -> Self {
     let Ok(()) = self.set_named_instance(index);
@@ -141,7 +174,10 @@ impl FontInstanceBuilder {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstanceBuilder::named_instance_with_overrides` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstanceBuilder::named_instance_with_overrides` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn named_instance_with_overrides<V>(mut self, index: u64, overrides: V) -> Self
   where
@@ -155,7 +191,10 @@ impl FontInstanceBuilder {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontInstanceBuilder::build` method returns `FontInstance` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontInstanceBuilder::build` method returns `FontInstance` directly in the existing parser interface"
+    )
   )]
   pub fn build(self) -> FontInstance {
     self.instance
@@ -163,90 +202,129 @@ impl FontInstanceBuilder {
 }
 
 impl FontInstanceBuilder {
-  fn set_variations<V>(&mut self, variations: V) -> core::result::Result<(), console_core_never::Never>
+  fn set_variations<V>(
+    &mut self,
+    variations: V,
+  ) -> core::result::Result<(), console_core_never::Never>
   where
     V: IntoIterator,
     V::Item: Into<FontVariation>,
+  {
+    {
+      let tables = self.instance.font.tables();
 
-  { {
-    let tables = self.instance.font.tables();
-
-    match tables.fvar() {
-      Ok(fvar) => {
-        let Ok(()) = set_variations(
-          &fvar,
-          match tables.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None },
-          &mut self.instance.coords,
-          variations,
-        );
-      }
-      Err(_unavailable_variation_axes) => {
-        let Ok(()) = self.instance.coords.resize(0);
-      }
-    }
-  }; Ok(()) }
-
-  fn set_coords(&mut self, coords: impl IntoIterator<Item = NormalizedCoord>) -> core::result::Result<(), console_core_never::Never> { {
-    match self.instance.font.tables().fvar() {
-      Ok(fvar) => {
-        let Ok(axis_count) = fvar.axis_count();
-        let Ok(()) = self.instance.coords.resize(axis_count);
-
-        let Ok(mut_slice) = self.instance.coords.as_mut_slice();
-        let padding = core::iter::repeat_n(NormalizedCoord::ZERO, mut_slice.len());
-
-        for (dst, src) in mut_slice.iter_mut().zip(coords.into_iter().chain(padding)) {
-          *dst = src;
+      match tables.fvar() {
+        Ok(fvar) => {
+          let Ok(()) = set_variations(
+            &fvar,
+            match tables.avar() {
+              Ok(value) => Some(value),
+              Err(_unavailable_axis_variations) => None,
+            },
+            &mut self.instance.coords,
+            variations,
+          );
         }
-
-        let Ok(()) = self.instance.coords.clear_if_all_zeroes();
+        Err(_unavailable_variation_axes) => {
+          let Ok(()) = self.instance.coords.resize(0);
+        }
       }
-      Err(_unavailable_variation_axes) => {
-        let Ok(()) = self.instance.coords.resize(0);
-      }
-    }
-  }; Ok(()) }
+    };
+    Ok(())
+  }
 
-  fn set_named_instance(&mut self, index: u64) -> core::result::Result<(), console_core_never::Never> { {
-    let tables = self.instance.font.tables();
+  fn set_coords(
+    &mut self,
+    coords: impl IntoIterator<Item = NormalizedCoord>,
+  ) -> core::result::Result<(), console_core_never::Never> {
+    {
+      match self.instance.font.tables().fvar() {
+        Ok(fvar) => {
+          let Ok(axis_count) = fvar.axis_count();
+          let Ok(()) = self.instance.coords.resize(axis_count);
 
-    match tables.fvar() {
-      Ok(fvar) => {
-        let Ok(()) = set_variations(
-          &fvar,
-          match tables.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None },
-          &mut self.instance.coords,
-          { let Ok(explicit_value) = named_instance_variations(&fvar, index); explicit_value },
-        );
-      }
-      Err(_unavailable_variation_axes) => {
-        let Ok(()) = self.instance.coords.resize(0);
-      }
-    }
-  }; Ok(()) }
+          let Ok(mut_slice) = self.instance.coords.as_mut_slice();
+          let padding = core::iter::repeat_n(NormalizedCoord::ZERO, mut_slice.len());
 
-  fn set_named_instance_with_overrides<V>(&mut self, index: u64, overrides: V) -> core::result::Result<(), console_core_never::Never>
+          for (dst, src) in mut_slice.iter_mut().zip(coords.into_iter().chain(padding)) {
+            *dst = src;
+          }
+
+          let Ok(()) = self.instance.coords.clear_if_all_zeroes();
+        }
+        Err(_unavailable_variation_axes) => {
+          let Ok(()) = self.instance.coords.resize(0);
+        }
+      }
+    };
+    Ok(())
+  }
+
+  fn set_named_instance(
+    &mut self,
+    index: u64,
+  ) -> core::result::Result<(), console_core_never::Never> {
+    {
+      let tables = self.instance.font.tables();
+
+      match tables.fvar() {
+        Ok(fvar) => {
+          let Ok(()) = set_variations(
+            &fvar,
+            match tables.avar() {
+              Ok(value) => Some(value),
+              Err(_unavailable_axis_variations) => None,
+            },
+            &mut self.instance.coords,
+            {
+              let Ok(explicit_value) = named_instance_variations(&fvar, index);
+              explicit_value
+            },
+          );
+        }
+        Err(_unavailable_variation_axes) => {
+          let Ok(()) = self.instance.coords.resize(0);
+        }
+      }
+    };
+    Ok(())
+  }
+
+  fn set_named_instance_with_overrides<V>(
+    &mut self,
+    index: u64,
+    overrides: V,
+  ) -> core::result::Result<(), console_core_never::Never>
   where
     V: IntoIterator,
     V::Item: Into<FontVariation>,
+  {
+    {
+      let tables = self.instance.font.tables();
 
-  { {
-    let tables = self.instance.font.tables();
-
-    match tables.fvar() {
-      Ok(fvar) => {
-        let Ok(()) = set_variations(
-          &fvar,
-          match tables.avar() { Ok(value) => Some(value), Err(_unavailable_axis_variations) => None },
-          &mut self.instance.coords,
-          ({ let Ok(explicit_value) = named_instance_variations(&fvar, index); explicit_value }).chain(overrides.into_iter().map(Into::into)),
-        );
+      match tables.fvar() {
+        Ok(fvar) => {
+          let Ok(()) = set_variations(
+            &fvar,
+            match tables.avar() {
+              Ok(value) => Some(value),
+              Err(_unavailable_axis_variations) => None,
+            },
+            &mut self.instance.coords,
+            ({
+              let Ok(explicit_value) = named_instance_variations(&fvar, index);
+              explicit_value
+            })
+            .chain(overrides.into_iter().map(Into::into)),
+          );
+        }
+        Err(_unavailable_variation_axes) => {
+          let Ok(()) = self.instance.coords.resize(0);
+        }
       }
-      Err(_unavailable_variation_axes) => {
-        let Ok(()) = self.instance.coords.resize(0);
-      }
-    }
-  }; Ok(()) }
+    };
+    Ok(())
+  }
 }
 
 #[must_use]
@@ -254,59 +332,76 @@ fn named_instance_variations<'a>(
   fvar: &'a Fvar,
   index: u64,
 ) -> core::result::Result<impl Iterator<Item = FontVariation> + 'a, console_core_never::Never> {
-    Ok((match fvar
-      .axis_instance_arrays() { Ok(value) => Some(value), Err(_malformed_axis_instances) => None })
-      .and_then(|arrays| {
-        let Ok(axes) = arrays.axes();
-        let Ok(instances) = arrays.instances();
+  Ok(
+    (match fvar.axis_instance_arrays() {
+      Ok(value) => Some(value),
+      Err(_malformed_axis_instances) => None,
+    })
+    .and_then(|arrays| {
+      let Ok(axes) = arrays.axes();
+      let Ok(instances) = arrays.instances();
 
-        match instances.get(index) {
-          ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-          ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-        }
-        .map(|instance| {
-          axes.iter().zip(instance.coordinates).map(|(axis, coord)| {
-            let Ok(value_3) = ({
-              let Ok(explicit_value) = coord.get();
-              explicit_value
-            })
-            .to_f32();
-            let Ok(tag) = axis.axis_tag();
-
-            FontVariation::new(tag, value_3)
+      match instances.get(index) {
+        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+        ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+      }
+      .map(|instance| {
+        axes.iter().zip(instance.coordinates).map(|(axis, coord)| {
+          let Ok(value_3) = ({
+            let Ok(explicit_value) = coord.get();
+            explicit_value
           })
+          .to_f32();
+          let Ok(tag) = axis.axis_tag();
+
+          FontVariation::new(tag, value_3)
         })
       })
-      .into_iter()
-      .flatten())
+    })
+    .into_iter()
+    .flatten(),
+  )
 }
 
-fn set_variations<V>(fvar: &Fvar, avar: Option<Avar>, coords: &mut CoordStorage, variations: V) -> core::result::Result<(), console_core_never::Never>
+fn set_variations<V>(
+  fvar: &Fvar,
+  avar: Option<Avar>,
+  coords: &mut CoordStorage,
+  variations: V,
+) -> core::result::Result<(), console_core_never::Never>
 where
   V: IntoIterator,
   V::Item: Into<FontVariation>,
+{
+  {
+    let Ok(axis_count) = fvar.axis_count();
+    let Ok(()) = coords.resize(axis_count);
+    fvar.user_to_normalized(
+      avar.as_ref(),
+      variations.into_iter().map(Into::into).map(|var| {
+        let Ok(value_2) = Fixed::from_f64(f64::from(var.value));
 
-{ {
-  let Ok(axis_count) = fvar.axis_count();
-  let Ok(()) = coords.resize(axis_count);
-  fvar.user_to_normalized(
-    avar.as_ref(),
-    variations.into_iter().map(Into::into).map(|var| {
-      let Ok(value_2) = Fixed::from_f64(f64::from(var.value));
-
-      (var.tag, value_2)
-    }),
-    { let Ok(explicit_value) = coords.as_mut_slice(); explicit_value },
-  );
-  let Ok(()) = coords.clear_if_all_zeroes();
-}; Ok(()) }
+        (var.tag, value_2)
+      }),
+      {
+        let Ok(explicit_value) = coords.as_mut_slice();
+        explicit_value
+      },
+    );
+    let Ok(()) = coords.clear_if_all_zeroes();
+  };
+  Ok(())
+}
 
 pub type NormalizedCoord = types::F2Dot14;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "FontVariation exposes the design axis value as f32 for caller-provided struct literals")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "FontVariation exposes the design axis value as f32 for caller-provided struct literals"
+  )
 )]
 pub struct FontVariation {
   pub tag: Tag,
@@ -317,11 +412,17 @@ impl FontVariation {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontVariation::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontVariation::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the public variation constructor accepts an f32 design-space coordinate")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the public variation constructor accepts an f32 design-space coordinate"
+    )
   )]
   pub fn new(tag: Tag, value: f32) -> Self {
     Self { tag, value }
@@ -348,13 +449,25 @@ impl From<&(Tag, f32)> for FontVariation {
 
 impl From<(&str, f32)> for FontVariation {
   fn from(value: (&str, f32)) -> Self {
-    Self::new(match Tag::from_str(value.0) { Ok(value_2) => value_2, Err(_invalid_variation_tag) => Default::default() }, value.1)
+    Self::new(
+      match Tag::from_str(value.0) {
+        Ok(value_2) => value_2,
+        Err(_invalid_variation_tag) => Default::default(),
+      },
+      value.1,
+    )
   }
 }
 
 impl From<&(&str, f32)> for FontVariation {
   fn from(value: &(&str, f32)) -> Self {
-    Self::new(match Tag::from_str(value.0) { Ok(value_2) => value_2, Err(_invalid_variation_tag) => Default::default() }, value.1)
+    Self::new(
+      match Tag::from_str(value.0) {
+        Ok(value_2) => value_2,
+        Err(_invalid_variation_tag) => Default::default(),
+      },
+      value.1,
+    )
   }
 }
 
@@ -395,7 +508,8 @@ impl CoordStorage {
       Self::None | Self::Inline(_, _) => {}
     }
 
-    let Ok(inline_capacity) = console_core_number_conversion::fixed_index(INLINE_COORDINATES.len());
+    let Ok(inline_capacity) =
+      console_core_number_conversion::fixed_index(INLINE_COORDINATES.len());
 
     match (u64::from(axis_count) <= inline_capacity).then_some(()) {
       Some(()) => {
@@ -419,9 +533,13 @@ impl CoordStorage {
   fn as_slice(&self) -> Result<&[NormalizedCoord], console_core_never::Never> {
     Ok(match self {
       Self::None => &[],
-      Self::Inline(coords, len) => match coords.get(..match ::console_core_number_conversion::index::<::core::primitive::u8>(*len) { ::core::result::Result::Ok(converted_position) => converted_position }) {
-          ::core::option::Option::Some(option_value) => option_value,
-          ::core::option::Option::None => &[],
+      Self::Inline(coords, len) => match coords.get(
+        ..match ::console_core_number_conversion::index::<::core::primitive::u8>(*len) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        },
+      ) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => &[],
       },
       Self::Heap(heap) => heap.as_slice(),
     })
@@ -430,9 +548,13 @@ impl CoordStorage {
   fn as_mut_slice(&mut self) -> Result<&mut [NormalizedCoord], console_core_never::Never> {
     Ok(match self {
       Self::None => &mut [],
-      Self::Inline(coords, len) => match coords.get_mut(..match ::console_core_number_conversion::index::<::core::primitive::u8>(*len) { ::core::result::Result::Ok(converted_position) => converted_position }) {
-          ::core::option::Option::Some(option_value) => option_value,
-          ::core::option::Option::None => &mut [],
+      Self::Inline(coords, len) => match coords.get_mut(
+        ..match ::console_core_number_conversion::index::<::core::primitive::u8>(*len) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        },
+      ) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => &mut [],
       },
       Self::Heap(heap) => heap.as_mut_slice(),
     })
@@ -449,7 +571,10 @@ impl FontFeatureVariations {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontFeatureVariations::gsub` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontFeatureVariations::gsub` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn gsub(&self) -> Option<u32> {
     self.gsub
@@ -458,7 +583,10 @@ impl FontFeatureVariations {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontFeatureVariations::gpos` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontFeatureVariations::gpos` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn gpos(&self) -> Option<u32> {
     self.gpos
@@ -488,11 +616,11 @@ impl FeatureVarsStorage {
 
   #[must_use]
   fn new() -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        status: AtomicU32::new(Self::UNCHECKED),
-        gsub: AtomicU32::new(0),
-        gpos: AtomicU32::new(0),
-      })
+    Ok(Self {
+      status: AtomicU32::new(Self::UNCHECKED),
+      gsub: AtomicU32::new(0),
+      gpos: AtomicU32::new(0),
+    })
   }
 
   #[must_use]
@@ -503,68 +631,85 @@ impl FeatureVarsStorage {
       reason = "the Release store to status publishes the selected indices before readers pass the Acquire load; concurrent initializers compute identical results for one immutable instance"
     )
   )]
-  fn load(&self, font: &Font, coords: &[NormalizedCoord]) -> core::result::Result<FontFeatureVariations, console_core_never::Never> {
-      let mut status = self.status.load(atomic::Ordering::Acquire);
+  fn load(
+    &self,
+    font: &Font,
+    coords: &[NormalizedCoord],
+  ) -> core::result::Result<FontFeatureVariations, console_core_never::Never> {
+    let mut status = self.status.load(atomic::Ordering::Acquire);
 
-      match ::core::primitive::bool::then_some(status == Self::UNCHECKED, ()) {
-        ::core::option::Option::Some(()) => {
-          let tables = font.tables();
+    match ::core::primitive::bool::then_some(status == Self::UNCHECKED, ()) {
+      ::core::option::Option::Some(()) => {
+        let tables = font.tables();
 
-          let feature_var_tables = [
-            (match tables.gsub() { Ok(value) => Some(value), Err(_unavailable_substitution_table) => None }).and_then(|gsub| {
-              match gsub.feature_variations() {
-                ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-                ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-              }
-              .flatten()
-            }),
-            (match tables.gpos() { Ok(value) => Some(value), Err(_unavailable_positioning_table) => None }).and_then(|gpos| {
-              match gpos.feature_variations() {
-                ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-                ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-              }
-              .flatten()
-            }),
-          ];
-          let [substitution, positioning] = feature_var_tables;
+        let feature_var_tables = [
+          (match tables.gsub() {
+            Ok(value) => Some(value),
+            Err(_unavailable_substitution_table) => None,
+          })
+          .and_then(|gsub| {
+            match gsub.feature_variations() {
+              ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+              ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+            }
+            .flatten()
+          }),
+          (match tables.gpos() {
+            Ok(value) => Some(value),
+            Err(_unavailable_positioning_table) => None,
+          })
+          .and_then(|gpos| {
+            match gpos.feature_variations() {
+              ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+              ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+            }
+            .flatten()
+          }),
+        ];
+        let [substitution, positioning] = feature_var_tables;
 
-          for (table, state, shift) in [
-            (substitution, &self.gsub, 0),
-            (positioning, &self.gpos, Self::GPOS_SHIFT),
-          ] {
-            let index = match table {
-              Some(variations) => {
-                let Ok(index) = feature_variation_index(&variations, coords);
-                index
-              }
-              None => None,
-            };
-            let table_status = match index {
-              Some(index_2) => {
-                state.store(index_2, atomic::Ordering::Release);
-                Self::PRESENT
-              }
-              None => Self::ABSENT,
-            };
-            status |= table_status.wrapping_shl(shift);
-          }
-
-          self.status.store(status, atomic::Ordering::Release);
+        for (table, state, shift) in [
+          (substitution, &self.gsub, 0),
+          (positioning, &self.gpos, Self::GPOS_SHIFT),
+        ] {
+          let index = match table {
+            Some(variations) => {
+              let Ok(index) = feature_variation_index(&variations, coords);
+              index
+            }
+            None => None,
+          };
+          let table_status = match index {
+            Some(index_2) => {
+              state.store(index_2, atomic::Ordering::Release);
+              Self::PRESENT
+            }
+            None => Self::ABSENT,
+          };
+          status |= table_status.wrapping_shl(shift);
         }
-        ::core::option::Option::None => {}
-      }
 
-      Ok(match ::core::primitive::bool::then_some(status != Self::BOTH_ABSENT, ()) {
+        self.status.store(status, atomic::Ordering::Release);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    Ok(
+      match ::core::primitive::bool::then_some(status != Self::BOTH_ABSENT, ()) {
         ::core::option::Option::Some(()) => {
           let gsub_status = status & 0xFFFF;
-          let gpos_status = ::core::primitive::u32::wrapping_shr(status, Self::GPOS_SHIFT) & 0xFFFF;
+          let gpos_status =
+            ::core::primitive::u32::wrapping_shr(status, Self::GPOS_SHIFT) & 0xFFFF;
           FontFeatureVariations {
-            gsub: (gsub_status == Self::PRESENT).then(|| self.gsub.load(atomic::Ordering::Acquire)),
-            gpos: (gpos_status == Self::PRESENT).then(|| self.gpos.load(atomic::Ordering::Acquire)),
+            gsub: (gsub_status == Self::PRESENT)
+              .then(|| self.gsub.load(atomic::Ordering::Acquire)),
+            gpos: (gpos_status == Self::PRESENT)
+              .then(|| self.gpos.load(atomic::Ordering::Acquire)),
           }
         }
         ::core::option::Option::None => FontFeatureVariations::default(),
-      })
+      },
+    )
   }
 }
 
@@ -573,34 +718,35 @@ pub(crate) fn feature_variation_index(
   feature_vars: &FeatureVariations,
   coords: &[NormalizedCoord],
 ) -> core::result::Result<Option<u32>, console_core_never::Never> {
-    let Ok(feature_variation_records) = feature_vars.feature_variation_records();
+  let Ok(feature_variation_records) = feature_vars.feature_variation_records();
 
-    for (index, rec) in feature_variation_records.iter().enumerate() {
-      let Ok(condition_set_offset) = rec.condition_set_offset();
-      let Ok(value_1) = condition_set_offset.nullness();
-      let value_1_2 = matches!(value_1, font_types::Nullness::Null);
+  for (index, rec) in feature_variation_records.iter().enumerate() {
+    let Ok(condition_set_offset) = rec.condition_set_offset();
+    let Ok(value_1) = condition_set_offset.nullness();
+    let value_1_2 = matches!(value_1, font_types::Nullness::Null);
 
-      match ::core::primitive::bool::then_some(value_1_2, ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(Some({
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(index);
-            migrated_value
-          }));
-        }
-        ::core::option::Option::None => {}
+    match ::core::primitive::bool::then_some(value_1_2, ()) {
+      ::core::option::Option::Some(()) => {
+        return Ok(Some({
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(index);
+          migrated_value
+        }));
       }
+      ::core::option::Option::None => {}
+    }
 
-      let Ok(condition_data) = feature_vars.offset_data();
-      let condition_set = match rec.condition_set(condition_data) {
-        Ok(Some(condition_set)) => condition_set,
-        Ok(None) => continue,
-        Err(_invalid_condition_set) => continue,
-      };
+    let Ok(condition_data) = feature_vars.offset_data();
+    let condition_set = match rec.condition_set(condition_data) {
+      Ok(Some(condition_set)) => condition_set,
+      Ok(None) => continue,
+      Err(_invalid_condition_set) => continue,
+    };
 
-      let Ok(condition_set_conditions) = condition_set.conditions();
-      let Ok(conditions) = condition_set_conditions.iter();
+    let Ok(condition_set_conditions) = condition_set.conditions();
+    let Ok(conditions) = condition_set_conditions.iter();
 
-      match ::core::primitive::bool::then_some({
+    match ::core::primitive::bool::then_some(
+      {
         conditions.filter_map(Result::ok).all(|cond| match cond {
           Condition::Format1AxisRange(format1) => {
             let Ok(axis_index) = format1.axis_index();
@@ -623,18 +769,20 @@ pub(crate) fn feature_variation_index(
           | Condition::Format4Or(_)
           | Condition::Format5Negate(_) => false,
         })
-      }, ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(Some({
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(index);
-            migrated_value
-          }));
-        }
-        ::core::option::Option::None => {}
+      },
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        return Ok(Some({
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(index);
+          migrated_value
+        }));
       }
+      ::core::option::Option::None => {}
     }
+  }
 
-    Ok(None)
+  Ok(None)
 }
 
 #[cfg(test)]
@@ -723,7 +871,10 @@ mod tests {
 
   #[test]
   fn feature_variations() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(Font::new(font_test_data::MATERIAL_SYMBOLS_SUBSET, 0), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      Font::new(font_test_data::MATERIAL_SYMBOLS_SUBSET, 0),
+      "fixture value",
+    )?;
 
     let cases = [
       (0.0, [None, None]),
@@ -740,7 +891,6 @@ mod tests {
       let actual = [feature_vars.gsub(), feature_vars.gpos()];
       assert_eq!(actual, [gsub, gpos], "fill={fill}");
     }
-  ;
 
     Ok(())
   }

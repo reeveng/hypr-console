@@ -394,7 +394,10 @@ fn sharper(at: &Path, within: Size<u32>, read: Pixels) -> Result<(), Never> {
     None => return Ok(()),
   };
 
-  match ::core::primitive::bool::then_some(looked.of.as_path() == at && looked.asked == within, ()) {
+  match ::core::primitive::bool::then_some(
+    looked.of.as_path() == at && looked.asked == within,
+    (),
+  ) {
     ::core::option::Option::Some(()) => looked.held = FrameState::Decoded(read),
     ::core::option::Option::None => return Ok(()),
   }

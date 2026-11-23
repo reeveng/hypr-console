@@ -4,8 +4,8 @@
 
 use archmage::intrinsics::aarch64 as neon;
 use archmage::{Arm64, arcane};
-use core::arch::aarch64::*;
 use console_core_never::Never;
+use core::arch::aarch64::*;
 
 pub(crate) struct GrainNeon8<'a> {
   pub source: &'a [u8; 16],
@@ -34,7 +34,10 @@ pub(crate) fn apply_grain8(_token: Arm64, block: GrainNeon8<'_>) -> Result<(), N
   let low = vqmovun_s16(vaddq_s16(low_pixels, low_noise));
   let high = vqmovun_s16(vaddq_s16(high_pixels, high_noise));
   let packed = vcombine_u8(low, high);
-  let clipped = vminq_u8(vmaxq_u8(packed, vdupq_n_u8(block.minimum)), vdupq_n_u8(block.maximum));
+  let clipped = vminq_u8(
+    vmaxq_u8(packed, vdupq_n_u8(block.minimum)),
+    vdupq_n_u8(block.maximum),
+  );
   neon::vst1q_u8(block.destination, clipped);
   Ok(())
 }

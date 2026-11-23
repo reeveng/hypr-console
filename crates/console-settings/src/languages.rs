@@ -67,10 +67,12 @@ impl Locale {
   }
 
   pub fn lang(&self) -> Result<String, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.name.contains('.'), ()) {
-      ::core::option::Option::Some(()) => self.name.clone(),
-      ::core::option::Option::None => format!("{}.{UTF8}", self.name),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.name.contains('.'), ()) {
+        ::core::option::Option::Some(()) => self.name.clone(),
+        ::core::option::Option::None => format!("{}.{UTF8}", self.name),
+      },
+    )
   }
 }
 
@@ -362,10 +364,12 @@ impl Names {
     let Ok(language) = self.language(&locale.language);
     let Ok(where_) = self.where_(locale);
 
-    Ok(match ::core::primitive::bool::then_some(where_.is_empty(), ()) {
-      ::core::option::Option::Some(()) => language,
-      ::core::option::Option::None => format!("{language} ({where_})"),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(where_.is_empty(), ()) {
+        ::core::option::Option::Some(()) => language,
+        ::core::option::Option::None => format!("{language} ({where_})"),
+      },
+    )
   }
 }
 

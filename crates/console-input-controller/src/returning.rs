@@ -240,7 +240,10 @@ fn way_out(effect: &Effect) -> Result<Vec<Wanted<Never>>, Never> {
     Effect::Run(arguments) => {
       let Ok(desktop) = InternalProgram::SessionDesktop.path();
 
-      match ::core::primitive::bool::then_some(arguments.first().map(String::as_str) == Some(desktop), ()) {
+      match ::core::primitive::bool::then_some(
+        arguments.first().map(String::as_str) == Some(desktop),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(desktop_2) = Command::internal(InternalProgram::SessionDesktop, &[]);
 

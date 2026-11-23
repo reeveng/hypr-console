@@ -29,7 +29,7 @@ use console_core_number_conversion::{fitted, index};
 
 use crate::cookie::MagicCookie;
 use crate::element::{Coupling, Scratch};
-use crate::fault::Fault;
+use crate::fault::DecodeError;
 
 const TAG_SINGLE_CHANNEL: u32 = 0;
 const TAG_CHANNEL_PAIR: u32 = 1;
@@ -61,7 +61,7 @@ pub struct AlacDecoder {
   buf: AudioBuffer<i32>,
 }
 
-fn skip_data_stream<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, Fault> {
+fn skip_data_stream<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, DecodeError> {
   let _tag = bs.read_bits_leq32(4)?;
   let align = bs.read_flag()?;
   let first = bs.read_bits_leq32(8)?;
@@ -86,7 +86,7 @@ fn skip_data_stream<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, Fault> {
   Ok(Step::Next)
 }
 
-fn skip_fill<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, Fault> {
+fn skip_fill<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, DecodeError> {
   let first = bs.read_bits_leq32(4)?;
   let count = match first {
     15 => {
@@ -103,10 +103,10 @@ fn skip_fill<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, Fault> {
 }
 
 impl AlacDecoder {
-  fn copy_out(&mut self, channel: Option<&u32>, source: Option<&[i32]>) -> Result<(), Fault> {
+  fn copy_out(&mut self, channel: Option<&u32>, source: Option<&[i32]>) -> Result<(), DecodeError> {
     let (target, from) = match (channel, source) {
       (Some(&mapped), Some(samples)) => (mapped, samples),
-      _ => return Err(Fault::Channel),
+      _ => return Err(DecodeError::Channel),
     };
 
     let Ok(output) = self.buf.chan_mut(target);
@@ -123,7 +123,7 @@ impl AlacDecoder {
     bs: &mut B,
     progress: &mut Progress,
     coupling: Coupling,
-  ) -> Result<Step, Fault> {
+  ) -> Result<Step, DecodeError> {
     let Ok(taken) = coupling.channels();
     let wanted = progress.next_channel.saturating_add(taken);
 
@@ -154,7 +154,7 @@ impl AlacDecoder {
     Ok(Step::Next)
   }
 
-  fn step<B: ReadBitsLtr>(&mut self, bs: &mut B, progress: &mut Progress) -> Result<Step, Fault> {
+  fn step<B: ReadBitsLtr>(&mut self, bs: &mut B, progress: &mut Progress) -> Result<Step, DecodeError> {
     let tag = bs.read_bits_leq32(BITS_PER_TAG)?;
     let outcome = match tag {
       TAG_SINGLE_CHANNEL | TAG_LOW_FREQUENCY => self.element(bs, progress, Coupling::Single),
@@ -162,21 +162,24 @@ impl AlacDecoder {
       TAG_DATA_STREAM => skip_data_stream(bs),
       TAG_FILL => skip_fill(bs),
       TAG_END => Ok(Step::Finished),
-      TAG_COUPLING_CHANNEL | TAG_PROGRAM_CONFIG => Err(Fault::Element),
-      _ => Err(Fault::Element),
+      TAG_COUPLING_CHANNEL | TAG_PROGRAM_CONFIG => Err(DecodeError::Element),
+      _ => Err(DecodeError::Element),
     };
     let step = outcome?;
 
     match step {
       Step::Finished => Ok(Step::Finished),
-      Step::Next => match progress.next_channel.cmp(&u32::from(self.config.num_channels)) {
+      Step::Next => match progress
+        .next_channel
+        .cmp(&u32::from(self.config.num_channels))
+      {
         Ordering::Equal | Ordering::Greater => Ok(Step::Finished),
         Ordering::Less => Ok(Step::Next),
       },
     }
   }
 
-  fn decode_inner(&mut self, packet: &Packet) -> Result<(), Fault> {
+  fn decode_inner(&mut self, packet: &Packet) -> Result<(), DecodeError> {
     let Ok(value_1) = packet.buf();
 
     let Ok(mut bs) = BitReaderLtr::new(value_1);
@@ -214,7 +217,7 @@ impl Decoder for AlacDecoder {
   fn try_new(params: &CodecParameters, _: &DecoderOptions) -> Result<Self, Error> {
     match params.codec {
       CODEC_TYPE_ALAC => {}
-      _unsupported => return Err(Error::from(Fault::CodecType)),
+      _unsupported => return Err(Error::from(DecodeError::CodecType)),
     }
 
     let cookie = match &params.extra_data {
@@ -223,7 +226,7 @@ impl Decoder for AlacDecoder {
 
         MagicCookie::try_read(&mut cookie_reader)
       }
-      None => Err(Fault::MissingExtraData),
+      None => Err(DecodeError::MissingExtraData),
     };
     let config = cookie?;
     let Ok(channels) = config.channel_layout.channels();

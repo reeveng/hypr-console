@@ -76,7 +76,8 @@ pub(super) struct MessageSize {
 
 pub(super) fn message_cost(size: MessageSize) -> Result<u64, HandleError> {
   match bool::then_some(
-    size.bytes <= u64::from(MESSAGE_BYTES_LIMIT) && size.handles <= u64::from(MESSAGE_HANDLES_LIMIT),
+    size.bytes <= u64::from(MESSAGE_BYTES_LIMIT)
+      && size.handles <= u64::from(MESSAGE_HANDLES_LIMIT),
     (),
   ) {
     Some(()) => MESSAGE_COST

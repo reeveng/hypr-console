@@ -109,7 +109,7 @@ impl Paint<'_> {
 impl Pixmap {
   pub fn fill_rect(
     &mut self,
-    rect: Rect,
+    rect: FloatRectangle,
     paint: &Paint,
     transform: Transform,
     mask: Option<&Mask>,
@@ -214,7 +214,7 @@ impl Pixmap {
 impl PixmapMut<'_> {
   pub fn fill_rect(
     &mut self,
-    rect: Rect,
+    rect: FloatRectangle,
     paint: &Paint,
     transform: Transform,
     mask: Option<&Mask>,

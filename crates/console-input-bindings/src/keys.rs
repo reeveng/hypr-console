@@ -137,7 +137,10 @@ pub fn every() -> Result<Vec<String>, Never> {
 
 pub fn is_a_modifier(word: &str) -> Result<KeyKind, Never> {
   Ok(
-    match ::core::primitive::bool::then_some(MODIFIERS.iter().any(|(spoken, _, _, _, _)| *spoken == word), ()) {
+    match ::core::primitive::bool::then_some(
+      MODIFIERS.iter().any(|(spoken, _, _, _, _)| *spoken == word),
+      (),
+    ) {
       ::core::option::Option::Some(()) => KeyKind::AModifier,
       ::core::option::Option::None => KeyKind::AKey,
     },

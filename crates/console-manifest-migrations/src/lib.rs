@@ -164,10 +164,12 @@ pub const USER: &str = "@user@";
 pub const RECORDED_SINCE: u64 = 1_790_123_959;
 
 pub fn recording_state(committed: u64) -> Result<Recorded, Never> {
-  Ok(match ::core::primitive::bool::then_some(committed >= RECORDED_SINCE, ()) {
-    ::core::option::Option::Some(()) => Recorded::Yes,
-    ::core::option::Option::None => Recorded::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(committed >= RECORDED_SINCE, ()) {
+      ::core::option::Option::Some(()) => Recorded::Yes,
+      ::core::option::Option::None => Recorded::No,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

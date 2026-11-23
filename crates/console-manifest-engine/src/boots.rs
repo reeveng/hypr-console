@@ -158,10 +158,12 @@ pub fn failed(kept: &[Generation]) -> Result<Decided, Never> {
   };
   let taken_back: Vec<Generation> = kept
     .iter()
-    .map(|one| match ::core::primitive::bool::then_some(one.number == newest_3.number, ()) {
-      ::core::option::Option::Some(()) => pending.clone(),
-      ::core::option::Option::None => one.clone(),
-    })
+    .map(
+      |one| match ::core::primitive::bool::then_some(one.number == newest_3.number, ()) {
+        ::core::option::Option::Some(()) => pending.clone(),
+        ::core::option::Option::None => one.clone(),
+      },
+    )
     .collect();
   let Ok(one_shot) = armed(&taken_back, newest_3.tries);
 
@@ -201,9 +203,11 @@ mod tests {
         let kept_3: Vec<Generation> = match decided.generation {
           Some(counted) => kept_2
             .into_iter()
-            .map(|one| match ::core::primitive::bool::then_some(one.number == counted.number, ()) {
-              ::core::option::Option::Some(()) => counted.clone(),
-              ::core::option::Option::None => one,
+            .map(|one| {
+              match ::core::primitive::bool::then_some(one.number == counted.number, ()) {
+                ::core::option::Option::Some(()) => counted.clone(),
+                ::core::option::Option::None => one,
+              }
             })
             .collect(),
           None => kept_2,

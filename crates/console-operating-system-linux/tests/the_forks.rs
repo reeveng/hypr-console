@@ -17,7 +17,7 @@ use console_operating_system_linux::program_runtime::{
   Clock, Interpreter, Subscribed, Tell, run,
 };
 use console_program_contract::{
-  Command, Effect, Event, Exit, ExitStatus, Fork, Job, JobId, JobOwner, Subscription, Timer,
+  Command, Effect, Event, Exit, ExitStatus, Fork, Task, JobId, JobOwner, Subscription, Timer,
 };
 use console_program_lifetime::threads;
 
@@ -31,16 +31,16 @@ const LONG_AFTER: Timer = Timer {
   interval: Duration::from_secs(2),
 };
 
-const FIRST_JOB: Job = Job {
+const FIRST_JOB: Task = Task {
   owner: JobOwner("fork-test"),
   id: JobId(1),
 };
-const SECOND_JOB: Job = Job {
+const SECOND_JOB: Task = Task {
   owner: JobOwner("fork-test"),
   id: JobId(2),
 };
 
-fn start(job: Job, command: &Command) -> Result<Effect<Logged>, Never> {
+fn start(job: Task, command: &Command) -> Result<Effect<Logged>, Never> {
   Ok(Effect::Fork(Fork {
     job,
     command: command.clone(),
@@ -52,7 +52,7 @@ enum Logged {
   Received,
   Ticked,
   Reply(ExitStatus, String, String),
-  JobReply(Job, ExitStatus),
+  JobReply(Task, ExitStatus),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

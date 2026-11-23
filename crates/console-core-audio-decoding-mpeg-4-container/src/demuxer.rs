@@ -41,7 +41,7 @@ enum Access {
 
 enum FileType {
   Present,
-  Missing,
+  Absent,
 }
 
 struct SeekLocation {
@@ -91,7 +91,7 @@ fn read_movie(
   access: Access,
   metadata: &mut MetadataLog,
 ) -> Result<MoovAtom> {
-  let mut file_type = FileType::Missing;
+  let mut file_type = FileType::Absent;
   let mut movie = None;
   let Ok(limit) = iter.atoms_at_most();
 
@@ -121,7 +121,7 @@ fn read_movie(
 
   match file_type {
     FileType::Present => movie.ok_or(Error::Unsupported("isomp4: missing moov atom")),
-    FileType::Missing => unsupported_error("isomp4: missing ftyp atom"),
+    FileType::Absent => unsupported_error("isomp4: missing ftyp atom"),
   }
 }
 
@@ -185,7 +185,9 @@ fn validate_defaults(pending_defaults: Option<&MvexAtom>, tracks: u32) -> Result
 
       match ::core::primitive::bool::then_some(count == tracks, ()) {
         ::core::option::Option::Some(()) => Ok(()),
-        ::core::option::Option::None => decode_error("isomp4: mvex and moov track number mismatch"),
+        ::core::option::Option::None => {
+          decode_error("isomp4: mvex and moov track number mismatch")
+        }
       }
     }
     None => Ok(()),
@@ -237,10 +239,12 @@ fn earlier_sample(
   candidate: Option<NextSampleInfo>,
 ) -> std::result::Result<(), console_core_never::Never> {
   match (current.as_ref(), candidate) {
-    (Some(held), Some(next)) => match ::core::primitive::bool::then_some(held.time <= next.time, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => *current = Some(next),
-    },
+    (Some(held), Some(next)) => {
+      match ::core::primitive::bool::then_some(held.time <= next.time, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => *current = Some(next),
+      }
+    }
     (None, next) => *current = next,
     (Some(_), None) => {}
   }

@@ -121,7 +121,9 @@ pub(crate) fn decode<T: DeserializeOwned>(answer: &str) -> Result<T, ReplyError>
   let bytes = u64::try_from(answer.len()).map_err(|_length_too_large| ReplyError::TooLarge)?;
 
   match ::core::primitive::bool::then_some(bytes <= MAX_ANSWER_BYTES, ()) {
-    ::core::option::Option::Some(()) => serde_json::from_str(answer).map_err(ReplyError::Malformed),
+    ::core::option::Option::Some(()) => {
+      serde_json::from_str(answer).map_err(ReplyError::Malformed)
+    }
     ::core::option::Option::None => Err(ReplyError::TooLarge),
   }
 }
@@ -245,7 +247,9 @@ pub fn answer(address: &str) -> Result<String, FetchError> {
 
   match done {
     Ok(said) => match ::core::primitive::bool::then_some(said.status.success(), ()) {
-      ::core::option::Option::Some(()) => String::from_utf8(said.stdout).map_err(FetchError::NotUtf8),
+      ::core::option::Option::Some(()) => {
+        String::from_utf8(said.stdout).map_err(FetchError::NotUtf8)
+      }
       ::core::option::Option::None => Err(FetchError::Failed(said.status)),
     },
     Err(fault) => Err(FetchError::NotAsked(fault)),

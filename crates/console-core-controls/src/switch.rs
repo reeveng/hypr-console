@@ -127,10 +127,12 @@ fn side(frame: Rectangle<i32>, at: Point<i32>) -> Result<Switch, Never> {
   let Ok(wide) = whole(edges.wide);
   let middle = edges.left.saturating_add(wide.saturating_div(2));
 
-  Ok(match ::core::primitive::bool::then_some(at.x >= middle, ()) {
-    ::core::option::Option::Some(()) => Switch::On,
-    ::core::option::Option::None => Switch::Off,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(at.x >= middle, ()) {
+      ::core::option::Option::Some(()) => Switch::On,
+      ::core::option::Option::None => Switch::Off,
+    },
+  )
 }
 
 #[cfg(test)]

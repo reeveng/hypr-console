@@ -41,7 +41,10 @@ fn roots(at: &Path) -> Result<Vec<PathBuf>, Never> {
   };
 
   for bin in bins {
-    match ::core::primitive::bool::then_some(std::fs::metadata(&bin).is_ok_and(|metadata| metadata.is_dir()), ()) {
+    match ::core::primitive::bool::then_some(
+      std::fs::metadata(&bin).is_ok_and(|metadata| metadata.is_dir()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => found.push(bin.join("main.rs")),
       ::core::option::Option::None => found.push(bin),
     }
@@ -159,10 +162,12 @@ fn children(file: &Path, roots: &[PathBuf]) -> Result<Vec<PathBuf>, Never> {
           Err(_outside_module_tree) => continue,
         },
       },
-      (None, None) => match ::core::primitive::bool::then_some(line.trim_start().starts_with("#["), ()) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => elsewhere = None,
-      },
+      (None, None) => {
+        match ::core::primitive::bool::then_some(line.trim_start().starts_with("#["), ()) {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => elsewhere = None,
+        }
+      }
     }
   }
 

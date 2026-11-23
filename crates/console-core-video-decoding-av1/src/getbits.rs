@@ -161,7 +161,10 @@ impl<'a> GetBits<'a> {
       Ordering::Less => value,
       Ordering::Equal | Ordering::Greater => {
         let Ok(low_bit) = self.get_bit();
-        value.wrapping_shl(1).wrapping_sub(cutoff).wrapping_add(u32::from(low_bit))
+        value
+          .wrapping_shl(1)
+          .wrapping_sub(cutoff)
+          .wrapping_add(u32::from(low_bit))
       }
     })
   }

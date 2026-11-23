@@ -58,7 +58,10 @@ pub mod ift;
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the published `compute_checksum` function returns `u32` directly in the existing parser interface")
+  expect(
+    explicit002_infallible_result,
+    reason = "the published `compute_checksum` function returns `u32` directly in the existing parser interface"
+  )
 )]
 pub fn compute_checksum(table: &[u8]) -> u32 {
   let Ok(sum) = console_core_checksums::opentype::of(table);

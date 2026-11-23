@@ -29,9 +29,9 @@ use crate::firmware::Graphics;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opened {
-  Drawn(Panel),
+  Rendered(Panel),
   NothingLent,
-  Refused(ScreenError),
+  Rejected(ScreenError),
 }
 
 #[cfg_attr(
@@ -78,9 +78,9 @@ pub fn open(graphics: Option<Graphics>) -> Result<Opened, Never> {
           let Ok(mut held) = SCREEN.lock();
           *held = Some(screen);
 
-          Opened::Drawn(panel)
+          Opened::Rendered(panel)
         }
-        Err(error) => Opened::Refused(error),
+        Err(error) => Opened::Rejected(error),
       }
     }
     None => Opened::NothingLent,

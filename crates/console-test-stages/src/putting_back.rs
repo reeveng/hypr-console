@@ -118,10 +118,12 @@ fn back_on(then: Then<'_>) -> Result<Option<String>, Never> {
   let Then { found, now } = then;
   let unsaid = found.trim().is_empty() || now.trim().is_empty();
 
-  Ok(match ::core::primitive::bool::then_some(unsaid || found == now, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(found.to_string()),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(unsaid || found == now, ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(found.to_string()),
+    },
+  )
 }
 
 pub fn restores_needed(
@@ -195,12 +197,16 @@ pub fn summarize(handed: &Provided) -> Result<String, Never> {
 
   match ::core::primitive::bool::then_some(handed.back.is_empty(), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => lines.push(format!("handed back: {}", sentence(&handed.back))),
+    ::core::option::Option::None => {
+      lines.push(format!("handed back: {}", sentence(&handed.back)))
+    }
   }
 
   match ::core::primitive::bool::then_some(handed.stuck.is_empty(), ()) {
     ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => lines.push(format!("could not put back: {}", sentence(&handed.stuck))),
+    ::core::option::Option::None => {
+      lines.push(format!("could not put back: {}", sentence(&handed.stuck)))
+    }
   }
 
   match ::core::primitive::bool::then_some(lines.is_empty(), ()) {
@@ -256,10 +262,12 @@ fn set_level<'watch>(
     |seen| {
       let Ok(now) = reading(seen);
 
-      Ok(match ::core::primitive::bool::then_some(now == Level::At(to), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(now == Level::At(to), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   )
@@ -288,10 +296,12 @@ fn restore(stage: &mut Device, putting: &Restore) -> Result<Outcome, Never> {
         |seen| {
           let Ok(now) = seen.profile();
 
-          Ok(match ::core::primitive::bool::then_some(now == wanted, ()) {
-            ::core::option::Option::Some(()) => Ready::Yes,
-            ::core::option::Option::None => Ready::NotYet,
-          })
+          Ok(
+            match ::core::primitive::bool::then_some(now == wanted, ()) {
+              ::core::option::Option::Some(()) => Ready::Yes,
+              ::core::option::Option::None => Ready::NotYet,
+            },
+          )
         },
         PATIENCE,
       )

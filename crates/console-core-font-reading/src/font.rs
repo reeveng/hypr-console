@@ -109,7 +109,10 @@ pub struct FontRef<'a> {
   data: FontData<'a>,
   #[cfg_attr(
     dylint_lib = "explicit065_checked_constructors",
-    expect(explicit065_checked_constructors, reason = "FontRef publishes the directory field for existing callers, and table offsets from that directory are checked at each read")
+    expect(
+      explicit065_checked_constructors,
+      reason = "FontRef publishes the directory field for existing callers, and table offsets from that directory are checked at each read"
+    )
   )]
   pub table_directory: TableDirectory<'a>,
   ttc_index: Option<u32>,
@@ -213,7 +216,10 @@ impl<'a> FontRef<'a> {
   ) -> Result<Self, ReadError> {
     let Ok(version) = table_directory.sfnt_version();
 
-    match ::core::primitive::bool::then_some([TT_SFNT_VERSION, CFF_SFNT_VERSION, TRUE_SFNT_VERSION].contains(&version), ()) {
+    match ::core::primitive::bool::then_some(
+      [TT_SFNT_VERSION, CFF_SFNT_VERSION, TRUE_SFNT_VERSION].contains(&version),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Err(ReadError::InvalidSfnt(version)),
     }

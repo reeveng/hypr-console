@@ -171,14 +171,16 @@ fn playing_rows(held: &Panel) -> Result<Vec<Row>, Never> {
   let asked = player::playing()?;
 
   match asked.as_ref() {
-    Some(playing) => match ::core::primitive::bool::then_some(playing.sound != Sound::Stopped, ()) {
-      ::core::option::Option::Some(()) => playing_card(held, playing),
-      ::core::option::Option::None => {
-        let Ok(row) = Row::placeholder("Not Playing");
+    Some(playing) => {
+      match ::core::primitive::bool::then_some(playing.sound != Sound::Stopped, ()) {
+        ::core::option::Option::Some(()) => playing_card(held, playing),
+        ::core::option::Option::None => {
+          let Ok(row) = Row::placeholder("Not Playing");
 
-        Ok(vec![row])
+          Ok(vec![row])
+        }
       }
-    },
+    }
     None => {
       let Ok(row) = Row::placeholder("Not Playing");
 

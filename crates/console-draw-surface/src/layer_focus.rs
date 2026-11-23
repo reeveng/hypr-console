@@ -13,14 +13,14 @@ const ACQUIRE: Duration = Duration::from_secs(2);
 pub enum Selection<A> {
   Idle,
   Requested { target: A, started: Instant },
-  Held(A),
+  Selected(A),
 }
 
 impl<A: Copy + Eq> Selection<A> {
   pub fn target(self) -> Result<Option<A>, Never> {
     Ok(match self {
       Self::Idle => None,
-      Self::Requested { target, .. } | Self::Held(target) => Some(target),
+      Self::Requested { target, .. } | Self::Selected(target) => Some(target),
     })
   }
 
@@ -32,7 +32,7 @@ impl<A: Copy + Eq> Selection<A> {
           started: now,
         };
       }
-      (Self::Idle, None) | (Self::Requested { .. } | Self::Held(_), _) => {}
+      (Self::Idle, None) | (Self::Requested { .. } | Self::Selected(_), _) => {}
     }
 
     Ok(())
@@ -54,7 +54,7 @@ impl<A: Copy + Eq> Selection<A> {
 
   pub fn observe(&mut self, focus: KeyboardFocus, now: Instant) -> Result<(), Never> {
     match (*self, focus) {
-      (Self::Requested { target, .. }, KeyboardFocus::Here) => *self = Self::Held(target),
+      (Self::Requested { target, .. }, KeyboardFocus::Here) => *self = Self::Selected(target),
       (Self::Requested { started, .. }, KeyboardFocus::Elsewhere) => {
         let Ok(left) = acquisition_timeout(started, now);
 
@@ -63,9 +63,9 @@ impl<A: Copy + Eq> Selection<A> {
           _still_waiting => {}
         }
       }
-      (Self::Held(_), KeyboardFocus::Elsewhere) => *self = Self::Idle,
+      (Self::Selected(_), KeyboardFocus::Elsewhere) => *self = Self::Idle,
       (Self::Idle, KeyboardFocus::Here | KeyboardFocus::Elsewhere)
-      | (Self::Held(_), KeyboardFocus::Here) => {}
+      | (Self::Selected(_), KeyboardFocus::Here) => {}
     }
 
     Ok(())
@@ -74,13 +74,13 @@ impl<A: Copy + Eq> Selection<A> {
   pub fn timeout(self, now: Instant) -> Result<Option<Duration>, Never> {
     match self {
       Self::Requested { started, .. } => acquisition_timeout(started, now).map(Some),
-      Self::Idle | Self::Held(_) => Ok(None),
+      Self::Idle | Self::Selected(_) => Ok(None),
     }
   }
 
   pub fn pressed(&mut self, key: Keysym, actions: &[A]) -> Result<Option<A>, Never> {
     let target = match *self {
-      Self::Held(held) => held,
+      Self::Selected(held) => held,
       Self::Idle | Self::Requested { .. } => return Ok(None),
     };
     let mut remaining = actions.iter().copied();
@@ -123,7 +123,7 @@ impl<A: Copy + Eq> Selection<A> {
     *self = match *self {
       Self::Idle => Self::Idle,
       Self::Requested { started, .. } => Self::Requested { target, started },
-      Self::Held(_) => Self::Held(target),
+      Self::Selected(_) => Self::Selected(target),
     };
 
     Ok(())

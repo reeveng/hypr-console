@@ -110,7 +110,8 @@ impl From<bool> for HexPair {
 }
 
 fn byte(pair: &str) -> Result<Option<u8>, Never> {
-  let spelling = HexPair::from(pair.len() == 2 && pair.bytes().all(|digit| digit.is_ascii_hexdigit()));
+  let spelling =
+    HexPair::from(pair.len() == 2 && pair.bytes().all(|digit| digit.is_ascii_hexdigit()));
 
   Ok(match spelling {
     HexPair::TwoDigits => match u8::from_str_radix(pair, 16) {

@@ -132,10 +132,12 @@ fn a_site(said: &str) -> Result<Typed, Never> {
 
   let host = a_host(before)?;
 
-  Ok(match ::core::primitive::bool::then_some(said.contains("://") || host == Typed::ASite, ()) {
-    ::core::option::Option::Some(()) => Typed::ASite,
-    ::core::option::Option::None => Typed::AQuestion,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.contains("://") || host == Typed::ASite, ()) {
+      ::core::option::Option::Some(()) => Typed::ASite,
+      ::core::option::Option::None => Typed::AQuestion,
+    },
+  )
 }
 
 fn a_host(said: &str) -> Result<Typed, Never> {
@@ -158,10 +160,12 @@ fn a_host(said: &str) -> Result<Typed, Never> {
 }
 
 fn with_a_scheme(said: &str) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(said.contains("://"), ()) {
-    ::core::option::Option::Some(()) => said.to_string(),
-    ::core::option::Option::None => format!("https://{said}"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(said.contains("://"), ()) {
+      ::core::option::Option::Some(()) => said.to_string(),
+      ::core::option::Option::None => format!("https://{said}"),
+    },
+  )
 }
 
 fn encoded(said: &str) -> Result<String, Never> {

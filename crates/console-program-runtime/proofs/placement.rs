@@ -109,8 +109,11 @@ fn seeded_placement_preserves_state_and_ordered_effects_for_each_step() {
 fn a_placement_failure_is_returned_by_the_only_executor_called() {
   let first: u8 = kani::any();
   let second: u8 = kani::any();
-  let Ok(mut placed) =
-    Seeded::new(kani::any(), Recorder::new(Some(first)), Recorder::new(Some(second)));
+  let Ok(mut placed) = Seeded::new(
+    kani::any(),
+    Recorder::new(Some(first)),
+    Recorder::new(Some(second)),
+  );
 
   let failure = if kani::any() {
     placed.initialize(&kani::any())

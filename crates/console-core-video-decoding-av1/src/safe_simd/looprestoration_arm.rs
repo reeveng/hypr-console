@@ -102,14 +102,22 @@ use archmage::intrinsics::aarch64 as safe_simd;
 #[cfg(target_arch = "aarch64")]
 use archmage::{Arm64, arcane, rite};
 
+use core::ops::Range;
 use std::cell::RefCell;
 use std::thread::LocalKey;
-use core::ops::Range;
 
 use crate::include::common::bitdepth::{AsPrimitive, BitDepth};
 use crate::include::dav1d::picture::PicOffset;
-use crate::src::looprestoration::{RESTORATION_INTERIOR, RestorationDeltas, RestorationMoments, RestorationPixels, RestorationRow, restoration_rows, restoration_rows_mut, BoxRadius, LooprestorationParams, RestorationDispatch, RestorationKernel, RestorationPadding, RestorationRequest, SGR_STRIDE, SgrSelection, SgrStencil};
-use crate::src::error::{Rav1dError::{EINVAL, ENOMEM}, Rav1dResult};
+use crate::src::error::{
+  Rav1dError::{EINVAL, ENOMEM},
+  Rav1dResult,
+};
+use crate::src::looprestoration::{
+  BoxRadius, LooprestorationParams, RESTORATION_INTERIOR, RestorationDeltas, RestorationDispatch,
+  RestorationKernel, RestorationMoments, RestorationPadding, RestorationPixels,
+  RestorationRequest, RestorationRow, SGR_STRIDE, SgrSelection, SgrStencil, restoration_rows,
+  restoration_rows_mut,
+};
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index};
@@ -132,7 +140,10 @@ fn boxed_zeroed<T: Copy + Default, const N: usize>() -> Rav1dResult<Box<[T; N]>>
   let mut samples = Vec::new();
   samples.try_reserve_exact(N).map_err(|_allocation| ENOMEM)?;
   samples.resize(N, T::default());
-  samples.into_boxed_slice().try_into().map_err(|_extent| EINVAL)
+  samples
+    .into_boxed_slice()
+    .try_into()
+    .map_err(|_extent| EINVAL)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -152,9 +163,7 @@ type Scratch8 = RestorationScratch<u8, i16>;
 type Scratch16 = RestorationScratch<u16, i32>;
 
 #[cfg(target_arch = "aarch64")]
-impl<Pixel: Copy + Default, Coefficient: Copy + Default>
-  RestorationScratch<Pixel, Coefficient>
-{
+impl<Pixel: Copy + Default, Coefficient: Copy + Default> RestorationScratch<Pixel, Coefficient> {
   fn new() -> Rav1dResult<Self> {
     let tmp = boxed_zeroed()?;
     let hor = boxed_zeroed()?;
@@ -186,17 +195,19 @@ fn with_scratch<S: 'static, R>(
   allocate: impl FnOnce() -> Rav1dResult<S>,
   filter: impl FnOnce(&mut S) -> Rav1dResult<R>,
 ) -> Rav1dResult<R> {
-  cache.try_with(|entry| {
-    let mut cached = entry.try_borrow_mut().map_err(|_occupied| EINVAL)?;
-    let scratch = match &mut *cached {
-      Some(scratch) => scratch,
-      None => {
-        let new = allocate()?;
-        cached.insert(new)
-      }
-    };
-    filter(scratch)
-  }).map_err(|_thread_local| EINVAL)?
+  cache
+    .try_with(|entry| {
+      let mut cached = entry.try_borrow_mut().map_err(|_occupied| EINVAL)?;
+      let scratch = match &mut *cached {
+        Some(scratch) => scratch,
+        None => {
+          let new = allocate()?;
+          cached.insert(new)
+        }
+      };
+      filter(scratch)
+    })
+    .map_err(|_thread_local| EINVAL)?
 }
 
 struct WienerPass {
@@ -211,11 +222,23 @@ struct WienerPasses {
   vertical: WienerPass,
 }
 
-fn wiener_passes(params: &LooprestorationParams, depth: u32, maximum: i32) -> Result<WienerPasses, Never> {
+fn wiener_passes(
+  params: &LooprestorationParams,
+  depth: u32,
+  maximum: i32,
+) -> Result<WienerPasses, Never> {
   let [horizontal, vertical] = params.filter;
   let [first, second, third, center, fifth, sixth, seventh, _] = horizontal;
   let eight_bit = i16::from(depth == 8).wrapping_mul(128);
-  let horizontal_taps = [first, second, third, center.wrapping_add(eight_bit), fifth, sixth, seventh];
+  let horizontal_taps = [
+    first,
+    second,
+    third,
+    center.wrapping_add(eight_bit),
+    fifth,
+    sixth,
+    seventh,
+  ];
   let [a, b, c, d, e, f, g, _] = vertical;
   let extra = u32::from(depth == 12).wrapping_mul(2);
   let horizontal_shift = 3_u32.wrapping_add(extra);
@@ -224,13 +247,20 @@ fn wiener_passes(params: &LooprestorationParams, depth: u32, maximum: i32) -> Re
 
   Ok(WienerPasses {
     horizontal: WienerPass {
-      bias: 1_i32.wrapping_shl(depth.wrapping_add(6)).wrapping_add(1_i32.wrapping_shl(horizontal_shift.wrapping_sub(1))),
+      bias: 1_i32
+        .wrapping_shl(depth.wrapping_add(6))
+        .wrapping_add(1_i32.wrapping_shl(horizontal_shift.wrapping_sub(1))),
       shift: horizontal_shift,
-      maximum: 1_i32.wrapping_shl(depth.wrapping_add(8).wrapping_sub(horizontal_shift)).wrapping_sub(1),
+      maximum: 1_i32
+        .wrapping_shl(depth.wrapping_add(8).wrapping_sub(horizontal_shift))
+        .wrapping_sub(1),
       taps: horizontal_taps,
     },
     vertical: WienerPass {
-      bias: 1_i32.wrapping_shl(depth.wrapping_add(vertical_rounding)).wrapping_neg().wrapping_add(1_i32.wrapping_shl(vertical_rounding)),
+      bias: 1_i32
+        .wrapping_shl(depth.wrapping_add(vertical_rounding))
+        .wrapping_neg()
+        .wrapping_add(1_i32.wrapping_shl(vertical_rounding)),
       shift: vertical_shift,
       maximum,
       taps: [a, b, c, d, e, f, g],
@@ -265,9 +295,12 @@ fn apply_wiener_taps(
 }
 
 fn arm_wiener_sample(input: [i32; 7], pass: &WienerPass) -> Result<i32, Never> {
-  let sum = input.into_iter().zip(pass.taps).fold(pass.bias, |sum, (pixel, weight)| {
-    sum.wrapping_add(pixel.wrapping_mul(i32::from(weight)))
-  });
+  let sum = input
+    .into_iter()
+    .zip(pass.taps)
+    .fold(pass.bias, |sum, (pixel, weight)| {
+      sum.wrapping_add(pixel.wrapping_mul(i32::from(weight)))
+    });
   Ok(iclip(sum.wrapping_shr(pass.shift), 0, pass.maximum))
 }
 
@@ -279,7 +312,10 @@ struct WienerHorizontal<'a, BD: BitDepth> {
 }
 
 #[arcane]
-fn wiener_horizontal<BD: BitDepth>(token: Arm64, request: WienerHorizontal<'_, BD>) -> Rav1dResult {
+fn wiener_horizontal<BD: BitDepth>(
+  token: Arm64,
+  request: WienerHorizontal<'_, BD>,
+) -> Rav1dResult {
   let Ok(source) = restoration_rows(request.source);
   let Ok(output) = restoration_rows_mut(request.output);
   let Ok(width) = index(request.extent.width);
@@ -410,18 +446,34 @@ fn wiener_vertical<BD: BitDepth>(token: Arm64, request: WienerOutput<'_>) -> Rav
   Ok(())
 }
 
-fn wiener_8bpc(token: Arm64, request: RestorationPadding<'_, BitDepth8>, params: &LooprestorationParams) -> Rav1dResult {
+fn wiener_8bpc(
+  token: Arm64,
+  request: RestorationPadding<'_, BitDepth8>,
+  params: &LooprestorationParams,
+) -> Rav1dResult {
   with_scratch(&SCRATCH8, Scratch8::new, |scratch| {
     let extent = request.size;
     let destination = request.picture;
     let Ok(passes) = wiener_passes(params, 8, 255);
     padding::<BitDepth8>(scratch.tmp.as_mut(), request)?;
-    wiener_horizontal::<BitDepth8>(token, WienerHorizontal {
-      source: &scratch.tmp, output: &mut scratch.hor, extent, pass: &passes.horizontal,
-    })?;
-    wiener_vertical::<BitDepth8>(token, WienerOutput {
-      source: &scratch.hor, destination, extent, pass: &passes.vertical,
-    })
+    wiener_horizontal::<BitDepth8>(
+      token,
+      WienerHorizontal {
+        source: &scratch.tmp,
+        output: &mut scratch.hor,
+        extent,
+        pass: &passes.horizontal,
+      },
+    )?;
+    wiener_vertical::<BitDepth8>(
+      token,
+      WienerOutput {
+        source: &scratch.hor,
+        destination,
+        extent,
+        pass: &passes.vertical,
+      },
+    )
   })
 }
 
@@ -440,12 +492,24 @@ fn wiener_16bpc(
     };
     let Ok(passes) = wiener_passes(params, depth, maximum);
     padding::<BitDepth16>(scratch.tmp.as_mut(), request)?;
-    wiener_horizontal::<BitDepth16>(token, WienerHorizontal {
-      source: &scratch.tmp, output: &mut scratch.hor, extent, pass: &passes.horizontal,
-    })?;
-    wiener_vertical::<BitDepth16>(token, WienerOutput {
-      source: &scratch.hor, destination, extent, pass: &passes.vertical,
-    })
+    wiener_horizontal::<BitDepth16>(
+      token,
+      WienerHorizontal {
+        source: &scratch.tmp,
+        output: &mut scratch.hor,
+        extent,
+        pass: &passes.horizontal,
+      },
+    )?;
+    wiener_vertical::<BitDepth16>(
+      token,
+      WienerOutput {
+        source: &scratch.hor,
+        destination,
+        extent,
+        pass: &passes.vertical,
+      },
+    )
   })
 }
 
@@ -461,12 +525,21 @@ struct BoxMomentsOutput<'a, Sum> {
 
 fn moment_window<T, const N: usize>(values: &[T], first: u64) -> Rav1dResult<&[T; N]> {
   let Ok(start) = index(first);
-  values.get(start..).and_then(<[_]>::first_chunk).ok_or(EINVAL)
+  values
+    .get(start..)
+    .and_then(<[_]>::first_chunk)
+    .ok_or(EINVAL)
 }
 
-fn moment_window_mut<T, const N: usize>(values: &mut [T], first: u64) -> Rav1dResult<&mut [T; N]> {
+fn moment_window_mut<T, const N: usize>(
+  values: &mut [T],
+  first: u64,
+) -> Rav1dResult<&mut [T; N]> {
   let Ok(start) = index(first);
-  values.get_mut(start..).and_then(<[_]>::first_chunk_mut).ok_or(EINVAL)
+  values
+    .get_mut(start..)
+    .and_then(<[_]>::first_chunk_mut)
+    .ok_or(EINVAL)
 }
 
 fn vertical_moments_tail<P, Sum, const N: usize>(
@@ -719,11 +792,17 @@ fn box_rows<Pixel, Sum, Context, const N: usize>(
     let Ok(position) = index(row);
     let sum = sums.get_mut(position).ok_or(EINVAL)?;
     let squared = squares.get_mut(position).ok_or(EINVAL)?;
-    measure(BoxArea {
-      source,
-      output: BoxMomentsOutput { sums: sum, squares: squared },
-      width: pass.extent.width,
-    }, context)?;
+    measure(
+      BoxArea {
+        source,
+        output: BoxMomentsOutput {
+          sums: sum,
+          squares: squared,
+        },
+        width: pass.extent.width,
+      },
+      context,
+    )?;
   }
 
   Ok(())
@@ -733,7 +812,10 @@ fn box_rows<Pixel, Sum, Context, const N: usize>(
 fn boxsum_8bpc(token: Arm64, pass: BoxSumPass<'_, u8, i16>) -> Rav1dResult {
   let mut sums: RestorationRow<_> = [0_u16; _];
   let mut squared: RestorationRow<_> = [0_u32; _];
-  let mut scratch = BoxMoments { sums: &mut sums, squares: &mut squared };
+  let mut scratch = BoxMoments {
+    sums: &mut sums,
+    squares: &mut squared,
+  };
 
   match pass.radius {
     BoxRadius::One => box_rows::<_, _, _, 3>(pass, &mut scratch, |mut area, workspace| {
@@ -751,7 +833,10 @@ fn boxsum_8bpc(token: Arm64, pass: BoxSumPass<'_, u8, i16>) -> Rav1dResult {
 fn boxsum_16bpc(token: Arm64, pass: BoxSumPass<'_, u16, i32>) -> Rav1dResult {
   let mut sums: RestorationRow<_> = [0_u32; _];
   let mut squared: RestorationRow<_> = [0_u32; _];
-  let mut scratch = BoxMoments { sums: &mut sums, squares: &mut squared };
+  let mut scratch = BoxMoments {
+    sums: &mut sums,
+    squares: &mut squared,
+  };
 
   match pass.radius {
     BoxRadius::One => box_rows::<_, _, _, 3>(pass, &mut scratch, |mut area, workspace| {
@@ -819,7 +904,10 @@ fn sgr_aa(_token: Arm64, x: uint32x4_t, b: int32x4_t, one_by_x: u32) -> Result<i
     vmulq_u32(x, vreinterpretq_u32_s32(b)),
     vdupq_n_u32(one_by_x),
   );
-  Ok(vreinterpretq_s32_u32(vshrq_n_u32::<12>(vaddq_u32(prod, vdupq_n_u32(2048)))))
+  Ok(vreinterpretq_s32_u32(vshrq_n_u32::<12>(vaddq_u32(
+    prod,
+    vdupq_n_u32(2048),
+  ))))
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -864,7 +952,12 @@ impl SgrModel {
       BoxRadius::One => (9, 455),
       BoxRadius::Two => (25, 164),
     };
-    Ok(SgrNormalization { samples, multiplier: self.strength, reciprocal, depth_shift: self.depth_shift })
+    Ok(SgrNormalization {
+      samples,
+      multiplier: self.strength,
+      reciprocal,
+      depth_shift: self.depth_shift,
+    })
   }
 }
 
@@ -881,10 +974,7 @@ struct ModelMoments<'a, Coef, const N: usize> {
 }
 
 #[rite]
-fn model_sum_lanes<BD: BitDepth>(
-  _token: Arm64,
-  sums: &[BD::Coef; 4],
-) -> Rav1dResult<int32x4_t> {
+fn model_sum_lanes<BD: BitDepth>(_token: Arm64, sums: &[BD::Coef; 4]) -> Rav1dResult<int32x4_t> {
   use crate::include::common::bitdepth::BPC;
   use zerocopy::{FromBytes, IntoBytes};
 
@@ -940,7 +1030,11 @@ fn sgr_model_group<BD: BitDepth>(
   let mut raw_sums = [vdupq_n_s32(0); 4];
   let mut indices = [vdupq_n_u32(0); 4];
 
-  for ((squared, sum), (raw, position)) in squares.iter().zip(&*sums).zip(raw_sums.iter_mut().zip(&mut indices)) {
+  for ((squared, sum), (raw, position)) in squares
+    .iter()
+    .zip(&*sums)
+    .zip(raw_sums.iter_mut().zip(&mut indices))
+  {
     let square = safe_simd::vld1q_s32(squared);
     let values = model_sum_lanes::<BD>(token, sum)?;
     *raw = values;
@@ -954,7 +1048,11 @@ fn sgr_model_group<BD: BitDepth>(
   let Ok(looked_up) = sgr_lut16(token, packed_indices);
   let Ok(weights) = sgr_unpack_x(token, looked_up);
 
-  for ((square, sum), (raw, weight)) in squares.iter_mut().zip(sums).zip(raw_sums.into_iter().zip(weights)) {
+  for ((square, sum), (raw, weight)) in squares
+    .iter_mut()
+    .zip(sums)
+    .zip(raw_sums.into_iter().zip(weights))
+  {
     let Ok(intercept) = sgr_aa(token, weight, raw, norm.reciprocal);
     safe_simd::vst1q_s32(square, intercept);
     store_model_weights::<BD>(token, sum, weight)?;
@@ -976,13 +1074,25 @@ fn sgr_model_scalar<BD: BitDepth>(
     let raw = (*sum).as_::<i32>();
     let a = square.wrapping_add(square_round).wrapping_shr(square_shift);
     let b = raw.wrapping_add(sum_round).wrapping_shr(norm.depth_shift);
-    let variance = a.wrapping_mul(norm.samples).wrapping_sub(b.wrapping_mul(b)).max(0).cast_unsigned();
-    let z = variance.wrapping_mul(norm.multiplier).wrapping_add(::core::primitive::u32::wrapping_shl(1, 19_u32)).wrapping_shr(20);
+    let variance = a
+      .wrapping_mul(norm.samples)
+      .wrapping_sub(b.wrapping_mul(b))
+      .max(0)
+      .cast_unsigned();
+    let z = variance
+      .wrapping_mul(norm.multiplier)
+      .wrapping_add(::core::primitive::u32::wrapping_shl(1, 19_u32))
+      .wrapping_shr(20);
     let Ok(position) = index(z.min(255));
     let &weight = dav1d_sgr_x_by_x.get(position).ok_or(EINVAL)?;
     let coefficient = u32::from(weight);
-    let product = coefficient.wrapping_mul(raw.cast_unsigned()).wrapping_mul(norm.reciprocal);
-    *square = product.wrapping_add(::core::primitive::u32::wrapping_shl(1, 11_u32)).wrapping_shr(12).cast_signed();
+    let product = coefficient
+      .wrapping_mul(raw.cast_unsigned())
+      .wrapping_mul(norm.reciprocal);
+    *square = product
+      .wrapping_add(::core::primitive::u32::wrapping_shl(1, 11_u32))
+      .wrapping_shr(12)
+      .cast_signed();
     *sum = i32::from(weight).as_::<BD::Coef>();
   }
 
@@ -994,12 +1104,17 @@ fn validate_sgr_sums<BD: BitDepth>(
   sums: &[BD::Coef],
   norm: &SgrNormalization,
 ) -> Rav1dResult {
-  let maximum = 1_i32.wrapping_shl(norm.depth_shift.wrapping_add(8)).wrapping_sub(1);
+  let maximum = 1_i32
+    .wrapping_shl(norm.depth_shift.wrapping_add(8))
+    .wrapping_sub(1);
   let sample_total = norm.samples.wrapping_mul(maximum);
   let square_total = sample_total.wrapping_mul(maximum);
 
   for (&square, &sample) in squares.iter().zip(sums) {
-    match ((0..=square_total).contains(&square) && (0..=sample_total).contains(&sample.as_::<i32>())).then_some(()) {
+    match ((0..=square_total).contains(&square)
+      && (0..=sample_total).contains(&sample.as_::<i32>()))
+    .then_some(())
+    {
       Some(()) => {}
       None => return Err(EINVAL),
     }
@@ -1026,8 +1141,14 @@ fn sgr_ab<BD: BitDepth>(token: Arm64, request: SgrModelRequest<'_, BD::Coef>) ->
 
   for row_number in 0..rows {
     let Ok(position) = index(row_number.wrapping_mul(stride).wrapping_add(1));
-    let squared = squares.get_mut(position).and_then(|row| row.get_mut(2..right)).ok_or(EINVAL)?;
-    let samples = sums.get_mut(position).and_then(|row| row.get_mut(2..right)).ok_or(EINVAL)?;
+    let squared = squares
+      .get_mut(position)
+      .and_then(|row| row.get_mut(2..right))
+      .ok_or(EINVAL)?;
+    let samples = sums
+      .get_mut(position)
+      .and_then(|row| row.get_mut(2..right))
+      .ok_or(EINVAL)?;
 
     validate_sgr_sums::<BD>(squared, samples, &norm)?;
 
@@ -1035,7 +1156,14 @@ fn sgr_ab<BD: BitDepth>(token: Arm64, request: SgrModelRequest<'_, BD::Coef>) ->
     let (vector_samples, tail_samples) = samples.as_chunks_mut::<16>();
 
     for (square_lanes, sum_lanes) in vector_squares.iter_mut().zip(vector_samples) {
-      sgr_model_group::<BD>(token, ModelMoments { squared: square_lanes, samples: sum_lanes }, &norm)?;
+      sgr_model_group::<BD>(
+        token,
+        ModelMoments {
+          squared: square_lanes,
+          samples: sum_lanes,
+        },
+        &norm,
+      )?;
     }
 
     sgr_model_scalar::<BD>(tail_squares, tail_samples, &norm)?;
@@ -1162,17 +1290,25 @@ fn sgr_output<BD: BitDepth>(token: Arm64, output: SgrOutput<'_, BD>) -> Rav1dRes
     let source = output.pixels.get(start..end).ok_or(EINVAL)?;
     let Ok(target_start) = index(into);
     let Ok(target_end) = index(into.wrapping_add(output.extent.width));
-    let destination = output.destination.get_mut(target_start..target_end).ok_or(EINVAL)?;
+    let destination = output
+      .destination
+      .get_mut(target_start..target_end)
+      .ok_or(EINVAL)?;
     let (source_vectors, scalar_pixels) = source.as_chunks::<4>();
     let (destination_vectors, scalar_output) = destination.as_chunks_mut::<4>();
     let blocks = output.extent.width.wrapping_div(4);
 
-    for (block, (samples, deltas)) in (0..blocks).zip(source_vectors.iter().zip(destination_vectors)) {
+    for (block, (samples, deltas)) in
+      (0..blocks).zip(source_vectors.iter().zip(destination_vectors))
+    {
       let position = moment.wrapping_add(block.wrapping_mul(4));
       let intercept = sgr_weighted_vector(token, output.intercepts, position, stencil)?;
       let weight = sgr_weighted_vector(token, output.weights, position, stencil)?;
       let lanes = safe_simd::vld1q_s32(&samples.map(|sample| sample.as_::<i32>()));
-      let score = vaddq_s32(vsubq_s32(intercept, vmulq_s32(weight, lanes)), vdupq_n_s32(rounding));
+      let score = vaddq_s32(
+        vsubq_s32(intercept, vmulq_s32(weight, lanes)),
+        vdupq_n_s32(rounding),
+      );
       let shifted = match stencil {
         SgrStencil::Middle => vshrq_n_s32::<8>(score),
         SgrStencil::Alternate | SgrStencil::Full => vshrq_n_s32::<9>(score),
@@ -1182,11 +1318,16 @@ fn sgr_output<BD: BitDepth>(token: Arm64, output: SgrOutput<'_, BD>) -> Rav1dRes
       *deltas = values.map(|value| value.as_::<BD::Coef>());
     }
 
-    for (column, (&sample, delta)) in (blocks.wrapping_mul(4)..output.extent.width).zip(scalar_pixels.iter().zip(scalar_output)) {
+    for (column, (&sample, delta)) in
+      (blocks.wrapping_mul(4)..output.extent.width).zip(scalar_pixels.iter().zip(scalar_output))
+    {
       let position = moment.wrapping_add(column);
       let intercept = sgr_weighted_scalar(output.intercepts, position, stencil)?;
       let weight = sgr_weighted_scalar(output.weights, position, stencil)?;
-      let result = intercept.wrapping_sub(weight.wrapping_mul(sample.as_::<i32>())).wrapping_add(rounding).wrapping_shr(shift);
+      let result = intercept
+        .wrapping_sub(weight.wrapping_mul(sample.as_::<i32>()))
+        .wrapping_add(rounding)
+        .wrapping_shr(shift);
       *delta = result.as_::<BD::Coef>();
     }
   }
@@ -1217,7 +1358,8 @@ fn sgr_residual_lanes<BD: BitDepth>(
 
   Ok(match BD::BPC {
     BPC::BPC8 => {
-      let narrow_values = FromBytes::ref_from_bytes(values.as_bytes()).map_err(|_layout| EINVAL)?;
+      let narrow_values =
+        FromBytes::ref_from_bytes(values.as_bytes()).map_err(|_layout| EINVAL)?;
       let samples = safe_simd::vld1q_s16(narrow_values);
       [vmovl_s16(vget_low_s16(samples)), vmovl_high_s16(samples)]
     }
@@ -1329,23 +1471,44 @@ struct SgrCalculation<'a, BD: BitDepth> {
 #[cfg(target_arch = "aarch64")]
 fn selfguided_8bpc(token: Arm64, calculation: SgrCalculation<'_, BitDepth8>) -> Rav1dResult {
   let extent = calculation.extent;
-  let padded = Size { width: extent.width.wrapping_add(6), height: extent.height.wrapping_add(6) };
+  let padded = Size {
+    width: extent.width.wrapping_add(6),
+    height: extent.height.wrapping_add(6),
+  };
   let radius = calculation.model.radius;
-  boxsum_8bpc(token, BoxSumPass {
-    source: calculation.source, sum: calculation.sums, squared: calculation.squares,
-    extent: padded, radius,
-  })?;
+  boxsum_8bpc(
+    token,
+    BoxSumPass {
+      source: calculation.source,
+      sum: calculation.sums,
+      squared: calculation.squares,
+      extent: padded,
+      radius,
+    },
+  )?;
 
   let Ok(normalization) = calculation.model.normalization();
-  sgr_ab::<BitDepth8>(token, SgrModelRequest {
-    squares: calculation.squares, sums: calculation.sums, extent, model: calculation.model,
-  })?;
+  sgr_ab::<BitDepth8>(
+    token,
+    SgrModelRequest {
+      squares: calculation.squares,
+      sums: calculation.sums,
+      extent,
+      model: calculation.model,
+    },
+  )?;
 
-  sgr_output::<BitDepth8>(token, SgrOutput {
-    destination: calculation.destination, pixels: calculation.source,
-    weights: SgrMomentPlane::Narrow(calculation.sums), intercepts: SgrMomentPlane::Wide(calculation.squares),
-    extent, radius: normalization.samples,
-  })
+  sgr_output::<BitDepth8>(
+    token,
+    SgrOutput {
+      destination: calculation.destination,
+      pixels: calculation.source,
+      weights: SgrMomentPlane::Narrow(calculation.sums),
+      intercepts: SgrMomentPlane::Wide(calculation.squares),
+      extent,
+      radius: normalization.samples,
+    },
+  )
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -1363,53 +1526,109 @@ fn sgr_8bpc(
     padding::<BitDepth8>(scratch.tmp.as_mut(), request)?;
     let sgr = params.sgr()?;
     let (radius, strength, weight) = match selection {
-      SgrSelection::FiveByFive | SgrSelection::Mixed => (BoxRadius::Two, sgr.s0, i32::from(sgr.w0)),
+      SgrSelection::FiveByFive | SgrSelection::Mixed => {
+        (BoxRadius::Two, sgr.s0, i32::from(sgr.w0))
+      }
       SgrSelection::ThreeByThree => (BoxRadius::One, sgr.s1, i32::from(sgr.w1)),
     };
-    selfguided_8bpc(token, SgrCalculation {
-      source: &scratch.tmp, destination: &mut scratch.d0, squares: &mut scratch.sumsq,
-      sums: &mut scratch.sum, extent, model: SgrModel { radius, strength, depth_shift },
-    })?;
+    selfguided_8bpc(
+      token,
+      SgrCalculation {
+        source: &scratch.tmp,
+        destination: &mut scratch.d0,
+        squares: &mut scratch.sumsq,
+        sums: &mut scratch.sum,
+        extent,
+        model: SgrModel {
+          radius,
+          strength,
+          depth_shift,
+        },
+      },
+    )?;
 
     let secondary = match selection {
       SgrSelection::FiveByFive | SgrSelection::ThreeByThree => None,
       SgrSelection::Mixed => {
-        selfguided_8bpc(token, SgrCalculation {
-          source: &scratch.tmp, destination: &mut scratch.d1, squares: &mut scratch.sumsq,
-          sums: &mut scratch.sum, extent,
-          model: SgrModel { radius: BoxRadius::One, strength: sgr.s1, depth_shift },
-        })?;
-        Some(SgrResidual { values: &scratch.d1, weight: i32::from(sgr.w1) })
+        selfguided_8bpc(
+          token,
+          SgrCalculation {
+            source: &scratch.tmp,
+            destination: &mut scratch.d1,
+            squares: &mut scratch.sumsq,
+            sums: &mut scratch.sum,
+            extent,
+            model: SgrModel {
+              radius: BoxRadius::One,
+              strength: sgr.s1,
+              depth_shift,
+            },
+          },
+        )?;
+        Some(SgrResidual {
+          values: &scratch.d1,
+          weight: i32::from(sgr.w1),
+        })
       }
     };
 
-    apply_sgr_projection::<BitDepth8>(token, SgrProjection {
-      destination, extent, maximum,
-      first: SgrResidual { values: &scratch.d0, weight }, second: secondary,
-    })
+    apply_sgr_projection::<BitDepth8>(
+      token,
+      SgrProjection {
+        destination,
+        extent,
+        maximum,
+        first: SgrResidual {
+          values: &scratch.d0,
+          weight,
+        },
+        second: secondary,
+      },
+    )
   })
 }
 
 #[cfg(target_arch = "aarch64")]
 fn selfguided_16bpc(token: Arm64, calculation: SgrCalculation<'_, BitDepth16>) -> Rav1dResult {
   let extent = calculation.extent;
-  let padded = Size { width: extent.width.wrapping_add(6), height: extent.height.wrapping_add(6) };
+  let padded = Size {
+    width: extent.width.wrapping_add(6),
+    height: extent.height.wrapping_add(6),
+  };
   let radius = calculation.model.radius;
-  boxsum_16bpc(token, BoxSumPass {
-    source: calculation.source, sum: calculation.sums, squared: calculation.squares,
-    extent: padded, radius,
-  })?;
+  boxsum_16bpc(
+    token,
+    BoxSumPass {
+      source: calculation.source,
+      sum: calculation.sums,
+      squared: calculation.squares,
+      extent: padded,
+      radius,
+    },
+  )?;
 
   let Ok(normalization) = calculation.model.normalization();
-  sgr_ab::<BitDepth16>(token, SgrModelRequest {
-    squares: calculation.squares, sums: calculation.sums, extent, model: calculation.model,
-  })?;
+  sgr_ab::<BitDepth16>(
+    token,
+    SgrModelRequest {
+      squares: calculation.squares,
+      sums: calculation.sums,
+      extent,
+      model: calculation.model,
+    },
+  )?;
 
-  sgr_output::<BitDepth16>(token, SgrOutput {
-    destination: calculation.destination, pixels: calculation.source,
-    weights: SgrMomentPlane::Wide(calculation.sums), intercepts: SgrMomentPlane::Wide(calculation.squares),
-    extent, radius: normalization.samples,
-  })
+  sgr_output::<BitDepth16>(
+    token,
+    SgrOutput {
+      destination: calculation.destination,
+      pixels: calculation.source,
+      weights: SgrMomentPlane::Wide(calculation.sums),
+      intercepts: SgrMomentPlane::Wide(calculation.squares),
+      extent,
+      radius: normalization.samples,
+    },
+  )
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -1430,30 +1649,65 @@ fn sgr_16bpc(
     padding::<BitDepth16>(scratch.tmp.as_mut(), request)?;
     let sgr = params.sgr()?;
     let (radius, strength, weight) = match selection {
-      SgrSelection::FiveByFive | SgrSelection::Mixed => (BoxRadius::Two, sgr.s0, i32::from(sgr.w0)),
+      SgrSelection::FiveByFive | SgrSelection::Mixed => {
+        (BoxRadius::Two, sgr.s0, i32::from(sgr.w0))
+      }
       SgrSelection::ThreeByThree => (BoxRadius::One, sgr.s1, i32::from(sgr.w1)),
     };
-    selfguided_16bpc(token, SgrCalculation {
-      source: &scratch.tmp, destination: &mut scratch.d0, squares: &mut scratch.sumsq,
-      sums: &mut scratch.sum, extent, model: SgrModel { radius, strength, depth_shift },
-    })?;
+    selfguided_16bpc(
+      token,
+      SgrCalculation {
+        source: &scratch.tmp,
+        destination: &mut scratch.d0,
+        squares: &mut scratch.sumsq,
+        sums: &mut scratch.sum,
+        extent,
+        model: SgrModel {
+          radius,
+          strength,
+          depth_shift,
+        },
+      },
+    )?;
 
     let secondary = match selection {
       SgrSelection::FiveByFive | SgrSelection::ThreeByThree => None,
       SgrSelection::Mixed => {
-        selfguided_16bpc(token, SgrCalculation {
-          source: &scratch.tmp, destination: &mut scratch.d1, squares: &mut scratch.sumsq,
-          sums: &mut scratch.sum, extent,
-          model: SgrModel { radius: BoxRadius::One, strength: sgr.s1, depth_shift },
-        })?;
-        Some(SgrResidual { values: &scratch.d1, weight: i32::from(sgr.w1) })
+        selfguided_16bpc(
+          token,
+          SgrCalculation {
+            source: &scratch.tmp,
+            destination: &mut scratch.d1,
+            squares: &mut scratch.sumsq,
+            sums: &mut scratch.sum,
+            extent,
+            model: SgrModel {
+              radius: BoxRadius::One,
+              strength: sgr.s1,
+              depth_shift,
+            },
+          },
+        )?;
+        Some(SgrResidual {
+          values: &scratch.d1,
+          weight: i32::from(sgr.w1),
+        })
       }
     };
 
-    apply_sgr_projection::<BitDepth16>(token, SgrProjection {
-      destination, extent, maximum,
-      first: SgrResidual { values: &scratch.d0, weight }, second: secondary,
-    })
+    apply_sgr_projection::<BitDepth16>(
+      token,
+      SgrProjection {
+        destination,
+        extent,
+        maximum,
+        first: SgrResidual {
+          values: &scratch.d0,
+          weight,
+        },
+        second: secondary,
+      },
+    )
   })
 }
 
@@ -1466,8 +1720,18 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
   use crate::src::safe_simd::pixel_access::reinterpret_slice;
   use archmage::SimdToken as _;
 
-  let RestorationPadding { picture, backup, lines, offset, size, edges } = request.padding;
-  let Ok(()) = note(Family::LoopRestoration, size.width.wrapping_mul(size.height));
+  let RestorationPadding {
+    picture,
+    backup,
+    lines,
+    offset,
+    size,
+    edges,
+  } = request.padding;
+  let Ok(()) = note(
+    Family::LoopRestoration,
+    size.width.wrapping_mul(size.height),
+  );
 
   match is_off(Family::LoopRestoration).then_some(()) {
     Some(()) => return Ok(RestorationDispatch::Fallback),
@@ -1487,7 +1751,14 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
         Ok(None) => return Ok(RestorationDispatch::Fallback),
       };
 
-      let padding = RestorationPadding { picture, backup: left, lines, offset, size, edges };
+      let padding = RestorationPadding {
+        picture,
+        backup: left,
+        lines,
+        offset,
+        size,
+        edges,
+      };
 
       match request.kernel {
         RestorationKernel::Wiener => wiener_8bpc(token, padding, params),
@@ -1501,11 +1772,20 @@ pub(crate) fn lr_filter_dispatch<BD: BitDepth>(
       };
       let maximum = request.bitdepth.into_c();
 
-      let padding = RestorationPadding { picture, backup: left, lines, offset, size, edges };
+      let padding = RestorationPadding {
+        picture,
+        backup: left,
+        lines,
+        offset,
+        size,
+        edges,
+      };
 
       match request.kernel {
         RestorationKernel::Wiener => wiener_16bpc(token, padding, params, maximum),
-        RestorationKernel::SelfGuided(selection) => sgr_16bpc(token, padding, params, selection, maximum),
+        RestorationKernel::SelfGuided(selection) => {
+          sgr_16bpc(token, padding, params, selection, maximum)
+        }
       }
     }
   };

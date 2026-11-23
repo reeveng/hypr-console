@@ -77,10 +77,12 @@ impl<'a> LiveFile<'a> {
       None => return Err(Unapplied::InvalidFilePath(live.to_string())),
     };
 
-    match ::core::primitive::bool::then_some(path
-      .split('/')
-      .all(|name| !matches!(name, "" | "." | "..") && !name.contains('\0')), ())
-    {
+    match ::core::primitive::bool::then_some(
+      path
+        .split('/')
+        .all(|name| !matches!(name, "" | "." | "..") && !name.contains('\0')),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Self(path)),
       ::core::option::Option::None => Err(Unapplied::InvalidFilePath(live.to_string())),
     }
@@ -98,10 +100,10 @@ pub struct BuildName<'a>(&'a str);
 
 impl<'a> BuildName<'a> {
   pub fn parse(name: &'a str) -> Result<Self, Unapplied> {
-    match ::core::primitive::bool::then_some(!matches!(name, "" | "." | "..")
-      && !name.starts_with('-')
-      && !name.contains(['/', '\0']), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(name, "" | "." | "..") && !name.starts_with('-') && !name.contains(['/', '\0']),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Self(name)),
       ::core::option::Option::None => Err(Unapplied::InvalidBuildName(name.to_string())),
     }
@@ -248,10 +250,12 @@ impl Manifest {
   }
 
   pub fn write_policy(&self, path: &str) -> Result<Written, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.written_once.contains(path), ()) {
-      ::core::option::Option::Some(()) => Written::Once,
-      ::core::option::Option::None => Written::Always,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.written_once.contains(path), ()) {
+        ::core::option::Option::Some(()) => Written::Once,
+        ::core::option::Option::None => Written::Always,
+      },
+    )
   }
 
   pub fn sections(&self) -> Result<impl Iterator<Item = (Section, &[String])>, Never> {

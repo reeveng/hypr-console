@@ -1,7 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use console_core_geometry::Size;
-use console_core_path_rasterizer::{Paint, Pixmap, Rect, Transform};
+use console_core_path_rasterizer::{Paint, Pixmap, FloatRectangle, Transform};
 use console_core_text_layout::{
   Align, Attrs, AttrsOwned, Buffer, Color, Ellipsize, Family, FontSize, FontSystem, GlyphCache,
   LineHeight, Metrics, Shaping, Wrap, fontdb::Database,
@@ -248,7 +248,7 @@ fn rasterized(
       let Ok(width_2) = console_core_number_conversion::narrow_f32(f64::from(width));
       let Ok(height_2) = console_core_number_conversion::narrow_f32(f64::from(height));
       let rect = match {
-        let Ok(explicit_value) = Rect::from_xywh(x_2, y_2, width_2, height_2);
+        let Ok(explicit_value) = FloatRectangle::from_xywh(x_2, y_2, width_2, height_2);
         explicit_value
       } {
         Some(rect) => rect,

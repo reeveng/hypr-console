@@ -126,7 +126,10 @@ impl<'a> Block<'a> {
     let registers = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
     let segment = u16::from_le_bytes([lower, upper]);
 
-    match ::core::primitive::bool::then_some(segment == 0 && registers != 0 && registers.is_multiple_of(16_384), ()) {
+    match ::core::primitive::bool::then_some(
+      segment == 0 && registers != 0 && registers.is_multiple_of(16_384),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Err(Error::Unsupported),
     }
@@ -157,10 +160,12 @@ impl Range {
       Self::Closed => return Err(Error::Unsupported),
     };
 
-    Ok(match ::core::primitive::bool::then_some((start..=end).contains(&requester.0), ()) {
-      ::core::option::Option::Some(()) => Some(coverage),
-      ::core::option::Option::None => None,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some((start..=end).contains(&requester.0), ()) {
+        ::core::option::Option::Some(()) => Some(coverage),
+        ::core::option::Option::None => None,
+      },
+    )
   }
 }
 
@@ -198,7 +203,10 @@ impl Unit<'_> {
           let fields = alias?;
           let [_, _, _, _, _, a, b, _] = *fields;
 
-          match ::core::primitive::bool::then_some(u16::from_le_bytes([a, b]) == requester.0 || device == requester.0, ()) {
+          match ::core::primitive::bool::then_some(
+            u16::from_le_bytes([a, b]) == requester.0 || device == requester.0,
+            (),
+          ) {
             ::core::option::Option::Some(()) => return Ok(Coverage::Skipped),
             ::core::option::Option::None => {}
           }

@@ -109,7 +109,10 @@ enum BcdRead {
 impl BcdComponents {
   pub(crate) fn parse(cursor: &mut Cursor) -> Result<Self, Error> {
     let mut phase = BcdPhase::Integer;
-    let mut value = Self { sign: 1, ..Self::default() };
+    let mut value = Self {
+      sign: 1,
+      ..Self::default()
+    };
     let Ok(remaining) = cursor.remaining_bytes();
 
     'outer: for _ in 0..=remaining {
@@ -216,7 +219,10 @@ impl BcdComponents {
         Some(Self::from(limit))
       }
       core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {
-        self.exponent = self.exponent.wrapping_mul(10).wrapping_add(i32::from(digit));
+        self.exponent = self
+          .exponent
+          .wrapping_mul(10)
+          .wrapping_add(i32::from(digit));
         None
       }
     })
@@ -225,7 +231,10 @@ impl BcdComponents {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit008_no_bool_param",
-    expect(explicit008_no_bool_param, reason = "CFF DICT Token::Operand exposes BcdComponents and this existing Boolean selects the BlueScale conversion")
+    expect(
+      explicit008_no_bool_param,
+      reason = "CFF DICT Token::Operand exposes BcdComponents and this existing Boolean selects the BlueScale conversion"
+    )
   )]
   pub fn value(
     &self,
@@ -420,7 +429,9 @@ impl BcdComponents {
   }
 
   #[must_use]
-  pub(crate) fn dynamically_scaled_value(&self) -> Result<(Fixed, i32), console_core_never::Never> {
+  pub(crate) fn dynamically_scaled_value(
+    &self,
+  ) -> Result<(Fixed, i32), console_core_never::Never> {
     match self.error {
       Some(error) => return Ok((error, 0)),
       None => {}
@@ -433,7 +444,10 @@ impl BcdComponents {
 
     let magnitude = BcdMagnitude {
       digits: self.number,
-      exponent: self.exponent.wrapping_add(self.exponent_add).wrapping_add(self.integer_len),
+      exponent: self
+        .exponent
+        .wrapping_add(self.exponent_add)
+        .wrapping_add(self.integer_len),
       fraction_len: self.fraction_len.wrapping_add(self.integer_len),
     };
     let Ok(outcome) = match (magnitude.fraction_len <= 5).then_some(()) {
@@ -441,7 +455,10 @@ impl BcdComponents {
       None => magnitude.scale_long(),
     };
     let (unsigned, scaling) = match outcome {
-      BcdScaled::Value { magnitude: magnitude_2, scaling } => (magnitude_2, scaling),
+      BcdScaled::Value {
+        magnitude: magnitude_2,
+        scaling,
+      } => (magnitude_2, scaling),
       BcdScaled::Overflow => return Ok((BCD_OVERFLOW, 0)),
       BcdScaled::Underflow => return Ok((BCD_UNDERFLOW, 0)),
     };
@@ -450,7 +467,6 @@ impl BcdComponents {
 
     Ok((signed, scaling))
   }
-
 }
 
 struct BcdMagnitude {
@@ -467,7 +483,11 @@ enum BcdScaled {
 
 impl BcdMagnitude {
   fn scale_short(self) -> Result<BcdScaled, console_core_never::Never> {
-    let BcdMagnitude { mut digits, exponent, fraction_len } = self;
+    let BcdMagnitude {
+      mut digits,
+      exponent,
+      fraction_len,
+    } = self;
 
     match digits.cmp(&BCD_INTEGER_LIMIT) {
       core::cmp::Ordering::Greater => {
@@ -542,7 +562,6 @@ impl BcdMagnitude {
   }
 }
 
-
 impl From<Fixed> for BcdComponents {
   fn from(value: Fixed) -> Self {
     Self {
@@ -572,13 +591,19 @@ pub(crate) fn parse_fixed_dynamic(cursor: &mut Cursor) -> Result<(Fixed, i32), E
           let digits = num.ilog10().saturating_add(1).max(MIN_SCALE_DIGITS);
           let initial_exponent = digits.saturating_sub(MIN_SCALE_DIGITS);
           let Ok(index) = console_core_number_conversion::index(initial_exponent);
-          let base_divisor = BCD_POWER_TENS.get(index).copied().ok_or(Error::InvalidNumber)?;
+          let base_divisor = BCD_POWER_TENS
+            .get(index)
+            .copied()
+            .ok_or(Error::InvalidNumber)?;
           let exponent = match num.wrapping_sub(base_divisor).cmp(&BCD_INTEGER_LIMIT) {
             core::cmp::Ordering::Greater => initial_exponent.saturating_add(1),
             core::cmp::Ordering::Equal | core::cmp::Ordering::Less => initial_exponent,
           };
           let Ok(scale_index) = console_core_number_conversion::index(exponent);
-          let divisor = BCD_POWER_TENS.get(scale_index).copied().ok_or(Error::InvalidNumber)?;
+          let divisor = BCD_POWER_TENS
+            .get(scale_index)
+            .copied()
+            .ok_or(Error::InvalidNumber)?;
           let Ok(fixed) = Fixed::from_bits(num);
           let Ok(scale) = Fixed::from_bits(divisor);
           let Ok(signed_exponent) = console_core_number_conversion::wrapped::<_, i32>(exponent);

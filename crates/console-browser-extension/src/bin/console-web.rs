@@ -164,15 +164,17 @@ fn packed_version(at: &Path) -> Result<Option<String>, Never> {
 
       said
     }
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => {
-        eprintln!(
-          "{}: reading the packed add-on for its version: {fault}",
-          at.display()
-        );
-        None
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => {
+          eprintln!(
+            "{}: reading the packed add-on for its version: {fault}",
+            at.display()
+          );
+          None
+        }
       }
-    },
+    }
   })
 }

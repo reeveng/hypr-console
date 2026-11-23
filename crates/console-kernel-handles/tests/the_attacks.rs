@@ -1357,7 +1357,12 @@ fn a_job_killed_with_messages_in_flight_both_ways_leaves_what_it_sent_and_nothin
 
   let survived = received(&mut kernel, outside.id, ours)?;
   assert_eq!(kernel.read(outside.id, ours), Err(HandleError::PeerClosed));
-  assert_shared_charge(&mut kernel, root, killed, Bytes(OBJECT_COST.0.saturating_add(PAGE.0)))?;
+  assert_shared_charge(
+    &mut kernel,
+    root,
+    killed,
+    Bytes(OBJECT_COST.0.saturating_add(PAGE.0)),
+  )?;
   kernel.close(outside.id, survived)?;
   assert_shared_charge(&mut kernel, root, killed, Bytes(0))?;
 
@@ -1382,7 +1387,13 @@ fn assert_shared_charge(
 ) -> Result<(), HandleError> {
   let actual = kernel.budget(by, job)?;
 
-  assert_eq!(actual, Budget { share: SHARE, charged });
+  assert_eq!(
+    actual,
+    Budget {
+      share: SHARE,
+      charged
+    }
+  );
 
   Ok(())
 }

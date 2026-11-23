@@ -129,10 +129,12 @@ impl Front {
 
     let capability = crate::vocabulary::capability_of(button)?;
 
-    Ok(match ::core::primitive::bool::then_some(has.contains(&capability), ()) {
-      ::core::option::Option::Some(()) => Has::Yes,
-      ::core::option::Option::None => Has::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(has.contains(&capability), ()) {
+        ::core::option::Option::Some(()) => Has::Yes,
+        ::core::option::Option::None => Has::No,
+      },
+    )
   }
 
   pub fn missing_buttons<'a>(&self, buttons: &[&'a str]) -> Result<Vec<&'a str>, Never> {
@@ -189,15 +191,17 @@ pub fn capabilities(said: &str) -> Result<Option<BTreeSet<String>>, Never> {
     .map(str::to_string)
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(found.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(found),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(found.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(found),
+    },
+  )
 }
 
 enum Probe {
   Readable,
-  Unreadable,
+  ReadError,
 }
 
 pub fn touchscreen(devices: &str) -> Result<Option<Has>, Never> {
@@ -216,13 +220,13 @@ pub fn touchscreen(devices: &str) -> Result<Option<Has>, Never> {
         DIRECT => return Ok(Some(Has::Yes)),
         _elsewhere => {}
       },
-      Properties::ReadFailed => probe = Probe::Unreadable,
+      Properties::ReadFailed => probe = Probe::ReadError,
       Properties::Elsewhere => {}
     }
   }
 
   Ok(match probe {
-    Probe::Unreadable => None,
+    Probe::ReadError => None,
     Probe::Readable => Some(Has::No),
   })
 }
@@ -245,13 +249,13 @@ pub fn pad(devices: &str) -> Result<Option<Has>, Never> {
         0 => {}
         _gamepad => return Ok(Some(Has::Yes)),
       },
-      Buttons::ReadFailed => probe = Probe::Unreadable,
+      Buttons::ReadFailed => probe = Probe::ReadError,
       Buttons::Below | Buttons::Elsewhere => {}
     }
   }
 
   Ok(match probe {
-    Probe::Unreadable => None,
+    Probe::ReadError => None,
     Probe::Readable => Some(Has::No),
   })
 }

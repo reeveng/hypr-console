@@ -36,7 +36,9 @@ fn a_live_invocation_requires_the_exact_identity_and_reply_key() {
       && replied == Some(live.job)
   );
   kani::cover!(accepted == ReplyStatus::Accepted);
-  kani::cover!(accepted == ReplyStatus::Stale && live.job == incoming.job && replied == Some(live.job));
+  kani::cover!(
+    accepted == ReplyStatus::Stale && live.job == incoming.job && replied == Some(live.job)
+  );
 }
 
 #[kani::proof]

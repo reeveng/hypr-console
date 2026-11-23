@@ -79,7 +79,7 @@ pub struct FrameShared<'a> {
   pub pools: &'a crate::frame::Pools,
 }
 
-pub struct Strip {
+pub struct TileBand {
   pub columns: Range<u64>,
 
   pub mi: Vec<MiInfo>,
@@ -438,7 +438,7 @@ pub struct TileDecoder<'a> {
   s: &'a FrameShared<'a>,
   h: &'a FrameHeader,
   fc: &'a FrameContext,
-  pub strip: Strip,
+  pub strip: TileBand,
   mi_cols: u64,
   mi_rows: u64,
   subsampling: Subsampling,
@@ -536,7 +536,7 @@ impl PartitionCoverage {
 
 const SUPERBLOCK_MAX_NODES: u32 = 85;
 
-impl Strip {
+impl TileBand {
   fn new(
     shared: &FrameShared,
     columns: Range<u64>,
@@ -591,7 +591,7 @@ impl<'a> TileDecoder<'a> {
       x: u32::from(h.color.subsampling.x != 0),
       y: u32::from(h.color.subsampling.y != 0),
     };
-    let Ok(strip) = Strip::new(s, columns, subsampling);
+    let Ok(strip) = TileBand::new(s, columns, subsampling);
     let row_sb = u64::from(h.sb64_rows);
     let col_sb = u64::from(h.sb64_cols);
     let Ok(above_units) = filled::<_, 4112>(col_sb.wrapping_add(1).wrapping_mul(16), 0);
@@ -1173,7 +1173,7 @@ impl<'a> TileDecoder<'a> {
 
     let Ok(predicted) = self.get_segment_id(block);
     let Ok(segment) = match segmentation.map {
-      MapUpdate::Kept => Ok(predicted),
+      MapUpdate::Retained => Ok(predicted),
       MapUpdate::Temporal => self.read_temporal_segment(bd, block, predicted),
       MapUpdate::Explicit => bd.read_tree(&SEGMENT_TREE, &segmentation.tree_probs),
     };

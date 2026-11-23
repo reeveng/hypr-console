@@ -6,8 +6,8 @@
 //! and back from wherever they left it is heard twice. The run puts their
 //! level back after the last check.
 
-use console_test_stages::device::TriggerTravel;
 use console_test_stages::checking::{Body, Check, CheckResult};
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::device::{Device, Way};
 use console_test_stages::here::Here;
 

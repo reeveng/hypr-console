@@ -24,8 +24,8 @@
 //!
 //! `console-desktop pressing` is the wait said once. It takes the file the
 //! panel writes a line to on every draw, waits for a line to be in it, counts
-//! them, presses, and returns when there is one more -- and `--press` is the
-//! nested desktop holding itself open until that whole chain has finished
+//! the inputs already reported, presses, and waits for the panel to describe
+//! their result. `--press` keeps the nested desktop open until the chain ends
 //! rather than until a number of seconds has gone by. Nothing here sleeps now,
 //! and a run on a loaded machine is slower rather than red.
 //!
@@ -187,7 +187,10 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), Error> {
   };
 
   let Ok(listing) = console_core_directory_listing::recursive(&library_3, |at| {
-    match ::core::primitive::bool::then_some(at.file_name().is_some_and(|named| named == PROGRAMS), ()) {
+    match ::core::primitive::bool::then_some(
+      at.file_name().is_some_and(|named| named == PROGRAMS),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Descend::Past,
       ::core::option::Option::None => Descend::Into,
     }
@@ -202,12 +205,12 @@ fn built_since_the_panel_code(program: &Path) -> Result<(), Error> {
     .filter_map(|at| when(&at))
     .max();
 
-  let its_own = program.file_name().and_then(|named| {
-    match RelativePath::new(Path::new(named)) {
+  let its_own = program
+    .file_name()
+    .and_then(|named| match RelativePath::new(Path::new(named)) {
       Ok(source) => Some(library_3.join(PROGRAMS).join(source).with_extension("rs")),
       Err(_no_source_name) => None,
-    }
-  });
+    });
 
   match its_own {
     Some(at) => newest = newest.max(when(&at)),
@@ -242,9 +245,15 @@ static ONE_AFTER_ANOTHER: std::sync::atomic::AtomicU32 = std::sync::atomic::Atom
 pub struct Panel {
   program: String,
   arguments: Vec<String>,
-  presses: Vec<String>,
+  presses: Vec<Press>,
   here: PathBuf,
   read: Option<Vec<Description>>,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+struct Press {
+  command: String,
+  count: u64,
 }
 
 impl Panel {
@@ -269,10 +278,10 @@ impl Panel {
 
     match ::core::primitive::bool::then_some(across >= 0 && down >= 0, ()) {
       ::core::option::Option::Some(()) => {
-        self.presses.push(format!(
-          "console-point --in {} {across} {down} --click",
-          card.panel
-        ));
+        self.presses.push(Press {
+          command: format!("console-point --in {} {across} {down} --click", card.panel),
+          count: 1,
+        });
 
         Ok(())
       }
@@ -284,10 +293,21 @@ impl Panel {
   }
 
   pub fn key(&mut self, key: &str) -> Result<(), Error> {
-    match ::core::primitive::bool::then_some(key.is_empty(), ()) {
+    self.keys(&[key])
+  }
+
+  pub fn keys(&mut self, keys: &[&str]) -> Result<(), Error> {
+    match ::core::primitive::bool::then_some(
+      keys.is_empty() || keys.iter().any(|key| key.is_empty()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Err(Error::UnnamedKey),
       ::core::option::Option::None => {
-        self.presses.push(format!("wtype -k {key}"));
+        let Ok(count) = console_core_number_conversion::fitted(keys.len());
+        self.presses.push(Press {
+          command: format!("wtype -k {}", keys.join(" -k ")),
+          count,
+        });
 
         Ok(())
       }
@@ -300,19 +320,23 @@ impl Panel {
     let every: Vec<String> = self
       .presses
       .iter()
-      .map(|command| {
+      .map(|press| {
         format!(
-          "{} pressing {} --then '{command}'",
+          "{} pressing {} --press-count {} --then '{}'",
           desktop.display(),
-          told.display()
+          told.display(),
+          press.count,
+          press.command
         )
       })
       .collect();
 
-    Ok(match ::core::primitive::bool::then_some(every.is_empty(), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => Some(every.join("; ")),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(every.is_empty(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(every.join(" && ")),
+      },
+    )
   }
 
   pub fn descriptions(&mut self) -> Result<Vec<Description>, Error> {
@@ -530,10 +554,12 @@ pub fn every_row_draws_what_it_carries(card: &Description) -> Result<(), Error> 
 }
 
 fn said_of(line: &Line) -> Result<String, Never> {
-  Ok(match ::core::primitive::bool::then_some(line.says.is_empty(), ()) {
-    ::core::option::Option::Some(()) => format!("row {}", line.at),
-    ::core::option::Option::None => format!("row {} ({})", line.at, line.says),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(line.says.is_empty(), ()) {
+      ::core::option::Option::Some(()) => format!("row {}", line.at),
+      ::core::option::Option::None => format!("row {} ({})", line.at, line.says),
+    },
+  )
 }
 
 #[cfg(test)]
@@ -721,7 +747,10 @@ mod tests {
 
     assert_eq!(
       panel.presses,
-      vec!["console-point --in a-panel 982 36 --click".to_string()]
+      vec![Press {
+        command: "console-point --in a-panel 982 36 --click".to_string(),
+        count: 1,
+      }]
     );
 
     Ok(())

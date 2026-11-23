@@ -81,9 +81,14 @@ impl<'input> Document<'input> {
   ) -> core::result::Result<SvgNode<'a, 'input>, console_core_never::Never> {
     let Ok(index) = id.get();
 
-    Ok(SvgNode { id, d: &self.nodes[match ::console_core_number_conversion::index(index) { ::core::result::Result::Ok(native_position) => native_position }], doc: self })
+    Ok(SvgNode {
+      id,
+      d: &self.nodes[match ::console_core_number_conversion::index(index) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      }],
+      doc: self,
+    })
   }
-
 }
 
 impl std::fmt::Debug for Document<'_> {
@@ -121,7 +126,11 @@ impl std::fmt::Debug for Document<'_> {
   }
 }
 
-fn write_open_node(node: SvgNode, f: &mut std::fmt::Formatter, depth: u16) -> Result<u16, std::fmt::Error> {
+fn write_open_node(
+  node: SvgNode,
+  f: &mut std::fmt::Formatter,
+  depth: u16,
+) -> Result<u16, std::fmt::Error> {
   match node.is_element() {
     Ok(crate::NodeMatch::Different) => {
       write_debug_line(f, depth, format_args!("{node:?}"))?;
@@ -139,7 +148,11 @@ fn write_open_node(node: SvgNode, f: &mut std::fmt::Formatter, depth: u16) -> Re
   }
 }
 
-fn write_close_element(node: SvgNode, f: &mut std::fmt::Formatter, depth: u16) -> Result<u16, std::fmt::Error> {
+fn write_close_element(
+  node: SvgNode,
+  f: &mut std::fmt::Formatter,
+  depth: u16,
+) -> Result<u16, std::fmt::Error> {
   match node.is_element() {
     Ok(crate::NodeMatch::Different) => return Ok(depth),
     Ok(crate::NodeMatch::Matches) => {}
@@ -171,7 +184,11 @@ fn write_debug_line(
   writeln!(f, "{text}")
 }
 
-fn write_open_element(node: SvgNode, f: &mut std::fmt::Formatter, depth: u16) -> std::fmt::Result {
+fn write_open_element(
+  node: SvgNode,
+  f: &mut std::fmt::Formatter,
+  depth: u16,
+) -> std::fmt::Result {
   let Ok(tag) = node.tag_name();
   let Ok(attributes) = node.attributes();
   write_debug_line(f, depth, format_args!("Element {{"))?;
@@ -184,7 +201,11 @@ fn write_open_element(node: SvgNode, f: &mut std::fmt::Formatter, depth: u16) ->
       write_debug_line(f, attr_depth, format_args!("attributes: ["))?;
 
       for attribute in attributes {
-        write_debug_line(f, attr_depth.saturating_add(1), format_args!("{attribute:?}"))?;
+        write_debug_line(
+          f,
+          attr_depth.saturating_add(1),
+          format_args!("{attribute:?}"),
+        )?;
       }
 
       write_debug_line(f, attr_depth, format_args!("]"))?;
@@ -224,8 +245,6 @@ impl NodeId {
   fn get(self) -> core::result::Result<u32, console_core_never::Never> {
     Ok(self.0.get().saturating_sub(1))
   }
-
-
 }
 
 pub(crate) enum NodeKind {
@@ -243,7 +262,6 @@ struct NodeData {
   children: Option<(NodeId, NodeId)>,
   kind: NodeKind,
 }
-
 
 #[derive(Clone, Copy, Debug)]
 enum DeclarationImportance {
@@ -274,7 +292,9 @@ impl std::fmt::Debug for Attribute<'_> {
     write!(
       f,
       "Attribute {{ name: {:?}, value: {}, important: {} }}",
-      self.name, self.value, matches!(self.importance, DeclarationImportance::Important)
+      self.name,
+      self.value,
+      matches!(self.importance, DeclarationImportance::Important)
     )
   }
 }
@@ -421,10 +441,12 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
   ) -> core::result::Result<crate::Presence, console_core_never::Never> {
     let Ok(attributes) = self.attributes();
 
-    Ok(match ::core::primitive::bool::then_some(attributes.iter().any(|a| a.name == aid), ()) {
-      ::core::option::Option::Some(()) => crate::Presence::Present,
-      ::core::option::Option::None => crate::Presence::Absent,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(attributes.iter().any(|a| a.name == aid), ()) {
+        ::core::option::Option::Some(()) => crate::Presence::Present,
+        ::core::option::Option::None => crate::Presence::Absent,
+      },
+    )
   }
 
   #[inline]
@@ -454,10 +476,13 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
       NodeKind::Element { attributes, .. } => {
         let Ok(own_attributes) = self.attributes();
 
-        own_attributes.iter().position(|attribute| attribute.name == aid).and_then(|offset| {
-          let Ok(offset_2) = console_core_number_conversion::fixed_index(offset);
-          u64::from(attributes.start).checked_add(offset_2)
-        })
+        own_attributes
+          .iter()
+          .position(|attribute| attribute.name == aid)
+          .and_then(|offset| {
+            let Ok(offset_2) = console_core_number_conversion::fixed_index(offset);
+            u64::from(attributes.start).checked_add(offset_2)
+          })
       }
       NodeKind::Root | NodeKind::Text(_) => None,
     })
@@ -485,47 +510,45 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
   ) -> core::result::Result<Option<SvgNode<'a, 'input>>, console_core_never::Never> {
     let Ok(is_inheritable) = aid.is_inheritable();
 
-    Ok(
-      match is_inheritable {
-        crate::IsInheritableAnswer::Yes => {
-          let Ok(ancestors) = self.ancestors();
+    Ok(match is_inheritable {
+      crate::IsInheritableAnswer::Yes => {
+        let Ok(ancestors) = self.ancestors();
 
-          for n in ancestors {
-            let Ok(has_attribute) = n.has_attribute(aid);
-
-            match has_attribute {
-              crate::Presence::Present => {
-                return Ok(Some(n));
-              }
-              crate::Presence::Absent => {}
-            }
-          }
-
-          None
-        }
-        crate::IsInheritableAnswer::No => {
-          let Ok(has_attribute) = self.has_attribute(aid);
+        for n in ancestors {
+          let Ok(has_attribute) = n.has_attribute(aid);
 
           match has_attribute {
-            crate::Presence::Present => Some(*self),
-            crate::Presence::Absent => {
-              let Ok(parent_element) = self.parent_element();
-              let n = match parent_element {
-                Some(value) => value,
-                None => return Ok(None),
-              };
+            crate::Presence::Present => {
+              return Ok(Some(n));
+            }
+            crate::Presence::Absent => {}
+          }
+        }
 
-              let Ok(n_has_attribute) = n.has_attribute(aid);
+        None
+      }
+      crate::IsInheritableAnswer::No => {
+        let Ok(has_attribute) = self.has_attribute(aid);
 
-              match n_has_attribute {
-                crate::Presence::Present => Some(n),
-                crate::Presence::Absent => None,
-              }
+        match has_attribute {
+          crate::Presence::Present => Some(*self),
+          crate::Presence::Absent => {
+            let Ok(parent_element) = self.parent_element();
+            let n = match parent_element {
+              Some(value) => value,
+              None => return Ok(None),
+            };
+
+            let Ok(n_has_attribute) = n.has_attribute(aid);
+
+            match n_has_attribute {
+              crate::Presence::Present => Some(n),
+              crate::Presence::Absent => None,
             }
           }
         }
-      },
-    )
+      }
+    })
   }
 
   #[inline]
@@ -606,10 +629,12 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
 
   #[inline]
   pub fn has_children(&self) -> core::result::Result<crate::Presence, console_core_never::Never> {
-    Ok(match ::core::primitive::bool::then_some(self.d.children.is_some(), ()) {
-      ::core::option::Option::Some(()) => crate::Presence::Present,
-      ::core::option::Option::None => crate::Presence::Absent,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.d.children.is_some(), ()) {
+        ::core::option::Option::Some(()) => crate::Presence::Present,
+        ::core::option::Option::None => crate::Presence::Absent,
+      },
+    )
   }
 
   #[inline]
@@ -752,24 +777,26 @@ impl<'a, 'input: 'a> Iterator for Traverse<'a, 'input> {
           None => Edge::Close(node),
         });
       }
-      Some(Edge::Close(node)) => match ::core::primitive::bool::then_some(node == self.root, ()) {
-        ::core::option::Option::Some(()) => {
-          self.edge = None;
-        }
-        ::core::option::Option::None => {
-          let Ok(sibling) = node.next_sibling();
+      Some(Edge::Close(node)) => {
+        match ::core::primitive::bool::then_some(node == self.root, ()) {
+          ::core::option::Option::Some(()) => {
+            self.edge = None;
+          }
+          ::core::option::Option::None => {
+            let Ok(sibling) = node.next_sibling();
 
-          match sibling {
-            Some(next_sibling) => {
-              self.edge = Some(Edge::Open(next_sibling));
-            }
-            None => {
-              let Ok(parent) = node.parent();
-              self.edge = parent.map(Edge::Close);
+            match sibling {
+              Some(next_sibling) => {
+                self.edge = Some(Edge::Open(next_sibling));
+              }
+              None => {
+                let Ok(parent) = node.parent();
+                self.edge = parent.map(Edge::Close);
+              }
             }
           }
         }
-      },
+      }
       None => {
         self.edge = Some(Edge::Open(self.root));
       }
@@ -841,7 +868,10 @@ impl<'a, 'input: 'a> Iterator for HrefIter<'a, 'input> {
     };
     let Ok(link_id) = link.id();
 
-    match ::core::primitive::bool::then_some(link_id != self.origin && link_id != current && self.visited.insert(link_id), ()) {
+    match ::core::primitive::bool::then_some(
+      link_id != self.origin && link_id != current && self.visited.insert(link_id),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         self.state = HrefVisit::ContinueFrom(link_id);
 
@@ -863,32 +893,28 @@ impl EId {
   pub fn is_graphic(
     &self,
   ) -> core::result::Result<crate::IsGraphicAnswer, console_core_never::Never> {
-    Ok(
-      crate::IsGraphicAnswer::from(matches!(
-        self,
-        EId::Circle
-          | EId::Ellipse
-          | EId::Image
-          | EId::Line
-          | EId::Path
-          | EId::Polygon
-          | EId::Polyline
-          | EId::Rect
-          | EId::Text
-          | EId::Use
-      )),
-    )
+    Ok(crate::IsGraphicAnswer::from(matches!(
+      self,
+      EId::Circle
+        | EId::Ellipse
+        | EId::Image
+        | EId::Line
+        | EId::Path
+        | EId::Polygon
+        | EId::Polyline
+        | EId::Rectangle
+        | EId::Text
+        | EId::Use
+    )))
   }
 
   pub fn is_paint_server(
     &self,
   ) -> core::result::Result<crate::IsPaintServerAnswer, console_core_never::Never> {
-    Ok(
-      crate::IsPaintServerAnswer::from(matches!(
-        self,
-        EId::LinearGradient | EId::RadialGradient | EId::Pattern
-      )),
-    )
+    Ok(crate::IsPaintServerAnswer::from(matches!(
+      self,
+      EId::LinearGradient | EId::RadialGradient | EId::Pattern
+    )))
   }
 }
 
@@ -896,28 +922,72 @@ impl AId {
   fn is_presentation(&self) -> Result<crate::IsPresentationAnswer, console_core_never::Never> {
     Ok(crate::IsPresentationAnswer::from(matches!(
       self,
-        AId::AlignmentBaseline | AId::BaselineShift | AId::BackgroundColor
-        | AId::ClipPath | AId::ClipRule | AId::Color
-        | AId::ColorInterpolation | AId::ColorInterpolationFilters | AId::ColorRendering
-        | AId::Direction | AId::Display | AId::DominantBaseline
-        | AId::Fill | AId::FillOpacity | AId::FillRule
-        | AId::Filter | AId::FloodColor | AId::FloodOpacity
-        | AId::FontFamily | AId::FontKerning | AId::FontOpticalSizing
-        | AId::FontSize | AId::FontSizeAdjust | AId::FontStretch
-        | AId::FontStyle | AId::FontVariant | AId::FontWeight
-        | AId::FontVariationSettings | AId::GlyphOrientationHorizontal | AId::GlyphOrientationVertical
-        | AId::ImageRendering | AId::Isolation | AId::LetterSpacing
-        | AId::LightingColor | AId::MarkerEnd | AId::MarkerMid
-        | AId::MarkerStart | AId::Mask | AId::MaskType
-        | AId::MixBlendMode | AId::Opacity | AId::Overflow
-        | AId::PaintOrder | AId::ShapeRendering | AId::StopColor
-        | AId::StopOpacity | AId::Stroke | AId::StrokeDasharray
-        | AId::StrokeDashoffset | AId::StrokeLinecap | AId::StrokeLinejoin
-        | AId::StrokeMiterlimit | AId::StrokeOpacity | AId::StrokeWidth
-        | AId::TextAnchor | AId::TextDecoration | AId::TextOverflow
-        | AId::TextRendering | AId::Transform | AId::TransformOrigin
-        | AId::UnicodeBidi | AId::VectorEffect | AId::Visibility
-        | AId::WhiteSpace | AId::WordSpacing | AId::WritingMode
+      AId::AlignmentBaseline
+        | AId::BaselineShift
+        | AId::BackgroundColor
+        | AId::ClipPath
+        | AId::ClipRule
+        | AId::Color
+        | AId::ColorInterpolation
+        | AId::ColorInterpolationFilters
+        | AId::ColorRendering
+        | AId::Direction
+        | AId::Display
+        | AId::DominantBaseline
+        | AId::Fill
+        | AId::FillOpacity
+        | AId::FillRule
+        | AId::Filter
+        | AId::FloodColor
+        | AId::FloodOpacity
+        | AId::FontFamily
+        | AId::FontKerning
+        | AId::FontOpticalSizing
+        | AId::FontSize
+        | AId::FontSizeAdjust
+        | AId::FontStretch
+        | AId::FontStyle
+        | AId::FontVariant
+        | AId::FontWeight
+        | AId::FontVariationSettings
+        | AId::GlyphOrientationHorizontal
+        | AId::GlyphOrientationVertical
+        | AId::ImageRendering
+        | AId::Isolation
+        | AId::LetterSpacing
+        | AId::LightingColor
+        | AId::MarkerEnd
+        | AId::MarkerMid
+        | AId::MarkerStart
+        | AId::Mask
+        | AId::MaskType
+        | AId::MixBlendMode
+        | AId::Opacity
+        | AId::Overflow
+        | AId::PaintOrder
+        | AId::ShapeRendering
+        | AId::StopColor
+        | AId::StopOpacity
+        | AId::Stroke
+        | AId::StrokeDasharray
+        | AId::StrokeDashoffset
+        | AId::StrokeLinecap
+        | AId::StrokeLinejoin
+        | AId::StrokeMiterlimit
+        | AId::StrokeOpacity
+        | AId::StrokeWidth
+        | AId::TextAnchor
+        | AId::TextDecoration
+        | AId::TextOverflow
+        | AId::TextRendering
+        | AId::Transform
+        | AId::TransformOrigin
+        | AId::UnicodeBidi
+        | AId::VectorEffect
+        | AId::Visibility
+        | AId::WhiteSpace
+        | AId::WordSpacing
+        | AId::WritingMode
     )))
   }
 
@@ -925,20 +995,23 @@ impl AId {
     &self,
   ) -> core::result::Result<crate::IsInheritableAnswer, console_core_never::Never> {
     Ok(
-      match ::core::primitive::bool::then_some({
-        let Ok(is_presentation) = self.is_presentation();
+      match ::core::primitive::bool::then_some(
+        {
+          let Ok(is_presentation) = self.is_presentation();
 
-        match is_presentation {
-          crate::IsPresentationAnswer::Yes => !matches!(
-            {
-              let Ok(explicit_value) = is_non_inheritable(*self);
-              explicit_value
-            },
-            crate::IsNonInheritableAnswer::Yes
-          ),
-          crate::IsPresentationAnswer::No => false,
-        }
-      }, ()) {
+          match is_presentation {
+            crate::IsPresentationAnswer::Yes => !matches!(
+              {
+                let Ok(explicit_value) = is_non_inheritable(*self);
+                explicit_value
+              },
+              crate::IsNonInheritableAnswer::Yes
+            ),
+            crate::IsPresentationAnswer::No => false,
+          }
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => crate::IsInheritableAnswer::Yes,
         ::core::option::Option::None => crate::IsInheritableAnswer::No,
       },
@@ -948,88 +1021,84 @@ impl AId {
   fn allows_inherit_value(
     &self,
   ) -> core::result::Result<crate::AllowsInheritValueAnswer, console_core_never::Never> {
-    Ok(
-      crate::AllowsInheritValueAnswer::from(matches!(
-        self,
-        AId::AlignmentBaseline
-          | AId::BaselineShift
-          | AId::ClipPath
-          | AId::ClipRule
-          | AId::Color
-          | AId::ColorInterpolationFilters
-          | AId::Direction
-          | AId::Display
-          | AId::DominantBaseline
-          | AId::Fill
-          | AId::FillOpacity
-          | AId::FillRule
-          | AId::Filter
-          | AId::FloodColor
-          | AId::FloodOpacity
-          | AId::FontFamily
-          | AId::FontKerning
-          | AId::FontOpticalSizing
-          | AId::FontSize
-          | AId::FontStretch
-          | AId::FontStyle
-          | AId::FontVariant
-          | AId::FontWeight
-          | AId::ImageRendering
-          | AId::Kerning
-          | AId::LetterSpacing
-          | AId::MarkerEnd
-          | AId::MarkerMid
-          | AId::MarkerStart
-          | AId::Mask
-          | AId::Opacity
-          | AId::Overflow
-          | AId::ShapeRendering
-          | AId::StopColor
-          | AId::StopOpacity
-          | AId::Stroke
-          | AId::StrokeDasharray
-          | AId::StrokeDashoffset
-          | AId::StrokeLinecap
-          | AId::StrokeLinejoin
-          | AId::StrokeMiterlimit
-          | AId::StrokeOpacity
-          | AId::StrokeWidth
-          | AId::TextAnchor
-          | AId::TextDecoration
-          | AId::TextRendering
-          | AId::Visibility
-          | AId::WordSpacing
-          | AId::WritingMode
-      )),
-    )
+    Ok(crate::AllowsInheritValueAnswer::from(matches!(
+      self,
+      AId::AlignmentBaseline
+        | AId::BaselineShift
+        | AId::ClipPath
+        | AId::ClipRule
+        | AId::Color
+        | AId::ColorInterpolationFilters
+        | AId::Direction
+        | AId::Display
+        | AId::DominantBaseline
+        | AId::Fill
+        | AId::FillOpacity
+        | AId::FillRule
+        | AId::Filter
+        | AId::FloodColor
+        | AId::FloodOpacity
+        | AId::FontFamily
+        | AId::FontKerning
+        | AId::FontOpticalSizing
+        | AId::FontSize
+        | AId::FontStretch
+        | AId::FontStyle
+        | AId::FontVariant
+        | AId::FontWeight
+        | AId::ImageRendering
+        | AId::Kerning
+        | AId::LetterSpacing
+        | AId::MarkerEnd
+        | AId::MarkerMid
+        | AId::MarkerStart
+        | AId::Mask
+        | AId::Opacity
+        | AId::Overflow
+        | AId::ShapeRendering
+        | AId::StopColor
+        | AId::StopOpacity
+        | AId::Stroke
+        | AId::StrokeDasharray
+        | AId::StrokeDashoffset
+        | AId::StrokeLinecap
+        | AId::StrokeLinejoin
+        | AId::StrokeMiterlimit
+        | AId::StrokeOpacity
+        | AId::StrokeWidth
+        | AId::TextAnchor
+        | AId::TextDecoration
+        | AId::TextRendering
+        | AId::Visibility
+        | AId::WordSpacing
+        | AId::WritingMode
+    )))
   }
 }
 
 fn is_non_inheritable(
   id: AId,
 ) -> core::result::Result<crate::IsNonInheritableAnswer, console_core_never::Never> {
-  Ok(
-    crate::IsNonInheritableAnswer::from(matches!(
-      id,
-      AId::AlignmentBaseline
-        | AId::BaselineShift
-        | AId::ClipPath
-        | AId::Display
-        | AId::DominantBaseline
-        | AId::Filter
-        | AId::FloodColor
-        | AId::FloodOpacity
-        | AId::Mask
-        | AId::Opacity
-        | AId::Overflow
-        | AId::LightingColor
-        | AId::StopColor
-        | AId::StopOpacity
-        | AId::TextDecoration
-        | AId::Transform
-        | AId::TransformOrigin
-    )),
-  )
+  Ok(crate::IsNonInheritableAnswer::from(matches!(
+    id,
+    AId::AlignmentBaseline
+      | AId::BaselineShift
+      | AId::ClipPath
+      | AId::Display
+      | AId::DominantBaseline
+      | AId::Filter
+      | AId::FloodColor
+      | AId::FloodOpacity
+      | AId::Mask
+      | AId::Opacity
+      | AId::Overflow
+      | AId::LightingColor
+      | AId::StopColor
+      | AId::StopOpacity
+      | AId::TextDecoration
+      | AId::Transform
+      | AId::TransformOrigin
+  )))
 }
 
 fn recover_attribute<T, E: std::fmt::Debug>(
@@ -1069,7 +1138,9 @@ impl<'a, 'input: 'a> FromValue<'a, 'input> for f32 {
   }
 }
 
-impl<'a, 'input: 'a> FromValue<'a, 'input> for console_core_scalable_vector_graphics_values::Length {
+impl<'a, 'input: 'a> FromValue<'a, 'input>
+  for console_core_scalable_vector_graphics_values::Length
+{
   fn parse(_: SvgNode, aid: AId, value: &str) -> Option<Self> {
     let Ok(length) = recover_attribute(Self::from_str(value), aid, value);
 
@@ -1088,8 +1159,14 @@ impl<'a, 'input: 'a> FromValue<'a, 'input> for Opacity {
     match length.unit {
       LengthUnit::Percent => Some(Opacity::new_clamped(number / 100.0)),
       LengthUnit::None => Some(Opacity::new_clamped(number)),
-      LengthUnit::Em | LengthUnit::Ex | LengthUnit::Px | LengthUnit::In | LengthUnit::Cm
-      | LengthUnit::Mm | LengthUnit::Pt | LengthUnit::Pc => None,
+      LengthUnit::Em
+      | LengthUnit::Ex
+      | LengthUnit::Px
+      | LengthUnit::Inches
+      | LengthUnit::Cm
+      | LengthUnit::Mm
+      | LengthUnit::Pt
+      | LengthUnit::Pc => None,
     }
   }
 }
@@ -1345,8 +1422,12 @@ impl<'a, 'input: 'a> FromValue<'a, 'input> for SvgNode<'a, 'input> {
     use console_core_scalable_vector_graphics_values::{FuncIRI, IRI};
 
     let Ok(reference) = match ::core::primitive::bool::then_some(aid == AId::Href, ()) {
-      ::core::option::Option::Some(()) => recover_attribute(IRI::from_str(value).map(|iri| iri.0), aid, value),
-      ::core::option::Option::None => recover_attribute(FuncIRI::from_str(value).map(|iri| iri.0), aid, value),
+      ::core::option::Option::Some(()) => {
+        recover_attribute(IRI::from_str(value).map(|iri| iri.0), aid, value)
+      }
+      ::core::option::Option::None => {
+        recover_attribute(FuncIRI::from_str(value).map(|iri| iri.0), aid, value)
+      }
     };
     let id = reference?;
 

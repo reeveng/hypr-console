@@ -62,16 +62,20 @@ fn beside(note: &str) -> Result<Option<PathBuf>, Never> {
 fn filed(note: &str) -> Result<String, Never> {
   let filed: String = note
     .chars()
-    .map(|letter| match ::core::primitive::bool::then_some(letter.is_ascii_alphanumeric(), ()) {
-      ::core::option::Option::Some(()) => letter.to_ascii_lowercase(),
-      ::core::option::Option::None => '-',
-    })
+    .map(
+      |letter| match ::core::primitive::bool::then_some(letter.is_ascii_alphanumeric(), ()) {
+        ::core::option::Option::Some(()) => letter.to_ascii_lowercase(),
+        ::core::option::Option::None => '-',
+      },
+    )
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(filed.is_empty(), ()) {
-    ::core::option::Option::Some(()) => "asked".to_string(),
-    ::core::option::Option::None => filed,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(filed.is_empty(), ()) {
+      ::core::option::Option::Some(()) => "asked".to_string(),
+      ::core::option::Option::None => filed,
+    },
+  )
 }
 
 pub fn kept(note: &str) -> Result<Vec<u8>, Never> {

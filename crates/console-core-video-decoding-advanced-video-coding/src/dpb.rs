@@ -277,7 +277,7 @@ impl Dpb {
     commands: &[Mmco],
     numbers: FrameNumbers,
   ) -> core::result::Result<(RefMark, ReferenceReset), Never> {
-    let mut reset = ReferenceReset::Keep;
+    let mut reset = ReferenceReset::Retain;
     let mut current_mark = RefMark::Short;
 
     for command in commands {
@@ -365,7 +365,7 @@ impl Dpb {
     limits: ReferenceLimits,
   ) -> core::result::Result<(RefMark, ReferenceReset), Never> {
     match (header.nal_ref_idc, header.refresh) {
-      (0, _) => return Ok((RefMark::Unused, ReferenceReset::Keep)),
+      (0, _) => return Ok((RefMark::Unused, ReferenceReset::Retain)),
       (_, PictureRefresh::Idr) => {
         let mark = match header.long_term_reference.then_some(()) {
           Some(()) => {
@@ -377,7 +377,7 @@ impl Dpb {
             RefMark::Short
           }
         };
-        return Ok((mark, ReferenceReset::Keep));
+        return Ok((mark, ReferenceReset::Retain));
       }
       (_, PictureRefresh::NonIdr) => {}
     }
@@ -388,7 +388,7 @@ impl Dpb {
     };
     let reference = match header.adaptive_ref_pic_marking.then_some(()) {
       Some(()) => self.apply_mmcos(&header.mmcos, numbers),
-      None => Ok((RefMark::Short, ReferenceReset::Keep)),
+      None => Ok((RefMark::Short, ReferenceReset::Retain)),
     };
     let Ok((mark, reset)) = reference;
 
@@ -415,7 +415,7 @@ impl Dpb {
         let Ok(()) = self.flush(out);
         0
       }
-      ReferenceReset::Keep => header.frame_num,
+      ReferenceReset::Retain => header.frame_num,
     };
     let Ok(entry_count) = fixed_index(self.entries.len());
 

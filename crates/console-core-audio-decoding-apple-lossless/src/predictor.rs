@@ -15,7 +15,7 @@ use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 
 use crate::cookie::MagicCookie;
-use crate::fault::Fault;
+use crate::fault::DecodeError;
 
 const FIRST_ORDER_MODE: u32 = 15;
 
@@ -90,7 +90,7 @@ fn clip_msbs(val: i32, num: u32) -> Result<i32, Never> {
   Ok(val.wrapping_shl(num).wrapping_shr(num))
 }
 
-fn quotient<B: ReadBitsLtr>(bs: &mut B, rice: &Rice, prefix: u32) -> Result<u32, Fault> {
+fn quotient<B: ReadBitsLtr>(bs: &mut B, rice: &Rice, prefix: u32) -> Result<u32, DecodeError> {
   match rice.k {
     0 => Ok(0),
     1 => Ok(prefix),
@@ -115,13 +115,13 @@ fn quotient<B: ReadBitsLtr>(bs: &mut B, rice: &Rice, prefix: u32) -> Result<u32,
   }
 }
 
-fn read_rice_code<B: ReadBitsLtr>(bs: &mut B, rice: Rice) -> Result<u32, Fault> {
+fn read_rice_code<B: ReadBitsLtr>(bs: &mut B, rice: Rice) -> Result<u32, DecodeError> {
   let prefix = bs.read_unary_ones_capped(LONGEST_PREFIX)?;
 
   match prefix.cmp(&SHORTEST_ESCAPE) {
     Ordering::Greater => bs
       .read_bits_leq32(rice.escape.min(LONGEST_READ))
-      .map_err(Fault::from),
+      .map_err(DecodeError::from),
     Ordering::Equal | Ordering::Less => quotient(bs, &rice, prefix),
   }
 }
@@ -148,7 +148,7 @@ impl Predictor {
     bs: &mut B,
     config: &MagicCookie,
     pred_bits: u32,
-  ) -> Result<Predictor, Fault> {
+  ) -> Result<Predictor, DecodeError> {
     let mode = bs.read_bits_leq32(4)?;
     let shift = bs.read_bits_leq32(4)?;
     let scale = bs.read_bits_leq32(3)?;
@@ -179,7 +179,7 @@ impl Predictor {
     &self,
     bs: &mut B,
     out: &mut [i32],
-  ) -> Result<(), Fault> {
+  ) -> Result<(), DecodeError> {
     let Ok(count): Result<u32, Never> = fitted(out.len());
     let mut run = Run {
       mb: self.mb,
@@ -209,7 +209,7 @@ impl Predictor {
     bs: &mut B,
     run: &mut Run,
     sample: &mut i32,
-  ) -> Result<(), Fault> {
+  ) -> Result<(), DecodeError> {
     let Ok(k) = lg3a(run.mb);
     let code = read_rice_code(
       bs,
@@ -242,7 +242,7 @@ impl Predictor {
     bs: &mut B,
     run: &mut Run,
     position: u32,
-  ) -> Result<(), Fault> {
+  ) -> Result<(), DecodeError> {
     let k = run
       .mb
       .leading_zeros()
@@ -266,9 +266,9 @@ impl Predictor {
     Ok(())
   }
 
-  pub(crate) fn predict(&mut self, out: &mut [i32]) -> Result<(), Fault> {
+  pub(crate) fn predict(&mut self, out: &mut [i32]) -> Result<(), DecodeError> {
     match self.mode {
-      1..=14 => return Err(Fault::Mode),
+      1..=14 => return Err(DecodeError::Mode),
       _ => {}
     }
 
@@ -280,7 +280,7 @@ impl Predictor {
     let clip = 32u32.wrapping_sub(self.pred_bits);
     let (first, rest) = match out.split_first_mut() {
       Some(parts) => parts,
-      None => return Err(Fault::FrameLength),
+      None => return Err(DecodeError::FrameLength),
     };
 
     match (self.lpc_order, self.mode) {
@@ -294,7 +294,7 @@ impl Predictor {
 
     match rest.len().cmp(&order) {
       Ordering::Equal | Ordering::Greater => {}
-      Ordering::Less => return Err(Fault::FrameLength),
+      Ordering::Less => return Err(DecodeError::FrameLength),
     }
 
     let Ok(()) = accumulate(rest.iter_mut().take(order), *first, clip);
@@ -302,7 +302,7 @@ impl Predictor {
     self.filter(out, clip)
   }
 
-  fn filter(&mut self, out: &mut [i32], clip: u32) -> Result<(), Fault> {
+  fn filter(&mut self, out: &mut [i32], clip: u32) -> Result<(), DecodeError> {
     let Ok(order) = index(self.lpc_order);
     let cells = Cell::from_mut(out).as_slice_of_cells();
 
@@ -317,7 +317,7 @@ impl Predictor {
         Some((past, sample, recent)) => {
           let Ok(()) = self.step(sample, past.get(), recent, clip);
         }
-        None => return Err(Fault::FrameLength),
+        None => return Err(DecodeError::FrameLength),
       }
     }
 

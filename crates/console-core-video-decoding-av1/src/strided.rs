@@ -12,11 +12,17 @@ pub trait Strided {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the existing native stride accessor returns the signed slice displacement directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the existing native stride accessor returns the signed slice displacement directly"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the existing picture view uses native signed byte displacements for slice access")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the existing picture view uses native signed byte displacements for slice access"
+    )
   )]
   fn stride(&self) -> NativeOffset {
     let Ok(fixed) = self.fixed_stride();
@@ -31,7 +37,10 @@ pub trait Strided {
 
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the existing picture view uses native signed pixel displacements for slice access")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the existing picture view uses native signed pixel displacements for slice access"
+    )
   )]
   fn pixel_stride<BD: BitDepth>(&self) -> Result<NativeOffset, Never> {
     let Ok(fixed) = self.fixed_pixel_stride::<BD>();

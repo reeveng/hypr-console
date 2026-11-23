@@ -20,7 +20,10 @@ impl<'a, T> CursorMut<'a, T> {
   }
 
   fn relative_position(&self, displacement: i64) -> Rav1dResult<u64> {
-    self.position.checked_add_signed(displacement).ok_or(Rav1dError::ERANGE)
+    self
+      .position
+      .checked_add_signed(displacement)
+      .ok_or(Rav1dError::ERANGE)
   }
 
   pub(crate) fn reborrow(&mut self, displacement: i64) -> Rav1dResult<CursorMut<'_, T>> {
@@ -29,7 +32,10 @@ impl<'a, T> CursorMut<'a, T> {
   }
 
   pub(crate) fn advance(&mut self, amount: u64) -> Rav1dResult {
-    let position = self.position.checked_add(amount).ok_or(Rav1dError::ERANGE)?;
+    let position = self
+      .position
+      .checked_add(amount)
+      .ok_or(Rav1dError::ERANGE)?;
     let Ok(length) = fixed_index(self.storage.len());
 
     match (position <= length).then_some(()) {
@@ -57,13 +63,20 @@ impl<'a, T> CursorMut<'a, T> {
   {
     let position = self.element_position(displacement)?;
     let Ok(native_position) = index(position);
-    self.storage.get(native_position).copied().ok_or(Rav1dError::EINVAL)
+    self
+      .storage
+      .get(native_position)
+      .copied()
+      .ok_or(Rav1dError::EINVAL)
   }
 
   pub(crate) fn set(&mut self, displacement: i64, value: T) -> Rav1dResult {
     let position = self.element_position(displacement)?;
     let Ok(native_position) = index(position);
-    let element = self.storage.get_mut(native_position).ok_or(Rav1dError::EINVAL)?;
+    let element = self
+      .storage
+      .get_mut(native_position)
+      .ok_or(Rav1dError::EINVAL)?;
     *element = value;
     Ok(())
   }

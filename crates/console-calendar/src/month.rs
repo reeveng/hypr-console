@@ -55,29 +55,33 @@ impl Day {
 
 impl Month {
   pub fn after(self) -> Result<Self, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.month >= A_YEAR, ()) {
-      ::core::option::Option::Some(()) => Month {
-        year: self.year.saturating_add(1),
-        month: THE_FIRST_MONTH,
+    Ok(
+      match ::core::primitive::bool::then_some(self.month >= A_YEAR, ()) {
+        ::core::option::Option::Some(()) => Month {
+          year: self.year.saturating_add(1),
+          month: THE_FIRST_MONTH,
+        },
+        ::core::option::Option::None => Month {
+          year: self.year,
+          month: self.month.saturating_add(1),
+        },
       },
-      ::core::option::Option::None => Month {
-        year: self.year,
-        month: self.month.saturating_add(1),
-      },
-    })
+    )
   }
 
   pub fn before(self) -> Result<Self, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.month <= THE_FIRST_MONTH, ()) {
-      ::core::option::Option::Some(()) => Month {
-        year: self.year.saturating_sub(1),
-        month: A_YEAR,
+    Ok(
+      match ::core::primitive::bool::then_some(self.month <= THE_FIRST_MONTH, ()) {
+        ::core::option::Option::Some(()) => Month {
+          year: self.year.saturating_sub(1),
+          month: A_YEAR,
+        },
+        ::core::option::Option::None => Month {
+          year: self.year,
+          month: self.month.saturating_sub(1),
+        },
       },
-      ::core::option::Option::None => Month {
-        year: self.year,
-        month: self.month.saturating_sub(1),
-      },
-    })
+    )
   }
 
   pub fn add_months(self, by: i32) -> Result<Self, Never> {
@@ -96,10 +100,15 @@ impl Month {
   }
 
   pub fn holds(self, day: Day) -> Result<Holds, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.year == day.year && self.month == day.month, ()) {
-      ::core::option::Option::Some(()) => Holds::Yes,
-      ::core::option::Option::None => Holds::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        self.year == day.year && self.month == day.month,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Holds::Yes,
+        ::core::option::Option::None => Holds::No,
+      },
+    )
   }
 }
 

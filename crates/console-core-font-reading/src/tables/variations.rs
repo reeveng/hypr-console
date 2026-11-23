@@ -36,23 +36,34 @@ impl TupleIndex {
 
   #[inline(always)]
   #[must_use]
-  fn tuple_len(self, axis_count: u16, flag: u64) -> core::result::Result<u64, console_core_never::Never> {
-      Ok(match ::core::primitive::bool::then_some(flag == 0, ()) {
-        ::core::option::Option::Some(()) => ::core::primitive::u64::wrapping_mul(u64::from(self.embedded_peak_tuple()), {
+  fn tuple_len(
+    self,
+    axis_count: u16,
+    flag: u64,
+  ) -> core::result::Result<u64, console_core_never::Never> {
+    Ok(match ::core::primitive::bool::then_some(flag == 0, ()) {
+      ::core::option::Option::Some(()) => {
+        ::core::primitive::u64::wrapping_mul(u64::from(self.embedded_peak_tuple()), {
           let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(axis_count);
           migrated_value
-        }),
-        ::core::option::Option::None => ::core::primitive::u64::wrapping_mul(u64::from(self.intermediate_region()), {
+        })
+      }
+      ::core::option::Option::None => {
+        ::core::primitive::u64::wrapping_mul(u64::from(self.intermediate_region()), {
           let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(axis_count);
           migrated_value
-        }),
-      })
+        })
+      }
+    })
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleIndex::bits` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleIndex::bits` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn bits(self) -> u16 {
     self.0
@@ -61,7 +72,10 @@ impl TupleIndex {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleIndex::from_bits` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleIndex::from_bits` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_bits(bits: u16) -> Self {
     TupleIndex(bits)
@@ -70,11 +84,17 @@ impl TupleIndex {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleIndex::embedded_peak_tuple` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleIndex::embedded_peak_tuple` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `TupleIndex::embedded_peak_tuple` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `TupleIndex::embedded_peak_tuple` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn embedded_peak_tuple(self) -> bool {
     (self.0 & Self::EMBEDDED_PEAK_TUPLE) != 0
@@ -83,11 +103,17 @@ impl TupleIndex {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleIndex::intermediate_region` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleIndex::intermediate_region` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `TupleIndex::intermediate_region` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `TupleIndex::intermediate_region` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn intermediate_region(self) -> bool {
     (self.0 & Self::INTERMEDIATE_REGION) != 0
@@ -96,11 +122,17 @@ impl TupleIndex {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleIndex::private_point_numbers` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleIndex::private_point_numbers` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `TupleIndex::private_point_numbers` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `TupleIndex::private_point_numbers` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn private_point_numbers(self) -> bool {
     (self.0 & Self::PRIVATE_POINT_NUMBERS) != 0
@@ -109,7 +141,10 @@ impl TupleIndex {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleIndex::tuple_records_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleIndex::tuple_records_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn tuple_records_index(self) -> Option<u16> {
     (!self.embedded_peak_tuple()).then_some(self.0 & Self::TUPLE_INDEX_MASK)
@@ -145,7 +180,10 @@ impl TupleVariationCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationCount::bits` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationCount::bits` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn bits(self) -> u16 {
     self.0
@@ -154,7 +192,10 @@ impl TupleVariationCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationCount::from_bits` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationCount::from_bits` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_bits(bits: u16) -> Self {
     Self(bits)
@@ -163,11 +204,17 @@ impl TupleVariationCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationCount::shared_point_numbers` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationCount::shared_point_numbers` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `TupleVariationCount::shared_point_numbers` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `TupleVariationCount::shared_point_numbers` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn shared_point_numbers(self) -> bool {
     (self.0 & Self::SHARED_POINT_NUMBERS) != 0
@@ -176,7 +223,10 @@ impl TupleVariationCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationCount::count` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationCount::count` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn count(self) -> u16 {
     self.0 & Self::COUNT_MASK
@@ -203,19 +253,24 @@ impl types::Scalar for TupleVariationCount {
 impl<'a> TupleVariationHeader<'a> {
   #[cfg(feature = "experimental_traverse")]
   #[must_use]
-  fn traverse_tuple_index(&self) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
-      let Ok(tuple_index) = self.tuple_index();
+  fn traverse_tuple_index(
+    &self,
+  ) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
+    let Ok(tuple_index) = self.tuple_index();
 
-      Ok(<crate::traversal::FieldType<'_> as ::core::convert::From<::core::primitive::u16>>::from(
-        tuple_index.0,
-      ))
+    Ok(<crate::traversal::FieldType<'_> as ::core::convert::From<
+      ::core::primitive::u16,
+    >>::from(tuple_index.0))
   }
 
   #[inline(always)]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationHeader::peak_tuple` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationHeader::peak_tuple` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn peak_tuple(&self) -> Option<Tuple<'a>> {
     let Ok(tuple_index) = self.tuple_index();
@@ -236,7 +291,10 @@ impl<'a> TupleVariationHeader<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationHeader::intermediate_start_tuple` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationHeader::intermediate_start_tuple` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn intermediate_start_tuple(&self) -> Option<Tuple<'a>> {
     let Ok(tuple_index) = self.tuple_index();
@@ -257,7 +315,10 @@ impl<'a> TupleVariationHeader<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationHeader::intermediate_end_tuple` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationHeader::intermediate_end_tuple` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn intermediate_end_tuple(&self) -> Option<Tuple<'a>> {
     let Ok(tuple_index) = self.tuple_index();
@@ -278,7 +339,10 @@ impl<'a> TupleVariationHeader<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationHeader::intermediate_tuples` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationHeader::intermediate_tuples` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn intermediate_tuples(&self) -> Option<(Tuple<'a>, Tuple<'a>)> {
     let start = self.intermediate_start_tuple()?;
@@ -288,36 +352,41 @@ impl<'a> TupleVariationHeader<'a> {
   }
 
   #[must_use]
-  fn tuple_in(&self, range: std::ops::Range<u64>) -> core::result::Result<Option<Tuple<'a>>, console_core_never::Never> {
-      Ok(match self.data.read_array(range) {
-        Ok(values) => Some(Tuple { values }),
-        Err(_unreadable_variation_ranges) => None,
-      })
+  fn tuple_in(
+    &self,
+    range: std::ops::Range<u64>,
+  ) -> core::result::Result<Option<Tuple<'a>>, console_core_never::Never> {
+    Ok(match self.data.read_array(range) {
+      Ok(values) => Some(Tuple { values }),
+      Err(_unreadable_variation_ranges) => None,
+    })
   }
 
   #[inline(always)]
   #[must_use]
   fn byte_len(&self, axis_count: u16) -> core::result::Result<u64, console_core_never::Never> {
-      const FIXED_LEN: u64 = u16::RAW_BYTE_LEN + TupleIndex::RAW_BYTE_LEN;
-      let tuple_byte_len = ::core::primitive::u64::wrapping_mul(F2Dot14::RAW_BYTE_LEN, {
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(axis_count);
-        migrated_value
-      });
-      let Ok(index) = self.tuple_index();
+    const FIXED_LEN: u64 = u16::RAW_BYTE_LEN + TupleIndex::RAW_BYTE_LEN;
+    let tuple_byte_len = ::core::primitive::u64::wrapping_mul(F2Dot14::RAW_BYTE_LEN, {
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(axis_count);
+      migrated_value
+    });
+    let Ok(index) = self.tuple_index();
 
-      Ok(::core::primitive::u64::wrapping_add(
-        ::core::primitive::u64::wrapping_add(
-          FIXED_LEN,
-          match ::core::primitive::bool::then_some(index.embedded_peak_tuple(), ()) {
-            ::core::option::Option::Some(()) => tuple_byte_len,
-            ::core::option::Option::None => Default::default(),
-          },
-        ),
-        match ::core::primitive::bool::then_some(index.intermediate_region(), ()) {
-          ::core::option::Option::Some(()) => ::core::primitive::u64::wrapping_mul(tuple_byte_len, 2),
+    Ok(::core::primitive::u64::wrapping_add(
+      ::core::primitive::u64::wrapping_add(
+        FIXED_LEN,
+        match ::core::primitive::bool::then_some(index.embedded_peak_tuple(), ()) {
+          ::core::option::Option::Some(()) => tuple_byte_len,
           ::core::option::Option::None => Default::default(),
         },
-      ))
+      ),
+      match ::core::primitive::bool::then_some(index.intermediate_region(), ()) {
+        ::core::option::Option::Some(()) => {
+          ::core::primitive::u64::wrapping_mul(tuple_byte_len, 2)
+        }
+        ::core::option::Option::None => Default::default(),
+      },
+    ))
   }
 }
 
@@ -325,7 +394,10 @@ impl Tuple<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Tuple::len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Tuple::len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn len(&self) -> u64 {
     let Ok(values) = self.values();
@@ -337,11 +409,17 @@ impl Tuple<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Tuple::is_empty` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Tuple::is_empty` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Tuple::is_empty` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Tuple::is_empty` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_empty(&self) -> bool {
     self.values.is_empty()
@@ -351,7 +429,10 @@ impl Tuple<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Tuple::get` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Tuple::get` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn get(&self, idx: u64) -> Option<F2Dot14> {
     let Ok(value_47) = console_core_number_conversion::index(idx);
@@ -373,7 +454,10 @@ impl<'a> PackedPointNumbers<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedPointNumbers::split_off_front` method returns its tuple directly for existing callers to destructure")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedPointNumbers::split_off_front` method returns its tuple directly for existing callers to destructure"
+    )
   )]
   pub fn split_off_front(data: FontData<'a>) -> (Self, FontData<'a>) {
     let this = PackedPointNumbers { data };
@@ -390,7 +474,10 @@ impl<'a> PackedPointNumbers<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedPointNumbers::count` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedPointNumbers::count` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn count(&self) -> u16 {
     let Ok(count_and_count_bytes) = self.count_and_count_bytes();
@@ -400,7 +487,11 @@ impl<'a> PackedPointNumbers<'a> {
 
   #[must_use]
   fn count_and_count_bytes(&self) -> core::result::Result<(u16, u64), console_core_never::Never> {
-      Ok(match match self.data.read_at::<u8>(0) { Ok(value) => value, Err(_truncated_variation_data) => 0 } {
+    Ok(
+      match match self.data.read_at::<u8>(0) {
+        Ok(value) => value,
+        Err(_truncated_variation_data) => 0,
+      } {
         0 => (0, 1),
         count @ 1..=127 => (
           ({
@@ -410,14 +501,18 @@ impl<'a> PackedPointNumbers<'a> {
           1,
         ),
         _ => {
-          let count = (match self.data.read_at::<u16>(0) { Ok(value) => value, Err(_truncated_variation_data) => Default::default() }) & 0x7FFF;
+          let count = (match self.data.read_at::<u16>(0) {
+            Ok(value) => value,
+            Err(_truncated_variation_data) => Default::default(),
+          }) & 0x7FFF;
 
           match ::core::primitive::bool::then_some(count == 0, ()) {
             ::core::option::Option::Some(()) => (0, 2),
             ::core::option::Option::None => (count & 0x7FFF, 2),
           }
         }
-      })
+      },
+    )
   }
 
   #[inline(never)]
@@ -453,7 +548,10 @@ impl<'a> PackedPointNumbers<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedPointNumbers::iter` method returns `PackedPointNumbersIter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedPointNumbers::iter` method returns `PackedPointNumbersIter` directly in the existing parser interface"
+    )
   )]
   pub fn iter(&self) -> PackedPointNumbersIter<'a> {
     let Ok((count, n_bytes)) = self.count_and_count_bytes();
@@ -475,17 +573,20 @@ pub struct PackedPointNumbersIter<'a> {
 
 impl<'a> PackedPointNumbersIter<'a> {
   #[must_use]
-  fn new(count: u16, cursor: Cursor<'a>) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(PackedPointNumbersIter {
-        count,
-        seen: 0,
-        last_val: 0,
-        current_run: PointRunIter {
-          remaining: 0,
-          size: PointDeltaSize::Byte,
-          cursor,
-        },
-      })
+  fn new(
+    count: u16,
+    cursor: Cursor<'a>,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    Ok(PackedPointNumbersIter {
+      count,
+      seen: 0,
+      last_val: 0,
+      current_run: PointRunIter {
+        remaining: 0,
+        size: PointDeltaSize::Byte,
+        cursor,
+      },
+    })
   }
 }
 
@@ -527,7 +628,9 @@ impl Iterator for PointRunIter<'_> {
   }
 }
 
-fn read_control_byte(cursor: &mut Cursor) -> Result<Option<(u8, PointDeltaSize)>, console_core_never::Never> {
+fn read_control_byte(
+  cursor: &mut Cursor,
+) -> Result<Option<(u8, PointDeltaSize)>, console_core_never::Never> {
   let control = match cursor.read::<u8>() {
     Ok(control) => control,
     Err(_truncated_control_byte) => return Ok(None),
@@ -607,18 +710,24 @@ pub struct PackedDeltas<'a> {
 
 impl<'a> PackedDeltas<'a> {
   #[must_use]
-  pub(crate) fn new(data: FontData<'a>, count: u64) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        data,
-        count: Some(count),
-      })
+  pub(crate) fn new(
+    data: FontData<'a>,
+    count: u64,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    Ok(Self {
+      data,
+      count: Some(count),
+    })
   }
 
   #[doc(hidden)]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published packed delta constructor accepts a FontData view and returns the reader directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published packed delta constructor accepts a FontData view and returns the reader directly"
+    )
   )]
   pub fn consume_all(data: FontData<'a>) -> Self {
     Self { data, count: None }
@@ -627,7 +736,10 @@ impl<'a> PackedDeltas<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedDeltas::count` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedDeltas::count` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn count(&self) -> Option<u64> {
     self.count
@@ -636,7 +748,10 @@ impl<'a> PackedDeltas<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedDeltas::count_or_compute` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedDeltas::count_or_compute` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn count_or_compute(&self) -> u64 {
     match self.count {
@@ -651,7 +766,10 @@ impl<'a> PackedDeltas<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedDeltas::iter` method returns `DeltaRunIter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedDeltas::iter` method returns `DeltaRunIter` directly in the existing parser interface"
+    )
   )]
   pub fn iter(&self) -> DeltaRunIter<'a> {
     let Ok(value_6) = self.data.cursor();
@@ -664,7 +782,10 @@ impl<'a> PackedDeltas<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PackedDeltas::fetcher` method returns `PackedDeltaFetcher` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PackedDeltas::fetcher` method returns `PackedDeltaFetcher` directly in the existing parser interface"
+    )
   )]
   pub fn fetcher(&self) -> PackedDeltaFetcher<'a> {
     let Ok(value_7) = self.data.as_bytes();
@@ -676,23 +797,22 @@ impl<'a> PackedDeltas<'a> {
 
   #[must_use]
   fn x_deltas(&self) -> core::result::Result<DeltaRunIter<'a>, console_core_never::Never> {
-      let count = ::core::primitive::u64::wrapping_div(self.count_or_compute(), 2);
-      let Ok(value_8) = self.data.cursor();
+    let count = ::core::primitive::u64::wrapping_div(self.count_or_compute(), 2);
+    let Ok(value_8) = self.data.cursor();
 
-      let Ok(delta_run_iter) = DeltaRunIter::new(value_8, Some(count));
+    let Ok(delta_run_iter) = DeltaRunIter::new(value_8, Some(count));
 
-      Ok(delta_run_iter)
+    Ok(delta_run_iter)
   }
 
   #[must_use]
   fn y_deltas(&self) -> core::result::Result<DeltaRunIter<'a>, console_core_never::Never> {
-      let count = self.count_or_compute();
-      let Ok(value_9) = self.data.cursor();
+    let count = self.count_or_compute();
+    let Ok(value_9) = self.data.cursor();
 
-      let Ok(delta_run_iter) = DeltaRunIter::new(value_9, Some(count));
+    let Ok(delta_run_iter) = DeltaRunIter::new(value_9, Some(count));
 
-      Ok(delta_run_iter
-        .skip_fast(::core::primitive::u64::wrapping_div(count, 2)))
+    Ok(delta_run_iter.skip_fast(::core::primitive::u64::wrapping_div(count, 2)))
   }
 }
 
@@ -702,8 +822,11 @@ const DELTA_RUN_COUNT_MASK: u8 = 0x3F;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(
-    dylint_lib = "explicit070_spaced_discriminants",
-    expect(explicit070_spaced_discriminants, reason = "the public packed delta run type retains the established numeric sample-width values")
+  dylint_lib = "explicit070_spaced_discriminants",
+  expect(
+    explicit070_spaced_discriminants,
+    reason = "the public packed delta run type retains the established numeric sample-width values"
+  )
 )]
 pub enum DeltaRunType {
   Zero = 0,
@@ -725,7 +848,10 @@ impl DeltaRunType {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `DeltaRunType::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `DeltaRunType::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(control: u8) -> Self {
     let are_zero = (control & DELTAS_ARE_ZERO) != 0;
@@ -759,17 +885,20 @@ pub struct PackedDeltaFetcher<'a> {
 
 impl<'a> PackedDeltaFetcher<'a> {
   #[must_use]
-  fn new(data: &'a [u8], count: Option<u64>) -> core::result::Result<Self, console_core_never::Never> {
-      let Ok(value_53) = console_core_number_conversion::fitted::<_, u64>(data.len());
+  fn new(
+    data: &'a [u8],
+    count: Option<u64>,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    let Ok(value_53) = console_core_number_conversion::fitted::<_, u64>(data.len());
 
-      Ok(Self {
-        data,
-        pos: 0,
-        end: value_53,
-        run_count: 0,
-        value_type: DeltaRunType::I8,
-        remaining_total: count,
-      })
+    Ok(Self {
+      data,
+      pos: 0,
+      end: value_53,
+      run_count: 0,
+      value_type: DeltaRunType::I8,
+      remaining_total: count,
+    })
   }
 
   #[inline(always)]
@@ -818,7 +947,10 @@ impl<'a> PackedDeltaFetcher<'a> {
     let Ok(width) = self.value_type.byte_width();
     let needed = ::core::primitive::u64::wrapping_mul(self.run_count, width);
 
-    match ::core::primitive::bool::then_some(::core::primitive::u64::wrapping_add(self.pos, needed) > self.end, ()) {
+    match ::core::primitive::bool::then_some(
+      ::core::primitive::u64::wrapping_add(self.pos, needed) > self.end,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(ReadError::OutOfBounds);
       }
@@ -889,7 +1021,10 @@ impl<'a> PackedDeltaFetcher<'a> {
 
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the public delta fetcher applies a binary32 ratio to the caller binary32 destination")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the public delta fetcher applies a binary32 ratio to the caller binary32 destination"
+    )
   )]
   pub fn add_to_f32_scaled(&mut self, out: &mut [f32], scale: f32) -> Result<(), ReadError> {
     let Ok(value_55) = console_core_number_conversion::fitted::<_, u64>(out.len());
@@ -1071,107 +1206,79 @@ impl<'a> PackedDeltaFetcher<'a> {
 
 #[must_use]
 fn count_all_deltas(data: FontData) -> core::result::Result<u64, console_core_never::Never> {
-    let mut count = 0;
-    let mut offset = 0;
+  let mut count = 0;
+  let mut offset = 0;
 
-    let Ok(byte_count) = data.len();
+  let Ok(byte_count) = data.len();
 
-    for _ in 0..byte_count {
-      let control = match data.read_at::<u8>(offset) {
-        Ok(control) => control,
-        Err(_end_of_deltas) => break,
-      };
-      let Ok(width) = DeltaRunType::new(control).byte_width();
-      let run_count = ::core::primitive::u64::wrapping_add(
-        {
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(control & DELTA_RUN_COUNT_MASK);
-          migrated_value
-        },
+  for _ in 0..byte_count {
+    let control = match data.read_at::<u8>(offset) {
+      Ok(control) => control,
+      Err(_end_of_deltas) => break,
+    };
+    let Ok(width) = DeltaRunType::new(control).byte_width();
+    let run_count = ::core::primitive::u64::wrapping_add(
+      {
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(control & DELTA_RUN_COUNT_MASK);
+        migrated_value
+      },
+      1,
+    );
+
+    match (run_count, &mut count) {
+      (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+        *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
+          *explicit_arithmetic_place,
+          explicit_arithmetic_amount,
+        )
+      }
+    };
+
+    match (
+      ::core::primitive::u64::wrapping_add(
+        ::core::primitive::u64::wrapping_mul(run_count, width),
         1,
-      );
+      ),
+      &mut offset,
+    ) {
+      (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+        *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
+          *explicit_arithmetic_place,
+          explicit_arithmetic_amount,
+        )
+      }
+    };
+  }
 
-      match (run_count, &mut count) {
-        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-          *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
-            *explicit_arithmetic_place,
-            explicit_arithmetic_amount,
-          )
-        }
-      };
-
-      match (
-        ::core::primitive::u64::wrapping_add(
-          ::core::primitive::u64::wrapping_mul(run_count, width),
-          1,
-        ),
-        &mut offset,
-      ) {
-        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-          *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
-            *explicit_arithmetic_place,
-            explicit_arithmetic_amount,
-          )
-        }
-      };
-    }
-
-    Ok(count)
+  Ok(count)
 }
 
 impl<'a> DeltaRunIter<'a> {
   #[must_use]
-  fn new(cursor: Cursor<'a>, limit: Option<u64>) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(DeltaRunIter {
-        limit,
-        remaining_in_run: 0,
-        value_type: DeltaRunType::I8,
-        cursor,
-      })
+  fn new(
+    cursor: Cursor<'a>,
+    limit: Option<u64>,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    Ok(DeltaRunIter {
+      limit,
+      remaining_in_run: 0,
+      value_type: DeltaRunType::I8,
+      cursor,
+    })
   }
 
   #[must_use]
   pub(crate) fn end(mut self) -> core::result::Result<Cursor<'a>, console_core_never::Never> {
-      match self.limit {
-        Some(limit) => {
-          return Ok(self.skip_fast(limit).cursor);
-        }
-        None => {}
+    match self.limit {
+      Some(limit) => {
+        return Ok(self.skip_fast(limit).cursor);
       }
+      None => {}
+    }
 
-      match ::core::primitive::bool::then_some(self.remaining_in_run != 0, ()) {
-        ::core::option::Option::Some(()) => {
-          match ::core::primitive::bool::then_some(self.value_type != DeltaRunType::Zero, ()) {
-            ::core::option::Option::Some(()) => {
-              let ::core::result::Result::Ok(()) =
-                self.cursor.advance_by(::core::primitive::u64::wrapping_mul(
-                  {
-                    let Ok(migrated_value) =
-                      console_core_number_conversion::wrapped::<_, u64>(self.remaining_in_run);
-                    migrated_value
-                  },
-                  {
-                    let Ok(width) = self.value_type.byte_width();
-                    width
-                  },
-                ));
-            }
-            ::core::option::Option::None => {}
-          }
-
-          self.remaining_in_run = 0;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(remaining_bytes) = self.cursor.remaining_bytes();
-
-      for _ in 0..=remaining_bytes {
-        match self.read_next_control() {
-          Ok(Some(())) => {}
-          Ok(None) => break,
-        }
-
+    match ::core::primitive::bool::then_some(self.remaining_in_run != 0, ()) {
+      ::core::option::Option::Some(()) => {
         match ::core::primitive::bool::then_some(self.value_type != DeltaRunType::Zero, ()) {
           ::core::option::Option::Some(()) => {
             let ::core::result::Result::Ok(()) =
@@ -1182,9 +1289,9 @@ impl<'a> DeltaRunIter<'a> {
                   migrated_value
                 },
                 {
-                    let Ok(width) = self.value_type.byte_width();
-                    width
-                  },
+                  let Ok(width) = self.value_type.byte_width();
+                  width
+                },
               ));
           }
           ::core::option::Option::None => {}
@@ -1192,15 +1299,49 @@ impl<'a> DeltaRunIter<'a> {
 
         self.remaining_in_run = 0;
       }
+      ::core::option::Option::None => {}
+    }
 
-      Ok(self.cursor)
+    let Ok(remaining_bytes) = self.cursor.remaining_bytes();
+
+    for _ in 0..=remaining_bytes {
+      match self.read_next_control() {
+        Ok(Some(())) => {}
+        Ok(None) => break,
+      }
+
+      match ::core::primitive::bool::then_some(self.value_type != DeltaRunType::Zero, ()) {
+        ::core::option::Option::Some(()) => {
+          let ::core::result::Result::Ok(()) =
+            self.cursor.advance_by(::core::primitive::u64::wrapping_mul(
+              {
+                let Ok(migrated_value) =
+                  console_core_number_conversion::wrapped::<_, u64>(self.remaining_in_run);
+                migrated_value
+              },
+              {
+                let Ok(width) = self.value_type.byte_width();
+                width
+              },
+            ));
+        }
+        ::core::option::Option::None => {}
+      }
+
+      self.remaining_in_run = 0;
+    }
+
+    Ok(self.cursor)
   }
 
   #[inline(always)]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `DeltaRunIter::skip_fast` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `DeltaRunIter::skip_fast` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn skip_fast(mut self, n: u64) -> Self {
     let mut wanted = n;
@@ -1218,9 +1359,9 @@ impl<'a> DeltaRunIter<'a> {
 
       match ::core::primitive::bool::then_some(wanted > remaining, ()) {
         ::core::option::Option::Some(()) => {
-          let ::core::result::Result::Ok(()) = self.cursor.advance_by(
-            ::core::primitive::u64::wrapping_mul(remaining, width),
-          );
+          let ::core::result::Result::Ok(()) = self
+            .cursor
+            .advance_by(::core::primitive::u64::wrapping_mul(remaining, width));
 
           match (remaining, &mut wanted) {
             (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -1269,9 +1410,9 @@ impl<'a> DeltaRunIter<'a> {
         }
       };
 
-      let ::core::result::Result::Ok(()) = self.cursor.advance_by(
-        ::core::primitive::u64::wrapping_mul(consumed, width),
-      );
+      let ::core::result::Result::Ok(()) = self
+        .cursor
+        .advance_by(::core::primitive::u64::wrapping_mul(consumed, width));
 
       match self.limit.as_mut() {
         Some(limit) => {
@@ -1288,16 +1429,19 @@ impl<'a> DeltaRunIter<'a> {
 
   #[inline(always)]
   fn read_next_control(&mut self) -> core::result::Result<Option<()>, console_core_never::Never> {
-      self.remaining_in_run = 0;
-      let control: u8 = match match self.cursor.read() {
-        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      self.value_type = DeltaRunType::new(control);
-      self.remaining_in_run =
-        ::core::primitive::u8::wrapping_add(control & DELTA_RUN_COUNT_MASK, 1);
+    self.remaining_in_run = 0;
+    let control: u8 = match match self.cursor.read() {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    self.value_type = DeltaRunType::new(control);
+    self.remaining_in_run =
+      ::core::primitive::u8::wrapping_add(control & DELTA_RUN_COUNT_MASK, 1);
 
-      Ok(Some(()))
+    Ok(Some(()))
   }
 }
 
@@ -1372,13 +1516,17 @@ pub struct TupleVariationHeaderIter<'a> {
 
 impl<'a> TupleVariationHeaderIter<'a> {
   #[must_use]
-  pub(crate) fn new(data: FontData<'a>, n_headers: u64, axis_count: u16) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        data,
-        n_headers,
-        current: 0,
-        axis_count,
-      })
+  pub(crate) fn new(
+    data: FontData<'a>,
+    n_headers: u64,
+    axis_count: u16,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    Ok(Self {
+      data,
+      n_headers,
+      current: 0,
+      axis_count,
+    })
   }
 }
 
@@ -1405,13 +1553,14 @@ impl<'a> Iterator for TupleVariationHeaderIter<'a> {
 
     let next = TupleVariationHeader::read(self.data, self.axis_count);
 
-    let next_len = match next
-      .as_ref()
-      .map(|table| {
-          let Ok(byte_len) = table.byte_len(self.axis_count);
+    let next_len = match next.as_ref().map(|table| {
+      let Ok(byte_len) = table.byte_len(self.axis_count);
 
-          byte_len
-      }) { Ok(value) => value, Err(_unreadable_tuple_variation) => 0 };
+      byte_len
+    }) {
+      Ok(value) => value,
+      Err(_unreadable_tuple_variation) => 0,
+    };
     let Ok(value_89) = self.data.split_off(next_len);
 
     let next_header_data = value_89?;
@@ -1440,21 +1589,27 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationData::tuples` method returns `TupleVariationIter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationData::tuples` method returns `TupleVariationIter` directly in the existing parser interface"
+    )
   )]
   pub fn tuples(&self) -> TupleVariationIter<'a, T> {
     TupleVariationIter {
       current: 0,
       parent: self.clone(),
-      header_iter: ({ let Ok(explicit_value) = TupleVariationHeaderIter::new(
-        self.header_data,
-        {
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(self.tuple_count.count());
-          migrated_value
-        },
-        self.axis_count,
-      ); explicit_value }),
+      header_iter: ({
+        let Ok(explicit_value) = TupleVariationHeaderIter::new(
+          self.header_data,
+          {
+            let Ok(migrated_value) =
+              console_core_number_conversion::wrapped::<_, u64>(self.tuple_count.count());
+            migrated_value
+          },
+          self.axis_count,
+        );
+        explicit_value
+      }),
       serialized_data: self.serialized_data,
       _marker: std::marker::PhantomData,
     }
@@ -1463,7 +1618,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariationData::active_tuples_at` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariationData::active_tuples_at` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn active_tuples_at(
     &self,
@@ -1472,15 +1630,18 @@ where
     ActiveTupleVariationIter {
       coords,
       parent: self.clone(),
-      header_iter: ({ let Ok(explicit_value) = TupleVariationHeaderIter::new(
-        self.header_data,
-        {
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(self.tuple_count.count());
-          migrated_value
-        },
-        self.axis_count,
-      ); explicit_value }),
+      header_iter: ({
+        let Ok(explicit_value) = TupleVariationHeaderIter::new(
+          self.header_data,
+          {
+            let Ok(migrated_value) =
+              console_core_number_conversion::wrapped::<_, u64>(self.tuple_count.count());
+            migrated_value
+          },
+          self.axis_count,
+        );
+        explicit_value
+      }),
       serialized_data: self.serialized_data,
       data_offset: 0,
       _marker: std::marker::PhantomData,
@@ -1489,11 +1650,11 @@ where
 
   #[must_use]
   pub(crate) fn tuple_count(&self) -> core::result::Result<u64, console_core_never::Never> {
-      Ok({
-        let Ok(migrated_value) =
-          console_core_number_conversion::wrapped::<_, u64>(self.tuple_count.count());
-        migrated_value
-      })
+    Ok({
+      let Ok(migrated_value) =
+        console_core_number_conversion::wrapped::<_, u64>(self.tuple_count.count());
+      migrated_value
+    })
   }
 }
 
@@ -1510,47 +1671,58 @@ where
   T: TupleDelta,
 {
   #[inline(always)]
-  fn next_tuple(&mut self) -> core::result::Result<Option<TupleVariation<'a, T>>, console_core_never::Never> {
-      let Ok(tuple_count) = self.parent.tuple_count();
+  fn next_tuple(
+    &mut self,
+  ) -> core::result::Result<Option<TupleVariation<'a, T>>, console_core_never::Never> {
+    let Ok(tuple_count) = self.parent.tuple_count();
 
-      match ::core::primitive::bool::then_some(tuple_count == self.current, ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(None);
-        }
-        ::core::option::Option::None => {}
+    match ::core::primitive::bool::then_some(tuple_count == self.current, ()) {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
       }
+      ::core::option::Option::None => {}
+    }
 
-      match (1, &mut self.current) {
-        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-          *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
-            *explicit_arithmetic_place,
-            explicit_arithmetic_amount,
-          )
-        }
-      };
+    match (1, &mut self.current) {
+      (explicit_arithmetic_amount, explicit_arithmetic_place) => {
+        *explicit_arithmetic_place = ::core::primitive::u64::wrapping_add(
+          *explicit_arithmetic_place,
+          explicit_arithmetic_amount,
+        )
+      }
+    };
 
-      let next = match self.header_iter.next() { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let header = match match next {
-        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let data_len = {
-        let Ok(variation_data_size) = header.variation_data_size();
-        let Ok(migrated_value) =
-          console_core_number_conversion::wrapped::<_, u64>(variation_data_size);
-        migrated_value
-      };
-      let Ok(var_data) = self.serialized_data.take_up_to(data_len);
-      let var_data_2 = match var_data { Some(explicit_value) => explicit_value, None => return Ok(None) };
+    let next = match self.header_iter.next() {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let header = match match next {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let data_len = {
+      let Ok(variation_data_size) = header.variation_data_size();
+      let Ok(migrated_value) =
+        console_core_number_conversion::wrapped::<_, u64>(variation_data_size);
+      migrated_value
+    };
+    let Ok(var_data) = self.serialized_data.take_up_to(data_len);
+    let var_data_2 = match var_data {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
 
-      Ok(Some(TupleVariation {
-        axis_count: self.parent.axis_count,
-        header,
-        shared_tuples: self.parent.shared_tuples.clone(),
-        serialized_data: var_data_2,
-        shared_point_numbers: self.parent.shared_point_numbers.clone(),
-        _marker: std::marker::PhantomData,
-      }))
+    Ok(Some(TupleVariation {
+      axis_count: self.parent.axis_count,
+      header,
+      shared_tuples: self.parent.shared_tuples.clone(),
+      serialized_data: var_data_2,
+      shared_point_numbers: self.parent.shared_point_numbers.clone(),
+      _marker: std::marker::PhantomData,
+    }))
   }
 }
 
@@ -1601,16 +1773,19 @@ where
       let data_end = data_start.checked_add(data_len)?;
       self.data_offset = data_end;
 
-      match { let Ok(explicit_value) = compute_scalar(
-        &header,
-        {
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(self.parent.axis_count);
-          migrated_value
-        },
-        &self.parent.shared_tuples,
-        self.coords,
-      ); explicit_value } {
+      match {
+        let Ok(explicit_value) = compute_scalar(
+          &header,
+          {
+            let Ok(migrated_value) =
+              console_core_number_conversion::wrapped::<_, u64>(self.parent.axis_count);
+            migrated_value
+          },
+          &self.parent.shared_tuples,
+          self.coords,
+        );
+        explicit_value
+      } {
         Some(scalar) => {
           let Ok(value_85) = self.serialized_data.slice(data_start..data_end);
 
@@ -1652,11 +1827,17 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::has_deltas_for_all_points` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::has_deltas_for_all_points` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `TupleVariation::has_deltas_for_all_points` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `TupleVariation::has_deltas_for_all_points` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn has_deltas_for_all_points(&self) -> bool {
     let Ok(tuple_index) = self.header.tuple_index();
@@ -1679,7 +1860,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::point_numbers` method returns `PackedPointNumbersIter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::point_numbers` method returns `PackedPointNumbersIter` directly in the existing parser interface"
+    )
   )]
   pub fn point_numbers(&self) -> PackedPointNumbersIter<'a> {
     let Ok((point_numbers, _)) = self.point_numbers_and_packed_deltas();
@@ -1689,7 +1873,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::peak` method returns `Tuple` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::peak` method returns `Tuple` directly in the existing parser interface"
+    )
   )]
   pub fn peak(&self) -> Tuple<'a> {
     let Ok(tuple_index) = self.header.tuple_index();
@@ -1718,7 +1905,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::intermediate_start` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::intermediate_start` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn intermediate_start(&self) -> Option<Tuple<'a>> {
     self.header.intermediate_start_tuple()
@@ -1727,7 +1917,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::intermediate_end` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::intermediate_end` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn intermediate_end(&self) -> Option<Tuple<'a>> {
     self.header.intermediate_end_tuple()
@@ -1736,25 +1929,34 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::compute_scalar` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::compute_scalar` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn compute_scalar(&self, coords: &[F2Dot14]) -> Option<Fixed> {
-    { let Ok(explicit_value) = compute_scalar(
-      &self.header,
-      {
-        let Ok(migrated_value) =
-          console_core_number_conversion::wrapped::<_, u64>(self.axis_count);
-        migrated_value
-      },
-      &self.shared_tuples,
-      coords,
-    ); explicit_value }
+    {
+      let Ok(explicit_value) = compute_scalar(
+        &self.header,
+        {
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, u64>(self.axis_count);
+          migrated_value
+        },
+        &self.shared_tuples,
+        coords,
+      );
+      explicit_value
+    }
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::compute_scalar_f32` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::compute_scalar_f32` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn compute_scalar_f32(&self, coords: &[F2Dot14]) -> Option<f32> {
     let mut scalar = 1.0;
@@ -1762,12 +1964,15 @@ where
     let inter_start = self.header.intermediate_start_tuple();
     let inter_end = self.header.intermediate_end_tuple();
 
-    match ::core::primitive::bool::then_some(peak.len()
-      != ({
-        let Ok(migrated_value) =
-          console_core_number_conversion::wrapped::<_, u64>(self.axis_count);
-        migrated_value
-      }), ()) {
+    match ::core::primitive::bool::then_some(
+      peak.len()
+        != ({
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, u64>(self.axis_count);
+          migrated_value
+        }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return None;
       }
@@ -1817,76 +2022,88 @@ where
       }
 
       match (&inter_start, &inter_end) {
-          (Some(inter_start_2), Some(inter_end_2)) => {
-            let coordinate_12 = match inter_start_2.get(i_2) {
-              Some(coordinate) => coordinate,
-              None => F2Dot14::ZERO,
-            };
-            let Ok(value_12) = coordinate_12.to_bits();
+        (Some(inter_start_2), Some(inter_end_2)) => {
+          let coordinate_12 = match inter_start_2.get(i_2) {
+            Some(coordinate) => coordinate,
+            None => F2Dot14::ZERO,
+          };
+          let Ok(value_12) = coordinate_12.to_bits();
 
-            let start = {
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>(value_12);
-              migrated_value
-            };
-            let coordinate_13 = match inter_end_2.get(i_2) {
-              Some(coordinate) => coordinate,
-              None => F2Dot14::ZERO,
-            };
-            let Ok(value_13) = coordinate_13.to_bits();
+          let start = {
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>(value_12);
+            migrated_value
+          };
+          let coordinate_13 = match inter_end_2.get(i_2) {
+            Some(coordinate) => coordinate,
+            None => F2Dot14::ZERO,
+          };
+          let Ok(value_13) = coordinate_13.to_bits();
 
-            let end = {
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>(value_13);
-              migrated_value
-            };
+          let end = {
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, i32>(value_13);
+            migrated_value
+          };
 
-            match ::core::primitive::bool::then_some(start > peak_2 || peak_2 > end || (start < 0 && end > 0 && peak_2 != 0), ()) {
-              ::core::option::Option::Some(()) => {
-                continue;
-              }
-              ::core::option::Option::None => {}
+          match ::core::primitive::bool::then_some(
+            start > peak_2 || peak_2 > end || (start < 0 && end > 0 && peak_2 != 0),
+            (),
+          ) {
+            ::core::option::Option::Some(()) => {
+              continue;
             }
+            ::core::option::Option::None => {}
+          }
 
-            match ::core::primitive::bool::then_some(coord < start || coord > end, ()) {
-              ::core::option::Option::Some(()) => {
-                return None;
-              }
-              ::core::option::Option::None => {}
+          match ::core::primitive::bool::then_some(coord < start || coord > end, ()) {
+            ::core::option::Option::Some(()) => {
+              return None;
             }
+            ::core::option::Option::None => {}
+          }
 
-            let (numerator, denominator) = match coord.cmp(&peak_2) {
-              core::cmp::Ordering::Less => (coord.wrapping_sub(start), peak_2.wrapping_sub(start)),
-              core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
-                (end.wrapping_sub(coord), end.wrapping_sub(peak_2))
-              }
-            };
-
-            match denominator {
-              0 => continue,
-              _nonzero => {}
+          let (numerator, denominator) = match coord.cmp(&peak_2) {
+            core::cmp::Ordering::Less => (coord.wrapping_sub(start), peak_2.wrapping_sub(start)),
+            core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
+              (end.wrapping_sub(coord), end.wrapping_sub(peak_2))
             }
+          };
 
-            let Ok(distance) = console_core_number_conversion::nearest_f32_from_i64(i64::from(numerator));
-            let Ok(extent) = console_core_number_conversion::nearest_f32_from_i64(i64::from(denominator));
-            scalar *= distance / extent;
-          },
-          (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {
-            match ::core::primitive::bool::then_some(coord < peak_2.min(0) || coord > peak_2.max(0), ()) {
-              ::core::option::Option::Some(()) => {
-                return None;
-              }
-              ::core::option::Option::None => {}
+          match denominator {
+            0 => continue,
+            _nonzero => {}
+          }
+
+          let Ok(distance) =
+            console_core_number_conversion::nearest_f32_from_i64(i64::from(numerator));
+          let Ok(extent) =
+            console_core_number_conversion::nearest_f32_from_i64(i64::from(denominator));
+          scalar *= distance / extent;
+        }
+        (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {
+          match ::core::primitive::bool::then_some(
+            coord < peak_2.min(0) || coord > peak_2.max(0),
+            (),
+          ) {
+            ::core::option::Option::Some(()) => {
+              return None;
             }
+            ::core::option::Option::None => {}
+          }
 
-            scalar *= (match ::console_core_number_conversion::nearest_f32_from_i64(
-              <::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(coord),
-            ) {
-              ::core::result::Result::Ok(_converted_number) => _converted_number,
-            }) / match ::console_core_number_conversion::nearest_f32_from_i64(
-              <::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(peak_2),
-            ) {
-              ::core::result::Result::Ok(_converted_number) => _converted_number,
-            };
-          },
+          scalar *= (match ::console_core_number_conversion::nearest_f32_from_i64(
+            <::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(
+              coord,
+            ),
+          ) {
+            ::core::result::Result::Ok(_converted_number) => _converted_number,
+          }) / match ::console_core_number_conversion::nearest_f32_from_i64(
+            <::core::primitive::i64 as ::core::convert::From<::core::primitive::i32>>::from(
+              peak_2,
+            ),
+          ) {
+            ::core::result::Result::Ok(_converted_number) => _converted_number,
+          };
+        }
       }
     }
 
@@ -1896,7 +2113,10 @@ where
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TupleVariation::deltas` method returns `TupleDeltaIter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TupleVariation::deltas` method returns `TupleDeltaIter` directly in the existing parser interface"
+    )
   )]
   pub fn deltas(&self) -> TupleDeltaIter<'a, T> {
     let Ok((point_numbers, packed_deltas)) = self.point_numbers_and_packed_deltas();
@@ -1907,13 +2127,16 @@ where
     };
     let packed_deltas_2 = match ::core::primitive::bool::then_some(count == 0, ()) {
       ::core::option::Option::Some(()) => PackedDeltas::consume_all(packed_deltas),
-      ::core::option::Option::None => { let Ok(explicit_value) = PackedDeltas::new(
-        packed_deltas,
-        match ::core::primitive::bool::then_some(T::is_point(), ()) {
-          ::core::option::Option::Some(()) => ::core::primitive::u64::wrapping_mul(count, 2),
-          ::core::option::Option::None => count,
-        },
-      ); explicit_value },
+      ::core::option::Option::None => {
+        let Ok(explicit_value) = PackedDeltas::new(
+          packed_deltas,
+          match ::core::primitive::bool::then_some(T::is_point(), ()) {
+            ::core::option::Option::Some(()) => ::core::primitive::u64::wrapping_mul(count, 2),
+            ::core::option::Option::None => count,
+          },
+        );
+        explicit_value
+      }
     };
     let Ok(tuple_delta_iter) = TupleDeltaIter::new(&point_numbers, packed_deltas_2);
 
@@ -1921,11 +2144,16 @@ where
   }
 
   #[must_use]
-  fn point_numbers_and_packed_deltas(&self) -> core::result::Result<(PackedPointNumbers<'a>, FontData<'a>), console_core_never::Never> {
-      let Ok(tuple_index) = self.header.tuple_index();
+  fn point_numbers_and_packed_deltas(
+    &self,
+  ) -> core::result::Result<(PackedPointNumbers<'a>, FontData<'a>), console_core_never::Never> {
+    let Ok(tuple_index) = self.header.tuple_index();
 
-      Ok(match ::core::primitive::bool::then_some(tuple_index.private_point_numbers(), ()) {
-        ::core::option::Option::Some(()) => PackedPointNumbers::split_off_front(self.serialized_data),
+    Ok(
+      match ::core::primitive::bool::then_some(tuple_index.private_point_numbers(), ()) {
+        ::core::option::Option::Some(()) => {
+          PackedPointNumbers::split_off_front(self.serialized_data)
+        }
         ::core::option::Option::None => (
           match &self.shared_point_numbers {
             Some(points) => points.clone(),
@@ -1933,7 +2161,8 @@ where
           },
           self.serialized_data,
         ),
-      })
+      },
+    )
   }
 }
 
@@ -2092,7 +2321,9 @@ fn read_dense_deltas<T>(
       migrated_value
     };
     let Ok(split) = console_core_number_conversion::index(run_count);
-    let (dest, rest) = remaining.split_at_mut_checked(split).ok_or(ReadError::OutOfBounds)?;
+    let (dest, rest) = remaining
+      .split_at_mut_checked(split)
+      .ok_or(ReadError::OutOfBounds)?;
     remaining = rest;
 
     match value_type {
@@ -2130,8 +2361,6 @@ fn read_dense_deltas<T>(
         }
       }
     }
-
-
   }
 
   Ok(())
@@ -2227,116 +2456,132 @@ fn compute_scalar<'a>(
   shared_tuples: &Option<ComputedArray<'a, Tuple<'a>>>,
   coords: &[F2Dot14],
 ) -> core::result::Result<Option<Fixed>, console_core_never::Never> {
-    let mut scalar = Fixed::ONE;
-    let Ok(tuple_idx) = header.tuple_index();
-    let peak = match tuple_idx.tuple_records_index() {
-      Some(shared_index) => match match { let checked_value_4 = match shared_tuples.as_ref() { Some(explicit_value) => explicit_value, None => return Ok(None) }; checked_value_4 }.get({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(shared_index);
-        migrated_value
-      }) {
-        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) },
-      None => match header.peak_tuple() { Some(explicit_value) => explicit_value, None => return Ok(None) },
+  let mut scalar = Fixed::ONE;
+  let Ok(tuple_idx) = header.tuple_index();
+  let peak = match tuple_idx.tuple_records_index() {
+    Some(shared_index) => match match {
+      let checked_value_4 = match shared_tuples.as_ref() {
+        Some(explicit_value) => explicit_value,
+        None => return Ok(None),
+      };
+      checked_value_4
+    }
+    .get({
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(shared_index);
+      migrated_value
+    }) {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    },
+    None => match header.peak_tuple() {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    },
+  };
+
+  match ::core::primitive::bool::then_some(peak.len() != axis_count, ()) {
+    ::core::option::Option::Some(()) => {
+      return Ok(None);
+    }
+    ::core::option::Option::None => {}
+  }
+
+  let intermediate = header.intermediate_tuples();
+
+  for (i, peak_3) in peak.values.iter().enumerate().filter(|(_, peak_2)| {
+    let Ok(value_43) = peak_2.get();
+
+    value_43 != F2Dot14::ZERO
+  }) {
+    let coord = match coords.get(i).copied() {
+      Some(coordinate) => coordinate,
+      None => F2Dot14::ZERO,
     };
 
-    match ::core::primitive::bool::then_some(peak.len() != axis_count, ()) {
+    match ::core::primitive::bool::then_some(coord == F2Dot14::ZERO, ()) {
       ::core::option::Option::Some(()) => {
         return Ok(None);
       }
       ::core::option::Option::None => {}
     }
 
-    let intermediate = header.intermediate_tuples();
+    let Ok(peak_4) = peak_3.get();
 
-    for (i, peak_3) in peak.values.iter().enumerate().filter(|(_, peak_2)| {
-      let Ok(value_43) = peak_2.get();
-
-      value_43 != F2Dot14::ZERO
-    }) {
-      let coord = match coords.get(i).copied() {
-        Some(coordinate) => coordinate,
-        None => F2Dot14::ZERO,
-      };
-
-      match ::core::primitive::bool::then_some(coord == F2Dot14::ZERO, ()) {
-        ::core::option::Option::Some(()) => {
-          return Ok(None);
-        }
-        ::core::option::Option::None => {}
+    match ::core::primitive::bool::then_some(peak_4 == coord, ()) {
+      ::core::option::Option::Some(()) => {
+        continue;
       }
-
-      let Ok(peak_4) = peak_3.get();
-
-      match ::core::primitive::bool::then_some(peak_4 == coord, ()) {
-        ::core::option::Option::Some(()) => {
-          continue;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      match &intermediate {
-        Some((inter_start, inter_end)) => {
-          let Ok(value_75) = console_core_number_conversion::fitted::<_, u64>(i);
-
-          let start = match inter_start.get(value_75) {
-            Some(coordinate) => coordinate,
-            None => F2Dot14::ZERO,
-          };
-          let Ok(value_76) = console_core_number_conversion::fitted::<_, u64>(i);
-
-          let end = match inter_end.get(value_76) {
-            Some(coordinate) => coordinate,
-            None => F2Dot14::ZERO,
-          };
-
-          match ::core::primitive::bool::then_some(coord <= start || coord >= end, ()) {
-            ::core::option::Option::Some(()) => {
-              return Ok(None);
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let Ok(coord_2) = coord.to_fixed();
-          let Ok(peak_5) = peak_4.to_fixed();
-
-          match ::core::primitive::bool::then_some(coord_2 < peak_5, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(start_2) = start.to_fixed();
-              let Ok(value_22) = scalar.mul_div(coord_2 - start_2, peak_5 - start_2);
-
-              scalar = value_22;
-            }
-            ::core::option::Option::None => {
-              let Ok(end_2) = end.to_fixed();
-              let value_23 = end_2 - peak_5;
-
-              let Ok(value_41) = scalar.mul_div(end_2 - coord_2, value_23);
-
-              scalar = value_41;
-            }
-          }
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(coord < peak_4.min(F2Dot14::ZERO) || coord > peak_4.max(F2Dot14::ZERO), ()) {
-            ::core::option::Option::Some(()) => {
-              return Ok(None);
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let coord_3 = coord.to_fixed();
-          let Ok(peak_6) = peak_4.to_fixed();
-          let Ok(value_24) = coord_3;
-
-          let Ok(value_42) = scalar.mul_div(value_24, peak_6);
-
-          scalar = value_42;
-        }
-      }
+      ::core::option::Option::None => {}
     }
 
-    Ok((scalar != Fixed::ZERO).then_some(scalar))
+    match &intermediate {
+      Some((inter_start, inter_end)) => {
+        let Ok(value_75) = console_core_number_conversion::fitted::<_, u64>(i);
+
+        let start = match inter_start.get(value_75) {
+          Some(coordinate) => coordinate,
+          None => F2Dot14::ZERO,
+        };
+        let Ok(value_76) = console_core_number_conversion::fitted::<_, u64>(i);
+
+        let end = match inter_end.get(value_76) {
+          Some(coordinate) => coordinate,
+          None => F2Dot14::ZERO,
+        };
+
+        match ::core::primitive::bool::then_some(coord <= start || coord >= end, ()) {
+          ::core::option::Option::Some(()) => {
+            return Ok(None);
+          }
+          ::core::option::Option::None => {}
+        }
+
+        let Ok(coord_2) = coord.to_fixed();
+        let Ok(peak_5) = peak_4.to_fixed();
+
+        match ::core::primitive::bool::then_some(coord_2 < peak_5, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(start_2) = start.to_fixed();
+            let Ok(value_22) = scalar.mul_div(coord_2 - start_2, peak_5 - start_2);
+
+            scalar = value_22;
+          }
+          ::core::option::Option::None => {
+            let Ok(end_2) = end.to_fixed();
+            let value_23 = end_2 - peak_5;
+
+            let Ok(value_41) = scalar.mul_div(end_2 - coord_2, value_23);
+
+            scalar = value_41;
+          }
+        }
+      }
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(
+          coord < peak_4.min(F2Dot14::ZERO) || coord > peak_4.max(F2Dot14::ZERO),
+          (),
+        ) {
+          ::core::option::Option::Some(()) => {
+            return Ok(None);
+          }
+          ::core::option::Option::None => {}
+        }
+
+        let coord_3 = coord.to_fixed();
+        let Ok(peak_6) = peak_4.to_fixed();
+        let Ok(value_24) = coord_3;
+
+        let Ok(value_42) = scalar.mul_div(value_24, peak_6);
+
+        scalar = value_42;
+      }
+    }
+  }
+
+  Ok((scalar != Fixed::ZERO).then_some(scalar))
 }
 
 #[derive(Clone, Debug)]
@@ -2360,40 +2605,46 @@ where
   T: TupleDelta,
 {
   #[must_use]
-  fn new(points: &PackedPointNumbers<'a>, deltas: PackedDeltas<'a>) -> core::result::Result<TupleDeltaIter<'a, T>, console_core_never::Never> {
-      let mut points_2 = points.iter();
-      let next_point = points_2.next();
-      let values = match ::core::primitive::bool::then_some(T::is_point(), ()) {
-        ::core::option::Option::Some(()) => {
-            let Ok(x_deltas) = deltas.x_deltas();
-            let Ok(y_deltas) = deltas.y_deltas();
+  fn new(
+    points: &PackedPointNumbers<'a>,
+    deltas: PackedDeltas<'a>,
+  ) -> core::result::Result<TupleDeltaIter<'a, T>, console_core_never::Never> {
+    let mut points_2 = points.iter();
+    let next_point = points_2.next();
+    let values = match ::core::primitive::bool::then_some(T::is_point(), ()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(x_deltas) = deltas.x_deltas();
+        let Ok(y_deltas) = deltas.y_deltas();
 
-            TupleDeltaValues::Points(x_deltas, y_deltas)
-        }
-        ::core::option::Option::None => TupleDeltaValues::Scalars(deltas.iter()),
-      };
+        TupleDeltaValues::Points(x_deltas, y_deltas)
+      }
+      ::core::option::Option::None => TupleDeltaValues::Scalars(deltas.iter()),
+    };
 
-      Ok(TupleDeltaIter {
-        cur: 0,
-        points: next_point.map(|_| points_2),
-        next_point: ({
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(match next_point {
-              ::core::option::Option::Some(present) => present,
-              ::core::option::Option::None => 0,
-            });
-          migrated_value
-        }),
-        values,
-        _marker: std::marker::PhantomData,
-      })
+    Ok(TupleDeltaIter {
+      cur: 0,
+      points: next_point.map(|_| points_2),
+      next_point: ({
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(match next_point {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+          });
+        migrated_value
+      }),
+      values,
+      _marker: std::marker::PhantomData,
+    })
   }
 }
 
 pub trait TupleDelta: Sized + Copy + 'static {
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `TupleDelta::is_point` trait method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `TupleDelta::is_point` trait method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   fn is_point() -> bool;
 
@@ -2463,7 +2714,10 @@ impl EntryFormat {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `EntryFormat::entry_size` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `EntryFormat::entry_size` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn entry_size(self) -> u8 {
     let Ok(bits) = self.bits();
@@ -2478,7 +2732,10 @@ impl EntryFormat {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `EntryFormat::bit_count` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `EntryFormat::bit_count` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn bit_count(self) -> u8 {
     let Ok(bits) = self.bits();
@@ -2488,21 +2745,24 @@ impl EntryFormat {
   }
 
   #[must_use]
-  pub(crate) fn map_size(self, map_count: impl Into<u32>) -> core::result::Result<u64, console_core_never::Never> {
-      Ok(::core::primitive::u64::wrapping_mul(
-        {
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(self.entry_size());
-          migrated_value
-        },
-        {
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u64>(<_ as ::core::convert::Into<
-              ::core::primitive::u32,
-            >>::into(map_count));
-          migrated_value
-        },
-      ))
+  pub(crate) fn map_size(
+    self,
+    map_count: impl Into<u32>,
+  ) -> core::result::Result<u64, console_core_never::Never> {
+    Ok(::core::primitive::u64::wrapping_mul(
+      {
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(self.entry_size());
+        migrated_value
+      },
+      {
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(<_ as ::core::convert::Into<
+            ::core::primitive::u32,
+          >>::into(map_count));
+        migrated_value
+      },
+    ))
   }
 }
 
@@ -2608,7 +2868,10 @@ impl ItemVariationStore<'_> {
     index: DeltaSetIndex,
     coords: &[F2Dot14],
   ) -> Result<i32, ReadError> {
-    match ::core::primitive::bool::then_some(coords.is_empty() || index == DeltaSetIndex::NO_VARIATION_INDEX, ()) {
+    match ::core::primitive::bool::then_some(
+      coords.is_empty() || index == DeltaSetIndex::NO_VARIATION_INDEX,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(0);
       }
@@ -2728,7 +2991,10 @@ impl ItemVariationStore<'_> {
 #[derive(Copy, Clone, Default, Debug)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "this typed item delta stores the binary64 value used by the variation application contract")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "this typed item delta stores the binary64 value used by the variation application contract"
+  )
 )]
 pub struct FloatItemDelta(f64);
 
@@ -2741,11 +3007,17 @@ impl FloatItemDelta {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FloatItemDelta::to_f64` method returns `f64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FloatItemDelta::to_f64` method returns `f64` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the item delta accessor returns the stored binary64 variation amplitude")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the item delta accessor returns the stored binary64 variation amplitude"
+    )
   )]
   pub fn to_f64(self) -> f64 {
     self.0
@@ -2755,7 +3027,10 @@ impl FloatItemDelta {
 pub trait FloatItemDeltaTarget {
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "external implementations return their binary32 variation-adjusted coordinate through this trait")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "external implementations return their binary32 variation-adjusted coordinate through this trait"
+    )
   )]
   fn apply_float_delta(&self, delta: FloatItemDelta) -> f32;
 }
@@ -2810,7 +3085,10 @@ impl<'a> VariationRegion<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VariationRegion::compute_scalar` method returns `Fixed` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VariationRegion::compute_scalar` method returns `Fixed` directly in the existing parser interface"
+    )
   )]
   pub fn compute_scalar(&self, coords: &[F2Dot14]) -> Fixed {
     const ZERO: Fixed = Fixed::ZERO;
@@ -2827,7 +3105,10 @@ impl<'a> VariationRegion<'a> {
 
       let Ok(end) = value_31.to_fixed();
 
-      match ::core::primitive::bool::then_some(start > peak_2 || peak_2 > end || start < ZERO && end > ZERO, ()) {
+      match ::core::primitive::bool::then_some(
+        start > peak_2 || peak_2 > end || start < ZERO && end > ZERO,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -2849,23 +3130,27 @@ impl<'a> VariationRegion<'a> {
         ::core::option::Option::Some(()) => {
           return ZERO;
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(coord == peak_2, ()) {
-          ::core::option::Option::Some(()) => {
-            continue;
-          }
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(coord < peak_2, ()) {
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(coord == peak_2, ()) {
             ::core::option::Option::Some(()) => {
-              let Ok(value_32) = scalar.mul_div(coord - start, peak_2 - start);
-
-              scalar = value_32;
+              continue;
             }
             ::core::option::Option::None => {
-              let Ok(value_33) = scalar.mul_div(end - coord, end - peak_2);
+              match ::core::primitive::bool::then_some(coord < peak_2, ()) {
+                ::core::option::Option::Some(()) => {
+                  let Ok(value_32) = scalar.mul_div(coord - start, peak_2 - start);
 
-              scalar = value_33;
+                  scalar = value_32;
+                }
+                ::core::option::Option::None => {
+                  let Ok(value_33) = scalar.mul_div(end - coord, end - peak_2);
+
+                  scalar = value_33;
+                }
+              }
             }
-          },
-        },
+          }
+        }
       }
     }
 
@@ -2875,11 +3160,17 @@ impl<'a> VariationRegion<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VariationRegion::compute_scalar_f32` method returns `f32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VariationRegion::compute_scalar_f32` method returns `f32` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the region API returns its dimensionless interpolation weight with binary32 rounding")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the region API returns its dimensionless interpolation weight with binary32 rounding"
+    )
   )]
   pub fn compute_scalar_f32(&self, coords: &[F2Dot14]) -> f32 {
     let mut scalar = 1.0;
@@ -2895,7 +3186,10 @@ impl<'a> VariationRegion<'a> {
 
       let Ok(end) = value_35.to_f32();
 
-      match ::core::primitive::bool::then_some(start > peak_2 || peak_2 > end || start < 0.0 && end > 0.0, ()) {
+      match ::core::primitive::bool::then_some(
+        start > peak_2 || peak_2 > end || start < 0.0 && end > 0.0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -2933,10 +3227,14 @@ impl<'a> VariationRegion<'a> {
   #[must_use]
   fn active_region_axes(
     &self,
-  ) -> core::result::Result<impl Iterator<Item = (u64, F2Dot14, &'a RegionAxisCoordinates)> + use<'a>, console_core_never::Never> {
-      let Ok(region_axes) = self.region_axes();
+  ) -> core::result::Result<
+    impl Iterator<Item = (u64, F2Dot14, &'a RegionAxisCoordinates)> + use<'a>,
+    console_core_never::Never,
+  > {
+    let Ok(region_axes) = self.region_axes();
 
-      Ok(region_axes
+    Ok(
+      region_axes
         .iter()
         .enumerate()
         .filter_map(|(i, axis_coords)| {
@@ -2949,7 +3247,8 @@ impl<'a> VariationRegion<'a> {
             }
             ::core::option::Option::None => None,
           }
-        }))
+        }),
+    )
   }
 }
 
@@ -2957,7 +3256,10 @@ impl<'a> ItemVariationData<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ItemVariationData::delta_set` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ItemVariationData::delta_set` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn delta_set(&self, inner_index: u16) -> impl Iterator<Item = i32> + 'a + Clone + use<'a> {
     let Ok(word_delta_count) = self.word_delta_count();
@@ -2993,7 +3295,10 @@ impl<'a> ItemVariationData<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ItemVariationData::get_delta_row_len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ItemVariationData::get_delta_row_len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn get_delta_row_len(&self) -> u64 {
     let Ok(word_delta_count) = self.word_delta_count();
@@ -3005,11 +3310,17 @@ impl<'a> ItemVariationData<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ItemVariationData::delta_row_len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ItemVariationData::delta_row_len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `ItemVariationData::delta_row_len` method retains the positional argument order for `word_delta_count`, `region_index_count`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `ItemVariationData::delta_row_len` method retains the positional argument order for `word_delta_count`, `region_index_count`"
+    )
   )]
   pub fn delta_row_len(word_delta_count: u16, region_index_count: u16) -> u64 {
     let region_count = {
@@ -3037,11 +3348,17 @@ impl<'a> ItemVariationData<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ItemVariationData::delta_sets_len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ItemVariationData::delta_sets_len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `ItemVariationData::delta_sets_len` method retains the positional argument order for `item_count`, `word_delta_count`, `region_index_count`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `ItemVariationData::delta_sets_len` method retains the positional argument order for `item_count`, `word_delta_count`, `region_index_count`"
+    )
   )]
   pub fn delta_sets_len(item_count: u16, word_delta_count: u16, region_index_count: u16) -> u64 {
     let bytes_per_row = Self::delta_row_len(word_delta_count, region_index_count);
@@ -3175,10 +3492,10 @@ pub(crate) fn item_delta(
     }
     Ok(_) => {
       return Err(ReadError::NullOffset);
-    },
+    }
     Err(_unreadable_delta_index_mapping) => {
       return Err(ReadError::NullOffset);
-    },
+    }
   };
   let float_variation_store = ivs?;
   let compute_delta = float_variation_store.compute_delta(ix, coords)?;
@@ -3197,9 +3514,12 @@ mod tests {
   fn ivs_regions() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::VAZIRMATN_VAR)?;
     let hvar = crate::test_support::fixture_value(font.hvar(), "missing HVAR table")?;
-    let ivs = crate::test_support::fixture_value(hvar
-      .item_variation_store(), "missing item variation store in HVAR")?;
-    let region_list = crate::test_support::fixture_value(ivs.variation_region_list(), "missing region list!")?;
+    let ivs = crate::test_support::fixture_value(
+      hvar.item_variation_store(),
+      "missing item variation store in HVAR",
+    )?;
+    let region_list =
+      crate::test_support::fixture_value(ivs.variation_region_list(), "missing region list!")?;
     let Ok(regions) = region_list.variation_regions();
     let expected: &[_] = &[vec![[-1.0f32, -1.0, 0.0]], vec![[0.0, 1.0, 1.0]]];
     let Ok(value_92) = regions.iter();
@@ -3241,36 +3561,76 @@ mod tests {
   #[test]
   fn packed_points() {
     #[must_use]
-    fn decode_points(bytes: &[u8]) -> core::result::Result<Option<Vec<u16>>, console_core_never::Never> {
-        let Ok(data) = FontData::new(bytes);
-        let packed = PackedPointNumbers { data };
+    fn decode_points(
+      bytes: &[u8],
+    ) -> core::result::Result<Option<Vec<u16>>, console_core_never::Never> {
+      let Ok(data) = FontData::new(bytes);
+      let packed = PackedPointNumbers { data };
 
-        Ok(match ::core::primitive::bool::then_some(packed.count() == 0, ()) {
+      Ok(
+        match ::core::primitive::bool::then_some(packed.count() == 0, ()) {
           ::core::option::Option::Some(()) => None,
           ::core::option::Option::None => Some(packed.iter().collect()),
-        })
+        },
+      )
     }
 
     let Ok(points) = decode_points(&[0]);
     assert_eq!(points, None);
 
-    assert_eq!(({ let Ok(explicit_value) = decode_points(&[0x80, 0]); explicit_value }), None);
-
-    assert_eq!(({ let Ok(explicit_value) = decode_points(&[0x02, 0x01, 0x09, 0x06]); explicit_value }), Some(vec![9, 15]));
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = decode_points(&[0x80, 0]);
+        explicit_value
+      }),
+      None
+    );
 
     assert_eq!(
-      ({ let Ok(explicit_value) = decode_points(&[0x02, 0x81, 0xbe, 0xef, 0x0c, 0x0f]); explicit_value }),
+      ({
+        let Ok(explicit_value) = decode_points(&[0x02, 0x01, 0x09, 0x06]);
+        explicit_value
+      }),
+      Some(vec![9, 15])
+    );
+
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = decode_points(&[0x02, 0x81, 0xbe, 0xef, 0x0c, 0x0f]);
+        explicit_value
+      }),
       Some(vec![0xbeef, 0xcafe])
     );
 
-    assert_eq!(({ let Ok(explicit_value) = decode_points(&[0x01, 0, 0x07]); explicit_value }), Some(vec![7]));
-
-    assert_eq!(({ let Ok(explicit_value) = decode_points(&[0x01, 0x80, 0, 0x07]); explicit_value }), Some(vec![7]));
-
-    assert_eq!(({ let Ok(explicit_value) = decode_points(&[0x01, 0x80, 0xff, 0xff]); explicit_value }), Some(vec![65535]));
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = decode_points(&[0x01, 0, 0x07]);
+        explicit_value
+      }),
+      Some(vec![7])
+    );
 
     assert_eq!(
-      ({ let Ok(explicit_value) = decode_points(&[0x04, 1, 7, 1, 1, 0xff, 2]); explicit_value }),
+      ({
+        let Ok(explicit_value) = decode_points(&[0x01, 0x80, 0, 0x07]);
+        explicit_value
+      }),
+      Some(vec![7])
+    );
+
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = decode_points(&[0x01, 0x80, 0xff, 0xff]);
+        explicit_value
+      }),
+      Some(vec![65535])
+    );
+
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = decode_points(&[0x04, 1, 7, 1, 1, 0xff, 2]);
+        explicit_value
+      }),
       Some(vec![7, 8, 263, 265])
     );
   }
@@ -3279,16 +3639,16 @@ mod tests {
   fn packed_point_byte_len() {
     #[must_use]
     fn count_bytes(bytes: &[u8]) -> core::result::Result<u64, console_core_never::Never> {
-        let packed = PackedPointNumbers {
-          data: ({
-            let Ok(explicit_value) = FontData::new(bytes);
-            explicit_value
-          }),
-        };
+      let packed = PackedPointNumbers {
+        data: ({
+          let Ok(explicit_value) = FontData::new(bytes);
+          explicit_value
+        }),
+      };
 
-        let Ok(total_len) = packed.total_len();
+      let Ok(total_len) = packed.total_len();
 
-        Ok(total_len)
+      Ok(total_len)
     }
 
     static CASES: &[&[u8]] = &[
@@ -3304,7 +3664,10 @@ mod tests {
 
     for case in CASES {
       assert_eq!(
-        ({ let Ok(explicit_value) = count_bytes(case); explicit_value }),
+        ({
+          let Ok(explicit_value) = count_bytes(case);
+          explicit_value
+        }),
         ({
           let Ok(explicit_index) = console_core_number_conversion::fitted::<_, u64>(case.len());
           explicit_index
@@ -3372,7 +3735,10 @@ mod tests {
     let deltas = PackedDeltas::consume_all(INPUT);
     let expected = deltas.iter().collect::<Vec<_>>();
 
-    for (skip, suffix) in (0..=expected.len()).filter_map(|start| expected.get(start..)).enumerate() {
+    for (skip, suffix) in (0..=expected.len())
+      .filter_map(|start| expected.get(start..))
+      .enumerate()
+    {
       let mut fetcher = deltas.fetcher();
 
       match fetcher.skip({
@@ -3415,9 +3781,8 @@ mod tests {
     let mut fetcher = deltas.fetcher();
     assert!(matches!(
       fetcher.skip({
-        let Ok(explicit_index) = console_core_number_conversion::fitted::<_, u64>(
-          expected.len().wrapping_add(1),
-        );
+        let Ok(explicit_index) =
+          console_core_number_conversion::fitted::<_, u64>(expected.len().wrapping_add(1));
         explicit_index
       }),
       Err(ReadError::OutOfBounds)
@@ -3550,9 +3915,9 @@ mod tests {
   }
 
   fn lcg_next(state: &mut u32) -> core::result::Result<u32, console_core_never::Never> {
-      *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+    *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
 
-      Ok(*state)
+    Ok(*state)
   }
 
   #[must_use]
@@ -3577,7 +3942,8 @@ mod tests {
         0 => {
           for _ in 0..length {
             let Ok(random) = lcg_next(&mut state);
-            let Ok(value) = console_core_number_conversion::wrapped::<_, i32>(random.wrapping_rem(255));
+            let Ok(value) =
+              console_core_number_conversion::wrapped::<_, i32>(random.wrapping_rem(255));
             let signed = value.wrapping_sub(127);
             let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(signed);
             bytes.push(byte);
@@ -3587,7 +3953,8 @@ mod tests {
         1 => {
           for _ in 0..length {
             let Ok(random) = lcg_next(&mut state);
-            let Ok(value) = console_core_number_conversion::wrapped::<_, i32>(random.wrapping_rem(65_535));
+            let Ok(value) =
+              console_core_number_conversion::wrapped::<_, i32>(random.wrapping_rem(65_535));
             let signed = value.wrapping_sub(32_767);
             let Ok(word) = console_core_number_conversion::wrapped::<_, i16>(signed);
             bytes.extend(word.to_be_bytes());
@@ -3601,7 +3968,8 @@ mod tests {
         _ => {
           for _ in 0..length {
             let Ok(random) = lcg_next(&mut state);
-            let Ok(value) = console_core_number_conversion::wrapped::<_, i32>(random.wrapping_rem(2_000_001));
+            let Ok(value) =
+              console_core_number_conversion::wrapped::<_, i32>(random.wrapping_rem(2_000_001));
             let signed = value.wrapping_sub(1_000_000);
             bytes.extend(signed.to_be_bytes());
             expected.push(signed);
@@ -3633,7 +4001,8 @@ mod tests {
   }
 
   #[test]
-  fn generated_fetcher_skip_scaled_matches_expected() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn generated_fetcher_skip_scaled_matches_expected()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     for seed in 1..=64 {
       let Ok((bytes, expected)) = generated_delta_stream(seed);
       let data = {
@@ -3650,16 +4019,23 @@ mod tests {
       let skip = u64::from(seed).wrapping_mul(7).wrapping_rem(cycle);
       crate::test_support::fixture_value(fetcher.skip(skip), "fixture value")?;
 
-      let scale = match ::core::primitive::bool::then_some(::core::primitive::u32::wrapping_rem(seed, 2) == 0, ()) {
+      let scale = match ::core::primitive::bool::then_some(
+        ::core::primitive::u32::wrapping_rem(seed, 2) == 0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => 0.25,
         ::core::option::Option::None => -0.5,
       };
       let Ok(skipped) = console_core_number_conversion::index(skip);
       let expected_suffix = crate::test_support::fixture_value(
-        expected.get(skipped..), "expected packed delta suffix"
+        expected.get(skipped..),
+        "expected packed delta suffix",
       )?;
       let mut out = vec![10.0f32; expected_suffix.len()];
-      crate::test_support::fixture_value(fetcher.add_to_f32_scaled(&mut out, scale), "fixture value")?;
+      crate::test_support::fixture_value(
+        fetcher.add_to_f32_scaled(&mut out, scale),
+        "fixture value",
+      )?;
 
       for (i, (&got, &delta)) in out.iter().zip(expected_suffix).enumerate() {
         let Ok(expected_delta) =
@@ -3677,7 +4053,6 @@ mod tests {
         Err(ReadError::OutOfBounds)
       ));
     }
-  ;
 
     Ok(())
   }
@@ -3870,13 +4245,18 @@ mod tests {
   fn accumulate_dense() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::VAZIRMATN_VAR)?;
     let gvar = font.gvar()?;
-    let gvar_data = crate::test_support::fixture_value(match gvar.glyph_variation_data({
-      let Ok(explicit_value) = GlyphId::new(1);
-      explicit_value
-    }) {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let gvar_data = crate::test_support::fixture_value(
+      match gvar.glyph_variation_data({
+        let Ok(explicit_value) = GlyphId::new(1);
+        explicit_value
+      }) {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     let mut count = 0u64;
 
     for tuple in gvar_data.tuples() {
@@ -3934,13 +4314,18 @@ mod tests {
   fn accumulate_sparse() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::VAZIRMATN_VAR)?;
     let gvar = font.gvar()?;
-    let gvar_data = crate::test_support::fixture_value(match gvar.glyph_variation_data({
-      let Ok(explicit_value) = GlyphId::new(2);
-      explicit_value
-    }) {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let gvar_data = crate::test_support::fixture_value(
+      match gvar.glyph_variation_data({
+        let Ok(explicit_value) = GlyphId::new(2);
+        explicit_value
+      }) {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     let mut count = 0u64;
 
     for tuple in gvar_data.tuples() {
@@ -3953,16 +4338,16 @@ mod tests {
 
       let iter_deltas = tuple.deltas().collect::<Vec<_>>();
       let max_modified_point = {
-        let fixture_value = crate::test_support::fixture_value(iter_deltas
-          .iter()
-          .max_by_key(|delta| delta.position), "fixture value")?;
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-          fixture_value
-            .position,
-        );
+        let fixture_value = crate::test_support::fixture_value(
+          iter_deltas.iter().max_by_key(|delta| delta.position),
+          "fixture value",
+        )?;
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(fixture_value.position);
         migrated_value
       };
-      let Ok(capacity) = console_core_number_conversion::index(max_modified_point.wrapping_add(1));
+      let Ok(capacity) =
+        console_core_number_conversion::index(max_modified_point.wrapping_add(1));
       let Ok(zero) = Point::broadcast(Fixed::ZERO);
       let mut delta_buf = vec![zero; capacity.min(65_536)];
       let mut flags = vec![PointFlags::default(); delta_buf.len()];

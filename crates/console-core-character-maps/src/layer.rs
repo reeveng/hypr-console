@@ -23,7 +23,7 @@ pub(crate) struct Span<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lookup<T> {
-  Settled(Option<T>),
+  Ready(Option<T>),
   Unsettled,
 }
 
@@ -166,7 +166,7 @@ impl Layer {
 
     match found {
       Some(span) => {
-        return Ok(Lookup::Settled(
+        return Ok(Lookup::Ready(
           code
             .checked_sub(span.start)
             .and_then(|offset| span.value.checked_add(offset)),
@@ -178,17 +178,17 @@ impl Layer {
     let Ok(notdef) = spans_at(&self.notdef, width, code);
 
     match notdef {
-      Some(span) => return Ok(Lookup::Settled(Some(span.value))),
+      Some(span) => return Ok(Lookup::Ready(Some(span.value))),
       None => {}
     }
 
     let Ok(string) = self.bf_string(code);
 
     Ok(match string {
-      Lookup::Settled(Some(BfString::Char(character))) => {
-        Lookup::Settled(Some(u32::from(character)))
+      Lookup::Ready(Some(BfString::Char(character))) => {
+        Lookup::Ready(Some(u32::from(character)))
       }
-      Lookup::Settled(Some(BfString::String(_))) | Lookup::Settled(None) | Lookup::Unsettled => {
+      Lookup::Ready(Some(BfString::String(_))) | Lookup::Ready(None) | Lookup::Unsettled => {
         Lookup::Unsettled
       }
     })
@@ -201,7 +201,7 @@ impl Layer {
       Some(span) => {
         let Ok(string) = string_at(span, code);
 
-        Ok(Lookup::Settled(string))
+        Ok(Lookup::Ready(string))
       }
       None => Ok(Lookup::Unsettled),
     }

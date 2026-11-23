@@ -62,7 +62,10 @@ impl Router {
         None => continue,
       };
 
-      match ::core::primitive::bool::then_some(button.ends_with("Trigger") || button.ends_with("StickTouch"), ()) {
+      match ::core::primitive::bool::then_some(
+        button.ends_with("Trigger") || button.ends_with("StickTouch"),
+        (),
+      ) {
         ::core::option::Option::Some(()) => continue,
         ::core::option::Option::None => {}
       }
@@ -81,10 +84,12 @@ impl Router {
   }
 
   pub fn has(&self, button: &str) -> Result<Has, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.buttons.contains(&button), ()) {
-      ::core::option::Option::Some(()) => Has::Yes,
-      ::core::option::Option::None => Has::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.buttons.contains(&button), ()) {
+        ::core::option::Option::Some(()) => Has::Yes,
+        ::core::option::Option::None => Has::No,
+      },
+    )
   }
 
   pub fn yaml(&self) -> Result<String, Never> {

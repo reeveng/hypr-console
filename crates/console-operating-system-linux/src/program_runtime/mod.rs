@@ -59,7 +59,7 @@ use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_core_state_machine::Machine;
 use console_program_contract::{
-  Answer, Choice, Command, Effect, Elapsed, Event, Exit, ExitStatus, FileWrite, Job,
+  Answer, Choice, Command, Effect, Elapsed, Event, Exit, ExitStatus, FileWrite, Task,
   Notification, Prompt, Subscription, Timer, WriteAnswer, WriteFailure, WriteStage,
 };
 use console_program_lifetime::threads;
@@ -67,7 +67,7 @@ use console_program_runtime::commands::{self as execution_commands, Launch, Stre
 use console_program_runtime::{Invocation, Limit, Platform, Wake, provide};
 
 use crate::events::subscription::{self, Received, Subscriptions};
-use jobs::Jobs;
+use jobs::Tasks;
 
 pub struct Clock {
   began: Instant,
@@ -176,7 +176,7 @@ struct Linux<'a, C: Interpreter> {
   subscriptions: Subscriptions,
   arrived: Option<Receiver<Arrived<C::Event>>>,
   forking: SyncSender<Arrived<C::Event>>,
-  jobs: Jobs,
+  jobs: Tasks,
   listening: Subscribed,
   clock: Clock,
 }
@@ -213,7 +213,7 @@ where
     subscriptions,
     arrived: Some(arrived),
     forking,
-    jobs: Jobs::default(),
+    jobs: Tasks::default(),
     listening,
     clock: Clock { began },
   };
@@ -343,10 +343,7 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
         vec![Event::Replied(answer)]
       }
       Effect::Fork(fork) => match invocation {
-        Some(issued) => match self
-          .jobs
-          .start(self.called, fork, issued, &self.forking)
-        {
+        Some(issued) => match self.jobs.start(self.called, fork, issued, &self.forking) {
           Ok(()) => Vec::new(),
           Err(answer) => vec![Event::Replied(answer)],
         },
@@ -426,7 +423,7 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
     self.interpreter.tick(timer, elapsed)
   }
 
-  fn finish(&mut self, _jobs: &BTreeMap<Job, Invocation>) -> Result<(), Never> {
+  fn finish(&mut self, _jobs: &BTreeMap<Task, Invocation>) -> Result<(), Never> {
     drop(self.arrived.take());
     self.jobs.finish()
   }

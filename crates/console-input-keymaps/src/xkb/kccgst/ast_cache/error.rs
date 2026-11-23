@@ -23,7 +23,12 @@ impl fmt::Display for AstCacheError {
     match self {
       AstCacheError::NotFound { file, map } => {
         let Ok(text) = display_text(file);
-        write!(f, "not found: `{}{}`", text, fmt::from_fn(|f_2| show_map(f_2, map)))
+        write!(
+          f,
+          "not found: `{}{}`",
+          text,
+          fmt::from_fn(|f_2| show_map(f_2, map))
+        )
       }
     }
   }

@@ -42,7 +42,8 @@ impl<'a> BufReader<'a> {
 
     let scanned = match region.len().cmp(&pattern.len()) {
       Ordering::Less => self.rest.split_at_checked(region.len()),
-      Ordering::Equal | Ordering::Greater => (pattern.len()..=region.len().saturating_add(step.max(1)))
+      Ordering::Equal | Ordering::Greater => (pattern.len()
+        ..=region.len().saturating_add(step.max(1)))
         .step_by(step.max(1))
         .find(|end| {
           *end >= region.len()

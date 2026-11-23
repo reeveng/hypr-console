@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-use console_core_geometry::{Point, Size};
 use crate::include::common::bitdepth::AsPrimitive;
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::common::intops::iclip;
@@ -28,6 +27,7 @@ use crate::src::tables::dav1d_obmc_masks;
 use crate::src::tables::dav1d_resize_filter;
 use crate::src::with_offset::WithOffset;
 use crate::src::wrap_fn_ptr::wrap_fn_ptr;
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_pixel_buffers::RowLayout;
 use console_core_video_interpolation::{convolve8, round_shift};
@@ -36,7 +36,10 @@ use std::iter;
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "the compile-time intermediate row is a Rust array of exactly 128 samples")
+  expect(
+    explicit051_no_machine_width,
+    reason = "the compile-time intermediate row is a Rust array of exactly 128 samples"
+  )
 )]
 const MID_STRIDE: usize = 128;
 
@@ -48,11 +51,14 @@ fn filter_8tap_mid<const WIDTH: usize>(
   let Ok(position) = console_core_number_conversion::index(column);
   let rows = mid.first_chunk::<8>().ok_or(EINVAL)?;
 
-  rows.iter().zip(coefficients).try_fold(0_i32, |sum, (row, &coefficient)| {
-    let &sample = row.get(position).ok_or(EINVAL)?;
-    let weighted = i32::from(sample).wrapping_mul(i32::from(coefficient));
-    Ok(sum.wrapping_add(weighted))
-  })
+  rows
+    .iter()
+    .zip(coefficients)
+    .try_fold(0_i32, |sum, (row, &coefficient)| {
+      let &sample = row.get(position).ok_or(EINVAL)?;
+      let weighted = i32::from(sample).wrapping_mul(i32::from(coefficient));
+      Ok(sum.wrapping_add(weighted))
+    })
 }
 
 fn filter_8tap<BD: BitDepth>(
@@ -66,7 +72,8 @@ fn filter_8tap<BD: BitDepth>(
   Ok(convolve8(coefficients, |tap| {
     let Ok(ordinal) = console_core_number_conversion::fixed_index(tap);
     let Ok(signed) = console_core_number_conversion::wrapped::<_, i64>(ordinal);
-    let Ok(offset) = console_core_number_conversion::wrapped_offset(signed.wrapping_sub(3).wrapping_mul(stride));
+    let Ok(offset) =
+      console_core_number_conversion::wrapped_offset(signed.wrapping_sub(3).wrapping_mul(stride));
     (*(source_column + offset).index::<BD>()).as_::<i32>()
   }))
 }
@@ -86,7 +93,14 @@ pub(super) fn fractional_filter(
     Some(fraction) => fraction,
     None => return Ok(None),
   };
-  let [regular, smooth, sharp, narrow_regular, narrow_smooth, _unused] = &*dav1d_mc_subpel_filters;
+  let [
+    regular,
+    smooth,
+    sharp,
+    narrow_regular,
+    narrow_smooth,
+    _unused,
+  ] = &*dav1d_mc_subpel_filters;
   let table = match (samples, filter_type) {
     (0..=4, Regular8Tap | Sharp8Tap | Switchable) | (5.., Bilinear) => narrow_regular,
     (0..=4, Smooth8Tap | Bilinear) | (5.., Switchable) => narrow_smooth,
@@ -102,11 +116,17 @@ pub(super) fn fractional_filter(
 #[cfg(target_arch = "aarch64")]
 #[cfg_attr(
   dylint_lib = "explicit024_no_swappable_params",
-  expect(explicit024_no_swappable_params, reason = "the SIMD entry uses its established native phase and block-extent order before building a fixed-width filter extent")
+  expect(
+    explicit024_no_swappable_params,
+    reason = "the SIMD entry uses its established native phase and block-extent order before building a fixed-width filter extent"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "SIMD kernels retain native slice offsets at this adapter, which immediately converts them to fixed filter coordinates")
+  expect(
+    explicit051_no_machine_width,
+    reason = "SIMD kernels retain native slice offsets at this adapter, which immediately converts them to fixed filter coordinates"
+  )
 )]
 pub(super) fn get_filter(
   phase: console_core_api_compatibility::NativeSize,
@@ -115,12 +135,22 @@ pub(super) fn get_filter(
 ) -> Result<Option<&'static [i8; 8]>, Never> {
   let Ok(fixed_phase) = console_core_number_conversion::fitted::<_, u32>(phase);
   let Ok(fixed_samples) = console_core_number_conversion::fitted::<_, u32>(samples);
-  fractional_filter(FilterExtent { phase: fixed_phase, samples: fixed_samples }, filter_type)
+  fractional_filter(
+    FilterExtent {
+      phase: fixed_phase,
+      samples: fixed_samples,
+    },
+    filter_type,
+  )
 }
 
 fn bilinear_sum([first, second]: [i32; 2], fraction: u32) -> Result<i32, Never> {
   let Ok(factor) = console_core_number_conversion::wrapped::<_, i32>(fraction);
-  Ok(first.wrapping_mul(16).wrapping_add(factor.wrapping_mul(second.wrapping_sub(first))))
+  Ok(
+    first
+      .wrapping_mul(16)
+      .wrapping_add(factor.wrapping_mul(second.wrapping_sub(first))),
+  )
 }
 
 fn filter_bilin_mid(mid: &[[i16; MID_STRIDE]], position: SubpixelPosition) -> Rav1dResult<i32> {
@@ -133,7 +163,11 @@ fn filter_bilin_mid(mid: &[[i16; MID_STRIDE]], position: SubpixelPosition) -> Ra
   Ok(sum)
 }
 
-fn filter_bilin<BD: BitDepth>(source: PicOffset, position: SubpixelPosition, stride: i64) -> Result<i32, Never> {
+fn filter_bilin<BD: BitDepth>(
+  source: PicOffset,
+  position: SubpixelPosition,
+  stride: i64,
+) -> Result<i32, Never> {
   let Ok(column) = console_core_number_conversion::index(position.index);
   let Ok(offset) = console_core_number_conversion::wrapped_offset(stride);
   let first_sample = source + column;
@@ -167,20 +201,38 @@ impl SubpixelKernel {
   }
 
   #[must_use]
-  fn sample<BD: BitDepth>(self, source: PicOffset, column: u32, stride: i64) -> Result<i32, Never> {
+  fn sample<BD: BitDepth>(
+    self,
+    source: PicOffset,
+    column: u32,
+    stride: i64,
+  ) -> Result<i32, Never> {
     match self {
       Self::Identity => {
         let Ok(position) = console_core_number_conversion::index(column);
         Ok((*(source + position).index::<BD>()).as_::<i32>())
       }
-      Self::Bilinear(fraction) => filter_bilin::<BD>(source, SubpixelPosition { index: column, phase: u32::from(fraction) }, stride),
+      Self::Bilinear(fraction) => filter_bilin::<BD>(
+        source,
+        SubpixelPosition {
+          index: column,
+          phase: u32::from(fraction),
+        },
+        stride,
+      ),
       Self::EightTap(taps) => filter_8tap::<BD>(source, column, taps, stride),
     }
   }
 
   fn intermediate(self, rows: &[[i16; MID_STRIDE]], column: u32) -> Rav1dResult<i32> {
     match self {
-      Self::Bilinear(fraction) => filter_bilin_mid(rows, SubpixelPosition { index: column, phase: u32::from(fraction) }),
+      Self::Bilinear(fraction) => filter_bilin_mid(
+        rows,
+        SubpixelPosition {
+          index: column,
+          phase: u32::from(fraction),
+        },
+      ),
       Self::EightTap(taps) => filter_8tap_mid(rows, column, taps),
       Self::Identity => Err(EINVAL),
     }
@@ -198,16 +250,27 @@ enum SubpixelRounding {
 
 impl SubpixelRounding {
   #[must_use]
-  fn pixel<BD: BitDepth>(self, sample: i32, precision: u8, depth: BD) -> Result<BD::Pixel, Never> {
+  fn pixel<BD: BitDepth>(
+    self,
+    sample: i32,
+    precision: u8,
+    depth: BD,
+  ) -> Result<BD::Pixel, Never> {
     let shift = u32::from(precision);
     let value = match self {
       Self::Copy => return Ok(sample.as_::<BD::Pixel>()),
-      Self::HorizontalBilinear => round_shift(round_shift(sample, 4_u32.wrapping_sub(shift)), shift),
-      Self::HorizontalEightTap => sample.wrapping_add(32)
+      Self::HorizontalBilinear => {
+        round_shift(round_shift(sample, 4_u32.wrapping_sub(shift)), shift)
+      }
+      Self::HorizontalEightTap => sample
+        .wrapping_add(32)
         .wrapping_add(1_i32.wrapping_shl(5_u32.wrapping_sub(shift)))
         .wrapping_shr(6),
       Self::Vertical(bits) => round_shift(sample, u32::from(bits)),
-      Self::Separable(bits) => round_shift(sample, ::core::primitive::u32::wrapping_add(u32::from(bits), shift)),
+      Self::Separable(bits) => round_shift(
+        sample,
+        ::core::primitive::u32::wrapping_add(u32::from(bits), shift),
+      ),
     };
     Ok(depth.iclip_pixel(value))
   }
@@ -241,12 +304,18 @@ impl UnscaledBlock {
     let phase_y = u8::try_from(sampling.phase.y).map_err(|_| EINVAL)?;
 
     match {
-        ::core::primitive::bool::then_some(!matches!((width, height, phase_x, phase_y), (1..=128, 1..=128, 0..=15, 0..=15)), ())
+      ::core::primitive::bool::then_some(
+        !matches!(
+          (width, height, phase_x, phase_y),
+          (1..=128, 1..=128, 0..=15, 0..=15)
+        ),
+        (),
+      )
     } {
-        ::core::option::Option::Some(()) => {
-          return Err(EINVAL);
-        },
-        ::core::option::Option::None => {},
+      ::core::option::Option::Some(()) => {
+        return Err(EINVAL);
+      }
+      ::core::option::Option::None => {}
     }
 
     let size = Size { width, height };
@@ -258,16 +327,29 @@ impl UnscaledBlock {
         };
         (kernel(phase_x), kernel(phase_y), 4)
       }
-      Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-      | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-      | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap => {
+      Filter2d::Regular8Tap
+      | Filter2d::RegularSmooth8Tap
+      | Filter2d::RegularSharp8Tap
+      | Filter2d::SharpRegular8Tap
+      | Filter2d::SharpSmooth8Tap
+      | Filter2d::Sharp8Tap
+      | Filter2d::SmoothRegular8Tap
+      | Filter2d::Smooth8Tap
+      | Filter2d::SmoothSharp8Tap => {
         let Ok((horizontal, vertical)) = filter.hv();
         let kernel = |phase: u8, extent: u32, mode| {
-          let filter_extent = FilterExtent { phase: u32::from(phase), samples: extent };
+          let filter_extent = FilterExtent {
+            phase: u32::from(phase),
+            samples: extent,
+          };
           let Ok(coefficients) = fractional_filter(filter_extent, mode);
           coefficients.map_or(SubpixelKernel::Identity, SubpixelKernel::EightTap)
         };
-        (kernel(phase_x, width, horizontal), kernel(phase_y, height, vertical), 6)
+        (
+          kernel(phase_x, width, horizontal),
+          kernel(phase_y, height, vertical),
+          6,
+        )
       }
     };
     use SubpixelKernel::{Bilinear, EightTap, Identity};
@@ -276,19 +358,35 @@ impl UnscaledBlock {
       (Bilinear(_), Identity) => SubpixelRounding::HorizontalBilinear,
       (EightTap(_), Identity) => SubpixelRounding::HorizontalEightTap,
       (Identity, Bilinear(_) | EightTap(_)) => SubpixelRounding::Vertical(filter_bits),
-      (Bilinear(_) | EightTap(_), Bilinear(_) | EightTap(_)) => SubpixelRounding::Separable(filter_bits),
+      (Bilinear(_) | EightTap(_), Bilinear(_) | EightTap(_)) => {
+        SubpixelRounding::Separable(filter_bits)
+      }
     };
 
-    Ok(Self { size, horizontal, vertical, rounding })
+    Ok(Self {
+      size,
+      horizontal,
+      vertical,
+      rounding,
+    })
   }
 
-  fn picture_layout<BD: BitDepth>(&self, picture: PicOffset, support: Point<core::ops::Range<i64>>) -> Rav1dResult {
-    let Ok(pitch) = console_core_number_conversion::fixed_offset(match picture.pixel_stride::<BD>() {
-      Ok(stride) => stride,
-    });
+  fn picture_layout<BD: BitDepth>(
+    &self,
+    picture: PicOffset,
+    support: Point<core::ops::Range<i64>>,
+  ) -> Rav1dResult {
+    let Ok(pitch) =
+      console_core_number_conversion::fixed_offset(match picture.pixel_stride::<BD>() {
+        Ok(stride) => stride,
+      });
     let Ok(base) = console_core_number_conversion::fixed_index(picture.offset);
-    let displacement = support.y.start.checked_mul(pitch)
-      .and_then(|rows| rows.checked_add(support.x.start)).ok_or(EINVAL)?;
+    let displacement = support
+      .y
+      .start
+      .checked_mul(pitch)
+      .and_then(|rows| rows.checked_add(support.x.start))
+      .ok_or(EINVAL)?;
     let first = base.checked_add_signed(displacement).ok_or(EINVAL)?;
     let extra_columns = support.x.end.wrapping_sub(support.x.start).wrapping_sub(1);
     let extra_rows = support.y.end.wrapping_sub(support.y.start).wrapping_sub(1);
@@ -297,7 +395,9 @@ impl UnscaledBlock {
       height: u64::from(self.size.height).wrapping_add(extra_rows.cast_unsigned()),
     };
     let layout = RowLayout::new(size, first, pitch).map_err(|_| EINVAL)?;
-    layout.validate_len(picture.data.pixel_len::<BD>()).map_err(|_| EINVAL)
+    layout
+      .validate_len(picture.data.pixel_len::<BD>())
+      .map_err(|_| EINVAL)
   }
 
   fn interpolate<BD: BitDepth, Output>(
@@ -311,9 +411,10 @@ impl UnscaledBlock {
     let Ok(y) = self.vertical.support();
     let support = Point { x, y };
     self.picture_layout::<BD>(source, support.clone())?;
-    let Ok(pitch) = console_core_number_conversion::fixed_offset(match source.pixel_stride::<BD>() {
-      Ok(stride) => stride,
-    });
+    let Ok(pitch) =
+      console_core_number_conversion::fixed_offset(match source.pixel_stride::<BD>() {
+        Ok(stride) => stride,
+      });
     let Ok(source_stride) = console_core_number_conversion::wrapped_offset(pitch);
     let Ok(width) = console_core_number_conversion::index(self.size.width);
     let Ok(height) = console_core_number_conversion::index(self.size.height);
@@ -323,17 +424,25 @@ impl UnscaledBlock {
     match self.rounding {
       SubpixelRounding::Separable(bits) => {
         let Ok(top) = console_core_number_conversion::wrapped_offset(support.y.start);
-        let extra_rows = support.y.end.wrapping_sub(support.y.start).wrapping_sub(1).cast_unsigned();
+        let extra_rows = support
+          .y
+          .end
+          .wrapping_sub(support.y.start)
+          .wrapping_sub(1)
+          .cast_unsigned();
         let Ok(extra_rows_2) = console_core_number_conversion::index(extra_rows);
         let mut storage = [[0_i16; MID_STRIDE]; 135];
-        let intermediate = storage.get_mut(..height.wrapping_add(extra_rows_2)).ok_or(EINVAL)?;
+        let intermediate = storage
+          .get_mut(..height.wrapping_add(extra_rows_2))
+          .ok_or(EINVAL)?;
         let shift = u32::from(bits.wrapping_sub(precision));
         let mut source_row = source + top.wrapping_mul(source_stride);
 
         for row in intermediate.iter_mut() {
           for (column, pixel) in (0_u32..self.size.width).zip(row.iter_mut()) {
             let Ok(sum) = self.horizontal.sample::<BD>(source_row, column, 1);
-            let Ok(value) = console_core_number_conversion::wrapped::<_, i16>(round_shift(sum, shift));
+            let Ok(value) =
+              console_core_number_conversion::wrapped::<_, i16>(round_shift(sum, shift));
             *pixel = value;
           }
 
@@ -353,8 +462,10 @@ impl UnscaledBlock {
 
         return Ok(());
       }
-      SubpixelRounding::Copy | SubpixelRounding::HorizontalBilinear
-      | SubpixelRounding::HorizontalEightTap | SubpixelRounding::Vertical(_) => {}
+      SubpixelRounding::Copy
+      | SubpixelRounding::HorizontalBilinear
+      | SubpixelRounding::HorizontalEightTap
+      | SubpixelRounding::Vertical(_) => {}
     }
 
     let mut source_row = source;
@@ -380,7 +491,10 @@ impl UnscaledBlock {
             *pixel = sample;
           }
         }
-        (SubpixelKernel::Bilinear(_) | SubpixelKernel::EightTap(_), SubpixelKernel::Bilinear(_) | SubpixelKernel::EightTap(_)) => return Err(EINVAL),
+        (
+          SubpixelKernel::Bilinear(_) | SubpixelKernel::EightTap(_),
+          SubpixelKernel::Bilinear(_) | SubpixelKernel::EightTap(_),
+        ) => return Err(EINVAL),
       }
 
       write_row(output, pixels)?;
@@ -398,12 +512,17 @@ fn put_unscaled<BD: BitDepth>(
   bit_depth: BD,
 ) -> Rav1dResult {
   block.picture_layout::<BD>(output, Point { x: 0..1, y: 0..1 })?;
-  let Ok(stride) = console_core_number_conversion::fixed_offset(
-    match output.pixel_stride::<BD>() { Ok(samples) => samples },
-  );
+  let Ok(stride) =
+    console_core_number_conversion::fixed_offset(match output.pixel_stride::<BD>() {
+      Ok(samples) => samples,
+    });
   let precision = bit_depth.get_intermediate_bits();
   block.interpolate::<BD, _>(source, precision, &mut output, |destination, samples| {
-    for (pixel, &sample) in destination.slice_mut::<BD>(samples.len()).iter_mut().zip(samples) {
+    for (pixel, &sample) in destination
+      .slice_mut::<BD>(samples.len())
+      .iter_mut()
+      .zip(samples)
+    {
       let Ok(output_pixel) = block.rounding.pixel(sample, precision, bit_depth);
       *pixel = output_pixel;
     }
@@ -420,7 +539,10 @@ fn prep_unscaled<BD: BitDepth>(
   source: PicOffset,
   bit_depth: BD,
 ) -> Rav1dResult {
-  let extent = Size { width: u64::from(block.size.width), height: u64::from(block.size.height) };
+  let extent = Size {
+    width: u64::from(block.size.width),
+    height: u64::from(block.size.height),
+  };
   let layout = RowLayout::new(extent, 0, i64::from(block.size.width)).map_err(|_| EINVAL)?;
   let mut rows = layout.rows_mut(output).map_err(|_| EINVAL)?;
   let precision = bit_depth.get_intermediate_bits();
@@ -482,21 +604,33 @@ fn blend_predictors<BD: BitDepth>(
   }
 
   let Ok(origin) = console_core_number_conversion::fixed_index(dst.offset);
-  let Ok(pitch) = console_core_number_conversion::fixed_offset(
-    match dst.pixel_stride::<BD>() { Ok(samples) => samples },
-  );
+  let Ok(pitch) = console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+    Ok(samples) => samples,
+  });
   let layout = RowLayout::new(size, origin, pitch).map_err(|_| EINVAL)?;
-  layout.validate_len(dst.data.pixel_len::<BD>()).map_err(|_| EINVAL)?;
+  layout
+    .validate_len(dst.data.pixel_len::<BD>())
+    .map_err(|_| EINVAL)?;
 
-  #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "wasm32"))]
+  #[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+  ))]
   let [first, second] = predictions;
 
   #[cfg(target_arch = "x86_64")]
   {
     let accelerated = match blend {
-      PredictorBlend::Average => crate::src::safe_simd::mc::avg_dispatch::<BD>(dst, first, second, extent, depth),
-      PredictorBlend::Weighted(weight) => crate::src::safe_simd::mc::w_avg_dispatch::<BD>(dst, first, second, extent, weight, depth),
-      PredictorBlend::Mask(mask) => crate::src::safe_simd::mc::mask_dispatch::<BD>(dst, first, second, extent, mask, depth),
+      PredictorBlend::Average => {
+        crate::src::safe_simd::mc::avg_dispatch::<BD>(dst, first, second, extent, depth)
+      }
+      PredictorBlend::Weighted(weight) => {
+        crate::src::safe_simd::mc::w_avg_dispatch::<BD>(dst, first, second, extent, weight, depth)
+      }
+      PredictorBlend::Mask(mask) => {
+        crate::src::safe_simd::mc::mask_dispatch::<BD>(dst, first, second, extent, mask, depth)
+      }
     };
 
     match accelerated {
@@ -506,7 +640,13 @@ fn blend_predictors<BD: BitDepth>(
   }
 
   #[cfg(target_arch = "aarch64")]
-  match crate::src::safe_simd::mc_arm::compound_blend_dispatch::<BD>(dst, [first, second], extent, blend, depth) {
+  match crate::src::safe_simd::mc_arm::compound_blend_dispatch::<BD>(
+    dst,
+    [first, second],
+    extent,
+    blend,
+    depth,
+  ) {
     Ok(()) => Ok(()),
     Err(_scalar_fallback) => scalar_predictor_blend(dst, predictions, size, blend, depth),
   }
@@ -517,16 +657,30 @@ fn blend_predictors<BD: BitDepth>(
     use crate::src::safe_simd::mc_wasm as simd;
     #[cfg(target_arch = "wasm32")]
     let accelerated = match blend {
-      PredictorBlend::Average => simd::avg_dispatch::<BD>(dst, first, second, extent.width, extent.height, depth),
-      PredictorBlend::Weighted(weight) => simd::w_avg_dispatch::<BD>(dst, first, second, extent.width, extent.height, weight, depth),
-      PredictorBlend::Mask(mask) => simd::mask_dispatch::<BD>(dst, first, second, extent.width, extent.height, mask, depth),
+      PredictorBlend::Average => {
+        simd::avg_dispatch::<BD>(dst, first, second, extent.width, extent.height, depth)
+      }
+      PredictorBlend::Weighted(weight) => simd::w_avg_dispatch::<BD>(
+        dst,
+        first,
+        second,
+        extent.width,
+        extent.height,
+        weight,
+        depth,
+      ),
+      PredictorBlend::Mask(mask) => {
+        simd::mask_dispatch::<BD>(dst, first, second, extent.width, extent.height, mask, depth)
+      }
     };
     #[cfg(not(target_arch = "wasm32"))]
     let accelerated = false;
 
     match ::core::primitive::bool::then_some(accelerated, ()) {
       ::core::option::Option::Some(()) => Ok(()),
-      ::core::option::Option::None => scalar_predictor_blend(dst, predictions, size, blend, depth),
+      ::core::option::Option::None => {
+        scalar_predictor_blend(dst, predictions, size, blend, depth)
+      }
     }
   }
 }
@@ -541,7 +695,14 @@ fn mc_put_direct<BD: BitDepth>(
   let block = UnscaledBlock::new(filter, sampling)?;
 
   #[cfg(target_arch = "x86_64")]
-  match crate::src::safe_simd::mc::mc_put_dispatch::<BD>(filter, dst, src, sampling.size, sampling.phase, bit_depth) {
+  match crate::src::safe_simd::mc::mc_put_dispatch::<BD>(
+    filter,
+    dst,
+    src,
+    sampling.size,
+    sampling.phase,
+    bit_depth,
+  ) {
     Ok(()) => Ok(()),
     Err(_scalar_fallback) => put_unscaled(&block, dst, src, bit_depth),
   }
@@ -551,8 +712,14 @@ fn mc_put_direct<BD: BitDepth>(
     #[cfg(target_arch = "aarch64")]
     {
       let completed = crate::src::safe_simd::mc_arm::mc_put_dispatch::<BD>(
-        filter, dst, src, sampling.size.width, sampling.size.height,
-        sampling.phase.x, sampling.phase.y, bit_depth,
+        filter,
+        dst,
+        src,
+        sampling.size.width,
+        sampling.size.height,
+        sampling.phase.x,
+        sampling.phase.y,
+        bit_depth,
       );
 
       match completed.then_some(()) {
@@ -573,11 +740,19 @@ fn mct_prep_direct<BD: BitDepth>(
   bit_depth: BD,
 ) -> Rav1dResult {
   let block = UnscaledBlock::new(filter, sampling)?;
-  let Ok(required) = console_core_number_conversion::index(block.size.width.wrapping_mul(block.size.height));
+  let Ok(required) =
+    console_core_number_conversion::index(block.size.width.wrapping_mul(block.size.height));
   let predictors = tmp.get_mut(..required).ok_or(EINVAL)?;
 
   #[cfg(target_arch = "x86_64")]
-  match crate::src::safe_simd::mc::mct_prep_dispatch::<BD>(filter, predictors, src, sampling.size, sampling.phase, bit_depth) {
+  match crate::src::safe_simd::mc::mct_prep_dispatch::<BD>(
+    filter,
+    predictors,
+    src,
+    sampling.size,
+    sampling.phase,
+    bit_depth,
+  ) {
     Ok(()) => Ok(()),
     Err(_scalar_fallback) => prep_unscaled(&block, predictors, src, bit_depth),
   }
@@ -587,8 +762,14 @@ fn mct_prep_direct<BD: BitDepth>(
     #[cfg(target_arch = "aarch64")]
     {
       let completed = crate::src::safe_simd::mc_arm::mct_prep_dispatch::<BD>(
-        filter, predictors, src, sampling.size.width, sampling.size.height,
-        sampling.phase.x, sampling.phase.y, bit_depth,
+        filter,
+        predictors,
+        src,
+        sampling.size.width,
+        sampling.size.height,
+        sampling.phase.x,
+        sampling.phase.y,
+        bit_depth,
       );
 
       match completed.then_some(()) {
@@ -635,7 +816,13 @@ struct AxisSampling {
 }
 
 impl ScaledAxis {
-  fn new(AxisSampling { count, phase: initial, step }: AxisSampling) -> Rav1dResult<Self> {
+  fn new(
+    AxisSampling {
+      count,
+      phase: initial,
+      step,
+    }: AxisSampling,
+  ) -> Rav1dResult<Self> {
     let count_u32 = u32::try_from(count).map_err(|_negative_count| EINVAL)?;
     let phase = u32::try_from(initial).map_err(|_negative_phase| EINVAL)?;
     let shift = u32::try_from(step).map_err(|_negative_step| EINVAL)?;
@@ -645,19 +832,28 @@ impl ScaledAxis {
       _invalid_extent_or_phase => return Err(EINVAL),
     }
 
-    let last = count_u32.wrapping_sub(1)
+    let last = count_u32
+      .wrapping_sub(1)
       .checked_mul(shift)
       .and_then(|advance| advance.checked_add(phase))
       .ok_or(EINVAL)?;
 
-    Ok(Self { count: count_u32, initial: phase, step: shift, last: ::core::primitive::u32::wrapping_shr(last, 10_u32) })
+    Ok(Self {
+      count: count_u32,
+      initial: phase,
+      step: shift,
+      last: ::core::primitive::u32::wrapping_shr(last, 10_u32),
+    })
   }
 
   #[must_use]
   fn positions(self) -> Result<impl Iterator<Item = SubpixelPosition>, Never> {
     Ok((0..self.count).map(move |distance| {
       let coordinate = self.initial.wrapping_add(distance.wrapping_mul(self.step));
-      SubpixelPosition { index: ::core::primitive::u32::wrapping_shr(coordinate, 10_u32), phase: ::core::primitive::u32::wrapping_shr(coordinate & 1023, 6_u32) }
+      SubpixelPosition {
+        index: ::core::primitive::u32::wrapping_shr(coordinate, 10_u32),
+        phase: ::core::primitive::u32::wrapping_shr(coordinate & 1023, 6_u32),
+      }
     }))
   }
 }
@@ -671,18 +867,30 @@ struct SubpixelPosition {
 #[derive(Clone, Copy)]
 enum ScaledFilter {
   Bilinear,
-  EightTap { horizontal: Rav1dFilterMode, vertical: Rav1dFilterMode },
+  EightTap {
+    horizontal: Rav1dFilterMode,
+    vertical: Rav1dFilterMode,
+  },
 }
 
 impl ScaledFilter {
   fn new(filter: Filter2d) -> Result<Self, Never> {
     Ok(match filter {
       Filter2d::Bilinear => Self::Bilinear,
-      coefficients @ (Filter2d::Regular8Tap | Filter2d::RegularSmooth8Tap | Filter2d::RegularSharp8Tap
-      | Filter2d::SharpRegular8Tap | Filter2d::SharpSmooth8Tap | Filter2d::Sharp8Tap
-      | Filter2d::SmoothRegular8Tap | Filter2d::Smooth8Tap | Filter2d::SmoothSharp8Tap) => {
+      coefficients @ (Filter2d::Regular8Tap
+      | Filter2d::RegularSmooth8Tap
+      | Filter2d::RegularSharp8Tap
+      | Filter2d::SharpRegular8Tap
+      | Filter2d::SharpSmooth8Tap
+      | Filter2d::Sharp8Tap
+      | Filter2d::SmoothRegular8Tap
+      | Filter2d::Smooth8Tap
+      | Filter2d::SmoothSharp8Tap) => {
         let Ok((horizontal, vertical)) = coefficients.hv();
-        Self::EightTap { horizontal, vertical }
+        Self::EightTap {
+          horizontal,
+          vertical,
+        }
       }
     })
   }
@@ -690,7 +898,10 @@ impl ScaledFilter {
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
-  expect(explicit051_no_machine_width, reason = "both scaled interpolation paths use a fixed Rust array of 263 intermediate rows")
+  expect(
+    explicit051_no_machine_width,
+    reason = "both scaled interpolation paths use a fixed Rust array of 263 intermediate rows"
+  )
 )]
 const SCALED_INTERMEDIATE_ROWS: usize = 263;
 
@@ -704,8 +915,16 @@ struct ScaledBlock {
 
 impl ScaledBlock {
   fn new(sampling: ScaledSampling, filter: ScaledFilter) -> Rav1dResult<Self> {
-    let horizontal = ScaledAxis::new(AxisSampling { count: sampling.size.width, phase: sampling.phase.x, step: sampling.step.x })?;
-    let vertical = ScaledAxis::new(AxisSampling { count: sampling.size.height, phase: sampling.phase.y, step: sampling.step.y })?;
+    let horizontal = ScaledAxis::new(AxisSampling {
+      count: sampling.size.width,
+      phase: sampling.phase.x,
+      step: sampling.step.x,
+    })?;
+    let vertical = ScaledAxis::new(AxisSampling {
+      count: sampling.size.height,
+      phase: sampling.phase.y,
+      step: sampling.step.y,
+    })?;
     let (extra_rows, top_margin, limit) = match filter {
       ScaledFilter::Bilinear => (2, 0, 257),
       ScaledFilter::EightTap { .. } => (8, -3, 263),
@@ -717,7 +936,13 @@ impl ScaledBlock {
       cmp::Ordering::Greater => return Err(EINVAL),
     }
 
-    Ok(Self { horizontal, vertical, filter, row_count, top_margin })
+    Ok(Self {
+      horizontal,
+      vertical,
+      filter,
+      row_count,
+      top_margin,
+    })
   }
 
   fn horizontal_span(&self) -> Result<core::ops::Range<i64>, Never> {
@@ -744,29 +969,45 @@ impl ScaledBlock {
   }
 
   fn input_layout<BD: BitDepth>(&self, source: PicOffset) -> Rav1dResult {
-    let Ok(pitch) = console_core_number_conversion::fixed_offset(match source.pixel_stride::<BD>() {
-      Ok(stride) => stride,
-    });
+    let Ok(pitch) =
+      console_core_number_conversion::fixed_offset(match source.pixel_stride::<BD>() {
+        Ok(stride) => stride,
+      });
     let Ok(base) = console_core_number_conversion::fixed_index(source.offset);
     let Ok(columns) = self.horizontal_span();
-    let delta = self.top_margin.checked_mul(pitch).and_then(|row| row.checked_add(columns.start)).ok_or(EINVAL)?;
+    let delta = self
+      .top_margin
+      .checked_mul(pitch)
+      .and_then(|row| row.checked_add(columns.start))
+      .ok_or(EINVAL)?;
     let first_sample = base.checked_add_signed(delta).ok_or(EINVAL)?;
     let width = columns.end.wrapping_sub(columns.start).cast_unsigned();
-    let size = Size { width, height: u64::from(self.row_count) };
+    let size = Size {
+      width,
+      height: u64::from(self.row_count),
+    };
     let layout = RowLayout::new(size, first_sample, pitch).map_err(|_invalid_layout| EINVAL)?;
 
-    layout.validate_len(source.data.pixel_len::<BD>()).map_err(|_short_reference| EINVAL)
+    layout
+      .validate_len(source.data.pixel_len::<BD>())
+      .map_err(|_short_reference| EINVAL)
   }
 
   fn output_layout<BD: BitDepth>(&self, output: PicOffset) -> Rav1dResult {
-    let Ok(pitch) = console_core_number_conversion::fixed_offset(match output.pixel_stride::<BD>() {
-      Ok(stride) => stride,
-    });
+    let Ok(pitch) =
+      console_core_number_conversion::fixed_offset(match output.pixel_stride::<BD>() {
+        Ok(stride) => stride,
+      });
     let Ok(first_sample) = console_core_number_conversion::fixed_index(output.offset);
-    let size = Size { width: u64::from(self.horizontal.count), height: u64::from(self.vertical.count) };
+    let size = Size {
+      width: u64::from(self.horizontal.count),
+      height: u64::from(self.vertical.count),
+    };
     let layout = RowLayout::new(size, first_sample, pitch).map_err(|_invalid_layout| EINVAL)?;
 
-    layout.validate_len(output.data.pixel_len::<BD>()).map_err(|_short_output| EINVAL)
+    layout
+      .validate_len(output.data.pixel_len::<BD>())
+      .map_err(|_short_output| EINVAL)
   }
 }
 
@@ -777,17 +1018,22 @@ fn fill_scaled_intermediate<BD: BitDepth>(
   mid: &mut [[i16; MID_STRIDE]; SCALED_INTERMEDIATE_ROWS],
 ) -> Rav1dResult {
   block.input_layout::<BD>(source)?;
-  let Ok(pitch) = console_core_number_conversion::fixed_offset(
-    match source.pixel_stride::<BD>() { Ok(samples) => samples },
-  );
+  let Ok(pitch) =
+    console_core_number_conversion::fixed_offset(match source.pixel_stride::<BD>() {
+      Ok(samples) => samples,
+    });
   let Ok(row_stride) = console_core_number_conversion::wrapped_offset(pitch);
-  let top = console_core_number_conversion::checked_offset(block.top_margin).map_err(|_outside_row_offset| EINVAL)?;
+  let top = console_core_number_conversion::checked_offset(block.top_margin)
+    .map_err(|_outside_row_offset| EINVAL)?;
   let mut source_row = source + top.wrapping_mul(row_stride);
   let rounding = match block.filter {
     ScaledFilter::Bilinear => 4_u8.wrapping_sub(intermediate_bits),
     ScaledFilter::EightTap { .. } => 6_u8.wrapping_sub(intermediate_bits),
   };
-  let scale = ScaledRounding { intermediate_bits, shift: rounding };
+  let scale = ScaledRounding {
+    intermediate_bits,
+    shift: rounding,
+  };
 
   for (_row_number, row) in (0..block.row_count).zip(mid) {
     let Ok(positions) = block.horizontal.positions();
@@ -818,7 +1064,10 @@ fn scaled_horizontal_sample<BD: BitDepth>(
   let Ok(sum) = match block.filter {
     ScaledFilter::Bilinear => filter_bilin::<BD>(source, position, 1),
     ScaledFilter::EightTap { horizontal, .. } => {
-      let extent = FilterExtent { phase: position.phase, samples: block.horizontal.count };
+      let extent = FilterExtent {
+        phase: position.phase,
+        samples: block.horizontal.count,
+      };
       let Ok(coefficients) = fractional_filter(extent, horizontal);
 
       match coefficients {
@@ -850,12 +1099,21 @@ fn write_scaled_row<Sample>(
       let window = rows.get(..2).ok_or(EINVAL)?;
 
       for (column, pixel) in (0_u32..).zip(output) {
-        let sum = filter_bilin_mid(window, SubpixelPosition { index: column, phase: position.phase })?;
+        let sum = filter_bilin_mid(
+          window,
+          SubpixelPosition {
+            index: column,
+            phase: position.phase,
+          },
+        )?;
         store(pixel, sum, 4);
       }
     }
     ScaledFilter::EightTap { vertical, .. } => {
-      let filter_extent = FilterExtent { phase: position.phase, samples: block.vertical.count };
+      let filter_extent = FilterExtent {
+        phase: position.phase,
+        samples: block.vertical.count,
+      };
       let Ok(coefficients) = fractional_filter(filter_extent, vertical);
 
       match coefficients {
@@ -894,9 +1152,9 @@ fn put_scaled<BD: BitDepth>(
   let mut mid = [[0; MID_STRIDE]; SCALED_INTERMEDIATE_ROWS];
   let intermediate_bits = bit_depth.get_intermediate_bits();
   fill_scaled_intermediate::<BD>(&block, src, intermediate_bits, &mut mid)?;
-  let Ok(pitch) = console_core_number_conversion::fixed_offset(
-    match dst.pixel_stride::<BD>() { Ok(samples) => samples },
-  );
+  let Ok(pitch) = console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+    Ok(samples) => samples,
+  });
   let Ok(stride) = console_core_number_conversion::wrapped_offset(pitch);
   let Ok(width) = console_core_number_conversion::index(block.horizontal.count);
   let Ok(positions) = block.vertical.positions();
@@ -924,8 +1182,12 @@ fn prep_scaled<BD: BitDepth>(
 ) -> Rav1dResult {
   let Ok(wide_filter) = ScaledFilter::new(filter);
   let block = ScaledBlock::new(sampling, wide_filter)?;
-  let extent = Size { width: u64::from(block.horizontal.count), height: u64::from(block.vertical.count) };
-  let layout = RowLayout::new(extent, 0, i64::from(block.horizontal.count)).map_err(|_| EINVAL)?;
+  let extent = Size {
+    width: u64::from(block.horizontal.count),
+    height: u64::from(block.vertical.count),
+  };
+  let layout =
+    RowLayout::new(extent, 0, i64::from(block.horizontal.count)).map_err(|_| EINVAL)?;
   let rows = layout.rows_mut(output).map_err(|_| EINVAL)?;
   let mut mid = [[0; MID_STRIDE]; SCALED_INTERMEDIATE_ROWS];
   fill_scaled_intermediate::<BD>(&block, src, bit_depth.get_intermediate_bits(), &mut mid)?;
@@ -1001,7 +1263,14 @@ fn w_mask_direct<BD: BitDepth>(
 
   #[cfg(target_arch = "x86_64")]
   match crate::src::safe_simd::mc::w_mask_dispatch::<BD>(
-    layout, dst, predictions.0, predictions.1, extent, mask, i32::from(polarity), bd,
+    layout,
+    dst,
+    predictions.0,
+    predictions.1,
+    extent,
+    mask,
+    i32::from(polarity),
+    bd,
   ) {
     Ok(()) => Ok(()),
     Err(_scalar_fallback) => w_mask_rust(dst, predictions, mask, plan, bd),
@@ -1011,8 +1280,18 @@ fn w_mask_direct<BD: BitDepth>(
   {
     #[cfg(target_arch = "aarch64")]
     match crate::src::safe_simd::mc_arm::w_mask_dispatch::<BD>(
-      layout, dst, predictions.0, predictions.1, extent.width, extent.height, mask, i32::from(polarity), bd,
-    ).then_some(()) {
+      layout,
+      dst,
+      predictions.0,
+      predictions.1,
+      extent.width,
+      extent.height,
+      mask,
+      i32::from(polarity),
+      bd,
+    )
+    .then_some(())
+    {
       Some(()) => return Ok(()),
       None => {}
     }
@@ -1048,7 +1327,8 @@ fn warp8x8t_direct<BD: BitDepth>(
 ) -> Rav1dResult {
   #[cfg(target_arch = "x86_64")]
   {
-    match crate::src::safe_simd::mc::warp8x8t_dispatch::<BD>(output, stride, src, sampling, depth) {
+    match crate::src::safe_simd::mc::warp8x8t_dispatch::<BD>(output, stride, src, sampling, depth)
+    {
       Ok(()) => Ok(()),
       Err(_scalar_fallback) => warp_affine_8x8t_rust(output, stride, src, sampling, depth),
     }
@@ -1070,13 +1350,28 @@ fn scalar_predictor_blend<BD: BitDepth>(
 
   match kind {
     PredictorBlend::Average => write_predictor_rows(
-      dst, predictions, size, 1, iter::repeat_n(1, sample_count), depth,
+      dst,
+      predictions,
+      size,
+      1,
+      iter::repeat_n(1, sample_count),
+      depth,
     ),
     PredictorBlend::Weighted(weight) => write_predictor_rows(
-      dst, predictions, size, 4, iter::repeat_n(weight, sample_count), depth,
+      dst,
+      predictions,
+      size,
+      4,
+      iter::repeat_n(weight, sample_count),
+      depth,
     ),
     PredictorBlend::Mask(mask) => write_predictor_rows(
-      dst, predictions, size, 6, mask.iter().copied().map(i32::from), depth,
+      dst,
+      predictions,
+      size,
+      6,
+      mask.iter().copied().map(i32::from),
+      depth,
     ),
   }
 }
@@ -1092,16 +1387,17 @@ fn write_predictor_rows<BD: BitDepth>(
   let intermediate_bits = depth.get_intermediate_bits();
   let denominator = 1i32.wrapping_shl(u32::from(coefficient_bits));
   let shift = u32::from(intermediate_bits.wrapping_add(coefficient_bits));
-  let adjustment = ::core::primitive::i32::wrapping_shr(denominator, 1_u32).wrapping_shl(u32::from(intermediate_bits))
+  let adjustment = ::core::primitive::i32::wrapping_shr(denominator, 1_u32)
+    .wrapping_shl(u32::from(intermediate_bits))
     .wrapping_add(i32::from(BD::PREP_BIAS).wrapping_mul(denominator));
   let Ok(columns) = console_core_number_conversion::index(size.width);
   let packed_stride = i64::try_from(size.width).map_err(|_| EINVAL)?;
   let packed = RowLayout::new(size, 0, packed_stride).map_err(|_| EINVAL)?;
   let first_rows = packed.rows(first).map_err(|_| EINVAL)?;
   let second_rows = packed.rows(second).map_err(|_| EINVAL)?;
-  let Ok(pitch) = console_core_number_conversion::fixed_offset(
-    match dst.pixel_stride::<BD>() { Ok(stride) => stride },
-  );
+  let Ok(pitch) = console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+    Ok(stride) => stride,
+  });
   let Ok(stride) = console_core_number_conversion::wrapped_offset(pitch);
 
   for (_, (left, right)) in (0..size.height).zip(first_rows.zip(second_rows)) {
@@ -1111,7 +1407,9 @@ fn write_predictor_rows<BD: BitDepth>(
       let weight = weights.next().ok_or(EINVAL)?;
       let first_term = i32::from(primary).wrapping_mul(weight);
       let second_term = i32::from(secondary).wrapping_mul(denominator.wrapping_sub(weight));
-      let value = first_term.wrapping_add(second_term).wrapping_add(adjustment);
+      let value = first_term
+        .wrapping_add(second_term)
+        .wrapping_add(adjustment);
       *target = depth.iclip_pixel(value.wrapping_shr(shift));
     }
 
@@ -1166,8 +1464,20 @@ impl<'a> BlockBlend<'a> {
         let (length, overlap_weights) = overlap_blend_weights(full, axis)?;
 
         match axis {
-          BlendAxis::Horizontal => (Size { width, height: length }, BlendRows::PerRow(overlap_weights)),
-          BlendAxis::Vertical => (Size { width: length, height }, BlendRows::PerColumn(overlap_weights)),
+          BlendAxis::Horizontal => (
+            Size {
+              width,
+              height: length,
+            },
+            BlendRows::PerRow(overlap_weights),
+          ),
+          BlendAxis::Vertical => (
+            Size {
+              width: length,
+              height,
+            },
+            BlendRows::PerColumn(overlap_weights),
+          ),
         }
       }
     };
@@ -1178,22 +1488,34 @@ impl<'a> BlockBlend<'a> {
     }
 
     let Ok(first) = console_core_number_conversion::fixed_index(destination.offset);
-    let Ok(stride) = console_core_number_conversion::fixed_offset(
-      match destination.pixel_stride::<BD>() { Ok(samples) => samples },
-    );
+    let Ok(stride) =
+      console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
+        Ok(samples) => samples,
+      });
     let output = RowLayout::new(full, first, stride).map_err(|_| EINVAL)?;
-    output.validate_len(destination.data.pixel_len::<BD>()).map_err(|_| EINVAL)?;
+    output
+      .validate_len(destination.data.pixel_len::<BD>())
+      .map_err(|_| EINVAL)?;
     let input = RowLayout::new(active, 0, i64::from(extent.width)).map_err(|_| EINVAL)?;
     input.validate_len(prediction.len()).map_err(|_| EINVAL)?;
 
-    Ok(Some(Self { width: active.width, input, weights }))
+    Ok(Some(Self {
+      width: active.width,
+      input,
+      weights,
+    }))
   }
 
-  fn apply<BD: BitDepth>(self, mut destination: PicOffset, prediction: &[BD::Pixel]) -> Rav1dResult {
+  fn apply<BD: BitDepth>(
+    self,
+    mut destination: PicOffset,
+    prediction: &[BD::Pixel],
+  ) -> Rav1dResult {
     let Ok(columns) = console_core_number_conversion::index(self.width);
-    let Ok(pitch) = console_core_number_conversion::fixed_offset(
-      match destination.pixel_stride::<BD>() { Ok(samples) => samples },
-    );
+    let Ok(pitch) =
+      console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
+        Ok(samples) => samples,
+      });
     let Ok(stride) = console_core_number_conversion::wrapped_offset(pitch);
     let rows = self.input.rows(prediction).map_err(|_| EINVAL)?;
 
@@ -1208,7 +1530,8 @@ impl<'a> BlockBlend<'a> {
         BlendRows::PerRow(weights) => {
           let Ok(index) = console_core_number_conversion::index(row);
           let &weight = weights.get(index).ok_or(EINVAL)?;
-          let Ok(()) = blend_weighted_row::<BD>(&mut pixels, input, iter::repeat_n(weight, columns));
+          let Ok(()) =
+            blend_weighted_row::<BD>(&mut pixels, input, iter::repeat_n(weight, columns));
         }
         BlendRows::PerColumn(weights) => {
           let Ok(()) = blend_weighted_row::<BD>(&mut pixels, input, weights.iter().copied());
@@ -1223,7 +1546,10 @@ impl<'a> BlockBlend<'a> {
   }
 }
 
-fn overlap_blend_weights(extent: Size<u64>, axis: BlendAxis) -> Rav1dResult<(u64, &'static [u8])> {
+fn overlap_blend_weights(
+  extent: Size<u64>,
+  axis: BlendAxis,
+) -> Rav1dResult<(u64, &'static [u8])> {
   let start = match axis {
     BlendAxis::Horizontal => extent.height,
     BlendAxis::Vertical => extent.width,
@@ -1243,7 +1569,9 @@ fn blend_weighted_row<BD: BitDepth>(
 ) -> Result<(), Never> {
   for ((first, &second), contribution) in output.iter_mut().zip(prediction).zip(weights) {
     let weight = u32::from(contribution);
-    let rounded = (*first).as_::<u32>().wrapping_mul(64_u32.wrapping_sub(weight))
+    let rounded = (*first)
+      .as_::<u32>()
+      .wrapping_mul(64_u32.wrapping_sub(weight))
       .wrapping_add(second.as_::<u32>().wrapping_mul(weight))
       .wrapping_add(32)
       .wrapping_shr(6);
@@ -1276,7 +1604,9 @@ impl CompoundMaskRows {
     round: &CompoundMaskRounding<BD>,
   ) -> Rav1dResult {
     let (first, second) = predictions;
-    let start = row_number.wrapping_shr(self.vertical_shift).wrapping_mul(self.width);
+    let start = row_number
+      .wrapping_shr(self.vertical_shift)
+      .wrapping_mul(self.width);
     let end = start.wrapping_add(self.width);
     let Ok(indices) = console_core_number_conversion::indices(start..end);
     let mask_row = mask.get_mut(indices).ok_or(EINVAL)?;
@@ -1303,7 +1633,11 @@ impl CompoundMaskRows {
     let sign = u16::from(u8::from(self.polarity));
 
     for ((([left, right], weight), &[first_left, first_right]), &[second_left, second_right]) in
-      pixels.iter_mut().zip(mask_row).zip(first_predictions).zip(second_predictions)
+      pixels
+        .iter_mut()
+        .zip(mask_row)
+        .zip(first_predictions)
+        .zip(second_predictions)
     {
       let Ok((blended_left, left_weight)) = round.blend([first_left, second_left]);
       let Ok((blended_right, right_weight)) = round.blend([first_right, second_right]);
@@ -1312,7 +1646,11 @@ impl CompoundMaskRows {
       let pair = u16::from(left_weight).wrapping_add(u16::from(right_weight));
       let averaged = match reduction {
         MaskPairReduction::Accumulate => pair,
-        MaskPairReduction::Vertical => pair.wrapping_add(u16::from(*weight)).wrapping_add(2).wrapping_sub(sign).wrapping_shr(2),
+        MaskPairReduction::Vertical => pair
+          .wrapping_add(u16::from(*weight))
+          .wrapping_add(2)
+          .wrapping_sub(sign)
+          .wrapping_shr(2),
         MaskPairReduction::Horizontal => pair.wrapping_add(1).wrapping_sub(sign).wrapping_shr(1),
       };
       let Ok(value) = console_core_number_conversion::wrapped::<_, u8>(averaged);
@@ -1334,23 +1672,38 @@ struct CompoundMaskRounding<BD> {
 impl<BD: BitDepth> CompoundMaskRounding<BD> {
   fn new(bit_depth: BD) -> Result<Self, Never> {
     let intermediate = u32::from(bit_depth.get_intermediate_bits());
-    let weight_shift = u32::from(bit_depth.bitdepth()).wrapping_add(intermediate).wrapping_sub(4);
+    let weight_shift = u32::from(bit_depth.bitdepth())
+      .wrapping_add(intermediate)
+      .wrapping_sub(4);
     let weight_round = 1_u16.wrapping_shl(weight_shift.wrapping_sub(5));
-    let pixel_round = 32_i32.wrapping_shl(intermediate).wrapping_add(i32::from(BD::PREP_BIAS).wrapping_mul(64));
+    let pixel_round = 32_i32
+      .wrapping_shl(intermediate)
+      .wrapping_add(i32::from(BD::PREP_BIAS).wrapping_mul(64));
 
-    Ok(Self { bit_depth, pixel_shift: intermediate.wrapping_add(6), pixel_round, weight_shift, weight_round })
+    Ok(Self {
+      bit_depth,
+      pixel_shift: intermediate.wrapping_add(6),
+      pixel_round,
+      weight_shift,
+      weight_round,
+    })
   }
 
   #[inline]
   fn blend(&self, [first, second]: [i16; 2]) -> Result<(BD::Pixel, u8), Never> {
     let difference = first.abs_diff(second).saturating_add(self.weight_round);
-    let contribution = 38_u16.wrapping_add(difference.wrapping_shr(self.weight_shift)).min(64);
+    let contribution = 38_u16
+      .wrapping_add(difference.wrapping_shr(self.weight_shift))
+      .min(64);
     let weight = i32::from(contribution);
-    let combined = i32::from(first).wrapping_mul(weight)
+    let combined = i32::from(first)
+      .wrapping_mul(weight)
       .wrapping_add(i32::from(second).wrapping_mul(64_i32.wrapping_sub(weight)))
       .wrapping_add(self.pixel_round);
     let Ok(mask) = console_core_number_conversion::wrapped::<_, u8>(contribution);
-    let pixel = self.bit_depth.iclip_pixel(combined.wrapping_shr(self.pixel_shift));
+    let pixel = self
+      .bit_depth
+      .iclip_pixel(combined.wrapping_shr(self.pixel_shift));
 
     Ok((pixel, mask))
   }
@@ -1379,19 +1732,34 @@ fn compound_mask_plan<BD: BitDepth>(
   let mask_width = width.wrapping_shr(horizontal_shift);
   let mask_height = height.wrapping_shr(vertical_shift);
 
-  match (mask_width.wrapping_shl(horizontal_shift).cmp(&width), mask_height.wrapping_shl(vertical_shift).cmp(&height)) {
+  match (
+    mask_width.wrapping_shl(horizontal_shift).cmp(&width),
+    mask_height.wrapping_shl(vertical_shift).cmp(&height),
+  ) {
     (cmp::Ordering::Equal, cmp::Ordering::Equal) => {}
     _incomplete_chroma_block => return Err(EINVAL),
   }
 
   let extent = Size { width, height };
-  let input = RowLayout::new(extent, 0, i64::from(dimensions.width)).map_err(|_input_layout| EINVAL)?;
-  input.validate_len(COMPINTER_LEN).map_err(|_short_predictions| EINVAL)?;
+  let input =
+    RowLayout::new(extent, 0, i64::from(dimensions.width)).map_err(|_input_layout| EINVAL)?;
+  input
+    .validate_len(COMPINTER_LEN)
+    .map_err(|_short_predictions| EINVAL)?;
   let Ok(start) = console_core_number_conversion::fixed_index(destination.offset);
-  let Ok(native_stride) = ::console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() { ::core::result::Result::Ok(native_stride) => native_stride });
-  let Ok(stride) = console_core_number_conversion::fixed_offset(match ::console_core_number_conversion::wrapped_offset(native_stride) { ::core::result::Result::Ok(native_position) => native_position });
+  let Ok(native_stride) =
+    ::console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
+      ::core::result::Result::Ok(native_stride) => native_stride,
+    });
+  let Ok(stride) = console_core_number_conversion::fixed_offset(
+    match ::console_core_number_conversion::wrapped_offset(native_stride) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+  );
   let output = RowLayout::new(extent, start, stride).map_err(|_output_layout| EINVAL)?;
-  output.validate_len(destination.data.pixel_len::<BD>()).map_err(|_short_output| EINVAL)?;
+  output
+    .validate_len(destination.data.pixel_len::<BD>())
+    .map_err(|_short_output| EINVAL)?;
   let mask_samples = mask_width.checked_mul(mask_height).ok_or(EINVAL)?;
   let Ok(capacity) = console_core_number_conversion::fixed_index(SEG_MASK_LEN);
 
@@ -1402,7 +1770,12 @@ fn compound_mask_plan<BD: BitDepth>(
 
   Ok(CompoundMaskPlan {
     extent,
-    rows: CompoundMaskRows { chroma, width: mask_width, vertical_shift, polarity },
+    rows: CompoundMaskRows {
+      chroma,
+      width: mask_width,
+      vertical_shift,
+      polarity,
+    },
     input,
     mask_samples,
   })
@@ -1412,16 +1785,22 @@ fn w_mask_rust<BD: BitDepth>(
   mut destination: PicOffset,
   predictions: (&[i16; COMPINTER_LEN], &[i16; COMPINTER_LEN]),
   mask: &mut [u8; SEG_MASK_LEN],
-  CompoundMaskPlan { extent, rows, input, mask_samples }: CompoundMaskPlan,
+  CompoundMaskPlan {
+    extent,
+    rows,
+    input,
+    mask_samples,
+  }: CompoundMaskPlan,
   bit_depth: BD,
 ) -> Rav1dResult {
   let first_rows = input.rows(predictions.0).map_err(|_first_short| EINVAL)?;
   let second_rows = input.rows(predictions.1).map_err(|_second_short| EINVAL)?;
   let Ok(indices) = console_core_number_conversion::indices_to(..mask_samples);
   let weights = mask.get_mut(indices).ok_or(EINVAL)?;
-  let Ok(pitch) = console_core_number_conversion::fixed_offset(
-    match destination.pixel_stride::<BD>() { Ok(samples) => samples },
-  );
+  let Ok(pitch) =
+    console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
+      Ok(samples) => samples,
+    });
   let Ok(native_stride) = console_core_number_conversion::wrapped_offset(pitch);
   let Ok(round) = CompoundMaskRounding::new(bit_depth);
   let Ok(columns) = console_core_number_conversion::index(extent.width);
@@ -1443,7 +1822,10 @@ pub(crate) struct WarpSampling {
 }
 
 pub(crate) fn warp_coefficients(phase: i32) -> Rav1dResult<&'static [i8; 8]> {
-  let ordinal = 64_i32.wrapping_add(::core::primitive::i32::wrapping_shr(phase.wrapping_add(512), 10_u32));
+  let ordinal = 64_i32.wrapping_add(::core::primitive::i32::wrapping_shr(
+    phase.wrapping_add(512),
+    10_u32,
+  ));
   let Ok(index) = console_core_number_conversion::wrapped_index(ordinal);
   dav1d_mc_warp_filter.get(index).ok_or(EINVAL)
 }
@@ -1462,10 +1844,15 @@ pub(crate) fn warp_vertical_sums(
     for (column, sample) in (0_u32..).zip(output) {
       let taps = warp_coefficients(phase)?;
       let Ok(index) = console_core_number_conversion::index(column);
-      let filtered = taps.iter().zip(window).try_fold(0_i32, |sum, (&tap, row_2)| {
-        let pixel = row_2.get(index).ok_or(EINVAL)?;
-        Ok::<i32, crate::src::error::Rav1dError>(sum.wrapping_add(i32::from(*pixel).wrapping_mul(i32::from(tap))))
-      })?;
+      let filtered = taps
+        .iter()
+        .zip(window)
+        .try_fold(0_i32, |sum, (&tap, row_2)| {
+          let pixel = row_2.get(index).ok_or(EINVAL)?;
+          Ok::<i32, crate::src::error::Rav1dError>(
+            sum.wrapping_add(i32::from(*pixel).wrapping_mul(i32::from(tap))),
+          )
+        })?;
       *sample = filtered;
       phase = phase.wrapping_add(gamma);
     }
@@ -1483,13 +1870,29 @@ fn warp_scalar_sums<BD: BitDepth>(
     Ok(samples) => samples,
   });
   let Ok(origin) = console_core_number_conversion::fixed_index(src.offset);
-  let margin = stride.checked_mul(-3).and_then(|rows| rows.checked_sub(3)).ok_or(EINVAL)?;
+  let margin = stride
+    .checked_mul(-3)
+    .and_then(|rows| rows.checked_sub(3))
+    .ok_or(EINVAL)?;
   let start = origin.checked_add_signed(margin).ok_or(EINVAL)?;
-  let layout = RowLayout::new(Size { width: 15, height: 15 }, start, stride).map_err(|_| EINVAL)?;
-  layout.validate_len(src.data.pixel_len::<BD>()).map_err(|_| EINVAL)?;
+  let layout = RowLayout::new(
+    Size {
+      width: 15,
+      height: 15,
+    },
+    start,
+    stride,
+  )
+  .map_err(|_| EINVAL)?;
+  layout
+    .validate_len(src.data.pixel_len::<BD>())
+    .map_err(|_| EINVAL)?;
   let Ok(offset) = console_core_number_conversion::index(start);
   let Ok(step) = console_core_number_conversion::wrapped_offset(stride);
-  let mut reference = PicOffset { data: src.data, offset };
+  let mut reference = PicOffset {
+    data: src.data,
+    offset,
+  };
   let [alpha, beta, _, _] = sampling.coefficients.map(i32::from);
   let shift = 7_u32.wrapping_sub(u32::from(depth.get_intermediate_bits()));
   let mut intermediate = [[0_i16; 8]; 15];
@@ -1504,7 +1907,8 @@ fn warp_scalar_sums<BD: BitDepth>(
       let sum = taps.iter().zip(window).fold(0_i32, |sum, (&tap, &input)| {
         sum.wrapping_add(input.as_::<i32>().wrapping_mul(i32::from(tap)))
       });
-      let Ok(rounded) = console_core_number_conversion::wrapped::<_, i16>(round_shift(sum, shift));
+      let Ok(rounded) =
+        console_core_number_conversion::wrapped::<_, i16>(round_shift(sum, shift));
       *sample = rounded;
       phase = phase.wrapping_add(alpha);
     }
@@ -1525,8 +1929,18 @@ pub(crate) fn warp_affine_8x8_rust<BD: BitDepth>(
     Ok(samples) => samples,
   });
   let Ok(origin) = console_core_number_conversion::fixed_index(dst.offset);
-  let layout = RowLayout::new(Size { width: 8, height: 8 }, origin, stride).map_err(|_| EINVAL)?;
-  layout.validate_len(dst.data.pixel_len::<BD>()).map_err(|_| EINVAL)?;
+  let layout = RowLayout::new(
+    Size {
+      width: 8,
+      height: 8,
+    },
+    origin,
+    stride,
+  )
+  .map_err(|_| EINVAL)?;
+  layout
+    .validate_len(dst.data.pixel_len::<BD>())
+    .map_err(|_| EINVAL)?;
   let sums = warp_scalar_sums(src, sampling, depth)?;
   let shift = 7_u32.wrapping_add(u32::from(depth.get_intermediate_bits()));
   let Ok(step) = console_core_number_conversion::wrapped_offset(stride);
@@ -1558,7 +1972,15 @@ pub(crate) fn write_warp_predictor<BD: BitDepth>(
   evaluate: impl FnOnce() -> Rav1dResult<[[i32; 8]; 8]>,
 ) -> Rav1dResult {
   let pitch = i64::try_from(stride).map_err(|_| EINVAL)?;
-  let layout = RowLayout::new(Size { width: 8, height: 8 }, 0, pitch).map_err(|_| EINVAL)?;
+  let layout = RowLayout::new(
+    Size {
+      width: 8,
+      height: 8,
+    },
+    0,
+    pitch,
+  )
+  .map_err(|_| EINVAL)?;
   let rows = layout.rows_mut(output).map_err(|_| EINVAL)?;
   let sums = evaluate()?;
 
@@ -1586,22 +2008,46 @@ fn emu_edge_rust<BD: BitDepth>(
   use console_core_number_conversion::{fixed_index, fixed_offset, index, indices};
   use console_core_pixel_buffers::{RowLayoutError, copy_clamped_window};
 
-  let width = u64::try_from(window.reference.width).map_err(|_negative_width| RowLayoutError::Bounds)?;
-  let height = u64::try_from(window.reference.height).map_err(|_negative_height| RowLayoutError::Bounds)?;
-  let out_width = u64::try_from(window.block.width).map_err(|_negative_width| RowLayoutError::Bounds)?;
-  let out_height = u64::try_from(window.block.height).map_err(|_negative_height| RowLayoutError::Bounds)?;
-  let destination = RowLayout::new(Size { width: out_width, height: out_height }, 0, i64::from(dst_stride))?;
-  let Ok(row_stride) = ::console_core_number_conversion::fixed_offset(match reference.pixel_stride::<BD>() { ::core::result::Result::Ok(row_stride) => row_stride });
-  let Ok(stride) = fixed_offset(match ::console_core_number_conversion::wrapped_offset(row_stride) { ::core::result::Result::Ok(native_position) => native_position });
+  let width =
+    u64::try_from(window.reference.width).map_err(|_negative_width| RowLayoutError::Bounds)?;
+  let height =
+    u64::try_from(window.reference.height).map_err(|_negative_height| RowLayoutError::Bounds)?;
+  let out_width =
+    u64::try_from(window.block.width).map_err(|_negative_width| RowLayoutError::Bounds)?;
+  let out_height =
+    u64::try_from(window.block.height).map_err(|_negative_height| RowLayoutError::Bounds)?;
+  let destination = RowLayout::new(
+    Size {
+      width: out_width,
+      height: out_height,
+    },
+    0,
+    i64::from(dst_stride),
+  )?;
+  let Ok(row_stride) =
+    ::console_core_number_conversion::fixed_offset(match reference.pixel_stride::<BD>() {
+      ::core::result::Result::Ok(row_stride) => row_stride,
+    });
+  let Ok(stride) = fixed_offset(
+    match ::console_core_number_conversion::wrapped_offset(row_stride) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+  );
   let Ok(first_sample) = fixed_index(reference.with_offset::<BD>().offset);
   let reference_plane = RowLayout::new(Size { width, height }, first_sample, stride)?;
   reference_plane.validate_len(reference.pixel_len::<BD>())?;
   let Ok(ref_width) = index(width);
   let Ok(ref_height) = index(height);
-  let origin = Point { x: i64::from(window.origin.x), y: i64::from(window.origin.y) };
+  let origin = Point {
+    x: i64::from(window.origin.x),
+    y: i64::from(window.origin.y),
+  };
 
   copy_clamped_window(
-    Size { width: ref_width, height: ref_height },
+    Size {
+      width: ref_width,
+      height: ref_height,
+    },
     origin,
     (&destination, dst),
     |row, columns| {
@@ -1652,7 +2098,8 @@ fn resize_row<BD: BitDepth>(
   let mut input_x = -4i32;
 
   for output_sample in output {
-    let slot = u32::try_from(::core::primitive::i32::wrapping_shr(subpixel, 8_u32)).map_err(|_| EINVAL)?;
+    let slot =
+      u32::try_from(::core::primitive::i32::wrapping_shr(subpixel, 8_u32)).map_err(|_| EINVAL)?;
     let Ok(index) = console_core_number_conversion::index(slot);
     let filter = dav1d_resize_filter.get(index).ok_or(EINVAL)?;
     let mut sum = 0i32;
@@ -1680,7 +2127,11 @@ fn resize_rust<BD: BitDepth>(
   sampling: ResizeSampling,
   depth: BD,
 ) -> Rav1dResult {
-  let ResizeSampling { source_width, destination: size, phase } = sampling;
+  let ResizeSampling {
+    source_width,
+    destination: size,
+    phase,
+  } = sampling;
 
   match (size.width, size.height) {
     (0, _) | (_, 0) => return Ok(()),
@@ -1692,22 +2143,31 @@ fn resize_rust<BD: BitDepth>(
     _ => return Err(EINVAL),
   }
 
-  let Ok(source_pitch) = console_core_number_conversion::fixed_offset(
-    match source.pixel_stride::<BD>() { Ok(stride) => stride },
-  );
-  let Ok(destination_pitch) = console_core_number_conversion::fixed_offset(
-    match destination.pixel_stride::<BD>() { Ok(stride) => stride },
-  );
+  let Ok(source_pitch) =
+    console_core_number_conversion::fixed_offset(match source.pixel_stride::<BD>() {
+      Ok(stride) => stride,
+    });
+  let Ok(destination_pitch) =
+    console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
+      Ok(stride) => stride,
+    });
   let Ok(source_origin) = console_core_number_conversion::fixed_index(source.offset);
   let Ok(destination_origin) = console_core_number_conversion::fixed_index(destination.offset);
   let input = RowLayout::new(
-    Size { width: source_width, height: size.height },
+    Size {
+      width: source_width,
+      height: size.height,
+    },
     source_origin,
     source_pitch,
-  ).map_err(|_| EINVAL)?;
-  input.validate_len(source.data.pixel_len::<BD>()).map_err(|_| EINVAL)?;
+  )
+  .map_err(|_| EINVAL)?;
+  input
+    .validate_len(source.data.pixel_len::<BD>())
+    .map_err(|_| EINVAL)?;
   let layout = RowLayout::new(size, destination_origin, destination_pitch).map_err(|_| EINVAL)?;
-  let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
+  let Ok(pixel_bytes) =
+    console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
   let output_length = match destination.data {
     PicOrBuf::Pic(picture) => {
       let Ok(samples) = console_core_number_conversion::fixed_index(picture.pixel_len::<BD>());
@@ -1861,7 +2321,13 @@ impl w_avg::Fn {
     weight: i32,
     depth: BD,
   ) -> Rav1dResult {
-    blend_predictors(dst, predictions, extent, PredictorBlend::Weighted(weight), depth)
+    blend_predictors(
+      dst,
+      predictions,
+      extent,
+      PredictorBlend::Weighted(weight),
+      depth,
+    )
   }
 }
 
@@ -2032,22 +2498,42 @@ mod compound_mask_tests {
   use crate::src::align::Align64;
   use aligned::Aligned;
 
-  const FIRST: [i16; 16] = [-8192, -8001, -7511, -7000, -5523, -4000, -2011, -1000, 0, 900, 1906, 3000, 4000, 5012, 6108, 16000];
-  const SECOND: [i16; 16] = [-8192, -8192, -7900, -7010, -5600, -2710, -2000, -900, 612, -1100, 3100, 2900, 1900, 6012, 2000, 26000];
+  const FIRST: [i16; 16] = [
+    -8192, -8001, -7511, -7000, -5523, -4000, -2011, -1000, 0, 900, 1906, 3000, 4000, 5012, 6108,
+    16000,
+  ];
+  const SECOND: [i16; 16] = [
+    -8192, -8192, -7900, -7010, -5600, -2710, -2000, -900, 612, -1100, 3100, 2900, 1900, 6012,
+    2000, 26000,
+  ];
   const MASKS_8: [[&[u8]; 2]; 3] = [
     [&[39, 38, 43, 50], &[39, 38, 43, 49]],
-    [&[38, 39, 41, 38, 43, 40, 44, 59], &[38, 38, 40, 38, 42, 40, 43, 59]],
     [
-      &[38, 38, 39, 38, 38, 43, 38, 38, 40, 45, 42, 38, 46, 41, 54, 64],
-      &[38, 38, 39, 38, 38, 43, 38, 38, 40, 45, 42, 38, 46, 41, 54, 64],
+      &[38, 39, 41, 38, 43, 40, 44, 59],
+      &[38, 38, 40, 38, 42, 40, 43, 59],
+    ],
+    [
+      &[
+        38, 38, 39, 38, 38, 43, 38, 38, 40, 45, 42, 38, 46, 41, 54, 64,
+      ],
+      &[
+        38, 38, 39, 38, 38, 43, 38, 38, 40, 45, 42, 38, 46, 41, 54, 64,
+      ],
     ],
   ];
   const MASKS_HIGH: [[&[u8]; 2]; 3] = [
     [&[38, 38, 39, 42], &[38, 38, 39, 41]],
-    [&[38, 38, 39, 38, 39, 39, 40, 45], &[38, 38, 38, 38, 38, 38, 39, 44]],
     [
-      &[38, 38, 38, 38, 38, 39, 38, 38, 38, 39, 39, 38, 40, 39, 42, 47],
-      &[38, 38, 38, 38, 38, 39, 38, 38, 38, 39, 39, 38, 40, 39, 42, 47],
+      &[38, 38, 39, 38, 39, 39, 40, 45],
+      &[38, 38, 38, 38, 38, 38, 39, 44],
+    ],
+    [
+      &[
+        38, 38, 38, 38, 38, 39, 38, 38, 38, 39, 39, 38, 40, 39, 42, 47,
+      ],
+      &[
+        38, 38, 38, 38, 38, 39, 38, 38, 38, 39, 39, 38, 40, 39, 42, 47,
+      ],
     ],
   ];
 
@@ -2062,21 +2548,42 @@ mod compound_mask_tests {
     let mut second = [0; COMPINTER_LEN];
     let first_pixels = first.get_mut(..FIRST.len()).ok_or(EINVAL)?;
     let second_pixels = second.get_mut(..SECOND.len()).ok_or(EINVAL)?;
-    first_pixels.iter_mut().zip(FIRST).for_each(|(dst, value)| *dst = value);
-    second_pixels.iter_mut().zip(SECOND).for_each(|(dst, value)| *dst = value);
-    let dimensions = Size { width: 4, height: 4 };
+    first_pixels
+      .iter_mut()
+      .zip(FIRST)
+      .for_each(|(dst, value)| *dst = value);
+    second_pixels
+      .iter_mut()
+      .zip(SECOND)
+      .for_each(|(dst, value)| *dst = value);
+    let dimensions = Size {
+      width: 4,
+      height: 4,
+    };
 
     for (layout, expected) in [I420, I422, I444].into_iter().zip(weights_by_layout) {
-      for (polarity, weights) in [MaskPolarity::Normal, MaskPolarity::Inverted].into_iter().zip(expected) {
+      for (polarity, weights) in [MaskPolarity::Normal, MaskPolarity::Inverted]
+        .into_iter()
+        .zip(expected)
+      {
         let mut plane: Align64<[BD::Pixel; 64]> = Aligned([bit_depth.iclip_pixel(0); 64]);
         let component = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut *plane, 4);
-        let offset = PicOffset { data: &component, offset: 0 };
+        let offset = PicOffset {
+          data: &component,
+          offset: 0,
+        };
         let untouched = 255_u8;
         let mut mask = [untouched; SEG_MASK_LEN];
         let plan = compound_mask_plan::<BD>(&offset, dimensions, layout, polarity)?;
         w_mask_rust(offset, (&first, &second), &mut mask, plan, bit_depth)?;
         let pixels = offset.slice::<BD>(expected_pixels.len());
-        assert!(pixels.iter().copied().map(<BD::Pixel as Into<u16>>::into).eq(expected_pixels));
+        assert!(
+          pixels
+            .iter()
+            .copied()
+            .map(<BD::Pixel as Into<u16>>::into)
+            .eq(expected_pixels)
+        );
         let (written, padding) = mask.split_at_checked(weights.len()).ok_or(EINVAL)?;
         assert_eq!(written, weights);
         assert!(padding.iter().all(|&entry| entry == untouched));
@@ -2088,35 +2595,81 @@ mod compound_mask_tests {
 
   #[test]
   fn scalar_compound_masks_preserve_both_rounding_polarities() -> Rav1dResult {
-    check_mask(BitDepth8::new(()), [0, 0, 0, 0, 0, 0, 0, 0, 14, 19, 145, 185, 213, 255, 255, 255], MASKS_8)?;
-    check_mask(BitDepth16::new(1023), [0, 7, 33, 74, 165, 293, 387, 452, 528, 519, 660, 697, 713, 850, 805, 1023], MASKS_HIGH)?;
-    check_mask(BitDepth16::new(4095), [0, 28, 131, 297, 659, 1174, 1546, 1808, 2110, 2078, 2641, 2788, 2851, 3399, 3222, 4095], MASKS_HIGH)
+    check_mask(
+      BitDepth8::new(()),
+      [0, 0, 0, 0, 0, 0, 0, 0, 14, 19, 145, 185, 213, 255, 255, 255],
+      MASKS_8,
+    )?;
+    check_mask(
+      BitDepth16::new(1023),
+      [
+        0, 7, 33, 74, 165, 293, 387, 452, 528, 519, 660, 697, 713, 850, 805, 1023,
+      ],
+      MASKS_HIGH,
+    )?;
+    check_mask(
+      BitDepth16::new(4095),
+      [
+        0, 28, 131, 297, 659, 1174, 1546, 1808, 2110, 2078, 2641, 2788, 2851, 3399, 3222, 4095,
+      ],
+      MASKS_HIGH,
+    )
   }
 
   #[test]
   fn edge_window_repeats_boundary_pixels_and_keeps_padding() -> Rav1dResult {
     let mut image: Align64<[u8; 64]> = Aligned([99; 64]);
 
-    for (row, samples) in image.chunks_exact_mut(8).zip([[1, 2, 3, 4], [11, 12, 13, 14], [21, 22, 23, 24]]) {
-      row.iter_mut().zip(samples).for_each(|(dst, sample)| *dst = sample);
+    for (row, samples) in
+      image
+        .chunks_exact_mut(8)
+        .zip([[1, 2, 3, 4], [11, 12, 13, 14], [21, 22, 23, 24]])
+    {
+      row
+        .iter_mut()
+        .zip(samples)
+        .for_each(|(dst, sample)| *dst = sample);
     }
 
     let source = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *image, 8);
     let mut output = [77; EMU_EDGE_LEN];
-    let extent = Size { width: 8, height: 5 };
+    let extent = Size {
+      width: 8,
+      height: 5,
+    };
     let origin = Point { x: -2, y: -1 };
-    let invalid = EdgeWindow { block: extent, reference: Size { width: 9, height: 3 }, origin };
+    let invalid = EdgeWindow {
+      block: extent,
+      reference: Size {
+        width: 9,
+        height: 3,
+      },
+      origin,
+    };
     let refused = emu_edge::Fn::DEFAULT.call::<BitDepth8>(invalid, &mut output, 10, &source);
     assert_eq!(refused, Err(EINVAL));
     assert!(output.iter().all(|&value| value == 77));
 
-    let window = EdgeWindow { block: extent, reference: Size { width: 4, height: 3 }, origin };
+    let window = EdgeWindow {
+      block: extent,
+      reference: Size {
+        width: 4,
+        height: 3,
+      },
+      origin,
+    };
     emu_edge::Fn::DEFAULT.call::<BitDepth8>(window, &mut output, 10, &source)?;
     let (pixels, padding) = output.split_at_checked(50).ok_or(EINVAL)?;
     let first = [1, 1, 1, 2, 3, 4, 4, 4, 77, 77];
     let middle = [11, 11, 11, 12, 13, 14, 14, 14, 77, 77];
     let last = [21, 21, 21, 22, 23, 24, 24, 24, 77, 77];
-    assert!(pixels.chunks_exact(10).eq([first, first, middle, last, last].iter().map(<[u8; 10]>::as_slice)));
+    assert!(
+      pixels.chunks_exact(10).eq(
+        [first, first, middle, last, last]
+          .iter()
+          .map(<[u8; 10]>::as_slice)
+      )
+    );
     assert!(padding.iter().all(|&value| value == 77));
 
     Ok(())
@@ -2129,27 +2682,53 @@ mod compound_mask_tests {
     let mut output: Align64<[u8; 64]> = Aligned([77; 64]);
     let source = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *input, 32);
     let target = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *output, 32);
-    let src = PicOffset { data: &source, offset: 0 };
-    let out = PicOffset { data: &target, offset: 0 };
+    let src = PicOffset {
+      data: &source,
+      offset: 0,
+    };
+    let out = PicOffset {
+      data: &target,
+      offset: 0,
+    };
     let Ok(destination) = WithOffset::pic(out);
     let depth = BitDepth8::new(());
 
     let short = ResizeSampling {
       source_width: 16,
-      destination: Size { width: 24, height: 4 },
-      phase: ResizePhase { step: 10923, initial: 0 },
+      destination: Size {
+        width: 24,
+        height: 4,
+      },
+      phase: ResizePhase {
+        step: 10923,
+        initial: 0,
+      },
     };
     let bad_phase = ResizeSampling {
       source_width: 16,
-      destination: Size { width: 24, height: 2 },
-      phase: ResizePhase { step: 10923, initial: 0x4000 },
+      destination: Size {
+        width: 24,
+        height: 2,
+      },
+      phase: ResizePhase {
+        step: 10923,
+        initial: 0x4000,
+      },
     };
 
     for invalid in [short, bad_phase] {
-      assert_eq!(resize::Fn::DEFAULT.call::<BitDepth8>(destination, src, invalid, depth), Err(EINVAL));
+      assert_eq!(
+        resize::Fn::DEFAULT.call::<BitDepth8>(destination, src, invalid, depth),
+        Err(EINVAL)
+      );
     }
 
-    assert!(out.slice::<BitDepth8>(64).iter().all(|&sample| sample == 77));
+    assert!(
+      out
+        .slice::<BitDepth8>(64)
+        .iter()
+        .all(|&sample| sample == 77)
+    );
   }
 
   #[cfg(feature = "bitdepth_8")]
@@ -2162,16 +2741,39 @@ mod compound_mask_tests {
       row.fill(stamp);
     }
 
-    let ::core::result::Result::Ok(bottom_up) = ::console_core_number_conversion::fixed_index((-32isize).cast_unsigned());
-    let source = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *input, match ::console_core_number_conversion::index(bottom_up) { ::core::result::Result::Ok(native_position) => native_position });
-    let target = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *output, match ::console_core_number_conversion::index(bottom_up) { ::core::result::Result::Ok(native_position) => native_position });
-    let src = PicOffset { data: &source, offset: 64 };
-    let out = PicOffset { data: &target, offset: 64 };
+    let ::core::result::Result::Ok(bottom_up) =
+      ::console_core_number_conversion::fixed_index((-32isize).cast_unsigned());
+    let source = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(
+      &mut *input,
+      match ::console_core_number_conversion::index(bottom_up) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    );
+    let target = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(
+      &mut *output,
+      match ::console_core_number_conversion::index(bottom_up) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    );
+    let src = PicOffset {
+      data: &source,
+      offset: 64,
+    };
+    let out = PicOffset {
+      data: &target,
+      offset: 64,
+    };
     let Ok(destination) = WithOffset::pic(out);
     let sampling = ResizeSampling {
       source_width: 16,
-      destination: Size { width: 24, height: 3 },
-      phase: ResizePhase { step: 10923, initial: 719 },
+      destination: Size {
+        width: 24,
+        height: 3,
+      },
+      phase: ResizePhase {
+        step: 10923,
+        initial: 719,
+      },
     };
     resize::Fn::DEFAULT.call::<BitDepth8>(destination, src, sampling, BitDepth8::new(()))?;
     let stored = target.slice::<BitDepth8, _>(..);
@@ -2189,19 +2791,30 @@ mod compound_mask_tests {
   fn checked_predictor_blend_refuses_incomplete_mask_before_writing() {
     let mut storage: Align64<[u8; 64]> = Aligned([77; 64]);
     let picture = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *storage, 16);
-    let dst = PicOffset { data: &picture, offset: 0 };
+    let dst = PicOffset {
+      data: &picture,
+      offset: 0,
+    };
     let first = [320i16; COMPINTER_LEN];
     let second = [640i16; COMPINTER_LEN];
     let first_row_mask = [32u8; 12];
     let applied = mask::Fn::DEFAULT.call::<BitDepth8>(
       dst,
       [&first, &second],
-      Size { width: 12, height: 2 },
+      Size {
+        width: 12,
+        height: 2,
+      },
       &first_row_mask,
       BitDepth8::new(()),
     );
     assert_eq!(applied, Err(EINVAL));
-    assert!(picture.slice::<BitDepth8, _>(..).iter().all(|&sample| sample == 77));
+    assert!(
+      picture
+        .slice::<BitDepth8, _>(..)
+        .iter()
+        .all(|&sample| sample == 77)
+    );
   }
 
   #[cfg(feature = "bitdepth_8")]
@@ -2210,13 +2823,33 @@ mod compound_mask_tests {
     let mut storage: Align64<[u8; 64]> = Aligned([77; 64]);
     let picture = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *storage, 8);
     let prediction = [192_u8; SCRATCH_INTER_INTRA_BUF_LEN];
-    let extent = Size { width: 4, height: 4 };
-    let top = PicOffset { data: &picture, offset: 0 };
-    let bottom = PicOffset { data: &picture, offset: 56 };
+    let extent = Size {
+      width: 4,
+      height: 4,
+    };
+    let top = PicOffset {
+      data: &picture,
+      offset: 0,
+    };
+    let bottom = PicOffset {
+      data: &picture,
+      offset: 56,
+    };
 
-    assert_eq!(blend::Fn::DEFAULT.call::<BitDepth8>(top, &prediction, extent, &[32; 4]), Err(EINVAL));
-    assert_eq!(blend::Fn::DEFAULT.call::<BitDepth8>(bottom, &prediction, extent, &[32; 16]), Err(EINVAL));
-    assert!(picture.slice::<BitDepth8, _>(..).iter().all(|&sample| sample == 77));
+    assert_eq!(
+      blend::Fn::DEFAULT.call::<BitDepth8>(top, &prediction, extent, &[32; 4]),
+      Err(EINVAL)
+    );
+    assert_eq!(
+      blend::Fn::DEFAULT.call::<BitDepth8>(bottom, &prediction, extent, &[32; 16]),
+      Err(EINVAL)
+    );
+    assert!(
+      picture
+        .slice::<BitDepth8, _>(..)
+        .iter()
+        .all(|&sample| sample == 77)
+    );
   }
 
   #[cfg(feature = "bitdepth_8")]
@@ -2226,7 +2859,10 @@ mod compound_mask_tests {
       (BlendAxis::Horizontal, [[64; 4], [74; 4], [92; 4], [114; 4]]),
       (BlendAxis::Vertical, [[114, 92, 74, 64]; 4]),
     ];
-    let extent = Size { width: 4, height: 4 };
+    let extent = Size {
+      width: 4,
+      height: 4,
+    };
     let prediction = [192_u8; 16];
 
     for (axis, expected) in cases {
@@ -2238,8 +2874,12 @@ mod compound_mask_tests {
 
       let Ok(bottom_up) = console_core_number_conversion::wrapped_index(-8_i64);
       let picture = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *storage, bottom_up);
-      let dst = PicOffset { data: &picture, offset: 24 };
-      let plan = BlockBlend::new::<BitDepth8>(dst, extent, BlockBlendMask::Overlap(axis), &prediction)?;
+      let dst = PicOffset {
+        data: &picture,
+        offset: 24,
+      };
+      let plan =
+        BlockBlend::new::<BitDepth8>(dst, extent, BlockBlendMask::Overlap(axis), &prediction)?;
       let plan_2 = plan.ok_or(EINVAL)?;
       plan_2.apply::<BitDepth8>(dst, &prediction)?;
       let samples = picture.slice::<BitDepth8, _>(..);
@@ -2269,38 +2909,66 @@ mod scaled_sampling_tests {
     let rows = [[7_i16; MID_STRIDE]; 8];
     let incomplete = [[7_i16; MID_STRIDE]; 1];
     let taps = [0, 0, 0, 64, 0, 0, 0, 0];
-    let present = SubpixelPosition { index: 127, phase: 7 };
-    let outside = SubpixelPosition { index: 128, phase: 7 };
+    let present = SubpixelPosition {
+      index: 127,
+      phase: 7,
+    };
+    let outside = SubpixelPosition {
+      index: 128,
+      phase: 7,
+    };
 
     assert_eq!(filter_8tap_mid(&rows, present.index, &taps), Ok(448));
     assert_eq!(filter_bilin_mid(&rows, present), Ok(112));
     assert_eq!(filter_8tap_mid(&rows, outside.index, &taps), Err(EINVAL));
     assert_eq!(filter_bilin_mid(&rows, outside), Err(EINVAL));
-    assert_eq!(filter_8tap_mid(&incomplete, present.index, &taps), Err(EINVAL));
+    assert_eq!(
+      filter_8tap_mid(&incomplete, present.index, &taps),
+      Err(EINVAL)
+    );
     assert_eq!(filter_bilin_mid(&incomplete, present), Err(EINVAL));
   }
 
   fn check_sampling<BD: BitDepth>(bit_depth: BD, expected: [u8; 16]) -> Rav1dResult {
-    let max = 1_i32.wrapping_shl(u32::from(bit_depth.bitdepth())).wrapping_sub(1);
+    let max = 1_i32
+      .wrapping_shl(u32::from(bit_depth.bitdepth()))
+      .wrapping_sub(1);
     let mut reference: Align64<[BD::Pixel; 4096]> = Aligned(core::array::from_fn(|index| {
       let Ok(sample) = console_core_number_conversion::wrapped::<_, i32>(index);
       let mixed = sample.wrapping_mul(477) ^ sample.wrapping_mul(9511).wrapping_shr(7);
       bit_depth.iclip_pixel(mixed & max)
     }));
     let plane = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut *reference, 64);
-    let source = PicOffset { data: &plane, offset: 520 };
+    let source = PicOffset {
+      data: &plane,
+      offset: 520,
+    };
     let mut checksum = Md5::default();
 
-    for filter in [Filter2d::Regular8Tap, Filter2d::SmoothSharp8Tap, Filter2d::Bilinear] {
+    for filter in [
+      Filter2d::Regular8Tap,
+      Filter2d::SmoothSharp8Tap,
+      Filter2d::Bilinear,
+    ] {
       for (phase, step) in [
         (Point { x: 0, y: 0 }, Point { x: 1024, y: 1024 }),
         (Point { x: 777, y: 333 }, Point { x: 1733, y: 1597 }),
         (Point { x: 1023, y: 63 }, Point { x: 736, y: 1029 }),
       ] {
-        let sampling = ScaledSampling { size: Size { width: 16, height: 12 }, phase, step };
+        let sampling = ScaledSampling {
+          size: Size {
+            width: 16,
+            height: 12,
+          },
+          phase,
+          step,
+        };
         let mut output: Align64<[BD::Pixel; 512]> = Aligned([bit_depth.iclip_pixel(31); 512]);
         let output_plane = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut *output, 32);
-        let dst = PicOffset { data: &output_plane, offset: 0 };
+        let dst = PicOffset {
+          data: &output_plane,
+          offset: 0,
+        };
         let mut intermediate = [41_i16; 256];
         mc_scaled::Fn::DEFAULT.call(filter, dst, source, sampling, bit_depth)?;
         mct_scaled::Fn::DEFAULT.call(filter, &mut intermediate, source, sampling, bit_depth)?;
@@ -2320,12 +2988,18 @@ mod scaled_sampling_tests {
     assert_eq!(result, expected);
 
     let sampling = ScaledSampling {
-      size: Size { width: 16, height: 12 },
+      size: Size {
+        width: 16,
+        height: 12,
+      },
       phase: Point { x: 777, y: 333 },
       step: Point { x: 1733, y: 1597 },
     };
     let mut short = [41_i16; 16];
-    assert_eq!(mct_scaled::Fn::DEFAULT.call(Filter2d::Bilinear, &mut short, source, sampling, bit_depth), Err(EINVAL));
+    assert_eq!(
+      mct_scaled::Fn::DEFAULT.call(Filter2d::Bilinear, &mut short, source, sampling, bit_depth),
+      Err(EINVAL)
+    );
     assert_eq!(short, [41_i16; 16]);
 
     Ok(())
@@ -2333,9 +3007,24 @@ mod scaled_sampling_tests {
 
   #[test]
   fn checked_scaled_sampling_matches_legacy_picture_and_prediction_bytes() -> Rav1dResult {
-    check_sampling(BitDepth8::new(()), [243, 66, 12, 52, 41, 227, 112, 90, 25, 200, 56, 85, 154, 172, 97, 214])?;
-    check_sampling(BitDepth16::new(1023), [120, 88, 120, 242, 228, 120, 240, 91, 134, 62, 231, 164, 243, 128, 111, 62])?;
-    check_sampling(BitDepth16::new(4095), [136, 241, 205, 108, 255, 197, 165, 212, 39, 186, 70, 255, 206, 111, 184, 208])
+    check_sampling(
+      BitDepth8::new(()),
+      [
+        243, 66, 12, 52, 41, 227, 112, 90, 25, 200, 56, 85, 154, 172, 97, 214,
+      ],
+    )?;
+    check_sampling(
+      BitDepth16::new(1023),
+      [
+        120, 88, 120, 242, 228, 120, 240, 91, 134, 62, 231, 164, 243, 128, 111, 62,
+      ],
+    )?;
+    check_sampling(
+      BitDepth16::new(4095),
+      [
+        136, 241, 205, 108, 255, 197, 165, 212, 39, 186, 70, 255, 206, 111, 184, 208,
+      ],
+    )
   }
 }
 
@@ -2348,24 +3037,41 @@ mod unscaled_sampling_tests {
   use console_core_checksums::{Checksum, md5::Md5};
 
   fn unscaled_digest<BD: BitDepth>(bit_depth: BD) -> Rav1dResult<[u8; 16]> {
-    let max = 1_i32.wrapping_shl(u32::from(bit_depth.bitdepth())).wrapping_sub(1);
+    let max = 1_i32
+      .wrapping_shl(u32::from(bit_depth.bitdepth()))
+      .wrapping_sub(1);
     let mut reference: Align64<[BD::Pixel; 4096]> = Aligned(core::array::from_fn(|index| {
       let Ok(sample) = console_core_number_conversion::wrapped::<_, i32>(index);
       let mixed = sample.wrapping_mul(477) ^ sample.wrapping_mul(9511).wrapping_shr(7);
       bit_depth.iclip_pixel(mixed & max)
     }));
     let plane = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut *reference, 64);
-    let source = PicOffset { data: &plane, offset: 520 };
+    let source = PicOffset {
+      data: &plane,
+      offset: 520,
+    };
     let mut checksum = Md5::default();
 
-    for filter in [Filter2d::Regular8Tap, Filter2d::RegularSmooth8Tap, Filter2d::RegularSharp8Tap,
-      Filter2d::SharpRegular8Tap, Filter2d::SharpSmooth8Tap, Filter2d::Sharp8Tap,
-      Filter2d::SmoothRegular8Tap, Filter2d::Smooth8Tap, Filter2d::SmoothSharp8Tap, Filter2d::Bilinear] {
+    for filter in [
+      Filter2d::Regular8Tap,
+      Filter2d::RegularSmooth8Tap,
+      Filter2d::RegularSharp8Tap,
+      Filter2d::SharpRegular8Tap,
+      Filter2d::SharpSmooth8Tap,
+      Filter2d::Sharp8Tap,
+      Filter2d::SmoothRegular8Tap,
+      Filter2d::Smooth8Tap,
+      Filter2d::SmoothSharp8Tap,
+      Filter2d::Bilinear,
+    ] {
       for (width, height) in [(4, 4), (16, 12), (32, 4)] {
         for (mx, my) in [(0, 0), (13, 0), (0, 11), (15, 1), (7, 12)] {
           let mut output: Align64<[BD::Pixel; 768]> = Aligned([bit_depth.iclip_pixel(31); 768]);
           let output_plane = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut *output, 64);
-          let dst = PicOffset { data: &output_plane, offset: 0 };
+          let dst = PicOffset {
+            data: &output_plane,
+            offset: 0,
+          };
           let mut intermediate = [41_i16; 256];
           let sampling = UnscaledSampling {
             size: Size { width, height },
@@ -2394,11 +3100,26 @@ mod unscaled_sampling_tests {
   #[test]
   fn checked_unscaled_sampling_matches_legacy_picture_and_prediction_bytes() -> Rav1dResult {
     let byte_hash = unscaled_digest(BitDepth8::new(()))?;
-    assert_eq!(byte_hash, [0, 82, 0, 10, 41, 206, 175, 86, 164, 44, 76, 17, 95, 38, 225, 125]);
+    assert_eq!(
+      byte_hash,
+      [
+        0, 82, 0, 10, 41, 206, 175, 86, 164, 44, 76, 17, 95, 38, 225, 125
+      ]
+    );
     let ten_bit_hash = unscaled_digest(BitDepth16::new(1023))?;
-    assert_eq!(ten_bit_hash, [162, 60, 138, 249, 76, 195, 2, 126, 39, 187, 27, 254, 159, 157, 84, 254]);
+    assert_eq!(
+      ten_bit_hash,
+      [
+        162, 60, 138, 249, 76, 195, 2, 126, 39, 187, 27, 254, 159, 157, 84, 254
+      ]
+    );
     let twelve_bit_hash = unscaled_digest(BitDepth16::new(4095))?;
-    assert_eq!(twelve_bit_hash, [235, 72, 167, 78, 177, 159, 60, 180, 64, 42, 87, 77, 238, 193, 33, 6]);
+    assert_eq!(
+      twelve_bit_hash,
+      [
+        235, 72, 167, 78, 177, 159, 60, 180, 64, 42, 87, 77, 238, 193, 33, 6
+      ]
+    );
     Ok(())
   }
 
@@ -2408,10 +3129,19 @@ mod unscaled_sampling_tests {
     let mut pixels: Align64<[u8; 512]> = Aligned([39; 512]);
     let source_plane = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *reference, 64);
     let output_plane = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *pixels, 64);
-    let source = PicOffset { data: &source_plane, offset: 0 };
-    let output = PicOffset { data: &output_plane, offset: 0 };
+    let source = PicOffset {
+      data: &source_plane,
+      offset: 0,
+    };
+    let output = PicOffset {
+      data: &output_plane,
+      offset: 0,
+    };
     let sampling = UnscaledSampling {
-      size: Size { width: 4, height: 4 },
+      size: Size {
+        width: 4,
+        height: 4,
+      },
       phase: Point { x: 9, y: 7 },
     };
     let block = UnscaledBlock::new(Filter2d::Regular8Tap, sampling)?;
@@ -2420,10 +3150,15 @@ mod unscaled_sampling_tests {
     assert_eq!(&*output.slice::<BitDepth8>(512), &[39_u8; 512]);
 
     let mut short = [42_i16; 8];
-    let padded_source = PicOffset { data: &source_plane, offset: 520 };
-    assert_eq!(prep_unscaled(&block, &mut short, padded_source, depth), Err(EINVAL));
+    let padded_source = PicOffset {
+      data: &source_plane,
+      offset: 520,
+    };
+    assert_eq!(
+      prep_unscaled(&block, &mut short, padded_source, depth),
+      Err(EINVAL)
+    );
     assert_eq!(short, [42_i16; 8]);
     Ok(())
   }
-
 }

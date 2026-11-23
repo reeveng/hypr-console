@@ -147,7 +147,7 @@ mod mask_parity_tests {
       HV::H => (stride, 1),
       HV::V => (1, stride),
     };
-    let window = FilterWindow { base, along, across };
+    let window = FilterWindow { base, along, tap_stride: across };
     let mut rng = 0x0dec_afba_df00_d123;
     let count = pitch.wrapping_mul(lanes.wrapping_add(32)).wrapping_add(64);
     let mut samples: Vec<u8> = (0..count).map(|_position| {

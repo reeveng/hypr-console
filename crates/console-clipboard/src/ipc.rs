@@ -33,7 +33,8 @@ pub enum Reply {
     paused: Capture,
     entries: Vec<Preview>,
   },
-  Done,
+  #[serde(rename = "Done")]
+  Finished,
   Unavailable,
 }
 
@@ -177,6 +178,16 @@ pub fn answer<State>(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_finished_reply_keeps_its_wire_name() -> Result<(), serde_json::Error> {
+    let encoded = serde_json::to_string(&Reply::Finished)?;
+
+    assert_eq!(encoded, r#""Done""#);
+    assert!(matches!(serde_json::from_str(&encoded)?, Reply::Finished));
+
+    Ok(())
+  }
 
   #[test]
   fn clipboard_privacy_uses_the_existing_boolean_wire_format() -> Result<(), serde_json::Error> {

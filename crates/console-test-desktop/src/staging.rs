@@ -55,7 +55,12 @@ fn clone_file(from: &Path, to: &Path) -> std::io::Result<Shared> {
   let (mut source, metadata) = crate::open_regular(from)?;
   let descriptor = rustix::fs::open(
     to,
-    OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+    OFlags::WRONLY
+      | OFlags::CREATE
+      | OFlags::TRUNC
+      | OFlags::CLOEXEC
+      | OFlags::NOFOLLOW
+      | OFlags::NONBLOCK,
     Mode::from_raw_mode(0o600),
   )?;
   let mut target = std::fs::File::from(descriptor);
@@ -115,7 +120,10 @@ fn copied(source: &Path, target: &Path) -> std::io::Result<()> {
     }
     (false, false, false) => Err(std::io::Error::new(
       std::io::ErrorKind::InvalidInput,
-      format!("{} is not a regular file, directory, or symbolic link", source.display()),
+      format!(
+        "{} is not a regular file, directory, or symbolic link",
+        source.display()
+      ),
     )),
   }
 }
@@ -272,7 +280,8 @@ fn rewrite_staged(here: &Path, prefix: Here<'_>) -> Result<(), Unnested> {
 fn copy_programs(here: &Path) -> Result<(), Unnested> {
   let Ok(programs) = build_candidates();
   let bin = here.join("usr/local/bin");
-  std::fs::create_dir_all(&bin).map_err(|fault| Unnested::Staging("the stage's bin directory", fault))?;
+  std::fs::create_dir_all(&bin)
+    .map_err(|fault| Unnested::Staging("the stage's bin directory", fault))?;
 
   for (name, at) in programs {
     let child = RelativePath::new(Path::new(&name))
@@ -295,8 +304,8 @@ fn set_staged_modes(here: &Path) -> Result<(), Unnested> {
   let Ok(staged) = walk(here);
 
   for path in staged {
-    let metadata = std::fs::symlink_metadata(&path)
-      .map_err(|fault| Unnested::Read(path.clone(), fault))?;
+    let metadata =
+      std::fs::symlink_metadata(&path).map_err(|fault| Unnested::Read(path.clone(), fault))?;
 
     match metadata.file_type().is_symlink().then_some(()) {
       Some(()) => continue,
@@ -323,10 +332,17 @@ fn set_staged_modes(here: &Path) -> Result<(), Unnested> {
   Ok(())
 }
 
+#[derive(Clone, Copy)]
+pub enum Services {
+  Desktop,
+  Panel,
+}
+
 pub fn stage_desktop(
   told: Verbosity,
   headless: Screen,
   wallpaper: Wallpaper,
+  services: Services,
 ) -> Result<PathBuf, Unnested> {
   let here = stage()?;
   let Ok(()) = session::swept();
@@ -347,14 +363,19 @@ pub fn stage_desktop(
   rewrite_staged(&here, Here(&said_here))?;
   copy_programs(&here)?;
 
-  let unit = root.join(nested::UNIT);
-  let held = std::fs::read_to_string(&unit).map_err(fault("the keyboard's unit"))?;
-  let Ok(started_by) = nested::started_by(&held);
-
-  let keyboard = started_by.ok_or_else(|| Unnested::NoExecStart(unit.clone()))?;
   let start = here.join("usr/local/bin/session-start");
-  let Ok(start_said) = nested::session_start(&keyboard);
-  let Ok(session) = rewrite_paths(&start_said, Here(&said_here));
+  let session = match services {
+    Services::Desktop => {
+      let unit = root.join(nested::UNIT);
+      let held = std::fs::read_to_string(&unit).map_err(fault("the keyboard's unit"))?;
+      let Ok(started_by) = nested::started_by(&held);
+      let keyboard = started_by.ok_or_else(|| Unnested::NoExecStart(unit.clone()))?;
+      let Ok(start_said) = nested::session_start(&keyboard);
+      let Ok(session) = rewrite_paths(&start_said, Here(&said_here));
+      session
+    }
+    Services::Panel => String::from("#!/bin/sh\nexit 0\n"),
+  };
 
   console_core_atomic_writes::whole(&start, session.as_bytes())
     .map_err(unwritten("session-start"))?;
@@ -370,7 +391,10 @@ pub fn stage_desktop(
       let Ok(room) = room_here(&go);
       let Ok(cut) = go.cut_to(room);
 
-      match ::core::primitive::bool::then_some(told == Verbosity::Aloud && (cut - go.scale).abs() > f64::EPSILON, ()) {
+      match ::core::primitive::bool::then_some(
+        told == Verbosity::Aloud && (cut - go.scale).abs() > f64::EPSILON,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(pixels) = go.pixels();
           let (wide, tall) = (pixels.width, pixels.height);
@@ -436,14 +460,29 @@ pub fn environment() -> Result<Vec<(String, String)>, Unnested> {
       String::from("PATH"),
       format!("{}:{path}", display(here.join("usr/local/bin"))),
     ),
-    (String::from("XDG_CACHE_HOME"), display(here.join("home/.cache"))),
-    (String::from("XDG_CONFIG_HOME"), display(here.join("home/.config"))),
+    (
+      String::from("XDG_CACHE_HOME"),
+      display(here.join("home/.cache")),
+    ),
+    (
+      String::from("XDG_CONFIG_HOME"),
+      display(here.join("home/.config")),
+    ),
     (
       String::from("XDG_DATA_DIRS"),
-      format!("{}:/usr/local/share:/usr/share", display(here.join("usr/share"))),
+      format!(
+        "{}:/usr/local/share:/usr/share",
+        display(here.join("usr/share"))
+      ),
     ),
-    (String::from("XDG_DATA_HOME"), display(here.join("home/.local/share"))),
-    (String::from("XDG_STATE_HOME"), display(here.join("home/.local/state"))),
+    (
+      String::from("XDG_DATA_HOME"),
+      display(here.join("home/.local/share")),
+    ),
+    (
+      String::from("XDG_STATE_HOME"),
+      display(here.join("home/.local/state")),
+    ),
   ])
 }
 
@@ -584,8 +623,15 @@ mod tests {
     session::remove_tree(&here)?;
 
     match attempted {
-      Ok(shared) => return Err(Box::from(format!("the clone followed the symlink: {shared:?}"))),
-      Err(fault) => assert_eq!(fault.raw_os_error(), Some(rustix::io::Errno::LOOP.raw_os_error())),
+      Ok(shared) => {
+        return Err(Box::from(format!(
+          "the clone followed the symlink: {shared:?}"
+        )));
+      }
+      Err(fault) => assert_eq!(
+        fault.raw_os_error(),
+        Some(rustix::io::Errno::LOOP.raw_os_error())
+      ),
     }
 
     assert_eq!(retained, b"keep this");

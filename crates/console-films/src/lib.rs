@@ -224,10 +224,12 @@ impl Pictures<'_> {
         let Ok(half_a_frame) = self.video.half_a_frame();
         let Ok(at) = picture.at();
 
-        return Ok(match ::core::primitive::bool::then_some(at < self.from.0 - half_a_frame.0, ()) {
-          ::core::option::Option::Some(()) => Step::Again(self),
-          ::core::option::Option::None => Step::Halt(Ok(Some(picture))),
-        });
+        return Ok(
+          match ::core::primitive::bool::then_some(at < self.from.0 - half_a_frame.0, ()) {
+            ::core::option::Option::Some(()) => Step::Again(self),
+            ::core::option::Option::None => Step::Halt(Ok(Some(picture))),
+          },
+        );
       }
       None => {}
     }

@@ -2075,7 +2075,11 @@ mod tests {
       }),
     ]);
     let Ok(loca_data) = loca_buf.data();
-    outlines.loca = Loca::read(loca_data.into(), read_fonts::tables::loca::OffsetFormat::Long).unwrap();
+    outlines.loca = Loca::read(
+      loca_data.into(),
+      read_fonts::tables::loca::OffsetFormat::Long,
+    )
+    .unwrap();
     let gid = ({
       let Ok(value) = GlyphId::new(1);
       value

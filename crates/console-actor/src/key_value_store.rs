@@ -48,7 +48,10 @@ struct Key<'a>(&'a OsStr);
 
 impl<'a> Key<'a> {
   fn parse(key: &'a str) -> Result<Self, PlatformError> {
-    match ::core::primitive::bool::then_some(Path::new(key).file_name() == Some(OsStr::new(key)), ()) {
+    match ::core::primitive::bool::then_some(
+      Path::new(key).file_name() == Some(OsStr::new(key)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Key(OsStr::new(key))),
       ::core::option::Option::None => Err(PlatformError::BadArgument(key.to_string())),
     }
@@ -76,10 +79,12 @@ impl KeyValueStore {
 
     match std::fs::read(&at) {
       Ok(bytes) => Ok(Some(bytes)),
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => Ok(None),
-        ::core::option::Option::None => Err(PlatformError::Get(at, fault.kind())),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
+          ::core::option::Option::Some(()) => Ok(None),
+          ::core::option::Option::None => Err(PlatformError::Get(at, fault.kind())),
+        }
+      }
     }
   }
 

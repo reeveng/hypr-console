@@ -228,13 +228,13 @@ fn counted_cores(cpus: &Path) -> Result<u32, Never> {
       Ok(threads) => {
         cores.insert(threads);
       }
-      Err(fault) => match ::core::primitive::bool::then_some(
-        fault.kind() == std::io::ErrorKind::NotFound,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => continue,
-        ::core::option::Option::None => return Ok(0),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => continue,
+          ::core::option::Option::None => return Ok(0),
+        }
+      }
     }
   }
 

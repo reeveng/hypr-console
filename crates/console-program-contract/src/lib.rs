@@ -75,7 +75,7 @@ pub mod event;
 pub mod subscription;
 
 pub use effect::{
-  Command, Effect, Executable, Exit, FileWrite, Fork, Job, JobId, JobOwner, Notification, Prompt,
+  Command, Effect, Executable, Exit, FileWrite, Fork, Task, JobId, JobOwner, Notification, Prompt,
 };
 pub use event::{
   Answer, Change, Choice, Elapsed, Event, EventGroup, ExitStatus, WriteAnswer, WriteFailure,

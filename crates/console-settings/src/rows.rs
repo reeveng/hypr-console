@@ -702,10 +702,11 @@ pub fn wifi_rows<Share: Chosen>(
 
     let Ok(aside) = strength(network.signal);
     let says = network.name.clone();
-    let already = match ::core::primitive::bool::then_some(known_2.contains(network.name.as_str()), ()) {
-      ::core::option::Option::Some(()) => wifi::Known::Yes,
-      ::core::option::Option::None => wifi::Known::No,
-    };
+    let already =
+      match ::core::primitive::bool::then_some(known_2.contains(network.name.as_str()), ()) {
+        ::core::option::Option::Some(()) => wifi::Known::Yes,
+        ::core::option::Option::None => wifi::Known::No,
+      };
     let Ok(plain) = wifi::joining(&network.name, already);
     let Ok(joins) = join(network, already);
     let Ok(row) = Row::new(&says, Aside(&aside), joins);
@@ -950,23 +951,23 @@ fn pair_row(device: &Device) -> Result<Row, Never> {
       let Ok(plain) = command::of(&introducing);
       let Ok(asks) = Handler::and_stay(move |showing| {
         let Ok(respond) = answer(move |answered, written| {
-            let Ok(read) = PinCode::read(written);
+          let Ok(read) = PinCode::read(written);
 
-            match read {
-              Some(pin) => {
-                let Ok(task) = bluetooth_task(&Action::Introduce {
-                  address,
-                  pin: Some(pin),
-                });
+          match read {
+            Some(pin) => {
+              let Ok(task) = bluetooth_task(&Action::Introduce {
+                address,
+                pin: Some(pin),
+              });
 
-                answered.run(task);
-              }
-              None => {
-                let Ok(refused) = not_a_pin();
-
-                answered.note(&refused);
-              }
+              answered.run(task);
             }
+            None => {
+              let Ok(refused) = not_a_pin();
+
+              answered.note(&refused);
+            }
+          }
         });
         showing.ask(PAIRING_PROMPT, respond);
       });
@@ -1553,19 +1554,19 @@ pub fn called_row(name: &str) -> Result<Row, Never> {
   let asking = says.clone();
   let Ok(asks) = Handler::and_stay(move |showing| {
     let Ok(respond) = answer(move |showing_2, word| {
-        let Ok(allowed) = named::allowed(word);
+      let Ok(allowed) = named::allowed(word);
 
-        match allowed {
-          Allowed::Yes => {
-            let Ok(name_2) = MachineSetting::Name.word();
-            let Ok(naming) =
-              Command::external(Program::Sudo, &["-n", "console-machine", name_2, word]);
-            let Ok(names) = Task::of(naming);
+      match allowed {
+        Allowed::Yes => {
+          let Ok(name_2) = MachineSetting::Name.word();
+          let Ok(naming) =
+            Command::external(Program::Sudo, &["-n", "console-machine", name_2, word]);
+          let Ok(names) = Task::of(naming);
 
-            showing_2.run(names);
-          }
-          Allowed::No => showing_2.note(NOT_A_NAME),
+          showing_2.run(names);
         }
+        Allowed::No => showing_2.note(NOT_A_NAME),
+      }
     });
     showing.ask(&asking, respond);
   });
@@ -1711,13 +1712,7 @@ mod tests {
   }
 
   fn wifi_of(on: wifi::Radio, networks: Vec<wifi::Network>) -> Result<Vec<Row>, Never> {
-    wifi_rows(
-      on,
-      networks,
-      &[],
-      |_, _| silence(0, ""),
-      |_| nowhere(),
-    )
+    wifi_rows(on, networks, &[], |_, _| silence(0, ""), |_| nowhere())
   }
 
   fn bluetooth_of(on: Power, shown: Vec<Device>) -> Result<Vec<Row>, Never> {

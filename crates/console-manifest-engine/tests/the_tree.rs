@@ -30,10 +30,13 @@ fn console(arguments: &[&str]) -> Result<Output, Failure> {
 
 fn walked(from: &Path) -> Result<Vec<PathBuf>, Failure> {
   let Ok(listing) =
-    console_core_directory_listing::recursive(from, |at| match ::core::primitive::bool::then_some(at.ends_with("__pycache__"), ()) {
-      ::core::option::Option::Some(()) => Descend::Past,
-      ::core::option::Option::None => Descend::Into,
-    });
+    console_core_directory_listing::recursive(
+      from,
+      |at| match ::core::primitive::bool::then_some(at.ends_with("__pycache__"), ()) {
+        ::core::option::Option::Some(()) => Descend::Past,
+        ::core::option::Option::None => Descend::Into,
+      },
+    );
   let mut found = Vec::new();
 
   for entry in listing {
@@ -41,10 +44,12 @@ fn walked(from: &Path) -> Result<Vec<PathBuf>, Failure> {
       Ok(path) => {
         let directory = match std::fs::metadata(&path) {
           Ok(metadata) => metadata.is_dir(),
-          Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
-            ::core::option::Option::Some(()) => continue,
-            ::core::option::Option::None => return Err(Failure::from(fault)),
-          },
+          Err(fault) => {
+            match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
+              ::core::option::Option::Some(()) => continue,
+              ::core::option::Option::None => return Err(Failure::from(fault)),
+            }
+          }
         };
 
         match (path.ends_with("__pycache__"), directory) {
@@ -52,10 +57,13 @@ fn walked(from: &Path) -> Result<Vec<PathBuf>, Failure> {
           (true, _) | (false, true) => {}
         }
       }
-      Err(unlisted) => match ::core::primitive::bool::then_some(unlisted.fault.kind() == ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => return Err(Failure::from(unlisted)),
-      },
+      Err(unlisted) => {
+        match ::core::primitive::bool::then_some(unlisted.fault.kind() == ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => return Err(Failure::from(unlisted)),
+        }
+      }
     }
   }
 
@@ -101,10 +109,12 @@ fn mode_of(live: &str, head: &[u8]) -> Result<u32, Never> {
 const SOMEONE: &str = "ada";
 
 fn owner_of(live: &str) -> Result<&'static str, Never> {
-  Ok(match ::core::primitive::bool::then_some(live.starts_with("/home/@user@/"), ()) {
-    ::core::option::Option::Some(()) => SOMEONE,
-    ::core::option::Option::None => "root",
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(live.starts_with("/home/@user@/"), ()) {
+      ::core::option::Option::Some(()) => SOMEONE,
+      ::core::option::Option::None => "root",
+    },
+  )
 }
 
 fn named_by(unit: &str) -> Result<Vec<String>, Never> {
@@ -304,7 +314,8 @@ fn files_in_the_users_home_are_installed_as_the_user() -> Result<(), Failure> {
   assert!(!files.is_empty(), "the manifest names no files");
 
   for path in files {
-    let expected = match ::core::primitive::bool::then_some(path.starts_with("/home/@user@/"), ()) {
+    let expected = match ::core::primitive::bool::then_some(path.starts_with("/home/@user@/"), ())
+    {
       ::core::option::Option::Some(()) => SOMEONE,
       ::core::option::Option::None => "root",
     };
@@ -426,10 +437,12 @@ fn the_target_pulls_in_exactly_the_services_that_are_enabled() -> Result<(), Fai
   for service in &enabled {
     let unit = read(&format!("files/etc/systemd/user/{service}"))?;
 
-    match ::core::primitive::bool::then_some(unit
-      .lines()
-      .any(|line| line.trim() == "WantedBy=console.target"), ())
-    {
+    match ::core::primitive::bool::then_some(
+      unit
+        .lines()
+        .any(|line| line.trim() == "WantedBy=console.target"),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         wanted.insert(service.clone());
       }
@@ -529,7 +542,10 @@ fn every_shell_script_parses() -> Result<(), Failure> {
     };
     let first = said.lines().next().map_or("", str::trim);
 
-    match ::core::primitive::bool::then_some(first.starts_with("#!") && (first.contains("/sh") || first.contains("bash")), ()) {
+    match ::core::primitive::bool::then_some(
+      first.starts_with("#!") && (first.contains("/sh") || first.contains("bash")),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => continue,
     }
@@ -621,7 +637,10 @@ fn nothing_matches_a_process_by_a_name_the_kernel_cannot_hold() -> Result<(), Fa
     'lines: for line in asking {
       let words: Vec<&str> = line.split_whitespace().collect();
 
-      match ::core::primitive::bool::then_some(words.contains(&"-x") && !words.contains(&"-f"), ()) {
+      match ::core::primitive::bool::then_some(
+        words.contains(&"-x") && !words.contains(&"-f"),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => continue 'lines,
       }
@@ -791,11 +810,13 @@ fn every_key_a_dispatch_hands_the_compositor_is_one_it_reads() -> Result<(), Fai
         None => continue 'dispatches,
       };
 
-      match ::core::primitive::bool::then_some(named
-        .chars()
-        .all(|letter| letter.is_ascii_lowercase() || letter == '.' || letter == '_')
-        && table.starts_with('{'), ())
-      {
+      match ::core::primitive::bool::then_some(
+        named
+          .chars()
+          .all(|letter| letter.is_ascii_lowercase() || letter == '.' || letter == '_')
+          && table.starts_with('{'),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => continue 'dispatches,
       }
@@ -901,7 +922,10 @@ fn modules(held: &str) -> Result<BTreeSet<(String, String)>, Never> {
         let after_2 = after.strip_prefix("::")?;
         let Ok(module) = identifier(after_2);
 
-        match ::core::primitive::bool::then_some(module.is_empty() || module.starts_with(char::is_uppercase), ()) {
+        match ::core::primitive::bool::then_some(
+          module.is_empty() || module.starts_with(char::is_uppercase),
+          (),
+        ) {
           ::core::option::Option::Some(()) => None,
           ::core::option::Option::None => Some((whole.replace('_', "-"), module)),
         }

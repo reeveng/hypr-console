@@ -48,7 +48,7 @@ const HELD: [&str; 3] = ["crates", "forks", "tools"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Licence {
-  Said(String),
+  Declared(String),
   Inherited,
   Unsaid,
 }
@@ -83,17 +83,22 @@ fn licence(manifest: &str) -> Result<Licence, Never> {
     .any(|line| INHERITED.contains(&line));
 
   Ok(match (said, inherited) {
-    (Some(said_2), _) => Licence::Said(said_2.to_string()),
+    (Some(said_2), _) => Licence::Declared(said_2.to_string()),
     (None, true) => Licence::Inherited,
     (None, false) => Licence::Unsaid,
   })
 }
 
 fn package(manifest: &str) -> Result<Package, Never> {
-  Ok(match ::core::primitive::bool::then_some(manifest.lines().any(|line| line.trim() == PACKAGE), ()) {
-    ::core::option::Option::Some(()) => Package::Yes,
-    ::core::option::Option::None => Package::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(
+      manifest.lines().any(|line| line.trim() == PACKAGE),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => Package::Yes,
+      ::core::option::Option::None => Package::No,
+    },
+  )
 }
 
 fn not_ours(path: &Path) -> Result<Option<&'static str>, Never> {
@@ -129,24 +134,31 @@ fn every_crate_in_the_tree_is_offered_under_a_copyleft_licence() -> Result<(), B
     let relative = RelativePath::new(path)?;
     let read = match std::fs::read_to_string(root.join(relative)) {
       Ok(read) => read,
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => continue,
-        ::core::option::Option::None => return Err(Box::from(fault)),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => continue,
+          ::core::option::Option::None => return Err(Box::from(fault)),
+        }
+      }
     };
     let Ok(licence) = licence(&read);
     let Ok(package) = package(&read);
     let Ok(kept) = not_ours(path);
 
     let Ok(found) = match (licence, package, kept) {
-      (Licence::Said(said), _, Some(kept_2)) => match ::core::primitive::bool::then_some(said == kept_2, ()) {
-        ::core::option::Option::Some(()) => Ok(None),
-        ::core::option::Option::None => fault(path, &said, ExpectedLicence(kept_2)).map(Some),
-      },
-      (Licence::Said(said), _, None) => match ::core::primitive::bool::then_some(COPYLEFT.contains(&said.as_str()), ()) {
-        ::core::option::Option::Some(()) => Ok(None),
-        ::core::option::Option::None => fault(path, &said, ExpectedLicence(&wanted)).map(Some),
-      },
+      (Licence::Declared(said), _, Some(kept_2)) => {
+        match ::core::primitive::bool::then_some(said == kept_2, ()) {
+          ::core::option::Option::Some(()) => Ok(None),
+          ::core::option::Option::None => fault(path, &said, ExpectedLicence(kept_2)).map(Some),
+        }
+      }
+      (Licence::Declared(said), _, None) => {
+        match ::core::primitive::bool::then_some(COPYLEFT.contains(&said.as_str()), ()) {
+          ::core::option::Option::Some(()) => Ok(None),
+          ::core::option::Option::None => fault(path, &said, ExpectedLicence(&wanted)).map(Some),
+        }
+      }
       (Licence::Unsaid, Package::Yes, _) => {
         fault(path, "no licence", ExpectedLicence(&wanted)).map(Some)
       }
@@ -191,7 +203,7 @@ fn what_is_not_ours_to_relicense_is_still_in_the_tree() -> Result<(), Box<dyn Er
 fn a_licence_is_read_from_the_line_that_says_it() {
   assert_eq!(
     licence("[package]\nlicense = \"MIT\"\n"),
-    Ok(Licence::Said("MIT".to_string()))
+    Ok(Licence::Declared("MIT".to_string()))
   );
   assert_eq!(
     licence("[package]\nlicense.workspace = true\n"),

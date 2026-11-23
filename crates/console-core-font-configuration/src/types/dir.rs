@@ -95,7 +95,7 @@ pub enum DirPrefix {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrefixBehavior {
-  Config,
+  Configuration,
   Cwd,
   Xdg,
   Relative,
@@ -216,7 +216,7 @@ impl Named<'_> {
     };
 
     Ok(match behavior {
-      PrefixBehavior::Config => Path::new(MACHINE_CONFIGURATION).join(expanded),
+      PrefixBehavior::Configuration => Path::new(MACHINE_CONFIGURATION).join(expanded),
       PrefixBehavior::Cwd => Path::new(WORKING_DIRECTORY).join(expanded),
       PrefixBehavior::Relative => match config_file_path.parent() {
         Some(beside) => beside.join(expanded),
@@ -274,7 +274,7 @@ impl Include {
     let named = Named {
       path: &self.path,
       prefix: self.prefix,
-      unsaid: PrefixBehavior::Config,
+      unsaid: PrefixBehavior::Configuration,
       base: Base::Configuration,
     };
 

@@ -11,9 +11,9 @@ use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use types::{BigEndian, FixedSize, Scalar};
 
-use crate::{Emptiness, FontRead};
 use crate::array::{ComputedArray, VarLenArray};
 use crate::read::{ComputeSize, FontReadWithArgs, ReadError};
+use crate::{Emptiness, FontRead};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FontData<'a> {
@@ -54,7 +54,10 @@ impl FontData<'static> {
 
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "generated fixed default-table constructors call this predicate from compile-time Boolean assertions")
+    expect(
+      explicit007_no_bool_return,
+      reason = "generated fixed default-table constructors call this predicate from compile-time Boolean assertions"
+    )
   )]
   pub(crate) const fn default_data_long_enough(n_bytes: u64) -> Result<bool, Never> {
     Ok(n_bytes <= 262)
@@ -156,13 +159,15 @@ impl<'a> FontData<'a> {
   }
 
   pub fn read_at_if_present<T: Scalar>(&self, range: Range<u64>) -> Result<Option<T>, Never> {
-    Ok(match ::core::primitive::bool::then_some(range.is_empty(), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => match self.read_at(range.start) {
-        Ok(value) => Some(value),
-        Err(_beyond_the_data) => None,
+    Ok(
+      match ::core::primitive::bool::then_some(range.is_empty(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => match self.read_at(range.start) {
+          Ok(value) => Some(value),
+          Err(_beyond_the_data) => None,
+        },
       },
-    })
+    )
   }
 
   pub fn read_array_or_empty<T: AnyBitPattern + FixedSize>(
@@ -179,19 +184,21 @@ impl<'a> FontData<'a> {
     &self,
     range: Range<u64>,
   ) -> Result<Option<&'a [T]>, Never> {
-    Ok(match ::core::primitive::bool::then_some(range.is_empty(), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => match self.read_array(range) {
-        Ok(values) => Some(values),
-        Err(_beyond_the_data) => None,
+    Ok(
+      match ::core::primitive::bool::then_some(range.is_empty(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => match self.read_array(range) {
+          Ok(values) => Some(values),
+          Err(_beyond_the_data) => None,
+        },
       },
-    })
+    )
   }
 
   pub fn read_with_args_or_default<T>(
     &self,
     range: Range<u64>,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<T, Never>
   where
     T: FontReadWithArgs<'a> + Default,
@@ -221,7 +228,7 @@ impl<'a> FontData<'a> {
     value.ok_or(ReadError::OutOfBounds)
   }
 
-  pub fn read_with_args<T>(&self, range: Range<u64>, args: &T::Args) -> Result<T, ReadError>
+  pub fn read_with_args<T>(&self, range: Range<u64>, args: &T::Arguments) -> Result<T, ReadError>
   where
     T: FontReadWithArgs<'a>,
   {
@@ -321,7 +328,7 @@ impl<'a> Cursor<'a> {
     read
   }
 
-  pub(crate) fn read_with_args<T>(&mut self, args: &T::Args) -> Result<T, ReadError>
+  pub(crate) fn read_with_args<T>(&mut self, args: &T::Arguments) -> Result<T, ReadError>
   where
     T: FontReadWithArgs<'a> + ComputeSize,
   {
@@ -336,7 +343,7 @@ impl<'a> Cursor<'a> {
   pub(crate) fn read_computed_array<T>(
     &mut self,
     count: u64,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<ComputedArray<'a, T>, ReadError>
   where
     T: FontReadWithArgs<'a> + ComputeSize,

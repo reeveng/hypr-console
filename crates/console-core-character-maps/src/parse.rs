@@ -395,7 +395,7 @@ pub(crate) fn read(data: &[u8]) -> Result<Layered, ParseError> {
     let Ok(remaining) = reading.scanner.remaining();
 
     match remaining {
-      Remaining::Nothing => break,
+      Remaining::Absent => break,
       Remaining::Objects => {}
     }
 

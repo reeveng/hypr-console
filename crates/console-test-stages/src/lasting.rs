@@ -236,10 +236,14 @@ pub fn pace_of(measured: &Lengths, carried: &Lengths) -> Result<f64, Never> {
     so_far.saturating_add(*there)
   });
 
-  Ok(match ::core::primitive::bool::then_some(there.is_zero(), ()) {
-    ::core::option::Option::Some(()) => 1.0,
-    ::core::option::Option::None => (here.as_secs_f64() / there.as_secs_f64()).clamp(QUICKEST, SLOWEST),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(there.is_zero(), ()) {
+      ::core::option::Option::Some(()) => 1.0,
+      ::core::option::Option::None => {
+        (here.as_secs_f64() / there.as_secs_f64()).clamp(QUICKEST, SLOWEST)
+      }
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -352,8 +356,9 @@ impl Ahead {
         many: self.many,
       }),
       ::core::option::Option::None => {
-        let Ok(leaning) =
-          leaning(ProgressFraction(self.passed.as_secs_f64() / self.whole.as_secs_f64()));
+        let Ok(leaning) = leaning(ProgressFraction(
+          self.passed.as_secs_f64() / self.whole.as_secs_f64(),
+        ));
         let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
 
         Ok(along.min(WHOLE))
@@ -370,7 +375,9 @@ impl Ahead {
       ::core::option::Option::None => {
         let Ok(inside) = self.inside(elapsed);
         let at = self.passed.saturating_add(inside);
-        let Ok(leaning) = leaning(ProgressFraction(at.as_secs_f64() / self.whole.as_secs_f64()));
+        let Ok(leaning) = leaning(ProgressFraction(
+          at.as_secs_f64() / self.whole.as_secs_f64(),
+        ));
         let Ok(along) = toward_zero_u16(leaning * f64::from(WHOLE));
 
         Ok(along.min(WHOLE))
@@ -406,10 +413,12 @@ impl Ahead {
   }
 
   pub fn whole(&self) -> Result<Option<Duration>, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => Some(self.whole),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.whole.is_zero(), ()) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(self.whole),
+      },
+    )
   }
 
   pub fn expecting(&self) -> Result<Duration, Never> {
@@ -475,10 +484,12 @@ pub fn leaning(ProgressFraction(part): ProgressFraction) -> Result<f64, Never> {
 pub const BY_THE_CLOCK: f64 = 0.9;
 
 pub fn over(elapsed: Duration, expecting: Duration) -> Result<Option<Duration>, Never> {
-  Ok(match ::core::primitive::bool::then_some(expecting.is_zero() || elapsed <= expecting, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(elapsed),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(expecting.is_zero() || elapsed <= expecting, ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(elapsed),
+    },
+  )
 }
 
 pub fn crept(elapsed: Duration, expecting: Duration) -> Result<f64, Never> {

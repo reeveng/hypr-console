@@ -697,19 +697,23 @@ impl Row {
   }
 
   pub fn now(&self) -> Result<Active, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.aside == NOW, ()) {
-      ::core::option::Option::Some(()) => Active::Yes,
-      ::core::option::Option::None => Active::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.aside == NOW, ()) {
+        ::core::option::Option::Some(()) => Active::Yes,
+        ::core::option::Option::None => Active::No,
+      },
+    )
   }
 
   pub fn acts(&self) -> Result<Action, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self.does.is_some()
-        || self.level.is_some()
-        || self.seek.is_some()
-        || self.choices.is_some(), ())
-      {
+      match ::core::primitive::bool::then_some(
+        self.does.is_some()
+          || self.level.is_some()
+          || self.seek.is_some()
+          || self.choices.is_some(),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Action::Yes,
         ::core::option::Option::None => Action::None,
       },
@@ -968,10 +972,12 @@ pub fn nudged(beside: Beside, wears: Wears, holds: Holds, step: i32) -> Result<N
 
 pub fn bare(row: &Row) -> Result<Bare, Never> {
   Ok(match &row.ends {
-    Some((less, more)) => match ::core::primitive::bool::then_some(less.is_empty() && more.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Bare::Yes,
-      ::core::option::Option::None => Bare::No,
-    },
+    Some((less, more)) => {
+      match ::core::primitive::bool::then_some(less.is_empty() && more.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Bare::Yes,
+        ::core::option::Option::None => Bare::No,
+      }
+    }
     None => Bare::No,
   })
 }
@@ -1176,7 +1182,10 @@ impl Page {
     self.selecting(DELETE, |showing, keys| {
       let keys_2 = keys.to_vec();
       let about = match keys_2.as_slice() {
-        [one] => std::path::Path::new(one).file_name().and_then(std::ffi::OsStr::to_str).map_or_else(|| one.clone(), str::to_owned),
+        [one] => std::path::Path::new(one)
+          .file_name()
+          .and_then(std::ffi::OsStr::to_str)
+          .map_or_else(|| one.clone(), str::to_owned),
         [] | [_, _, ..] => format!("{} Items", keys_2.len()),
       };
 

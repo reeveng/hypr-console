@@ -106,7 +106,10 @@ where
   T: PartialEq<U>,
   U: Copy,
 {
-  match ::core::primitive::bool::then_some(!things.is_empty() && things.iter().all(|thing| *thing == wanted), ()) {
+  match ::core::primitive::bool::then_some(
+    !things.is_empty() && things.iter().all(|thing| *thing == wanted),
+    (),
+  ) {
     ::core::option::Option::Some(()) => Ok(()),
     ::core::option::Option::None => failed(why()),
   }

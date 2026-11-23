@@ -6,26 +6,26 @@ use console_core_number_conversion::{fitted, index};
 
 const PAYLOAD: u64 = 3;
 
-enum Fault {
+enum Error {
   FixtureTooShort,
-  Refused(BoxError),
+  Rejected(BoxError),
 }
 
-impl std::fmt::Debug for Fault {
+impl std::fmt::Debug for Error {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Fault::FixtureTooShort => write!(
+      Error::FixtureTooShort => write!(
         to,
         "a fixture is shorter than the bytes it was built to hold"
       ),
-      Fault::Refused(refused) => write!(to, "a header that should parse was refused: {refused}"),
+      Error::Rejected(refused) => write!(to, "a header that should parse was refused: {refused}"),
     }
   }
 }
 
-impl From<BoxError> for Fault {
-  fn from(refused: BoxError) -> Fault {
-    Fault::Refused(refused)
+impl From<BoxError> for Error {
+  fn from(refused: BoxError) -> Error {
+    Error::Rejected(refused)
   }
 }
 
@@ -58,7 +58,7 @@ fn encoded(case: &Case, size: u64) -> Result<Vec<u8>, Never> {
 }
 
 #[test]
-fn short_extended_and_user_type_headers_share_one_size_rule() -> Result<(), Fault> {
+fn short_extended_and_user_type_headers_share_one_size_rule() -> Result<(), Error> {
   for case in [
     Case {
       kind: *b"mdat",
@@ -87,7 +87,7 @@ fn short_extended_and_user_type_headers_share_one_size_rule() -> Result<(), Faul
   ] {
     let size = case.width.saturating_add(PAYLOAD);
     let Ok(bytes) = encoded(&case, size);
-    let prefix = bytes.first_chunk::<8>().ok_or(Fault::FixtureTooShort)?;
+    let prefix = bytes.first_chunk::<8>().ok_or(Error::FixtureTooShort)?;
 
     assert_eq!(BoxHeader::required_len(prefix), Ok(case.width));
 
@@ -101,7 +101,7 @@ fn short_extended_and_user_type_headers_share_one_size_rule() -> Result<(), Faul
 
     for length in 0..case.width {
       let Ok(end) = index(length);
-      let shorter = bytes.get(..end).ok_or(Fault::FixtureTooShort)?;
+      let shorter = bytes.get(..end).ok_or(Error::FixtureTooShort)?;
 
       assert!(matches!(
         BoxHeader::parse(shorter),
@@ -152,11 +152,11 @@ fn an_explicit_size_must_cover_the_complete_header() {
 }
 
 #[test]
-fn a_zero_size_is_resolved_by_the_parent_instead_of_the_header() -> Result<(), Fault> {
+fn a_zero_size_is_resolved_by_the_parent_instead_of_the_header() -> Result<(), Error> {
   let bytes = [0, 0, 0, 0, b'm', b'd', b'a', b't', 1, 2, 3];
   let (prefix, rest) = bytes
     .split_first_chunk::<8>()
-    .ok_or(Fault::FixtureTooShort)?;
+    .ok_or(Error::FixtureTooShort)?;
   let header = BoxHeader::parse(prefix)?;
 
   assert_eq!(header.size, None);
@@ -167,7 +167,7 @@ fn a_zero_size_is_resolved_by_the_parent_instead_of_the_header() -> Result<(), F
 
   assert_eq!(children.len(), 1);
 
-  let only = children.first().ok_or(Fault::FixtureTooShort)?;
+  let only = children.first().ok_or(Error::FixtureTooShort)?;
 
   assert_eq!(only.payload, &[1, 2, 3]);
   assert_eq!(only.payload.as_ptr(), rest.as_ptr());
@@ -176,14 +176,14 @@ fn a_zero_size_is_resolved_by_the_parent_instead_of_the_header() -> Result<(), F
 }
 
 #[test]
-fn child_iteration_stops_at_damage_and_accepts_quicktime_zero_padding() -> Result<(), Fault> {
+fn child_iteration_stops_at_damage_and_accepts_quicktime_zero_padding() -> Result<(), Error> {
   let valid = [0, 0, 0, 9, b'f', b'r', b'e', b'e', 42, 0, 0, 0, 0];
   let Ok(walk) = Children::new(&valid);
   let children = walk.collect::<Result<Vec<_>, _>>()?;
 
   assert_eq!(children.len(), 1);
 
-  let only = children.first().ok_or(Fault::FixtureTooShort)?;
+  let only = children.first().ok_or(Error::FixtureTooShort)?;
 
   assert_eq!(only.payload, &[42]);
 

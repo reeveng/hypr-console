@@ -100,22 +100,24 @@ fn decide(
       Transition::new(Pulling::Querying(host.clone()), vec![Effect::Run(asking)])
     }
 
-    (Pulling::Querying(host), Event::Replied(answer)) => match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(fetching) = fetching(host);
+    (Pulling::Querying(host), Event::Replied(answer)) => {
+      match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(fetching) = fetching(host);
 
-        Transition::new(Pulling::Fetching(host.clone()), vec![Effect::Run(fetching)])
+          Transition::new(Pulling::Fetching(host.clone()), vec![Effect::Run(fetching)])
+        }
+        ::core::option::Option::None => Transition::new(
+          state.clone(),
+          vec![
+            Effect::Print(answer.output.trim_end().to_string()),
+            Effect::Stop(Exit::Failure(
+              "there are changes here that are not committed; commit or drop them".to_string(),
+            )),
+          ],
+        ),
       }
-      ::core::option::Option::None => Transition::new(
-        state.clone(),
-        vec![
-          Effect::Print(answer.output.trim_end().to_string()),
-          Effect::Stop(Exit::Failure(
-            "there are changes here that are not committed; commit or drop them".to_string(),
-          )),
-        ],
-      ),
-    },
+    }
 
     (Pulling::Fetching(_), Event::Replied(answer)) => match answer.status {
       ExitStatus::Success => {

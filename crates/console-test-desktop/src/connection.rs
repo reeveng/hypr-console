@@ -134,10 +134,15 @@ impl Inside {
       let Ok(mut asking) = self.command("grim");
       let taken = asking.args(["-o", name, "-"]).output();
 
-      Ok(match ::core::primitive::bool::then_some(taken.is_ok_and(|done| done.status.success()), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(
+          taken.is_ok_and(|done| done.status.success()),
+          (),
+        ) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     })
   }
 
@@ -162,10 +167,15 @@ impl Inside {
     until(patience, || {
       let Ok(monitors) = self.monitor_names();
 
-      Ok(match ::core::primitive::bool::then_some(monitors.contains(named) == (want == Ready::Yes), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(
+          monitors.contains(named) == (want == Ready::Yes),
+          (),
+        ) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     })
   }
 
@@ -294,10 +304,12 @@ impl Inside {
     let Ok(came) = until(patience, || {
       let Ok(surfaces) = self.surfaces();
 
-      Ok(match ::core::primitive::bool::then_some(surfaces.difference(was).next().is_some(), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(surfaces.difference(was).next().is_some(), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     });
 
     match came {
@@ -317,9 +329,9 @@ impl Inside {
       None => return Ok(()),
     };
 
-    let where__2 = where_.as_str();
+    let workspace = where_.as_str();
 
-    let Ok(lua) = console_compositor::onto(where__2, console_compositor::Carrying::None);
+    let Ok(lua) = console_compositor::onto(workspace, console_compositor::Carrying::None);
     let Ok(_focused) = self.request(Request::Dispatch, &lua);
     let Ok(patience) = Schedule::asking_every(A_GOODBYE, Duration::from_millis(50));
     let Ok(there) = until(patience, || {
@@ -330,21 +342,33 @@ impl Inside {
         None => return Ok(Ready::NotYet),
       };
 
-      Ok(match ::core::primitive::bool::then_some(named.as_deref() == Some(where__2), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(named.as_deref() == Some(workspace), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     });
 
     match there {
       Outcome::Happened => {}
-      Outcome::RanOut => eprintln!(
-        "console-desktop: {where_} never came to the front",
-        where_ = where__2
-      ),
+      Outcome::RanOut => eprintln!("console-desktop: {workspace} never came to the front"),
     }
 
     let Ok(_still) = self.wait_for_a_still_screen();
+
+    Ok(())
+  }
+
+  pub fn focus_a_window(&self) -> Result<(), Never> {
+    let Ok(windows) = self.query(Clients);
+    if let Some(window) = windows.as_ref().and_then(|windows| windows.first()) {
+      let Ok(target) = console_compositor::quote(&format!("address:{}", window.address));
+      let Ok(_focused) = self.request(
+        Request::Dispatch,
+        &format!("hl.dsp.focus({{window = {target}}})"),
+      );
+    }
 
     Ok(())
   }
@@ -508,7 +532,10 @@ impl Inside {
 
       Ok(match still {
         Still::Ended => Ready::Yes,
-        Still::Running => match ::core::primitive::bool::then_some(clearing_2.output().is_ok_and(|done| done.status.success()), ()) {
+        Still::Running => match ::core::primitive::bool::then_some(
+          clearing_2.output().is_ok_and(|done| done.status.success()),
+          (),
+        ) {
           ::core::option::Option::Some(()) => Ready::Yes,
           ::core::option::Option::None => Ready::NotYet,
         },

@@ -72,7 +72,7 @@ use console_core_shapes::{
 };
 
 use console_core_path_rasterizer::{
-  Color, ColorU8, FillRule, FilterQuality, LineCap, Paint, PathBuilder, Pattern, Pixmap, Rect,
+  Color, ColorU8, FillRule, FilterQuality, LineCap, Paint, PathBuilder, Pattern, Pixmap, FloatRectangle,
   SpreadMode, Stroke, Transform,
 };
 
@@ -356,7 +356,7 @@ fn panel_path(
   let Round(round) = panel.round;
   let Ok(radius) = narrow_f32(f64::from(round));
   let rect = match {
-    let Ok(explicit_value) = Rect::from_xywh(
+    let Ok(explicit_value) = FloatRectangle::from_xywh(
       left + inset,
       top + inset,
       width - inset * 2.0,
@@ -452,11 +452,13 @@ fn draw_picture(canvas: &mut Canvas<'_>, picture: Picture<&Pixels>) -> Result<()
 }
 
 fn cropped(canvas: &mut Canvas<'_>, picture: Cropped<&Pixels>) -> Result<(), Cannot> {
-  match ::core::primitive::bool::then_some(picture.pixels.width > 0
-    && picture.pixels.height > 0
-    && picture.seen.width > 0.0
-    && picture.seen.height > 0.0, ())
-  {
+  match ::core::primitive::bool::then_some(
+    picture.pixels.width > 0
+      && picture.pixels.height > 0
+      && picture.seen.width > 0.0
+      && picture.seen.height > 0.0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(()),
   }
@@ -466,7 +468,7 @@ fn cropped(canvas: &mut Canvas<'_>, picture: Cropped<&Pixels>) -> Result<(), Can
   let Ok(width) = narrow_f32(f64::from(picture.size.width));
   let Ok(height) = narrow_f32(f64::from(picture.size.height));
   let rect = match {
-    let Ok(explicit_value) = Rect::from_xywh(x, y, width, height);
+    let Ok(explicit_value) = FloatRectangle::from_xywh(x, y, width, height);
     explicit_value
   } {
     Some(rect) => rect,

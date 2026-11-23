@@ -128,7 +128,10 @@ impl<'a> ValueStack<'a> {
   pub fn pop_count_checked(&mut self) -> Result<u64, HintErrorKind> {
     let value = self.pop()?;
 
-    match ::core::primitive::bool::then_some(value < 0 && matches!(self.validation, Validation::Pedantic), ()) {
+    match ::core::primitive::bool::then_some(
+      value < 0 && matches!(self.validation, Validation::Pedantic),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Err(HintErrorKind::InvalidStackValue(value)),
       ::core::option::Option::None => {
         u64::try_from(value.max(0)).map_err(|_too_wide| HintErrorKind::InvalidStackValue(value))

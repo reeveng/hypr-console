@@ -8,7 +8,10 @@ impl<'a> Hdmx<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Hdmx::record_for_size` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Hdmx::record_for_size` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn record_for_size(&self, size: u8) -> Option<DeviceRecord<'a>> {
     let Ok(records) = self.records();
@@ -50,7 +53,10 @@ impl<'a> DeviceRecord<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `DeviceRecord::pixel_size` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `DeviceRecord::pixel_size` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn pixel_size(&self) -> u8 {
     self.pixel_size
@@ -59,7 +65,10 @@ impl<'a> DeviceRecord<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `DeviceRecord::max_width` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `DeviceRecord::max_width` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn max_width(&self) -> u8 {
     self.max_width
@@ -68,7 +77,10 @@ impl<'a> DeviceRecord<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `DeviceRecord::widths` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `DeviceRecord::widths` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn widths(&self) -> &'a [u8] {
     self.widths
@@ -76,7 +88,7 @@ impl<'a> DeviceRecord<'a> {
 }
 
 impl ReadArgs for DeviceRecord<'_> {
-  type Args = (u16, u32);
+  type Arguments = (u16, u32);
 }
 
 impl ComputeSize for DeviceRecord<'_> {
@@ -201,23 +213,25 @@ mod tests {
       ),
       3,
     )?;
-    let fixture_value = crate::test_support::fixture_value(hdmx.record_for_size(8), "fixture value")?;
-    assert_eq!(
-      fixture_value.pixel_size,
-      8
-    );
+    let fixture_value =
+      crate::test_support::fixture_value(hdmx.record_for_size(8), "fixture value")?;
+    assert_eq!(fixture_value.pixel_size, 8);
     assert_eq!(
       {
-        let medium_device_record = crate::test_support::fixture_value(hdmx.record_for_size(16), "fixture value")?;
+        let medium_device_record =
+          crate::test_support::fixture_value(hdmx.record_for_size(16), "fixture value")?;
         medium_device_record
-      }.pixel_size,
+      }
+      .pixel_size,
       16
     );
     assert_eq!(
       {
-        let large_device_record = crate::test_support::fixture_value(hdmx.record_for_size(32), "fixture value")?;
+        let large_device_record =
+          crate::test_support::fixture_value(hdmx.record_for_size(32), "fixture value")?;
         large_device_record
-      }.pixel_size,
+      }
+      .pixel_size,
       32
     );
     assert!(hdmx.record_for_size(7).is_none());

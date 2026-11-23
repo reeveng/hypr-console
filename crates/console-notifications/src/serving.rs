@@ -148,11 +148,13 @@ pub struct Holding {
 
 impl Holding {
   pub fn raised(&mut self, asked: &Request) -> Result<Armed, Never> {
-    let id = match ::core::primitive::bool::then_some(self
-      .waiting
-      .iter()
-      .any(|held| held.notification.id == asked.replacing), ())
-    {
+    let id = match ::core::primitive::bool::then_some(
+      self
+        .waiting
+        .iter()
+        .any(|held| held.notification.id == asked.replacing),
+      (),
+    ) {
       ::core::option::Option::Some(()) => asked.replacing,
       ::core::option::Option::None => {
         let counted = self.counted.saturating_add(1);

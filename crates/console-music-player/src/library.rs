@@ -42,10 +42,12 @@ pub fn playable(at: &Path) -> Result<Playable, Never> {
     None => return Ok(Playable::No),
   };
 
-  Ok(match ::core::primitive::bool::then_some(KINDS.contains(&kind.as_str()), ()) {
-    ::core::option::Option::Some(()) => Playable::Yes,
-    ::core::option::Option::None => Playable::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(KINDS.contains(&kind.as_str()), ()) {
+      ::core::option::Option::Some(()) => Playable::Yes,
+      ::core::option::Option::None => Playable::No,
+    },
+  )
 }
 
 pub fn songs_under(folder: &Path) -> Result<Vec<PathBuf>, Never> {

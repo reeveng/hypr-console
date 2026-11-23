@@ -22,7 +22,10 @@ mod tests {
 
   #[test]
   fn read_cblc_1_cbdt_17() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::EMBEDDED_BITMAPS), "fixture value")?;
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::EMBEDDED_BITMAPS),
+      "fixture value",
+    )?;
     let cblc = crate::test_support::fixture_value(font.cblc(), "fixture value")?;
     let cbdt = crate::test_support::fixture_value(font.cbdt(), "fixture value")?;
     let Ok(bitmap_sizes) = cblc.bitmap_sizes();
@@ -67,38 +70,41 @@ mod tests {
       },
     )];
     for (gid, data, metrics) in expected {
-      let location = crate::test_support::fixture_value(size
-        .location(
+      let location = crate::test_support::fixture_value(
+        size.location(
           {
             let Ok(explicit_value) = cblc.offset_data();
             explicit_value
           },
           *gid,
-        ), "fixture value")?;
+        ),
+        "fixture value",
+      )?;
       assert_eq!(location.format, 17);
-      let bitmap_data = crate::test_support::fixture_value(cbdt.data(&location), "fixture value")?;
+      let bitmap_data =
+        crate::test_support::fixture_value(cbdt.data(&location), "fixture value")?;
       let (img_fmt, img_data) = bitmap_data.content.extract_data()?;
       assert_eq!(img_fmt, BitmapDataFormat::Png);
       assert_eq!(img_data, *data);
       let extract_small_metrics = bitmap_data.extract_small_metrics()?;
       assert_eq!(extract_small_metrics, metrics);
     }
-  ;
 
     Ok(())
   }
 
   #[test]
   fn sparse_glyph_ids() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::CBDT), "fixture value")?;
+    let font =
+      crate::test_support::fixture_value(FontRef::new(font_test_data::CBDT), "fixture value")?;
     let cblc = crate::test_support::fixture_value(font.cblc(), "fixture value")?;
     let cbdt = crate::test_support::fixture_value(font.cbdt(), "fixture value")?;
     let Ok(bitmap_sizes) = cblc.bitmap_sizes();
     let size = crate::test_support::fixture_value(bitmap_sizes.first(), "first bitmap strike")?;
 
     for gid in 0..=3 {
-      let location = crate::test_support::fixture_value(size
-        .location(
+      let location = crate::test_support::fixture_value(
+        size.location(
           {
             let Ok(value) = cblc.offset_data();
             value
@@ -107,24 +113,31 @@ mod tests {
             let Ok(value) = GlyphId::new(gid);
             value
           },
-        ), "fixture value")?;
+        ),
+        "fixture value",
+      )?;
 
       match ::core::primitive::bool::then_some(gid == 1, ()) {
         ::core::option::Option::Some(()) => {
           assert!(
-            (match &(cbdt.data(&location)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }),
+            (match &(cbdt.data(&location)) {
+              Ok(_validated_input) => false,
+              Err(_invalid_fixture_input) => true,
+            }),
             "expected bitmap for {gid} to be empty"
           );
         }
         ::core::option::Option::None => {
           assert!(
-            (match &(cbdt.data(&location)) { Ok(_validated_input) => true, Err(_invalid_fixture_input) => false }),
+            (match &(cbdt.data(&location)) {
+              Ok(_validated_input) => true,
+              Err(_invalid_fixture_input) => false,
+            }),
             "expected bitmap for {gid} to be present"
           );
         }
       }
     }
-  ;
 
     Ok(())
   }

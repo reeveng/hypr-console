@@ -312,7 +312,8 @@ pub(super) fn reserve(bytes: u64) -> Result<u64, Error> {
   let physical = u64::try_from(memory.expose_provenance()).map_err(|_too_wide| Error::Allocation);
   let address = physical?;
 
-  match ::core::primitive::bool::then_some(address != 0 && address & MASK_ADDRESS == address, ()) {
+  match ::core::primitive::bool::then_some(address != 0 && address & MASK_ADDRESS == address, ())
+  {
     ::core::option::Option::Some(()) => Ok(address),
     ::core::option::Option::None => Err(Error::Allocation),
   }

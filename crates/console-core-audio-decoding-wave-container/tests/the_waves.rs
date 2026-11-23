@@ -61,7 +61,7 @@ enum Piece {
 }
 
 enum Tweak {
-  Keep,
+  Retain,
   Truncated,
   Marker([u8; 4]),
   Form([u8; 4]),
@@ -214,7 +214,7 @@ fn file_bytes(case: &Case) -> Result<Vec<u8>, TryFromIntError> {
   file.extend(body);
 
   match &case.tweak {
-    Tweak::Keep => (),
+    Tweak::Retain => (),
     Tweak::Truncated => file.truncate(2000),
     Tweak::Marker(marker) => file.splice(0..4, *marker).for_each(drop),
     Tweak::Form(form) => file.splice(8..12, *form).for_each(drop),
@@ -254,7 +254,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm 8 mono",
@@ -271,7 +271,7 @@ mod fixtures {
           count: 3001,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm 24 with empty extension",
@@ -288,7 +288,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm 32 with extension block",
@@ -305,7 +305,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm 12 bits",
@@ -322,7 +322,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm no channels",
@@ -339,7 +339,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm too many channels",
@@ -356,7 +356,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm odd fmt length",
@@ -373,7 +373,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm fact",
@@ -394,7 +394,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm bad fact",
@@ -415,7 +415,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm info list",
@@ -440,7 +440,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm other list",
@@ -461,7 +461,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm empty list",
@@ -482,7 +482,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm short list",
@@ -503,7 +503,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm unknown chunks",
@@ -528,7 +528,7 @@ mod fixtures {
           count: 6000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm no data",
@@ -539,7 +539,7 @@ mod fixtures {
         bits: 16,
         extra: &[],
       })],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm data before format",
@@ -556,7 +556,7 @@ mod fixtures {
           extra: &[],
         }),
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm no format",
@@ -564,7 +564,7 @@ mod fixtures {
         declared: None,
         count: 100,
       }],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm zero block",
@@ -581,7 +581,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm empty data",
@@ -598,7 +598,7 @@ mod fixtures {
           count: 0,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm short fmt",
@@ -612,7 +612,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm truncated data",
@@ -646,7 +646,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "pcm streamed",
@@ -683,7 +683,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "float 64 with empty extension",
@@ -700,7 +700,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "float 32 with extension block",
@@ -717,7 +717,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "float with extra data",
@@ -734,7 +734,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "float 16 bits",
@@ -751,7 +751,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "float odd length",
@@ -768,7 +768,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "alaw",
@@ -785,7 +785,7 @@ mod fixtures {
           count: 3000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "alaw with extra",
@@ -802,7 +802,7 @@ mod fixtures {
           count: 3000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "alaw without extension",
@@ -819,7 +819,7 @@ mod fixtures {
           count: 3000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "mulaw",
@@ -836,7 +836,7 @@ mod fixtures {
           count: 3000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "mulaw without extension",
@@ -853,7 +853,7 @@ mod fixtures {
           count: 3000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
   ];
 
@@ -876,7 +876,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ms adpcm mono",
@@ -896,7 +896,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ms adpcm short extra",
@@ -916,7 +916,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ms adpcm wrong bits",
@@ -936,7 +936,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ms adpcm no extension",
@@ -953,7 +953,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ima adpcm",
@@ -970,7 +970,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ima adpcm wrong extra",
@@ -987,7 +987,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "ima adpcm mono",
@@ -1004,7 +1004,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
   ];
 
@@ -1025,7 +1025,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible pcm 16",
@@ -1043,7 +1043,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible pcm 8",
@@ -1061,7 +1061,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible pcm 32",
@@ -1079,7 +1079,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible pcm 40",
@@ -1097,7 +1097,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible pcm 12",
@@ -1115,7 +1115,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible pcm valid above coded",
@@ -1133,7 +1133,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible ambisonic pcm",
@@ -1151,7 +1151,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible mask too few",
@@ -1169,7 +1169,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible mask too many",
@@ -1187,7 +1187,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible mask empty",
@@ -1205,7 +1205,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible no channels",
@@ -1223,7 +1223,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible float 32",
@@ -1241,7 +1241,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible float 64",
@@ -1259,7 +1259,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible float 16",
@@ -1277,7 +1277,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible float truncated",
@@ -1295,7 +1295,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible ambisonic float",
@@ -1313,7 +1313,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible alaw",
@@ -1331,7 +1331,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible mulaw",
@@ -1349,7 +1349,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible adpcm",
@@ -1367,7 +1367,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "extensible wrong extra size",
@@ -1386,7 +1386,7 @@ mod fixtures {
           count: 9000,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
   ];
 
@@ -1406,7 +1406,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "unsupported format",
@@ -1423,7 +1423,7 @@ mod fixtures {
           count: 100,
         },
       ],
-      tweak: Tweak::Keep,
+      tweak: Tweak::Retain,
     },
     Case {
       name: "not riff",

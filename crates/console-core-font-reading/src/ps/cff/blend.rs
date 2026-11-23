@@ -5,7 +5,6 @@ use font_types::{BigEndian, F2Dot14, Fixed};
 use crate::ps::error::Error;
 use crate::tables::variations::{ItemVariationData, ItemVariationStore};
 
-
 pub struct BlendState<'a> {
   store: ItemVariationStore<'a>,
   coords: &'a [F2Dot14],
@@ -53,7 +52,12 @@ impl<'a> BlendState<'a> {
   }
 
   pub fn scalars(&self) -> Result<impl Iterator<Item = Result<Fixed, Error>> + '_, Error> {
-    let cached = self.scalars.iter().copied().take(self.region_indices.len()).map(Ok);
+    let cached = self
+      .scalars
+      .iter()
+      .copied()
+      .take(self.region_indices.len())
+      .map(Ok);
     let remaining = self.region_indices.iter().skip(self.scalars.len());
 
     Ok(cached.chain(remaining.map(|region_index| {
@@ -76,10 +80,7 @@ impl<'a> BlendState<'a> {
       explicit_value
     };
 
-    for (region_ix, scalar) in region_indices
-      .iter()
-      .zip(&mut self.scalars)
-    {
+    for (region_ix, scalar) in region_indices.iter().zip(&mut self.scalars) {
       let Ok(value_4) = region_ix.get();
 
       let region = regions.get({
@@ -126,7 +127,8 @@ mod test {
       (0.5, [0.0, 0.0]),
       (1.0, [0.0, 0.0]),
     ] {
-      let variation_bytes = font_test_data::cff2::EXAMPLE.get(18..)
+      let variation_bytes = font_test_data::cff2::EXAMPLE
+        .get(18..)
         .ok_or(crate::ReadError::OutOfBounds)?;
       let Ok(variation_data) = FontData::new(variation_bytes);
       let store = ItemVariationStore::read(variation_data)?;

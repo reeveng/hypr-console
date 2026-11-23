@@ -17,13 +17,16 @@ pub struct InstanceRecord<'a> {
 }
 
 impl ReadArgs for InstanceRecord<'_> {
-  type Args = (u16, u16);
+  type Arguments = (u16, u16);
 }
 
 impl<'a> InstanceRecord<'a> {
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `InstanceRecord::read` method retains the positional argument order for `data`, `axis_count`, `instance_size`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `InstanceRecord::read` method retains the positional argument order for `data`, `axis_count`, `instance_size`"
+    )
   )]
   pub fn read(
     data: FontData<'a>,
@@ -36,7 +39,7 @@ impl<'a> InstanceRecord<'a> {
 }
 
 impl<'a> FontReadWithArgs<'a> for InstanceRecord<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let axis_count = {
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(args.0);
       migrated_value
@@ -57,16 +60,17 @@ impl<'a> FontReadWithArgs<'a> for InstanceRecord<'a> {
 
     let has_post_script_name_id =
       instance_size >= ::core::primitive::u64::wrapping_add(common_byte_len, u16::RAW_BYTE_LEN);
-    let post_script_name_id = match ::core::primitive::bool::then_some(has_post_script_name_id, ()) {
-      ::core::option::Option::Some(()) => {
-        let id: NameId = cursor.read()?;
+    let post_script_name_id =
+      match ::core::primitive::bool::then_some(has_post_script_name_id, ()) {
+        ::core::option::Option::Some(()) => {
+          let id: NameId = cursor.read()?;
 
-        let Ok(value_1) = id.to_u16();
+          let Ok(value_1) = id.to_u16();
 
-        (value_1 != 0xFFFF).then_some(id)
-      }
-      ::core::option::Option::None => None,
-    };
+          (value_1 != 0xFFFF).then_some(id)
+        }
+        ::core::option::Option::None => None,
+      };
     Ok(InstanceRecord {
       subfamily_name_id,
       flags,

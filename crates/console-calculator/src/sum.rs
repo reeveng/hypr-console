@@ -286,14 +286,17 @@ fn apply(
 ) -> Result<Option<FiniteF64>, Never> {
   let left = f64::from(held);
   let right = f64::from(entered);
-  let answer = match operator {
-    Operator::Add => left + right,
-    Operator::Subtract => left - right,
-    Operator::Multiply => left * right,
-    Operator::Divide => left / right,
+  let key = match operator {
+    Operator::Add => b'+',
+    Operator::Subtract => b'-',
+    Operator::Multiply => b'*',
+    Operator::Divide => b'/',
   };
 
-  FiniteF64::of(answer)
+  match crate::arithmetic::calculate(left, key, right) {
+    Some(answer) => FiniteF64::of(answer),
+    None => Ok(None),
+  }
 }
 
 const TRUSTED: i32 = 12;

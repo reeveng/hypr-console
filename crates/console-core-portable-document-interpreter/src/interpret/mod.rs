@@ -24,7 +24,7 @@ use console_core_portable_document_syntax::object::dict::keys::{
   ANNOTS, AP, AS, C, CA, F, MCID, N, OC, QUADPOINTS, RECT, SUBTYPE,
 };
 use console_core_portable_document_syntax::object::{
-  Array, Dict, Name, Object, Rect, Stream, dict_or_stream,
+  Array, Dict, Name, Object, Rectangle, Stream, dict_or_stream,
 };
 use console_core_portable_document_syntax::page::{Page, Resources};
 use kurbo::{Affine, BezPath, Point, Shape};
@@ -232,7 +232,7 @@ fn draw_annotation_form<'a>(
   context: &mut Context<'a>,
   device: &mut impl Device<'a>,
 ) -> Result<(), Never> {
-  let Ok(rect) = annotation.get::<Rect>(RECT);
+  let Ok(rect) = annotation.get::<Rectangle>(RECT);
   let annot_rect = match rect {
     Some(rect_2) => rect_2.to_kurbo(),
     None => return Ok(()),

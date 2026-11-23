@@ -4,16 +4,14 @@
 {"package":"console-actor","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-applications","target":"lib","kind":"builds","what":"console_applications"}
 {"package":"console-applications","target":"lib","kind":"runs","what":"Alacritty"}
-{"package":"console-applications","target":"lib","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::metadata"}
 {"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
-{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
+{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
-{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
-{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
+{"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
 {"package":"console-applications","target":"lib","kind":"host-access","what":"filesystem std::path::Path::metadata"}
 {"package":"console-architecture","target":"console-architecture","kind":"builds","what":"console_architecture"}
 {"package":"console-architecture","target":"console-architecture","kind":"links","what":"console_repository"}
@@ -110,19 +108,101 @@
 {"package":"console-browser-extension","target":"console-web","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-browser-extension","target":"console-web","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-browser-extension","target":"lib","kind":"builds","what":"console_browser_extension"}
+{"package":"console-browser-renderer","target":"lib","kind":"builds","what":"console_browser_renderer"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_add_seals"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_get_seals"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fstat"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"filesystem rustix::fs::memfd_create"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::RecvAncillaryBuffer::<'buf>::drain"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::RecvAncillaryBuffer::<'buf>::new"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::SendAncillaryBuffer::<'buf, 'slice, 'fd>::new"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::SendAncillaryBuffer::<'buf, 'slice, 'fd>::push"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::__cmsg_space"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::recvmsg"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"network rustix::net::sendmsg"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::SealFlags>::contains"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::SealFlags>::union"}
+{"package":"console-browser-renderer","target":"lib","kind":"host-access","what":"system rustix::backend::net::send_recv::_::<impl rustix::net::ReturnFlags>::intersects"}
 {"package":"console-browser-site-isolation","target":"lib","kind":"builds","what":"console_browser_site_isolation"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"builds","what":"console_browser_check"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"links","what":"console_repository"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"timer","what":"deadline"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"clock std::time::Instant::now"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"environment std::env::var_os"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::File::metadata"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::File::options"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::File::try_clone"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::Metadata::len"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::OpenOptions::create_new"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::OpenOptions::read"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"filesystem std::fs::rename"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"network rustix::net::SocketAddrUnix::new"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"network rustix::net::connect"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"network rustix::net::socket_with"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"network std::net::TcpListener::bind"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"process rustix::process::Pid::from_raw"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"process rustix::process::pidfd::_::<impl rustix::process::PidfdFlags>::empty"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"process rustix::process::pidfd_open"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::contains"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"system rustix::event::poll"}
+{"package":"console-browser-window","target":"console-browser-check","kind":"host-access","what":"threads std::thread::sleep"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"builds","what":"console_browser_window"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"links","what":"console_applications"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"links","what":"console_default_applications"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"runs","what":"Chromium"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"timer","what":"deadline"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"clock std::time::Instant::now"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"environment std::env::args_os"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"environment std::env::current_exe"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"environment std::env::var_os"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem rustix::fs::FileExt::read_exact_at"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem rustix::fs::fcntl_setfl"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem std::fs::create_dir"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem std::fs::metadata"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem std::fs::read_to_string"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"filesystem std::fs::write"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"network rustix::net::socketpair"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::contains"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::event::poll"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::io::fcntl_dupfd_cloexec"}
+{"package":"console-browser-window","target":"console-browser-window","kind":"host-access","what":"system rustix::pipe::pipe_with"}
 {"package":"console-bus","target":"lib","kind":"builds","what":"console_bus"}
 {"package":"console-bus","target":"lib","kind":"connects","what":"unix"}
+{"package":"console-bus","target":"lib","kind":"timer","what":"deadline"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-bus","target":"lib","kind":"host-access","what":"environment std::env::var"}
 {"package":"console-bus","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Uid::as_raw"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"network rustix::net::recv"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"network rustix::net::send"}
 {"package":"console-bus","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect"}
 {"package":"console-bus","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect_addr"}
 {"package":"console-bus","target":"lib","kind":"host-access","what":"process rustix::process::getuid"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::is_empty"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-bus","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
 {"package":"console-button-guide","target":"console-buttons","kind":"builds","what":"console_buttons"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_actor"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_applications"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_bus"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_compositor"}
+{"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_default_applications"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_events"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_files"}
 {"package":"console-button-guide","target":"console-buttons","kind":"links","what":"console_input_controller"}
@@ -139,6 +219,7 @@
 {"package":"console-button-guide","target":"lib","kind":"links","what":"console_applications"}
 {"package":"console-button-guide","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-button-guide","target":"lib","kind":"links","what":"console_compositor"}
+{"package":"console-button-guide","target":"lib","kind":"links","what":"console_default_applications"}
 {"package":"console-button-guide","target":"lib","kind":"links","what":"console_events"}
 {"package":"console-button-guide","target":"lib","kind":"links","what":"console_files"}
 {"package":"console-button-guide","target":"lib","kind":"links","what":"console_input_controller"}
@@ -194,6 +275,80 @@
 {"package":"console-calendar","target":"lib","kind":"runs","what":"Cal"}
 {"package":"console-calendar","target":"lib","kind":"runs","what":"Date"}
 {"package":"console-calendar","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-capture","target":"console-camera","kind":"builds","what":"console_camera"}
+{"package":"console-capture","target":"console-camera","kind":"links","what":"console_capture"}
+{"package":"console-capture","target":"console-camera","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-capture","target":"console-camera","kind":"links","what":"console_pictures"}
+{"package":"console-capture","target":"console-camera","kind":"runs","what":"Ffmpeg"}
+{"package":"console-capture","target":"console-camera","kind":"starts","what":"Camera"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"clock std::time::Instant::elapsed"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"clock std::time::Instant::now"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"filesystem rustix::fs::FileTypeExt::is_char_device"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"filesystem rustix::fs::open"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"filesystem std::fs::DirEntry::file_type"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"filesystem std::fs::read_dir"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"system rustix::ioctl::Getter::<OPCODE, Output>::new"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"system rustix::ioctl::ioctl"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"system rustix::ioctl::opcode::read"}
+{"package":"console-capture","target":"console-camera","kind":"host-access","what":"threads std::thread::Builder::spawn"}
+{"package":"console-capture","target":"lib","kind":"builds","what":"console_capture"}
+{"package":"console-capture","target":"lib","kind":"runs","what":"Date"}
+{"package":"console-capture","target":"lib","kind":"runs","what":"Grim"}
+{"package":"console-capture","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-capture","target":"lib","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
+{"package":"console-capture","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"builds","what":"console_clipboard"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_actor"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_bus"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_clipboard"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_compositor"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_events"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_onscreen"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_panel"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_pictures"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"links","what":"console_sound_effects"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"host-access","what":"clock std::time::Instant::now"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"host-access","what":"system rustix::backend::rand::types::_::<impl rustix::rand::GetRandomFlags>::empty"}
+{"package":"console-clipboard","target":"console-clipboard","kind":"host-access","what":"system rustix::rand::getrandom"}
+{"package":"console-clipboard","target":"lib","kind":"builds","what":"console_clipboard"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_actor"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_bus"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_compositor"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_events"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_onscreen"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_panel"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_pictures"}
+{"package":"console-clipboard","target":"lib","kind":"links","what":"console_sound_effects"}
+{"package":"console-clipboard","target":"lib","kind":"connects","what":"unix"}
+{"package":"console-clipboard","target":"lib","kind":"binds","what":"unix"}
+{"package":"console-clipboard","target":"lib","kind":"timer","what":"deadline"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::OpenOptionsExt::mode"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_getfl"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_setfl"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::create_new"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixListener::bind"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"process rustix::process::set_dumpable_behavior"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::contains"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::io::read"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::io::write"}
+{"package":"console-clipboard","target":"lib","kind":"host-access","what":"system rustix::pipe::pipe_with"}
 {"package":"console-compositor","target":"lib","kind":"builds","what":"console_compositor"}
 {"package":"console-compositor","target":"lib","kind":"connects","what":"unix"}
 {"package":"console-compositor","target":"lib","kind":"host-access","what":"environment std::env::var"}
@@ -204,17 +359,27 @@
 {"package":"console-concurrency","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-concurrency","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-concurrency","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
+{"package":"console-concurrency","target":"lib","kind":"host-access","what":"process std::process::abort"}
 {"package":"console-concurrency","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
-{"package":"console-concurrency","target":"lib","kind":"host-access","what":"threads std::thread::Scope::<'scope, 'env>::spawn"}
 {"package":"console-concurrency","target":"lib","kind":"host-access","what":"threads std::thread::available_parallelism"}
+{"package":"console-concurrency","target":"lib","kind":"host-access","what":"threads std::thread::scoped::<impl std::thread::Builder>::spawn_scoped"}
 {"package":"console-content-types","target":"lib","kind":"builds","what":"console_content_types"}
 {"package":"console-control-center","target":"console-control-center","kind":"builds","what":"console_control_center"}
+{"package":"console-control-center","target":"console-control-center","kind":"links","what":"console_capture"}
 {"package":"console-control-center","target":"console-control-center","kind":"links","what":"console_compositor"}
 {"package":"console-control-center","target":"console-control-center","kind":"links","what":"console_onscreen"}
+{"package":"console-control-center","target":"console-control-center","kind":"runs","what":"Grim"}
+{"package":"console-control-center","target":"console-control-center","kind":"runs","what":"NotifySend"}
+{"package":"console-control-center","target":"console-control-center","kind":"runs","what":"Tesseract"}
+{"package":"console-control-center","target":"console-control-center","kind":"starts","what":"Clipboard"}
 {"package":"console-control-center","target":"console-control-center","kind":"starts","what":"PutAway"}
-{"package":"console-control-center","target":"console-control-center","kind":"starts","what":"Screenshot"}
+{"package":"console-control-center","target":"console-control-center","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-control-center","target":"console-control-center","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-control-center","target":"console-control-center","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-control-center","target":"console-control-center","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-control-center","target":"lib","kind":"builds","what":"console_control_center"}
 {"package":"console-core-adaptive-arithmetic-decoding","target":"lib","kind":"builds","what":"console_core_adaptive_arithmetic_decoding"}
+{"package":"console-core-api-compatibility","target":"lib","kind":"builds","what":"console_core_api_compatibility"}
 {"package":"console-core-arguments","target":"lib","kind":"builds","what":"console_core_arguments"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"builds","what":"console_core_atomic_writes"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::FileType::from_raw_mode"}
@@ -226,6 +391,7 @@
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fstat"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fsync"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::mkdirat"}
+{"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::openat"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::openat2"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::renameat_with"}
 {"package":"console-core-atomic-writes","target":"lib","kind":"host-access","what":"filesystem rustix::fs::statat"}
@@ -282,6 +448,7 @@
 {"package":"console-core-directory-listing","target":"lib","kind":"host-access","what":"filesystem rustix::fs::open"}
 {"package":"console-core-directory-listing","target":"lib","kind":"host-access","what":"filesystem rustix::fs::statat"}
 {"package":"console-core-directory-listing","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-core-epub-files","target":"lib","kind":"builds","what":"console_core_epub_files"}
 {"package":"console-core-extensible-binary-meta-language","target":"lib","kind":"builds","what":"console_core_extensible_binary_meta_language"}
 {"package":"console-core-extensible-markup","target":"lib","kind":"builds","what":"console_core_extensible_markup"}
 {"package":"console-core-extensible-markup-writer","target":"lib","kind":"builds","what":"console_core_extensible_markup_writer"}
@@ -295,6 +462,7 @@
 {"package":"console-core-file-names","target":"lib","kind":"builds","what":"console_core_file_names"}
 {"package":"console-core-file-urls","target":"lib","kind":"builds","what":"console_core_file_urls"}
 {"package":"console-core-finite-numbers","target":"lib","kind":"builds","what":"console_core_finite_numbers"}
+{"package":"console-core-fixed-capacity-vectors","target":"lib","kind":"builds","what":"console_core_fixed_capacity_vectors"}
 {"package":"console-core-font-configuration","target":"lib","kind":"builds","what":"console_core_font_configuration"}
 {"package":"console-core-font-configuration","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_type"}
 {"package":"console-core-font-configuration","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
@@ -317,6 +485,7 @@
 {"package":"console-core-font-database","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::file_type"}
 {"package":"console-core-font-database","target":"lib","kind":"host-access","what":"filesystem std::fs::canonicalize"}
 {"package":"console-core-font-database","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
+{"package":"console-core-font-database","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-core-font-database","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-core-font-encodings","target":"lib","kind":"builds","what":"console_core_font_encodings"}
 {"package":"console-core-font-fixtures","target":"lib","kind":"builds","what":"console_core_font_fixtures"}
@@ -340,12 +509,34 @@
 {"package":"console-core-iteration","target":"lib","kind":"builds","what":"console_core_iteration"}
 {"package":"console-core-jpeg-2000-files","target":"lib","kind":"builds","what":"console_core_jpeg_2000_files"}
 {"package":"console-core-jpeg-files","target":"lib","kind":"builds","what":"console_core_jpeg_files"}
+{"package":"console-core-line","target":"lib","kind":"builds","what":"console_core_line"}
 {"package":"console-core-line-breaking","target":"lib","kind":"builds","what":"console_core_line_breaking"}
 {"package":"console-core-localization","target":"lib","kind":"builds","what":"console_core_localization"}
 {"package":"console-core-localization","target":"lib","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-core-logging","target":"lib","kind":"builds","what":"console_core_logging"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"clock std::time::SystemTime::now"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem rustix::fs::MetadataExt::mode"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem rustix::fs::MetadataExt::uid"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Uid::as_raw"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem rustix::fs::flock"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::DirBuilder::create"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::DirBuilder::new"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::DirBuilder::recursive"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"process rustix::process::geteuid"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"system rustix::backend::rand::types::_::<impl rustix::rand::GetRandomFlags>::empty"}
+{"package":"console-core-logging","target":"lib","kind":"host-access","what":"system rustix::rand::getrandom"}
+{"package":"console-core-lzw","target":"lib","kind":"builds","what":"console_core_lzw"}
 {"package":"console-core-macintosh-roman","target":"lib","kind":"builds","what":"console_core_macintosh_roman"}
+{"package":"console-core-markup-tokens","target":"lib","kind":"builds","what":"console_core_markup_tokens"}
 {"package":"console-core-matroska-blocks","target":"lib","kind":"builds","what":"console_core_matroska_blocks"}
 {"package":"console-core-media-access-control-addresses","target":"lib","kind":"builds","what":"console_core_media_access_control_addresses"}
+{"package":"console-core-mpeg-audio-frames","target":"lib","kind":"builds","what":"console_core_mpeg_audio_frames"}
 {"package":"console-core-mq-decoding","target":"lib","kind":"builds","what":"console_core_mq_decoding"}
 {"package":"console-core-never","target":"lib","kind":"builds","what":"console_core_never"}
 {"package":"console-core-number-conversion","target":"lib","kind":"builds","what":"console_core_number_conversion"}
@@ -361,7 +552,10 @@
 {"package":"console-core-pixel-buffers","target":"lib","kind":"builds","what":"console_core_pixel_buffers"}
 {"package":"console-core-places","target":"lib","kind":"builds","what":"console_core_places"}
 {"package":"console-core-places","target":"lib","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-core-places","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Uid::as_raw"}
+{"package":"console-core-places","target":"lib","kind":"host-access","what":"process rustix::process::getuid"}
 {"package":"console-core-png-files","target":"lib","kind":"builds","what":"console_core_png_files"}
+{"package":"console-core-point","target":"lib","kind":"builds","what":"console_core_point"}
 {"package":"console-core-portable-document-functions","target":"lib","kind":"builds","what":"console_core_portable_document_functions"}
 {"package":"console-core-portable-document-interpreter","target":"lib","kind":"builds","what":"console_core_portable_document_interpreter"}
 {"package":"console-core-portable-document-rasterizer","target":"lib","kind":"builds","what":"console_core_portable_document_rasterizer"}
@@ -376,18 +570,22 @@
 {"package":"console-core-reconnect","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-core-reconnect","target":"lib","kind":"host-access","what":"threads std::thread::sleep"}
 {"package":"console-core-reconnect","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
+{"package":"console-core-rectangle","target":"lib","kind":"builds","what":"console_core_rectangle"}
 {"package":"console-core-scalable-vector-graphics","target":"lib","kind":"builds","what":"console_core_scalable_vector_graphics"}
 {"package":"console-core-scalable-vector-graphics","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
-{"package":"console-core-scalable-vector-graphics","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-core-scalable-vector-graphics-rasterizer","target":"lib","kind":"builds","what":"console_core_scalable_vector_graphics_rasterizer"}
 {"package":"console-core-scalable-vector-graphics-values","target":"lib","kind":"builds","what":"console_core_scalable_vector_graphics_values"}
 {"package":"console-core-schedules","target":"lib","kind":"builds","what":"console_core_schedules"}
 {"package":"console-core-screen-orientation","target":"lib","kind":"builds","what":"console_core_screen_orientation"}
 {"package":"console-core-shapes","target":"lib","kind":"builds","what":"console_core_shapes"}
+{"package":"console-core-size","target":"lib","kind":"builds","what":"console_core_size"}
 {"package":"console-core-state-machine","target":"lib","kind":"builds","what":"console_core_state_machine"}
 {"package":"console-core-subtitle-files","target":"lib","kind":"builds","what":"console_core_subtitle_files"}
+{"package":"console-core-synchronization","target":"lib","kind":"builds","what":"console_core_synchronization"}
 {"package":"console-core-temporary-directories","target":"lib","kind":"builds","what":"console_core_temporary_directories"}
 {"package":"console-core-temporary-directories","target":"lib","kind":"host-access","what":"environment std::env::temp_dir"}
+{"package":"console-core-temporary-directories","target":"lib","kind":"host-access","what":"filesystem std::fs::DirBuilder::create"}
+{"package":"console-core-temporary-directories","target":"lib","kind":"host-access","what":"filesystem std::fs::DirBuilder::new"}
 {"package":"console-core-temporary-directories","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-core-temporary-directories","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-core-temporary-directories","target":"lib","kind":"host-access","what":"process std::process::id"}
@@ -398,11 +596,13 @@
 {"package":"console-core-text-layout","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-core-text-shaping","target":"lib","kind":"builds","what":"console_core_text_shaping"}
 {"package":"console-core-tile-rows","target":"lib","kind":"builds","what":"console_core_tile_rows"}
+{"package":"console-core-transform","target":"lib","kind":"builds","what":"console_core_transform"}
 {"package":"console-core-urls","target":"lib","kind":"builds","what":"console_core_urls"}
 {"package":"console-core-vertical-orientation","target":"lib","kind":"builds","what":"console_core_vertical_orientation"}
 {"package":"console-core-video-decoding-advanced-video-coding","target":"lib","kind":"builds","what":"console_core_video_decoding_advanced_video_coding"}
 {"package":"console-core-video-decoding-advanced-video-coding","target":"lib","kind":"host-access","what":"threads std::thread::available_parallelism"}
 {"package":"console-core-video-decoding-av1","target":"lib","kind":"builds","what":"console_core_video_decoding_av1"}
+{"package":"console-core-video-decoding-av1","target":"lib","kind":"host-access","what":"system rustix::io::Errno::raw_os_error"}
 {"package":"console-core-video-decoding-bitstream","target":"lib","kind":"builds","what":"console_core_video_decoding_bitstream"}
 {"package":"console-core-video-decoding-high-efficiency-video-coding","target":"lib","kind":"builds","what":"console_core_video_decoding_high_efficiency_video_coding"}
 {"package":"console-core-video-decoding-high-efficiency-video-coding","target":"lib","kind":"host-access","what":"threads std::thread::available_parallelism"}
@@ -411,6 +611,8 @@
 {"package":"console-core-video-decoding-vp9","target":"lib","kind":"builds","what":"console_core_video_decoding_vp9"}
 {"package":"console-core-video-decoding-vp9","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-core-video-decoding-vp9","target":"lib","kind":"host-access","what":"threads std::thread::available_parallelism"}
+{"package":"console-core-video-interpolation","target":"lib","kind":"builds","what":"console_core_video_interpolation"}
+{"package":"console-core-video-inverse-transforms","target":"lib","kind":"builds","what":"console_core_video_inverse_transforms"}
 {"package":"console-core-video-planes","target":"lib","kind":"builds","what":"console_core_video_planes"}
 {"package":"console-core-walking","target":"lib","kind":"builds","what":"console_core_walking"}
 {"package":"console-core-web-engine","target":"lib","kind":"builds","what":"console_core_web_engine"}
@@ -419,24 +621,28 @@
 {"package":"console-core-writing-scripts","target":"lib","kind":"builds","what":"console_core_writing_scripts"}
 {"package":"console-core-zip-files","target":"lib","kind":"builds","what":"console_core_zip_files"}
 {"package":"console-cpu-boost","target":"lib","kind":"builds","what":"console_cpu_boost"}
-{"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"environment std::env::temp_dir"}
+{"package":"console-cpu-boost","target":"lib","kind":"timer","what":"deadline"}
 {"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"filesystem std::fs::write"}
-{"package":"console-cpu-boost","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-default-applications","target":"console-browser","kind":"builds","what":"console_browser"}
+{"package":"console-default-applications","target":"console-browser","kind":"links","what":"console_applications"}
 {"package":"console-default-applications","target":"console-browser","kind":"links","what":"console_default_applications"}
 {"package":"console-default-applications","target":"console-browser","kind":"runs","what":"Gio"}
 {"package":"console-default-applications","target":"console-browser","kind":"runs","what":"XdgOpen"}
 {"package":"console-default-applications","target":"console-browser","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-default-applications","target":"console-engine","kind":"builds","what":"console_engine"}
+{"package":"console-default-applications","target":"console-engine","kind":"links","what":"console_applications"}
 {"package":"console-default-applications","target":"console-engine","kind":"links","what":"console_default_applications"}
 {"package":"console-default-applications","target":"console-engine","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-default-applications","target":"lib","kind":"builds","what":"console_default_applications"}
+{"package":"console-default-applications","target":"lib","kind":"links","what":"console_applications"}
 {"package":"console-default-applications","target":"lib","kind":"runs","what":"XdgSettings"}
 {"package":"console-default-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-default-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
+{"package":"console-default-applications","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-defaults","target":"lib","kind":"builds","what":"console_defaults"}
 {"package":"console-defaults","target":"lib","kind":"host-access","what":"filesystem rustix::fs::flock"}
 {"package":"console-defaults","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
@@ -451,9 +657,10 @@
 {"package":"console-device","target":"console-deploy","kind":"runs","what":"Date"}
 {"package":"console-device","target":"console-deploy","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-device","target":"console-deploy","kind":"host-access","what":"environment std::env::set_current_dir"}
+{"package":"console-device","target":"console-deploy","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
 {"package":"console-device","target":"console-deploy","kind":"host-access","what":"filesystem std::fs::create_dir"}
+{"package":"console-device","target":"console-deploy","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-device","target":"console-deploy","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
-{"package":"console-device","target":"console-deploy","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
 {"package":"console-device","target":"console-deploy","kind":"host-access","what":"process std::process::id"}
 {"package":"console-device","target":"console-migrate","kind":"builds","what":"console_migrate"}
 {"package":"console-device","target":"console-migrate","kind":"links","what":"console_bus"}
@@ -469,6 +676,35 @@
 {"package":"console-device","target":"console-pull","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-device","target":"console-pull","kind":"links","what":"console_repository"}
 {"package":"console-device","target":"console-pull","kind":"links","what":"console_session"}
+{"package":"console-device","target":"console-update","kind":"builds","what":"console_update"}
+{"package":"console-device","target":"console-update","kind":"links","what":"console_applications"}
+{"package":"console-device","target":"console-update","kind":"links","what":"console_repository"}
+{"package":"console-device","target":"console-update","kind":"binds","what":"unix"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"clock std::time::SystemTime::now"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem rustix::fs::MetadataExt::mode"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem rustix::fs::MetadataExt::uid"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem rustix::fs::Uid::is_root"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::DirBuilder::create"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::DirBuilder::new"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::Metadata::len"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::create_dir"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::metadata"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::read_to_string"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::remove_file"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::rename"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"network std::os::unix::net::UnixListener::bind_addr"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"process rustix::process::geteuid"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"process std::process::Child::wait_with_output"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"process std::process::Command::spawn"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-device","target":"console-update","kind":"host-access","what":"process std::process::id"}
 {"package":"console-device","target":"lib","kind":"builds","what":"console_device"}
 {"package":"console-device","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-device","target":"lib","kind":"links","what":"console_repository"}
@@ -495,6 +731,7 @@
 {"package":"console-downloads","target":"downloads","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-downloads","target":"downloads","kind":"links","what":"console_panel"}
 {"package":"console-downloads","target":"downloads","kind":"links","what":"console_pictures"}
+{"package":"console-downloads","target":"downloads","kind":"links","what":"console_repository"}
 {"package":"console-downloads","target":"downloads","kind":"links","what":"console_session"}
 {"package":"console-downloads","target":"downloads","kind":"links","what":"console_sound_effects"}
 {"package":"console-downloads","target":"downloads","kind":"host-access","what":"environment std::env::args"}
@@ -510,12 +747,11 @@
 {"package":"console-downloads","target":"downloads-find","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-downloads","target":"downloads-find","kind":"links","what":"console_panel"}
 {"package":"console-downloads","target":"downloads-find","kind":"links","what":"console_pictures"}
+{"package":"console-downloads","target":"downloads-find","kind":"links","what":"console_repository"}
 {"package":"console-downloads","target":"downloads-find","kind":"links","what":"console_session"}
 {"package":"console-downloads","target":"downloads-find","kind":"links","what":"console_sound_effects"}
 {"package":"console-downloads","target":"downloads-find","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-downloads","target":"downloads-find","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
-{"package":"console-downloads","target":"downloads-find","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-downloads","target":"downloads-find","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-downloads","target":"downloads-find","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-downloads","target":"downloads-format","kind":"builds","what":"downloads_format"}
 {"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_actor"}
@@ -529,18 +765,16 @@
 {"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_panel"}
 {"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_pictures"}
+{"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_repository"}
 {"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_session"}
 {"package":"console-downloads","target":"downloads-format","kind":"links","what":"console_sound_effects"}
 {"package":"console-downloads","target":"downloads-format","kind":"runs","what":"NotifySend"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"environment std::env::args_os"}
 {"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::read"}
+{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::rename"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::path::Path::is_file"}
+{"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
 {"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-downloads","target":"downloads-format","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-downloads","target":"downloads-get","kind":"builds","what":"downloads_get"}
@@ -555,19 +789,19 @@
 {"package":"console-downloads","target":"downloads-get","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-downloads","target":"downloads-get","kind":"links","what":"console_panel"}
 {"package":"console-downloads","target":"downloads-get","kind":"links","what":"console_pictures"}
+{"package":"console-downloads","target":"downloads-get","kind":"links","what":"console_repository"}
 {"package":"console-downloads","target":"downloads-get","kind":"links","what":"console_session"}
 {"package":"console-downloads","target":"downloads-get","kind":"links","what":"console_sound_effects"}
 {"package":"console-downloads","target":"downloads-get","kind":"runs","what":"NotifySend"}
-{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"clock std::time::SystemTime::now"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
-{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::DirEntry::metadata"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
-{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
+{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::remove_file"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::rename"}
+{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
+{"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-downloads","target":"downloads-get","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-downloads","target":"lib","kind":"builds","what":"console_downloads"}
@@ -581,6 +815,7 @@
 {"package":"console-downloads","target":"lib","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-downloads","target":"lib","kind":"links","what":"console_panel"}
 {"package":"console-downloads","target":"lib","kind":"links","what":"console_pictures"}
+{"package":"console-downloads","target":"lib","kind":"links","what":"console_repository"}
 {"package":"console-downloads","target":"lib","kind":"links","what":"console_session"}
 {"package":"console-downloads","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-downloads","target":"lib","kind":"runs","what":"Curl"}
@@ -591,11 +826,10 @@
 {"package":"console-downloads","target":"lib","kind":"starts","what":"DownloadsGet"}
 {"package":"console-downloads","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-downloads","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-downloads","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-downloads","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-downloads","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-downloads","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-downloads","target":"lib","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-downloads","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-downloads","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-draw-painting","target":"lib","kind":"builds","what":"console_draw_painting"}
 {"package":"console-draw-surface","target":"lib","kind":"builds","what":"console_draw_surface"}
@@ -604,6 +838,7 @@
 {"package":"console-draw-surface","target":"lib","kind":"host-access","what":"filesystem rustix::fs::ftruncate"}
 {"package":"console-draw-surface","target":"lib","kind":"host-access","what":"filesystem rustix::fs::memfd_create"}
 {"package":"console-draw-surface","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::contains"}
+{"package":"console-draw-surface","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::empty"}
 {"package":"console-draw-surface","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
 {"package":"console-draw-surface","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
 {"package":"console-draw-surface","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
@@ -670,10 +905,10 @@
 {"package":"console-events","target":"lib","kind":"host-access","what":"filesystem rustix::fs::inotify::Reader::<'buf, Fd>::next"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"filesystem rustix::fs::inotify::add_watch"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"filesystem rustix::fs::inotify::init"}
+{"package":"console-events","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-events","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-events","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_symlink"}
+{"package":"console-events","target":"lib","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixListener::bind"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
@@ -686,16 +921,13 @@
 {"package":"console-events","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
 {"package":"console-events","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-files","target":"console-screenshot","kind":"builds","what":"console_screenshot"}
-{"package":"console-files","target":"console-screenshot","kind":"runs","what":"Date"}
-{"package":"console-files","target":"console-screenshot","kind":"runs","what":"Grim"}
-{"package":"console-files","target":"console-screenshot","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
-{"package":"console-files","target":"console-screenshot","kind":"host-access","what":"process std::process::Command::output"}
-{"package":"console-files","target":"console-screenshot","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-files","target":"console-screenshot","kind":"links","what":"console_capture"}
 {"package":"console-files","target":"files","kind":"builds","what":"files"}
 {"package":"console-files","target":"files","kind":"links","what":"console_actor"}
 {"package":"console-files","target":"files","kind":"links","what":"console_applications"}
 {"package":"console-files","target":"files","kind":"links","what":"console_bus"}
 {"package":"console-files","target":"files","kind":"links","what":"console_compositor"}
+{"package":"console-files","target":"files","kind":"links","what":"console_default_applications"}
 {"package":"console-files","target":"files","kind":"links","what":"console_events"}
 {"package":"console-files","target":"files","kind":"links","what":"console_files"}
 {"package":"console-files","target":"files","kind":"links","what":"console_onscreen"}
@@ -709,6 +941,7 @@
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_applications"}
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_bus"}
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_compositor"}
+{"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_default_applications"}
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_events"}
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_files"}
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_onscreen"}
@@ -718,16 +951,17 @@
 {"package":"console-files","target":"files-thumbnails","kind":"links","what":"console_sound_effects"}
 {"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
 {"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
 {"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
 {"package":"console-files","target":"files-thumbnails","kind":"host-access","what":"filesystem std::path::Path::metadata"}
 {"package":"console-files","target":"files-unzip","kind":"builds","what":"files_unzip"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_actor"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_applications"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_bus"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_compositor"}
+{"package":"console-files","target":"files-unzip","kind":"links","what":"console_default_applications"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_events"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_files"}
 {"package":"console-files","target":"files-unzip","kind":"links","what":"console_onscreen"}
@@ -739,18 +973,19 @@
 {"package":"console-files","target":"files-unzip","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
-{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::create_dir"}
 {"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
-{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::fs::rename"}
-{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
+{"package":"console-files","target":"files-unzip","kind":"host-access","what":"filesystem std::path::Path::metadata"}
 {"package":"console-files","target":"files-unzip","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-files","target":"files-unzip","kind":"host-access","what":"process std::process::id"}
 {"package":"console-files","target":"lib","kind":"builds","what":"console_files"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_actor"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_applications"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_compositor"}
+{"package":"console-files","target":"lib","kind":"links","what":"console_default_applications"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_events"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_onscreen"}
 {"package":"console-files","target":"lib","kind":"links","what":"console_operating_system_linux"}
@@ -774,8 +1009,6 @@
 {"package":"console-files","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-files","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-files","target":"lib","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
-{"package":"console-files","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-files","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
 {"package":"console-files","target":"lib","kind":"host-access","what":"filesystem std::path::Path::metadata"}
 {"package":"console-films","target":"lib","kind":"builds","what":"console_films"}
 {"package":"console-films","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
@@ -829,7 +1062,6 @@
 {"package":"console-home-screen","target":"console-home","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-home-screen","target":"console-home","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-home-screen","target":"console-home","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-home-screen","target":"console-home","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-home-screen","target":"console-home","kind":"host-access","what":"network std::os::unix::net::UnixDatagram::bind"}
 {"package":"console-home-screen","target":"console-home","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
 {"package":"console-home-screen","target":"console-home","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
@@ -852,8 +1084,6 @@
 {"package":"console-home-screen","target":"home-square","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-home-screen","target":"lib","kind":"builds","what":"console_home_screen"}
 {"package":"console-home-screen","target":"lib","kind":"links","what":"console_compositor"}
-{"package":"console-home-screen","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
-{"package":"console-home-screen","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-how-far","target":"lib","kind":"builds","what":"console_how_far"}
 {"package":"console-input-alphabets","target":"lib","kind":"builds","what":"console_input_alphabets"}
 {"package":"console-input-alphabets","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
@@ -863,6 +1093,7 @@
 {"package":"console-input-controller","target":"controller-desktop","kind":"builds","what":"controller_desktop"}
 {"package":"console-input-controller","target":"controller-desktop","kind":"links","what":"console_bus"}
 {"package":"console-input-controller","target":"controller-desktop","kind":"links","what":"console_compositor"}
+{"package":"console-input-controller","target":"controller-desktop","kind":"links","what":"console_cpu_boost"}
 {"package":"console-input-controller","target":"controller-desktop","kind":"links","what":"console_events"}
 {"package":"console-input-controller","target":"controller-desktop","kind":"links","what":"console_input_controller"}
 {"package":"console-input-controller","target":"controller-desktop","kind":"links","what":"console_input_gamepad"}
@@ -896,18 +1127,23 @@
 {"package":"console-input-controller","target":"controller-profile","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
+{"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
+{"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::OpenOptions::truncate"}
+{"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
 {"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::read_to_string"}
-{"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::fs::write"}
-{"package":"console-input-controller","target":"controller-profile","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-input-controller","target":"lib","kind":"builds","what":"console_input_controller"}
 {"package":"console-input-controller","target":"lib","kind":"links","what":"console_compositor"}
 {"package":"console-input-controller","target":"lib","kind":"links","what":"console_input_gamepad"}
 {"package":"console-input-controller","target":"lib","kind":"links","what":"console_onscreen"}
 {"package":"console-input-controller","target":"lib","kind":"runs","what":"Alacritty"}
 {"package":"console-input-controller","target":"lib","kind":"runs","what":"Busctl"}
+{"package":"console-input-controller","target":"lib","kind":"starts","what":"Bar"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Brightness"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Browser"}
+{"package":"console-input-controller","target":"lib","kind":"starts","what":"Clipboard"}
+{"package":"console-input-controller","target":"lib","kind":"starts","what":"ControlCenter"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Dictate"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Downloads"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Files"}
@@ -916,12 +1152,14 @@
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"MappingPanel"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"MusicPanel"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"NotificationsPanel"}
+{"package":"console-input-controller","target":"lib","kind":"starts","what":"Notify"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Overview"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"PutAway"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Screenshot"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"SessionDesktop"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"SessionGame"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"SettingsPanel"}
+{"package":"console-input-controller","target":"lib","kind":"starts","what":"TaskManager"}
 {"package":"console-input-controller","target":"lib","kind":"starts","what":"Volume"}
 {"package":"console-input-controller","target":"lib","kind":"asks","what":"compositor"}
 {"package":"console-input-controller","target":"lib","kind":"timer","what":"contract"}
@@ -935,22 +1173,33 @@
 {"package":"console-input-dictation","target":"console-dictate","kind":"starts","what":"ConsoleSay"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"starts","what":"Dictate"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"environment std::env::args"}
-{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::OpenOptions::create_new"}
-{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
-{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
-{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem rustix::fs::FileType::from_raw_mode"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem rustix::fs::flock"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem rustix::fs::fstat"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem rustix::fs::open"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::copy"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::remove_file"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::fs::rename"}
-{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"filesystem std::path::Path::exists"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process rustix::process::Pid::from_child"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process rustix::process::Pid::from_raw"}
-{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process rustix::process::kill_process"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process rustix::process::pidfd::_::<impl rustix::process::PidfdFlags>::empty"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process rustix::process::pidfd_open"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process rustix::process::pidfd_send_signal"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::Child::id"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::Child::kill"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::Child::wait"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::Command::spawn"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"process std::process::id"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::intersects"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-input-dictation","target":"console-dictate","kind":"host-access","what":"system rustix::event::poll"}
 {"package":"console-input-dictation","target":"lib","kind":"builds","what":"console_input_dictation"}
 {"package":"console-input-dictation","target":"lib","kind":"runs","what":"Cmake"}
 {"package":"console-input-dictation","target":"lib","kind":"runs","what":"Cp"}
@@ -975,14 +1224,22 @@
 {"package":"console-input-dictation","target":"voice-compare","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-input-dictation","target":"voice-compare","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-input-event-devices","target":"lib","kind":"builds","what":"console_input_event_devices"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_getfl"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_setfl"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem rustix::fs::inotify::add_watch"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem rustix::fs::inotify::init"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem rustix::fs::open"}
 {"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
-{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
-{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
-{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::read"}
-{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
 {"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::is_empty"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
+{"package":"console-input-event-devices","target":"lib","kind":"host-access","what":"system rustix::ioctl::ioctl"}
 {"package":"console-input-focus","target":"lib","kind":"builds","what":"console_input_focus"}
 {"package":"console-input-focus","target":"lib","kind":"links","what":"console_input_gamepad"}
 {"package":"console-input-gamepad","target":"allow-uinput","kind":"builds","what":"allow_uinput"}
@@ -1005,8 +1262,8 @@
 {"package":"console-input-gamepad","target":"lib","kind":"runs","what":"Udevadm"}
 {"package":"console-input-gamepad","target":"lib","kind":"runs","what":"Usermod"}
 {"package":"console-input-gamepad","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-input-gamepad","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
 {"package":"console-input-gamepad","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-input-gamepad","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-input-key-symbols","target":"lib","kind":"builds","what":"console_input_key_symbols"}
 {"package":"console-input-keyboard","target":"console-keyboard","kind":"builds","what":"console_keyboard"}
 {"package":"console-input-keyboard","target":"console-keyboard","kind":"links","what":"console_compositor"}
@@ -1035,6 +1292,7 @@
 {"package":"console-input-keyboard","target":"lib","kind":"timer","what":"deadline"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::FileExt::write_all_at"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_add_seals"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::ftruncate"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"filesystem rustix::fs::memfd_create"}
@@ -1043,8 +1301,6 @@
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
 {"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
-{"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"system rustix::mm::mmap"}
-{"package":"console-input-keyboard","target":"lib","kind":"host-access","what":"system rustix::mm::munmap"}
 {"package":"console-input-keymaps","target":"lib","kind":"builds","what":"console_input_keymaps"}
 {"package":"console-input-keymaps","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-input-keymaps-derive","target":"lib","kind":"builds","what":"console_input_keymaps_derive"}
@@ -1058,6 +1314,7 @@
 {"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_applications"}
 {"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_bus"}
 {"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_compositor"}
+{"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_default_applications"}
 {"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_events"}
 {"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_files"}
 {"package":"console-input-mapping","target":"console-asking","kind":"links","what":"console_input_controller"}
@@ -1076,6 +1333,7 @@
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_applications"}
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_compositor"}
+{"package":"console-input-mapping","target":"lib","kind":"links","what":"console_default_applications"}
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_events"}
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_files"}
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_input_controller"}
@@ -1086,6 +1344,7 @@
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_pictures"}
 {"package":"console-input-mapping","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-input-mapping","target":"lib","kind":"starts","what":"Asking"}
+{"package":"console-input-mapping","target":"lib","kind":"asks","what":"compositor"}
 {"package":"console-input-mapping","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-input-mapping","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-input-mapping","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
@@ -1094,6 +1353,7 @@
 {"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_applications"}
 {"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_bus"}
 {"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_compositor"}
+{"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_default_applications"}
 {"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_events"}
 {"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_files"}
 {"package":"console-input-mapping","target":"mapping-panel","kind":"links","what":"console_input_controller"}
@@ -1182,13 +1442,16 @@
 {"package":"console-login-greeter","target":"lib","kind":"links","what":"console_pictures"}
 {"package":"console-login-greeter","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-login-greeter","target":"lib","kind":"links","what":"console_status_bar"}
-{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
-{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
-{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
-{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::read"}
-{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
-{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Dir::read_from"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem rustix::fs::DirEntry::file_name"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem rustix::fs::FileType::from_raw_mode"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fstat"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem rustix::fs::open"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"filesystem rustix::fs::openat"}
 {"package":"console-login-greeter","target":"lib","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"system rustix::mm::mmap"}
+{"package":"console-login-greeter","target":"lib","kind":"host-access","what":"system rustix::mm::munmap"}
 {"package":"console-login-greeter","target":"login-greeter","kind":"builds","what":"login_greeter"}
 {"package":"console-login-greeter","target":"login-greeter","kind":"links","what":"console_actor"}
 {"package":"console-login-greeter","target":"login-greeter","kind":"links","what":"console_applications"}
@@ -1208,16 +1471,19 @@
 {"package":"console-login-session","target":"lib","kind":"builds","what":"console_login_session"}
 {"package":"console-login-window","target":"lib","kind":"builds","what":"console_login_window"}
 {"package":"console-login-window","target":"lib","kind":"links","what":"console_applications"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::read"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::set_permissions"}
-{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem rustix::fs::FileType::from_raw_mode"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Gid::from_raw"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Uid::from_raw"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fstat"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"filesystem rustix::fs::openat2"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"process rustix::process::ioctl_tiocsctty"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"process rustix::process::setsid"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"system rustix::io::Errno::from_io_error"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"system rustix::stdio::stdin"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"system rustix::thread::set_thread_gid"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"system rustix::thread::set_thread_groups"}
+{"package":"console-login-window","target":"lib","kind":"host-access","what":"system rustix::thread::set_thread_uid"}
 {"package":"console-login-window","target":"login-window","kind":"builds","what":"login_window"}
 {"package":"console-login-window","target":"login-window","kind":"links","what":"console_applications"}
 {"package":"console-login-window","target":"login-window","kind":"links","what":"console_operating_system_linux"}
@@ -1244,6 +1510,7 @@
 {"package":"console-manifest-engine","target":"console","kind":"links","what":"console_repository"}
 {"package":"console-manifest-engine","target":"console","kind":"links","what":"console_session"}
 {"package":"console-manifest-engine","target":"console","kind":"links","what":"console_sound_effects"}
+{"package":"console-manifest-engine","target":"console","kind":"runs","what":"Awww"}
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Bootctl"}
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Cargo"}
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Date"}
@@ -1257,7 +1524,6 @@
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Pkill"}
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Runuser"}
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Snapper"}
-{"package":"console-manifest-engine","target":"console","kind":"runs","what":"Su"}
 {"package":"console-manifest-engine","target":"console","kind":"runs","what":"Systemctl"}
 {"package":"console-manifest-engine","target":"console","kind":"binds","what":"unix"}
 {"package":"console-manifest-engine","target":"console","kind":"timer","what":"recv_timeout"}
@@ -1268,6 +1534,9 @@
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"environment std::env::var"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::Metadata::permissions"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::OpenOptions::append"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::OpenOptions::create"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
@@ -1275,17 +1544,14 @@
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::create_dir"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::hard_link"}
+{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::remove_dir"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::remove_file"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::rename"}
-{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::set_permissions"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
-{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-manifest-engine","target":"console","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"network std::os::unix::net::UnixListener::bind_addr"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-manifest-engine","target":"console","kind":"host-access","what":"process std::process::Command::status"}
@@ -1333,18 +1599,20 @@
 {"package":"console-media-viewer","target":"lib","kind":"links","what":"console_session"}
 {"package":"console-media-viewer","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-media-viewer","target":"lib","kind":"starts","what":"Files"}
+{"package":"console-media-viewer","target":"lib","kind":"timer","what":"recv_timeout"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::len"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
-{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
+{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"filesystem std::path::Path::metadata"}
+{"package":"console-media-viewer","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-media-viewer","target":"viewer","kind":"builds","what":"viewer"}
 {"package":"console-media-viewer","target":"viewer","kind":"links","what":"console_actor"}
 {"package":"console-media-viewer","target":"viewer","kind":"links","what":"console_awake"}
@@ -1381,10 +1649,9 @@
 {"package":"console-music","target":"lib","kind":"subscribes","what":"Player"}
 {"package":"console-music","target":"lib","kind":"names","what":"Player"}
 {"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
-{"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-music","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
 {"package":"console-music","target":"music","kind":"builds","what":"music"}
 {"package":"console-music","target":"music","kind":"links","what":"console_actor"}
 {"package":"console-music","target":"music","kind":"links","what":"console_awake"}
@@ -1449,7 +1716,6 @@
 {"package":"console-music","target":"music-index","kind":"links","what":"console_pictures"}
 {"package":"console-music","target":"music-index","kind":"links","what":"console_session"}
 {"package":"console-music","target":"music-index","kind":"links","what":"console_sound_effects"}
-{"package":"console-music","target":"music-index","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-music","target":"music-onward","kind":"builds","what":"music_onward"}
 {"package":"console-music","target":"music-onward","kind":"links","what":"console_actor"}
 {"package":"console-music","target":"music-onward","kind":"links","what":"console_awake"}
@@ -1485,24 +1751,27 @@
 {"package":"console-music-player","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-music-player","target":"lib","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-music-player","target":"lib","kind":"links","what":"console_session"}
+{"package":"console-music-player","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-music-player","target":"lib","kind":"runs","what":"PwCat"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"clock std::time::SystemTime::now"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
+{"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-music-player","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
-{"package":"console-music-player","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
+{"package":"console-music-player","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-music-player","target":"music-player","kind":"builds","what":"music_player"}
 {"package":"console-music-player","target":"music-player","kind":"links","what":"console_awake"}
 {"package":"console-music-player","target":"music-player","kind":"links","what":"console_bus"}
 {"package":"console-music-player","target":"music-player","kind":"links","what":"console_music_player"}
 {"package":"console-music-player","target":"music-player","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-music-player","target":"music-player","kind":"links","what":"console_session"}
+{"package":"console-music-player","target":"music-player","kind":"links","what":"console_sound_effects"}
 {"package":"console-music-player","target":"music-player","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-music-player","target":"music-player","kind":"host-access","what":"network std::os::unix::net::UnixDatagram::pair"}
 {"package":"console-notes","target":"lib","kind":"builds","what":"console_notes"}
 {"package":"console-notes","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-notes","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
@@ -1538,6 +1807,7 @@
 {"package":"console-notifications","target":"console-notify","kind":"links","what":"console_sound_effects"}
 {"package":"console-notifications","target":"console-notify","kind":"timer","what":"deadline"}
 {"package":"console-notifications","target":"console-notify","kind":"host-access","what":"clock std::time::Instant::now"}
+{"package":"console-notifications","target":"console-notify","kind":"host-access","what":"environment std::env::args_os"}
 {"package":"console-notifications","target":"console-notify","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-notifications","target":"console-notify","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-notifications","target":"console-report-crash","kind":"builds","what":"console_report_crash"}
@@ -1579,6 +1849,10 @@
 {"package":"console-notifications","target":"console-updating","kind":"links","what":"console_pictures"}
 {"package":"console-notifications","target":"console-updating","kind":"links","what":"console_sound_effects"}
 {"package":"console-notifications","target":"console-updating","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-notifications","target":"console-upload-errors","kind":"builds","what":"console_upload_errors"}
+{"package":"console-notifications","target":"console-upload-errors","kind":"runs","what":"Curl"}
+{"package":"console-notifications","target":"console-upload-errors","kind":"host-access","what":"process std::process::Child::wait_with_output"}
+{"package":"console-notifications","target":"console-upload-errors","kind":"host-access","what":"process std::process::Command::spawn"}
 {"package":"console-notifications","target":"lib","kind":"builds","what":"console_notifications"}
 {"package":"console-notifications","target":"lib","kind":"links","what":"console_actor"}
 {"package":"console-notifications","target":"lib","kind":"links","what":"console_bus"}
@@ -1596,8 +1870,6 @@
 {"package":"console-notifications","target":"lib","kind":"host-access","what":"environment std::env::var"}
 {"package":"console-notifications","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-notifications","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
-{"package":"console-notifications","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-notifications","target":"lib","kind":"host-access","what":"process rustix::process::getuid"}
 {"package":"console-notifications","target":"lib","kind":"host-access","what":"process std::process::Child::kill"}
 {"package":"console-notifications","target":"lib","kind":"host-access","what":"process std::process::Child::try_wait"}
 {"package":"console-notifications","target":"lib","kind":"host-access","what":"process std::process::Child::wait"}
@@ -1618,9 +1890,13 @@
 {"package":"console-onscreen","target":"lib","kind":"builds","what":"console_onscreen"}
 {"package":"console-onscreen","target":"lib","kind":"links","what":"console_compositor"}
 {"package":"console-onscreen","target":"lib","kind":"socket","what":"Events"}
+{"package":"console-onscreen","target":"lib","kind":"connects","what":"unix"}
+{"package":"console-onscreen","target":"lib","kind":"binds","what":"unix"}
 {"package":"console-onscreen","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-onscreen","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-onscreen","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
+{"package":"console-onscreen","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixDatagram::bind"}
+{"package":"console-onscreen","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixDatagram::connect"}
 {"package":"console-operating-system-linux","target":"lib","kind":"builds","what":"console_operating_system_linux"}
 {"package":"console-operating-system-linux","target":"lib","kind":"runs","what":"NotifySend"}
 {"package":"console-operating-system-linux","target":"lib","kind":"runs","what":"Systemctl"}
@@ -1636,13 +1912,16 @@
 {"package":"console-operating-system-linux","target":"lib","kind":"names","what":"Sound"}
 {"package":"console-operating-system-linux","target":"lib","kind":"names","what":"Units"}
 {"package":"console-operating-system-linux","target":"lib","kind":"names","what":"Wifi"}
-{"package":"console-operating-system-linux","target":"lib","kind":"connects","what":"unix"}
 {"package":"console-operating-system-linux","target":"lib","kind":"timer","what":"recv_timeout"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"clock std::time::SystemTime::now"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_getfl"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fcntl_setfl"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"filesystem rustix::fs::fstat"}
-{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"network rustix::net::SocketAddrUnix::new"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"network rustix::net::connect"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"network rustix::net::socket_with"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"process rustix::process::Pid::from_child"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"process rustix::process::Pid::from_raw"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"process rustix::process::getpid"}
@@ -1661,8 +1940,13 @@
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"process std::process::Child::wait"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"process std::process::Command::spawn"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::is_empty"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"system rustix::io::read"}
+{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"system rustix::io::write"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"threads std::thread::Builder::spawn"}
-{"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"threads std::thread::Scope::<'scope, 'env>::spawn"}
 {"package":"console-operating-system-linux","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-overview","target":"console-overview","kind":"builds","what":"console_overview"}
 {"package":"console-overview","target":"console-overview","kind":"links","what":"console_compositor"}
@@ -1719,15 +2003,15 @@
 {"package":"console-panel","target":"lib","kind":"names","what":"Path"}
 {"package":"console-panel","target":"lib","kind":"asks","what":"compositor"}
 {"package":"console-panel","target":"lib","kind":"connects","what":"unix"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"clock rustix::time::timerfd_create"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"clock rustix::time::timerfd_settime"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"environment std::env::var"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"environment std::env::var_os"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem rustix::fs::flock"}
+{"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::File::metadata"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::File::set_len"}
+{"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::append"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::create"}
@@ -1740,15 +2024,13 @@
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
+{"package":"console-panel","target":"lib","kind":"host-access","what":"network rustix::net::send"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::pair"}
+{"package":"console-panel","target":"lib","kind":"host-access","what":"process rustix::process::Pid::from_raw"}
+{"package":"console-panel","target":"lib","kind":"host-access","what":"process rustix::process::kill_process"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"process std::process::id"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::contains"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::backend::time::types::_::<impl rustix::time::TimerfdTimerFlags>::empty"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::from_borrowed_fd"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::new"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::event::PollFd::<'fd>::revents"}
-{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::event::poll"}
+{"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::io::read"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::io::write"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"system rustix::pipe::pipe_with"}
 {"package":"console-panel","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
@@ -1771,8 +2053,8 @@
 {"package":"console-panel","target":"panel-pictures","kind":"host-access","what":"filesystem std::fs::OpenOptions::truncate"}
 {"package":"console-panel","target":"panel-pictures","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
 {"package":"console-panel","target":"panel-pictures","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-panel","target":"panel-pictures","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-panel","target":"panel-pictures","kind":"host-access","what":"filesystem std::fs::read"}
-{"package":"console-panel","target":"panel-pictures","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-panel","target":"second-picker","kind":"builds","what":"second_picker"}
 {"package":"console-panel","target":"second-picker","kind":"links","what":"console_actor"}
 {"package":"console-panel","target":"second-picker","kind":"links","what":"console_bus"}
@@ -1792,6 +2074,7 @@
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_bluetooth_agent"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_bus"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_calendar"}
+{"package":"console-panels","target":"console-panels","kind":"links","what":"console_clipboard"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_compositor"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_default_applications"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_events"}
@@ -1814,6 +2097,7 @@
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_settings"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_sound_effects"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_status_bar"}
+{"package":"console-panels","target":"console-panels","kind":"links","what":"console_task_manager"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_wallpaper"}
 {"package":"console-panels","target":"console-panels","kind":"links","what":"console_weather"}
 {"package":"console-panels","target":"console-panels","kind":"host-access","what":"environment std::env::args"}
@@ -1824,6 +2108,7 @@
 {"package":"console-panels","target":"lib","kind":"links","what":"console_bluetooth_agent"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_calendar"}
+{"package":"console-panels","target":"lib","kind":"links","what":"console_clipboard"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_compositor"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_default_applications"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_events"}
@@ -1845,20 +2130,26 @@
 {"package":"console-panels","target":"lib","kind":"links","what":"console_settings"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_status_bar"}
+{"package":"console-panels","target":"lib","kind":"links","what":"console_task_manager"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_wallpaper"}
 {"package":"console-panels","target":"lib","kind":"links","what":"console_weather"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"Calculator"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"CalendarPanel"}
+{"package":"console-panels","target":"lib","kind":"starts","what":"Clipboard"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"ForecastPanel"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"Launcher"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"MappingPanel"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"MusicPanel"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"NotificationsPanel"}
 {"package":"console-panels","target":"lib","kind":"starts","what":"SettingsPanel"}
+{"package":"console-panels","target":"lib","kind":"starts","what":"TaskManager"}
 {"package":"console-panels","target":"lib","kind":"connects","what":"unix"}
 {"package":"console-panels","target":"lib","kind":"binds","what":"unix"}
 {"package":"console-panels","target":"lib","kind":"timer","what":"recv_timeout"}
+{"package":"console-panels","target":"lib","kind":"host-access","what":"filesystem rustix::fs::FileTypeExt::is_socket"}
+{"package":"console-panels","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::file_type"}
 {"package":"console-panels","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
+{"package":"console-panels","target":"lib","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
 {"package":"console-panels","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixListener::bind"}
 {"package":"console-panels","target":"lib","kind":"host-access","what":"network std::os::unix::net::UnixStream::connect"}
 {"package":"console-panels","target":"lib","kind":"host-access","what":"system rustix::backend::event::poll_fd::_::<impl rustix::event::PollFlags>::is_empty"}
@@ -1869,7 +2160,10 @@
 {"package":"console-pictures","target":"lib","kind":"builds","what":"console_pictures"}
 {"package":"console-pictures","target":"lib","kind":"runs","what":"Ffmpeg"}
 {"package":"console-pictures","target":"lib","kind":"runs","what":"Ffprobe"}
+{"package":"console-pictures","target":"lib","kind":"host-access","what":"filesystem std::fs::File::metadata"}
 {"package":"console-pictures","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
+{"package":"console-pictures","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-pictures","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-pictures","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-pictures","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-program-contract","target":"lib","kind":"builds","what":"console_program_contract"}
@@ -1901,9 +2195,10 @@
 {"package":"console-repository","target":"lib","kind":"runs","what":"Git"}
 {"package":"console-repository","target":"lib","kind":"host-access","what":"environment std::env::current_dir"}
 {"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
+{"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-repository","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-repository","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-resource-usage","target":"console-resource-usage","kind":"builds","what":"console_resource_usage"}
 {"package":"console-resource-usage","target":"console-resource-usage","kind":"links","what":"console_resource_usage"}
@@ -1930,7 +2225,7 @@
 {"package":"console-response-times","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-response-times","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-response-times","target":"lib","kind":"host-access","what":"clock std::time::SystemTime::now"}
-{"package":"console-response-times","target":"lib","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-response-times","target":"lib","kind":"host-access","what":"environment std::env::args_os"}
 {"package":"console-response-times","target":"lib","kind":"host-access","what":"environment std::env::var"}
 {"package":"console-response-times","target":"lib","kind":"host-access","what":"filesystem std::fs::File::metadata"}
 {"package":"console-response-times","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::len"}
@@ -1952,7 +2247,7 @@
 {"package":"console-resume","target":"console-resume","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-resume","target":"console-resume","kind":"links","what":"console_resume"}
 {"package":"console-resume","target":"console-resume","kind":"host-access","what":"environment std::env::args"}
-{"package":"console-resume","target":"console-resume","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-resume","target":"console-resume","kind":"host-access","what":"environment std::env::var_os"}
 {"package":"console-resume","target":"console-resume","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-resume","target":"lib","kind":"builds","what":"console_resume"}
 {"package":"console-resume","target":"lib","kind":"links","what":"console_applications"}
@@ -1964,18 +2259,18 @@
 {"package":"console-resume","target":"lib","kind":"subscribes","what":"Compositor"}
 {"package":"console-resume","target":"lib","kind":"names","what":"Compositor"}
 {"package":"console-resume","target":"lib","kind":"asks","what":"compositor"}
+{"package":"console-resume","target":"lib","kind":"timer","what":"recv_timeout"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::read_link"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
-{"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-resume","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-resume","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-screen","target":"lib","kind":"builds","what":"console_screen"}
 {"package":"console-screen","target":"lib","kind":"links","what":"console_compositor"}
 {"package":"console-screen","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
@@ -1999,6 +2294,19 @@
 {"package":"console-session","target":"session-start","kind":"builds","what":"session_start"}
 {"package":"console-session","target":"session-start","kind":"links","what":"console_bus"}
 {"package":"console-session","target":"session-start","kind":"links","what":"console_session"}
+{"package":"console-session","target":"steamos-session-select","kind":"builds","what":"steamos_session_select"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"Hyprctl"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"Id"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"Pgrep"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"Pkexec"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"Steam"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"SteamSetSession"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"StockSessionSelect"}
+{"package":"console-session","target":"steamos-session-select","kind":"runs","what":"Systemctl"}
+{"package":"console-session","target":"steamos-session-select","kind":"host-access","what":"environment std::env::args_os"}
+{"package":"console-session","target":"steamos-session-select","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-session","target":"steamos-session-select","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-session","target":"steamos-session-select","kind":"host-access","what":"threads std::thread::sleep"}
 {"package":"console-settings","target":"console-battery","kind":"builds","what":"console_battery"}
 {"package":"console-settings","target":"console-battery","kind":"links","what":"console_actor"}
 {"package":"console-settings","target":"console-battery","kind":"links","what":"console_applications"}
@@ -2053,8 +2361,8 @@
 {"package":"console-settings","target":"console-brightness","kind":"asks","what":"compositor"}
 {"package":"console-settings","target":"console-brightness","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-settings","target":"console-brightness","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-settings","target":"console-brightness","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-settings","target":"console-brightness","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-settings","target":"console-brightness","kind":"host-access","what":"filesystem std::path::Path::exists"}
 {"package":"console-settings","target":"console-brightness","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-settings","target":"console-machine","kind":"builds","what":"console_machine"}
 {"package":"console-settings","target":"console-machine","kind":"links","what":"console_actor"}
@@ -2115,6 +2423,24 @@
 {"package":"console-settings","target":"console-scale","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-settings","target":"console-scale","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-settings","target":"console-scale","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-settings","target":"console-update-pattern","kind":"builds","what":"console_update_pattern"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_actor"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_applications"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_bus"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_compositor"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_default_applications"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_events"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_notifications"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_onscreen"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_panel"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_pictures"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_sound_effects"}
+{"package":"console-settings","target":"console-update-pattern","kind":"links","what":"console_status_bar"}
+{"package":"console-settings","target":"console-update-pattern","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-settings","target":"console-update-pattern","kind":"host-access","what":"process std::process::Child::wait_with_output"}
+{"package":"console-settings","target":"console-update-pattern","kind":"host-access","what":"process std::process::Command::spawn"}
+{"package":"console-settings","target":"console-update-pattern","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-settings","target":"console-volume","kind":"builds","what":"console_volume"}
 {"package":"console-settings","target":"console-volume","kind":"links","what":"console_actor"}
 {"package":"console-settings","target":"console-volume","kind":"links","what":"console_applications"}
@@ -2139,9 +2465,7 @@
 {"package":"console-settings","target":"console-volume","kind":"links","what":"console_status_bar"}
 {"package":"console-settings","target":"console-volume","kind":"links","what":"console_wallpaper"}
 {"package":"console-settings","target":"console-volume","kind":"links","what":"console_weather"}
-{"package":"console-settings","target":"console-volume","kind":"runs","what":"Pactl"}
 {"package":"console-settings","target":"console-volume","kind":"host-access","what":"environment std::env::args"}
-{"package":"console-settings","target":"console-volume","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-settings","target":"console-warm","kind":"builds","what":"console_warm"}
 {"package":"console-settings","target":"console-warm","kind":"links","what":"console_actor"}
 {"package":"console-settings","target":"console-warm","kind":"links","what":"console_applications"}
@@ -2250,13 +2574,13 @@
 {"package":"console-settings","target":"lib","kind":"asks","what":"compositor"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::fs::write"}
-{"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-settings","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-settings","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-settings","target":"settings-login-pattern","kind":"builds","what":"settings_login_pattern"}
 {"package":"console-settings","target":"settings-login-pattern","kind":"links","what":"console_actor"}
@@ -2310,14 +2634,23 @@
 {"package":"console-settings","target":"settings-panel","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-signals","target":"lib","kind":"builds","what":"console_signals"}
 {"package":"console-signals","target":"lib","kind":"host-access","what":"process rustix::process::Signal::as_raw"}
+{"package":"console-signals","target":"lib","kind":"host-access","what":"process rustix::process::Signal::from_named_raw"}
+{"package":"console-signals","target":"lib","kind":"host-access","what":"process rustix::process::getpid"}
+{"package":"console-signals","target":"lib","kind":"host-access","what":"process rustix::process::kill_process"}
 {"package":"console-sound-effects","target":"console-sound-effect","kind":"builds","what":"console_sound_effect"}
 {"package":"console-sound-effects","target":"console-sound-effect","kind":"links","what":"console_sound_effects"}
 {"package":"console-sound-effects","target":"console-sound-effect","kind":"host-access","what":"environment std::env::args"}
 {"package":"console-sound-effects","target":"lib","kind":"builds","what":"console_sound_effects"}
 {"package":"console-sound-effects","target":"lib","kind":"runs","what":"PwCat"}
+{"package":"console-sound-effects","target":"lib","kind":"host-access","what":"filesystem std::fs::File::try_lock"}
+{"package":"console-sound-effects","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::append"}
+{"package":"console-sound-effects","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::create"}
+{"package":"console-sound-effects","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
+{"package":"console-sound-effects","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::open"}
 {"package":"console-sound-effects","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-status-bar","target":"console-bar","kind":"builds","what":"console_bar"}
 {"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_actor"}
+{"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_applications"}
 {"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_awake"}
 {"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_bus"}
 {"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_compositor"}
@@ -2334,6 +2667,7 @@
 {"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_sound_effects"}
 {"package":"console-status-bar","target":"console-bar","kind":"links","what":"console_status_bar"}
 {"package":"console-status-bar","target":"console-bar","kind":"starts","what":"CalendarPanel"}
+{"package":"console-status-bar","target":"console-bar","kind":"starts","what":"Clipboard"}
 {"package":"console-status-bar","target":"console-bar","kind":"starts","what":"KeyboardToggle"}
 {"package":"console-status-bar","target":"console-bar","kind":"starts","what":"Launcher"}
 {"package":"console-status-bar","target":"console-bar","kind":"starts","what":"MusicPanel"}
@@ -2344,16 +2678,18 @@
 {"package":"console-status-bar","target":"console-bar","kind":"asks","what":"compositor"}
 {"package":"console-status-bar","target":"console-bar","kind":"timer","what":"deadline"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"clock std::time::Instant::now"}
+{"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"environment std::env::args_os"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"filesystem rustix::fs::inotify::add_watch"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"filesystem rustix::fs::inotify::init"}
-{"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"process rustix::process::Pid::from_raw"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"process rustix::process::pidfd::_::<impl rustix::process::PidfdFlags>::empty"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"process rustix::process::pidfd_open"}
 {"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"system rustix::io::read"}
-{"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"threads std::thread::spawn"}
+{"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"system rustix::io::write"}
+{"package":"console-status-bar","target":"console-bar","kind":"host-access","what":"threads std::thread::Builder::spawn"}
 {"package":"console-status-bar","target":"lib","kind":"builds","what":"console_status_bar"}
 {"package":"console-status-bar","target":"lib","kind":"links","what":"console_actor"}
+{"package":"console-status-bar","target":"lib","kind":"links","what":"console_applications"}
 {"package":"console-status-bar","target":"lib","kind":"links","what":"console_bus"}
 {"package":"console-status-bar","target":"lib","kind":"links","what":"console_compositor"}
 {"package":"console-status-bar","target":"lib","kind":"links","what":"console_default_applications"}
@@ -2365,10 +2701,12 @@
 {"package":"console-status-bar","target":"lib","kind":"links","what":"console_pictures"}
 {"package":"console-status-bar","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-status-bar","target":"lib","kind":"runs","what":"Date"}
+{"package":"console-status-bar","target":"lib","kind":"runs","what":"Gio"}
 {"package":"console-status-bar","target":"lib","kind":"runs","what":"Nmcli"}
 {"package":"console-status-bar","target":"lib","kind":"runs","what":"Systemctl"}
 {"package":"console-status-bar","target":"lib","kind":"runs","what":"Wpctl"}
 {"package":"console-status-bar","target":"lib","kind":"starts","what":"CalendarPanel"}
+{"package":"console-status-bar","target":"lib","kind":"starts","what":"Clipboard"}
 {"package":"console-status-bar","target":"lib","kind":"starts","what":"Launcher"}
 {"package":"console-status-bar","target":"lib","kind":"starts","what":"MusicPanel"}
 {"package":"console-status-bar","target":"lib","kind":"starts","what":"NotificationsPanel"}
@@ -2384,9 +2722,54 @@
 {"package":"console-status-bar","target":"lib","kind":"names","what":"Notifications"}
 {"package":"console-status-bar","target":"lib","kind":"names","what":"Sound"}
 {"package":"console-status-bar","target":"lib","kind":"host-access","what":"clock std::time::SystemTime::now"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem rustix::fs::flock"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem rustix::fs::open"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::File::metadata"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"filesystem std::path::Path::metadata"}
 {"package":"console-status-bar","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-status-bar","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"builds","what":"syncthing_shared_folders"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"runs","what":"Syncthing"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"host-access","what":"environment std::env::var_os"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"host-access","what":"process std::process::Command::output"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-syncthing","target":"syncthing-shared-folders","kind":"host-access","what":"threads std::thread::sleep"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"builds","what":"console_task_manager"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_actor"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_applications"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_bus"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_compositor"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_events"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_onscreen"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_panel"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_pictures"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_sound_effects"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"links","what":"console_task_manager"}
+{"package":"console-task-manager","target":"console-task-manager","kind":"host-access","what":"environment std::env::args"}
+{"package":"console-task-manager","target":"lib","kind":"builds","what":"console_task_manager"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_actor"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_applications"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_bus"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_compositor"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_events"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_onscreen"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_operating_system_linux"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_panel"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_pictures"}
+{"package":"console-task-manager","target":"lib","kind":"links","what":"console_sound_effects"}
+{"package":"console-task-manager","target":"lib","kind":"subscribes","what":"Compositor"}
+{"package":"console-task-manager","target":"lib","kind":"names","what":"Compositor"}
+{"package":"console-task-manager","target":"lib","kind":"asks","what":"compositor"}
+{"package":"console-task-manager","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-tasks","target":"console-tasks","kind":"builds","what":"console_tasks"}
 {"package":"console-tasks","target":"console-tasks","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-tasks","target":"console-tasks","kind":"links","what":"console_repository"}
@@ -2479,7 +2862,6 @@
 {"package":"console-test-checks","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
 {"package":"console-test-checks","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-test-checks","target":"lib","kind":"host-access","what":"process std::process::Command::status"}
-{"package":"console-test-checks","target":"lib","kind":"host-access","what":"process std::process::id"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"builds","what":"console_desktop"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"links","what":"console_actor"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"links","what":"console_bus"}
@@ -2500,7 +2882,8 @@
 {"package":"console-test-desktop","target":"console-desktop","kind":"runs","what":"Sh"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"asks","what":"compositor"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"environment std::env::args"}
-{"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
+{"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"filesystem rustix::fs::fcntl_getfl"}
+{"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"filesystem rustix::fs::fcntl_setfl"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"process std::process::Child::id"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"process std::process::Child::kill"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"process std::process::Child::try_wait"}
@@ -2508,6 +2891,7 @@
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"process std::process::Command::spawn"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"process std::process::Command::status"}
+{"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"system rustix::io::read"}
 {"package":"console-test-desktop","target":"console-desktop","kind":"host-access","what":"threads std::thread::sleep"}
 {"package":"console-test-desktop","target":"lib","kind":"builds","what":"console_test_desktop"}
 {"package":"console-test-desktop","target":"lib","kind":"links","what":"console_actor"}
@@ -2527,13 +2911,23 @@
 {"package":"console-test-desktop","target":"lib","kind":"asks","what":"compositor"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"environment std::env::current_exe"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Mode::from_raw_mode"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem rustix::fs::Uid::as_raw"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem rustix::fs::flock"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem rustix::fs::ioctl_ficlone"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem rustix::fs::open"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_type"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::File::create"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::File::open"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::copy"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::File::metadata"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::File::set_permissions"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::FileType::is_dir"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::FileType::is_file"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::FileType::is_symlink"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::file_type"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::permissions"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::read_dir"}
@@ -2542,14 +2936,16 @@
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::set_permissions"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
-{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_symlink"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"network rustix::net::SocketAddrUnix::new"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"network rustix::net::connect"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"network rustix::net::socket_with"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"process rustix::process::Pid::from_raw"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"process rustix::process::getuid"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"process rustix::process::test_kill_process"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-test-desktop","target":"lib","kind":"host-access","what":"process std::process::id"}
+{"package":"console-test-desktop","target":"lib","kind":"host-access","what":"system rustix::backend::fs::types::_::<impl rustix::fs::Mode>::empty"}
 {"package":"console-test-flows","target":"lib","kind":"builds","what":"console_test_flows"}
 {"package":"console-test-stages","target":"lib","kind":"builds","what":"console_test_stages"}
 {"package":"console-test-stages","target":"lib","kind":"links","what":"console_actor"}
@@ -2563,16 +2959,18 @@
 {"package":"console-test-stages","target":"lib","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-test-stages","target":"lib","kind":"links","what":"console_panel"}
 {"package":"console-test-stages","target":"lib","kind":"links","what":"console_pictures"}
+{"package":"console-test-stages","target":"lib","kind":"links","what":"console_repository"}
 {"package":"console-test-stages","target":"lib","kind":"links","what":"console_sound_effects"}
 {"package":"console-test-stages","target":"lib","kind":"runs","what":"DbusDaemon"}
 {"package":"console-test-stages","target":"lib","kind":"runs","what":"Scp"}
-{"package":"console-test-stages","target":"lib","kind":"runs","what":"Sh"}
 {"package":"console-test-stages","target":"lib","kind":"runs","what":"Ssh"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"environment std::env::temp_dir"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"environment std::env::var"}
+{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem rustix::fs::FileTypeExt::is_socket"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem rustix::fs::flock"}
+{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::file_type"}
+{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::create"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::new"}
@@ -2580,23 +2978,19 @@
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::truncate"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::OpenOptions::write"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
+{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::metadata"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
+{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::fs::symlink_metadata"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::path::Path::exists"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_dir"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"filesystem std::path::Path::metadata"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"process rustix::process::getpid"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"process rustix::process::kill_process"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"process std::process::Command::status"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"process std::process::id"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"system console_signals::Signal::from_named_raw"}
+{"package":"console-test-stages","target":"lib","kind":"host-access","what":"threads std::thread::scoped::<impl std::thread::Builder>::spawn_scoped"}
 {"package":"console-test-stages","target":"lib","kind":"host-access","what":"threads std::thread::sleep"}
-{"package":"console-test-stages","target":"lib","kind":"host-access","what":"threads std::thread::spawn"}
 {"package":"console-vocabulary","target":"lib","kind":"builds","what":"console_vocabulary"}
 {"package":"console-vocabulary","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::file_name"}
 {"package":"console-vocabulary","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_dir"}
@@ -2618,20 +3012,21 @@
 {"package":"console-wallpaper","target":"console-wallpaper","kind":"links","what":"console_weather"}
 {"package":"console-wallpaper","target":"console-wallpaper","kind":"runs","what":"Awww"}
 {"package":"console-wallpaper","target":"console-wallpaper","kind":"host-access","what":"environment std::env::args"}
-{"package":"console-wallpaper","target":"console-wallpaper","kind":"host-access","what":"filesystem std::fs::read_to_string"}
-{"package":"console-wallpaper","target":"console-wallpaper","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-wallpaper","target":"console-wallpaper","kind":"host-access","what":"process std::process::Command::output"}
 {"package":"console-wallpaper","target":"lib","kind":"builds","what":"console_wallpaper"}
 {"package":"console-wallpaper","target":"lib","kind":"links","what":"console_compositor"}
 {"package":"console-wallpaper","target":"lib","kind":"links","what":"console_onscreen"}
+{"package":"console-wallpaper","target":"lib","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-wallpaper","target":"lib","kind":"links","what":"console_repository"}
 {"package":"console-wallpaper","target":"lib","kind":"links","what":"console_weather"}
 {"package":"console-wallpaper","target":"lib","kind":"runs","what":"Curl"}
 {"package":"console-wallpaper","target":"lib","kind":"runs","what":"Ffmpeg"}
 {"package":"console-wallpaper","target":"lib","kind":"subscribes","what":"Compositor"}
 {"package":"console-wallpaper","target":"lib","kind":"names","what":"Compositor"}
-{"package":"console-wallpaper","target":"lib","kind":"timer","what":"contract"}
+{"package":"console-wallpaper","target":"lib","kind":"host-access","what":"clock std::time::Instant::elapsed"}
+{"package":"console-wallpaper","target":"lib","kind":"host-access","what":"clock std::time::Instant::now"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
+{"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::is_file"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::Metadata::modified"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::read"}
@@ -2639,14 +3034,12 @@
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::remove_file"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::fs::rename"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::path::Path::canonicalize"}
-{"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"filesystem std::path::Path::metadata"}
-{"package":"console-wallpaper","target":"lib","kind":"host-access","what":"process std::process::Child::wait_with_output"}
 {"package":"console-wallpaper","target":"lib","kind":"host-access","what":"process std::process::Command::output"}
-{"package":"console-wallpaper","target":"lib","kind":"host-access","what":"process std::process::Command::spawn"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"builds","what":"wallpaper_render"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"links","what":"console_compositor"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"links","what":"console_onscreen"}
+{"package":"console-wallpaper","target":"wallpaper-render","kind":"links","what":"console_operating_system_linux"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"links","what":"console_repository"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"links","what":"console_wallpaper"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"links","what":"console_weather"}
@@ -2654,10 +3047,8 @@
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::fs::DirEntry::path"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::fs::create_dir_all"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::fs::read_dir"}
-{"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::fs::read_to_string"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::fs::remove_dir_all"}
 {"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::fs::remove_file"}
-{"package":"console-wallpaper","target":"wallpaper-render","kind":"host-access","what":"filesystem std::path::Path::is_file"}
 {"package":"console-weather","target":"lib","kind":"builds","what":"console_weather"}
 {"package":"console-weather","target":"lib","kind":"runs","what":"Curl"}
 {"package":"console-weather","target":"lib","kind":"host-access","what":"filesystem std::fs::create_dir_all"}

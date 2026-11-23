@@ -58,10 +58,11 @@ impl AsRef<Path> for DesktopFile<'_> {
 
 pub fn find_desktop_file(desktop: &str, among: &[PathBuf]) -> Result<Option<PathBuf>, Never> {
   let path = Path::new(desktop);
-  let named = match ::core::primitive::bool::then_some(path.file_name() == Some(path.as_os_str()), ()) {
-    ::core::option::Option::Some(()) => DesktopFile(path),
-    ::core::option::Option::None => return Ok(None),
-  };
+  let named =
+    match ::core::primitive::bool::then_some(path.file_name() == Some(path.as_os_str()), ()) {
+      ::core::option::Option::Some(()) => DesktopFile(path),
+      ::core::option::Option::None => return Ok(None),
+    };
 
   Ok(among.iter().map(|at| at.join(&named)).find(|candidate| {
     match std::fs::metadata(candidate) {

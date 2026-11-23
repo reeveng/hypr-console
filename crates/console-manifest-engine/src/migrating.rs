@@ -210,10 +210,12 @@ enum Found {
 fn probe(at: &Path) -> Result<Found, Unapplied> {
   match std::fs::symlink_metadata(at) {
     Ok(_metadata) => Ok(Found::There),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Ok(Found::Absent),
-      ::core::option::Option::None => Err(Unapplied::Read(at.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(Found::Absent),
+        ::core::option::Option::None => Err(Unapplied::Read(at.to_path_buf(), fault)),
+      }
+    }
   }
 }
 
@@ -221,10 +223,12 @@ fn every_one(under: &Path, named: &str, attic: &Path) -> Result<(), Unapplied> {
   let named_file = pruning::AtticEntry::from_live(Path::new(named))?;
   let entries = match std::fs::read_dir(under) {
     Ok(entries) => entries,
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => return Ok(()),
-      ::core::option::Option::None => return Err(Unapplied::Read(under.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => return Ok(()),
+        ::core::option::Option::None => return Err(Unapplied::Read(under.to_path_buf(), fault)),
+      }
+    }
   };
 
   for entry in entries.flatten() {
@@ -237,10 +241,12 @@ fn every_one(under: &Path, named: &str, attic: &Path) -> Result<(), Unapplied> {
 fn read(at: &Path) -> Result<Option<String>, Unapplied> {
   match std::fs::read_to_string(at) {
     Ok(said) => Ok(Some(said)),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Ok(None),
-      ::core::option::Option::None => Err(Unapplied::Read(at.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(None),
+        ::core::option::Option::None => Err(Unapplied::Read(at.to_path_buf(), fault)),
+      }
+    }
   }
 }
 

@@ -127,7 +127,7 @@ impl fmt::Display for PagingError {
     into.write_str(match self {
       Self::Unsupported => "user tasks require four-level paging, NX and PCID disabled",
       Self::UserSlotOccupied => "the user virtual address range overlaps the firmware map",
-      Self::ProgramTooLarge => "the built-in user program does not fit into a code page",
+      Self::ProgramTooLarge => "the user program does not fit into a code page",
       Self::InvalidFrame => "the frame has an invalid physical address",
     })
   }
@@ -357,10 +357,12 @@ fn enable_nx() -> Result<(), PagingError> {
 
   let extended = __cpuid(0x8000_0000).eax >= 0x8000_0001;
 
-  match ::core::primitive::bool::then_some(extended
-    && __cpuid(0x8000_0001).edx & ::core::primitive::u32::wrapping_shl(1, 20_u32) != 0
-    && controls & (FIVE_LEVELS | PCID) == 0, ())
-  {
+  match ::core::primitive::bool::then_some(
+    extended
+      && __cpuid(0x8000_0001).edx & ::core::primitive::u32::wrapping_shl(1, 20_u32) != 0
+      && controls & (FIVE_LEVELS | PCID) == 0,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Err(PagingError::Unsupported),
   }

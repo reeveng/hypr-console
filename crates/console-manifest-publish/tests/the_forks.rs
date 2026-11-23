@@ -30,10 +30,12 @@ enum Checkout {
 fn checkout() -> Result<Checkout, std::io::Error> {
   match std::fs::File::open(Path::new(ROOT).join("docs/forks.md")) {
     Ok(_marker) => Ok(Checkout::Published),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Ok(Checkout::Private),
-      ::core::option::Option::None => Err(fault),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(Checkout::Private),
+        ::core::option::Option::None => Err(fault),
+      }
+    }
   }
 }
 

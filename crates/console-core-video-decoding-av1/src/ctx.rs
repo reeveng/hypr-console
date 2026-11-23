@@ -92,7 +92,10 @@ impl<const UP_TO: usize, const WITH_DEFAULT: bool> CaseSetter<UP_TO, WITH_DEFAUL
   #[inline]
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "the caller passes either a reserved segment-map row or a width-checked transform map row")
+    expect(
+      explicit014_no_index_slice,
+      reason = "the caller passes either a reserved segment-map row or a width-checked transform map row"
+    )
   )]
   pub fn set<T: Copy>(
     &self,
@@ -121,7 +124,10 @@ impl<const UP_TO: usize, const WITH_DEFAULT: bool> CaseSetter<UP_TO, WITH_DEFAUL
   #[inline(always)]
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "the block geometry limits the left context update to the fixed-width context buffer")
+    expect(
+      explicit014_no_index_slice,
+      reason = "the block geometry limits the left context update to the fixed-width context buffer"
+    )
   )]
   pub fn set_exclusive<T, V>(
     &self,

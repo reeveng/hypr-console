@@ -98,10 +98,12 @@ fn opened(stage: &mut Device, button: &str, who: Layer<'_>) -> Result<Option<(u3
 fn alone(seen: &mut Device, who: Layer<'_>) -> Result<Ready, Never> {
   let Ok(up) = seen.menus();
 
-  Ok(match ::core::primitive::bool::then_some(up.as_slice() == [who.0], ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(up.as_slice() == [who.0], ()) {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn console_put_away(stage: &mut Device) -> CheckResult {
@@ -195,10 +197,12 @@ fn holds_nothing(stage: &mut Device) -> CheckResult {
     |seen| {
       let Ok(up) = host(seen);
 
-      Ok(match ::core::primitive::bool::then_some(up.is_empty(), ()) {
-        ::core::option::Option::Some(()) => Ready::NotYet,
-        ::core::option::Option::None => Ready::Yes,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(up.is_empty(), ()) {
+          ::core::option::Option::Some(()) => Ready::NotYet,
+          ::core::option::Option::None => Ready::Yes,
+        },
+      )
     },
     PATIENCE,
   );
@@ -213,10 +217,12 @@ fn holds_nothing(stage: &mut Device) -> CheckResult {
     |seen| {
       let Ok(left) = host_children(seen);
 
-      Ok(match ::core::primitive::bool::then_some(left.is_empty(), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(left.is_empty(), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   );
@@ -259,10 +265,12 @@ fn left_nothing(stage: &mut Device) -> CheckResult {
     |seen| {
       let Ok(up) = seen.menus();
 
-      Ok(match ::core::primitive::bool::then_some(up.is_empty(), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(up.is_empty(), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   );
@@ -276,10 +284,12 @@ fn left_nothing(stage: &mut Device) -> CheckResult {
     |seen| {
       let Ok(left) = ended_under_the_bar(seen);
 
-      Ok(match ::core::primitive::bool::then_some(left.is_empty(), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(left.is_empty(), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     PATIENCE,
   );

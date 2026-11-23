@@ -8,8 +8,8 @@
 //! there before is touched.
 
 use console_core_never::Never;
-use console_test_stages::device::TriggerTravel;
 use console_test_stages::checking::{Body, Check, CheckResult, more_than, same};
+use console_test_stages::device::TriggerTravel;
 use console_test_stages::device::{A_PICTURE, Device, Ready, shell_quote};
 use console_test_stages::here::Here;
 
@@ -57,10 +57,12 @@ fn there(stage: &mut Device) -> CheckResult {
     |seen| {
       let Ok(now) = seen.files(&shots);
 
-      Ok(match ::core::primitive::bool::then_some(now.len() > was.len(), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(now.len() > was.len(), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        },
+      )
     },
     A_PICTURE,
   );

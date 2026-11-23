@@ -133,7 +133,7 @@ fn line_ends_skipped(rest: &[u8]) -> Result<&[u8], Never> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Nibble {
   Awaited,
-  Held(u8),
+  Pending(u8),
 }
 
 pub fn hexadecimal(body: &[u8], out: &mut impl Extend<u8>) -> Result<(), ScanError> {
@@ -146,8 +146,8 @@ pub fn hexadecimal(body: &[u8], out: &mut impl Extend<u8>) -> Result<(), ScanErr
     let digit = hex_digit(*byte)?;
 
     nibble = match nibble {
-      Nibble::Awaited => Nibble::Held(digit),
-      Nibble::Held(high) => {
+      Nibble::Awaited => Nibble::Pending(digit),
+      Nibble::Pending(high) => {
         out.extend([high.wrapping_shl(4) | digit]);
 
         Nibble::Awaited
@@ -156,7 +156,7 @@ pub fn hexadecimal(body: &[u8], out: &mut impl Extend<u8>) -> Result<(), ScanErr
   }
 
   match nibble {
-    Nibble::Held(high) => out.extend([high.wrapping_shl(4)]),
+    Nibble::Pending(high) => out.extend([high.wrapping_shl(4)]),
     Nibble::Awaited => {}
   }
 

@@ -63,10 +63,12 @@ fn classify_name(named: &str) -> Result<Spelled, Never> {
     .chars()
     .all(|one| one.is_ascii_alphanumeric() || one == '-');
 
-  Ok(match ::core::primitive::bool::then_some(named.is_empty() || !letters, ()) {
-    ::core::option::Option::Some(()) => Spelled::LikeSomethingElse,
-    ::core::option::Option::None => Spelled::LikeAConnector,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(named.is_empty() || !letters, ()) {
+      ::core::option::Option::Some(()) => Spelled::LikeSomethingElse,
+      ::core::option::Option::None => Spelled::LikeAConnector,
+    },
+  )
 }
 
 struct FileName<'a>(&'a OsStr);

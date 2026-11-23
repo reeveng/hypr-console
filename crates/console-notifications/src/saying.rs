@@ -165,10 +165,12 @@ pub fn visibility(count: u32) -> Result<Visibility, Never> {
 pub fn last_of_them(body: &str) -> Result<String, Never> {
   let said = "Not shown again this session.";
 
-  Ok(match ::core::primitive::bool::then_some(body.is_empty(), ()) {
-    ::core::option::Option::Some(()) => said.to_string(),
-    ::core::option::Option::None => format!("{body} {said}"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(body.is_empty(), ()) {
+      ::core::option::Option::Some(()) => said.to_string(),
+      ::core::option::Option::None => format!("{body} {said}"),
+    },
+  )
 }
 
 pub fn fault(said: Content<'_>, count: u32) -> Result<Option<Notification>, Never> {
@@ -216,10 +218,12 @@ pub fn once(said: Content<'_>, count: u32) -> Result<Option<Notification>, Never
 pub fn for_the_journal(kind: &str, said: Content<'_>) -> Result<String, Never> {
   let Content { summary, body } = said;
 
-  Ok(match ::core::primitive::bool::then_some(body.is_empty(), ()) {
-    ::core::option::Option::Some(()) => format!("{kind}: {summary}"),
-    ::core::option::Option::None => format!("{kind}: {summary} - {body}"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(body.is_empty(), ()) {
+      ::core::option::Option::Some(()) => format!("{kind}: {summary}"),
+      ::core::option::Option::None => format!("{kind}: {summary} - {body}"),
+    },
+  )
 }
 
 pub fn under() -> Result<PathBuf, Never> {
@@ -255,7 +259,10 @@ impl StatePath {
     let file = Path::new(name);
 
     Ok(
-      match ::core::primitive::bool::then_some(file.file_name() == Some(std::ffi::OsStr::new(name)) && !name.contains('\0'), ()) {
+      match ::core::primitive::bool::then_some(
+        file.file_name() == Some(std::ffi::OsStr::new(name)) && !name.contains('\0'),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Self(Some(parent.join(StateName(file)))),
         ::core::option::Option::None => {
           console_core_logging::warn!("console: notification state needs a single file name");
@@ -372,13 +379,15 @@ fn said_within(arguments: &[String], waiting: Duration) -> Result<Option<String>
         Err(_would_not_wait) => return Ok(None),
       };
 
-      return Ok(match ::core::primitive::bool::then_some(said.status.success(), ()) {
-        ::core::option::Option::Some(()) => match String::from_utf8(said.stdout) {
-          Ok(bytes) => Some(bytes),
-          Err(_not_an_identifier) => None,
+      return Ok(
+        match ::core::primitive::bool::then_some(said.status.success(), ()) {
+          ::core::option::Option::Some(()) => match String::from_utf8(said.stdout) {
+            Ok(bytes) => Some(bytes),
+            Err(_not_an_identifier) => None,
+          },
+          ::core::option::Option::None => None,
         },
-        ::core::option::Option::None => None,
-      });
+      );
     }
     Outcome::RanOut => {}
   }

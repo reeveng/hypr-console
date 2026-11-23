@@ -40,8 +40,8 @@ use std::mem;
 use std::ptr::NonNull;
 #[cfg(feature = "c-ffi")]
 use std::ptr::fn_addr_eq;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicU32;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(transparent)]
@@ -119,8 +119,14 @@ impl Rav1dPictureParameters {
       Rav1dPixelLayout::I420 => ::core::primitive::u64::wrapping_shr(aligned_height, 1_u32),
       Rav1dPixelLayout::I400 | Rav1dPixelLayout::I422 | Rav1dPixelLayout::I444 => aligned_height,
     };
-    let luma_bytes = y_stride.unsigned_abs().checked_mul(aligned_height).ok_or(ENOMEM)?;
-    let chroma_bytes = uv_stride.unsigned_abs().checked_mul(chroma_height).ok_or(ENOMEM)?;
+    let luma_bytes = y_stride
+      .unsigned_abs()
+      .checked_mul(aligned_height)
+      .ok_or(ENOMEM)?;
+    let chroma_bytes = uv_stride
+      .unsigned_abs()
+      .checked_mul(chroma_height)
+      .ok_or(ENOMEM)?;
     Ok([luma_bytes, chroma_bytes])
   }
 
@@ -132,12 +138,15 @@ impl Rav1dPictureParameters {
     let chroma_bytes = match self.layout {
       Rav1dPixelLayout::I400 => None,
       Rav1dPixelLayout::I444 => Some(luma_bytes),
-      Rav1dPixelLayout::I420 | Rav1dPixelLayout::I422 => Some(::core::primitive::u64::wrapping_shr(luma_bytes, 1_u32)),
+      Rav1dPixelLayout::I420 | Rav1dPixelLayout::I422 => {
+        Some(::core::primitive::u64::wrapping_shr(luma_bytes, 1_u32))
+      }
     };
     let padded_stride = |row_bytes: u64| -> Rav1dResult<i64> {
       let length = match row_bytes & 1023 {
         0 => {
-          let Ok(alignment) = console_core_number_conversion::fixed_index(RAV1D_PICTURE_ALIGNMENT);
+          let Ok(alignment) =
+            console_core_number_conversion::fixed_index(RAV1D_PICTURE_ALIGNMENT);
           row_bytes.checked_add(alignment).ok_or(ENOMEM)?
         }
         _ => row_bytes,
@@ -185,17 +194,25 @@ impl Rav1dPicAllocator {
     let parameters = Rav1dPictureParameters::try_from(picture.p)?;
     let strides = parameters.default_strides()?;
     let [luma_stride, chroma_stride] = strides;
-    let y_stride = console_core_number_conversion::checked_offset(luma_stride).map_err(|_| ENOMEM)?;
-    let uv_stride = console_core_number_conversion::checked_offset(chroma_stride).map_err(|_| ENOMEM)?;
+    let y_stride =
+      console_core_number_conversion::checked_offset(luma_stride).map_err(|_| ENOMEM)?;
+    let uv_stride =
+      console_core_number_conversion::checked_offset(chroma_stride).map_err(|_| ENOMEM)?;
     let [luma_bytes, chroma_bytes] = parameters.pic_len(strides)?;
-    let total_bytes = chroma_bytes.checked_mul(2)
+    let total_bytes = chroma_bytes
+      .checked_mul(2)
       .and_then(|both_chroma_planes| luma_bytes.checked_add(both_chroma_planes))
       .ok_or(ENOMEM)?;
     let Ok(alignment) = console_core_number_conversion::fixed_index(RAV1D_PICTURE_ALIGNMENT);
     let capacity = total_bytes.checked_add(alignment).ok_or(ENOMEM)?;
     let buf = pool.pop_init(capacity, 0)?;
     let mut allocation = Box::new(MemPoolBuf { pool, buf });
-    let Ok(prefix) = console_core_number_conversion::fixed_index(allocation.buf.as_ptr().align_offset(RAV1D_PICTURE_ALIGNMENT));
+    let Ok(prefix) = console_core_number_conversion::fixed_index(
+      allocation
+        .buf
+        .as_ptr()
+        .align_offset(RAV1D_PICTURE_ALIGNMENT),
+    );
     let end = prefix.checked_add(total_bytes).ok_or(ENOMEM)?;
     let start = console_core_number_conversion::checked_index(prefix).map_err(|_| ENOMEM)?;
     let finish = console_core_number_conversion::checked_index(end).map_err(|_| ENOMEM)?;
@@ -327,11 +344,20 @@ fn picture_alloc_with_edges(
   }
 
   let sequence = request.sequence_header.ok_or(EINVAL)?;
-  let mut picture = allocator.alloc_picture_data(request.size.width, request.size.height, sequence, request.frame_header)?;
+  let mut picture = allocator.alloc_picture_data(
+    request.size.width,
+    request.size.height,
+    sequence,
+    request.frame_header,
+  )?;
 
   match request.threading {
     Some(policy) => {
-      let data = picture.data.as_mut().and_then(Arc::get_mut).ok_or(EGeneric)?;
+      let data = picture
+        .data
+        .as_mut()
+        .and_then(Arc::get_mut)
+        .ok_or(EGeneric)?;
 
       for plane in &mut data.data {
         let Ok(()) = plane.set_threading_policy(policy);
@@ -390,7 +416,14 @@ pub(crate) fn rav1d_thread_picture_alloc(
   frame: &mut Rav1dFrameData,
   request: ThreadPictureRequest<'_>,
 ) -> Rav1dResult {
-  let ThreadPictureRequest { content_light, mastering_display, max_spatial_id, frame_flags, bit_depth, mut itut_t35 } = request;
+  let ThreadPictureRequest {
+    content_light,
+    mastering_display,
+    max_spatial_id,
+    frame_flags,
+    bit_depth,
+    mut itut_t35,
+  } = request;
   let p = &mut frame.sr_cur;
   let have_frame_mt = decoder.fc.len() > 1;
   let output_scope = OutputScope::from(decoder.output_invisible_frames);
@@ -403,13 +436,21 @@ pub(crate) fn rav1d_thread_picture_alloc(
   let Ok(workers) = console_core_number_conversion::fixed_index(decoder.tc.len());
   let counts = crate::include::dav1d::picture::PictureThreadingCounts { workers, tiles };
   let Ok(policy) = PictureThreading::new(counts);
-  picture_alloc_with_edges(&decoder.logger, &decoder.allocator, &mut p.p, PictureAllocation {
-    size: Size { width, height: frame_hdr.size.height },
-    sequence_header: frame.seq_hdr.clone(),
-    frame_header: frame.frame_hdr.clone(),
-    bit_depth,
-    threading: Some(policy),
-  })?;
+  picture_alloc_with_edges(
+    &decoder.logger,
+    &decoder.allocator,
+    &mut p.p,
+    PictureAllocation {
+      size: Size {
+        width,
+        height: frame_hdr.size.height,
+      },
+      sequence_header: frame.seq_hdr.clone(),
+      frame_header: frame.frame_hdr.clone(),
+      bit_depth,
+      threading: Some(policy),
+    },
+  )?;
 
   let Ok(()) = rav1d_picture_copy_props(
     &mut p.p,
@@ -419,9 +460,11 @@ pub(crate) fn rav1d_thread_picture_alloc(
     first_tile.data.m.clone(),
   );
 
-  let flags_mask = match ::core::primitive::bool::then_some((frame_hdr.show_frame != 0 || output_scope == OutputScope::AllFrames)
-    && max_spatial_id == frame_hdr.spatial_id, ())
-  {
+  let flags_mask = match ::core::primitive::bool::then_some(
+    (frame_hdr.show_frame != 0 || output_scope == OutputScope::AllFrames)
+      && max_spatial_id == frame_hdr.spatial_id,
+    (),
+  ) {
     ::core::option::Option::Some(()) => PictureFlags::EMPTY,
     ::core::option::Option::None => PictureFlags::NEW_SEQUENCE | PictureFlags::NEW_OP_PARAMS_INFO,
   };
@@ -445,13 +488,21 @@ pub(crate) fn rav1d_picture_alloc_copy(
   let source = src.data.as_ref().ok_or(EINVAL)?;
   let [luma, _, _] = &source.data;
   let Ok(threading) = luma.threading_policy();
-  picture_alloc_with_edges(logger, &source.allocator, dst, PictureAllocation {
-    size: Size { width: w, height: src.p.h },
-    sequence_header: src.seq_hdr.clone(),
-    frame_header: src.frame_hdr.clone(),
-    bit_depth: src.p.bpc,
-    threading,
-  })?;
+  picture_alloc_with_edges(
+    logger,
+    &source.allocator,
+    dst,
+    PictureAllocation {
+      size: Size {
+        width: w,
+        height: src.p.h,
+      },
+      sequence_header: src.seq_hdr.clone(),
+      frame_header: src.frame_hdr.clone(),
+      bit_depth: src.p.bpc,
+      threading,
+    },
+  )?;
 
   let Ok(()) = rav1d_picture_copy_props(
     dst,

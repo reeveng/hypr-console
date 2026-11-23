@@ -21,7 +21,10 @@ impl<'a> Cff<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::offset_data` method returns `FontData` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::offset_data` method returns `FontData` directly in the existing parser interface"
+    )
   )]
   pub fn offset_data(&self) -> FontData<'a> {
     let Ok(value_1) = self.header.offset_data();
@@ -32,7 +35,10 @@ impl<'a> Cff<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::header` method returns `CffHeader` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::header` method returns `CffHeader` directly in the existing parser interface"
+    )
   )]
   pub fn header(&self) -> CffHeader<'a> {
     self.header.clone()
@@ -41,7 +47,10 @@ impl<'a> Cff<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::names` method returns `Index` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::names` method returns `Index` directly in the existing parser interface"
+    )
   )]
   pub fn names(&self) -> Index<'a> {
     self.names.clone()
@@ -50,16 +59,25 @@ impl<'a> Cff<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::name` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::name` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn name(&self, index: u64) -> Option<&'a [u8]> {
-    match self.names.get(index) { Ok(value) => Some(value), Err(_invalid_name_index) => None }
+    match self.names.get(index) {
+      Ok(value) => Some(value),
+      Err(_invalid_name_index) => None,
+    }
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::top_dicts` method returns `Index` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::top_dicts` method returns `Index` directly in the existing parser interface"
+    )
   )]
   pub fn top_dicts(&self) -> Index<'a> {
     self.top_dicts.clone()
@@ -68,7 +86,10 @@ impl<'a> Cff<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::strings` method returns `Index` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::strings` method returns `Index` directly in the existing parser interface"
+    )
   )]
   pub fn strings(&self) -> Index<'a> {
     self.strings.clone()
@@ -77,19 +98,28 @@ impl<'a> Cff<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::string` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::string` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn string(&self, id: Sid) -> Option<&'a [u8]> {
     match id.resolve_standard() {
       Ok(name) => Some(name),
-      Err(ix) => match self.strings.get(ix) { Ok(value) => Some(value), Err(_invalid_string_index) => None },
+      Err(ix) => match self.strings.get(ix) {
+        Ok(value) => Some(value),
+        Err(_invalid_string_index) => None,
+      },
     }
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Cff::global_subrs` method returns `Index` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Cff::global_subrs` method returns `Index` directly in the existing parser interface"
+    )
   )]
   pub fn global_subrs(&self) -> Index<'a> {
     self.global_subrs.clone()
@@ -117,16 +147,16 @@ impl<'a> Cff<'a> {
         Ok(dict::Entry::Ros { .. }) => {
           return Ok(None);
         }
-        Ok(_) => {},
+        Ok(_) => {}
         Err(_unreadable_dict_entry) => continue,
       }
     }
 
     match charset_offset.zip(num_glyphs) {
       Some((offset, count)) => {
-          let charset = Charset::new(offset_data, offset, count)?;
+        let charset = Charset::new(offset_data, offset, count)?;
 
-          Ok(Some(charset))
+        Ok(Some(charset))
       }
       None => Ok(None),
     }
@@ -192,12 +222,14 @@ mod tests {
     assert_eq!(name, b"NotoSerifDisplay-Regular");
     assert_eq!(cff.strings().count(), Ok(5));
 
-    let fixture_value = crate::test_support::fixture_value(cff.string(Sid::new(391)), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(cff.string(Sid::new(391)), "fixture value")?;
     assert_eq!(fixture_value, b"2.9");
 
     assert_eq!(
       {
-        let notice = crate::test_support::fixture_value(cff.string(Sid::new(392)), "fixture value")?;
+        let notice =
+          crate::test_support::fixture_value(cff.string(Sid::new(392)), "fixture value")?;
         notice
       },
       b"Noto is a trademark of Google LLC."
@@ -205,7 +237,8 @@ mod tests {
 
     assert_eq!(
       {
-        let copyright = crate::test_support::fixture_value(cff.string(Sid::new(393)), "fixture value")?;
+        let copyright =
+          crate::test_support::fixture_value(cff.string(Sid::new(393)), "fixture value")?;
         copyright
       },
       b"Copyright 2022 The Noto Project Authors https:github.comnotofontslatin-greek-cyrillic"
@@ -213,16 +246,21 @@ mod tests {
 
     assert_eq!(
       {
-        let full_name = crate::test_support::fixture_value(cff.string(Sid::new(394)), "fixture value")?;
+        let full_name =
+          crate::test_support::fixture_value(cff.string(Sid::new(394)), "fixture value")?;
         full_name
       },
       b"Noto Serif Display Regular"
     );
 
-    assert_eq!({
-      let family_name = crate::test_support::fixture_value(cff.string(Sid::new(395)), "fixture value")?;
-      family_name
-    }, b"Noto Serif Display");
+    assert_eq!(
+      {
+        let family_name =
+          crate::test_support::fixture_value(cff.string(Sid::new(395)), "fixture value")?;
+        family_name
+      },
+      b"Noto Serif Display"
+    );
     ::core::result::Result::Ok(())
   }
 

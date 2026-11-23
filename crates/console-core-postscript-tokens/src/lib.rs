@@ -68,7 +68,7 @@ impl std::error::Error for ScanError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Remaining {
   Objects,
-  Nothing,
+  Absent,
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +87,7 @@ impl<'a> Scanner<'a> {
     self.rest = rest;
 
     Ok(match rest {
-      [] => Remaining::Nothing,
+      [] => Remaining::Absent,
       [_first, ..] => Remaining::Objects,
     })
   }

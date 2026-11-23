@@ -131,7 +131,10 @@ pub(crate) mod codegen_prelude {
 
   #[cfg_attr(
     dylint_lib = "explicit080_macro_budget",
-    expect(explicit080_macro_budget, reason = "generated table views publish the same three inherent offset and shape methods from this definition")
+    expect(
+      explicit080_macro_budget,
+      reason = "generated table views publish the same three inherent offset and shape methods from this definition"
+    )
   )]
   #[macro_export]
   macro_rules! basic_table_impls {

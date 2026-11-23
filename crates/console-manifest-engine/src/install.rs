@@ -102,10 +102,12 @@ pub fn content_on_machine(held: &[u8], user: User<'_>) -> Result<Vec<u8>, Never>
     Err(_not_text) => return Ok(held.to_vec()),
   };
 
-  Ok(match ::core::primitive::bool::then_some(text.contains(USER), ()) {
-    ::core::option::Option::Some(()) => text.replace(USER, user.0).into_bytes(),
-    ::core::option::Option::None => held.to_vec(),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(text.contains(USER), ()) {
+      ::core::option::Option::Some(()) => text.replace(USER, user.0).into_bytes(),
+      ::core::option::Option::None => held.to_vec(),
+    },
+  )
 }
 
 pub fn content_as_declared(held: &[u8], user: User<'_>) -> Result<Vec<u8>, Never> {
@@ -137,7 +139,10 @@ pub fn state(
       std::fs::read(to),
     ) {
       (Err(_no_source), _) => State::Unsourced,
-      (Ok(_), Err(fault)) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::PermissionDenied, ()) {
+      (Ok(_), Err(fault)) => match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::PermissionDenied,
+        (),
+      ) {
         ::core::option::Option::Some(()) => match written {
           Written::Once => State::WrittenOnce,
           Written::Always => State::ParseError,
@@ -169,10 +174,12 @@ pub fn owner_of(live: impl AsRef<Path>, user: User<'_>) -> Result<String, Never>
       .is_ok_and(|inside| !inside.as_os_str().is_empty())
   };
 
-  Ok(match ::core::primitive::bool::then_some(under(&marked) || under(&theirs), ()) {
-    ::core::option::Option::Some(()) => user.0.to_string(),
-    ::core::option::Option::None => "root".to_string(),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(under(&marked) || under(&theirs), ()) {
+      ::core::option::Option::Some(()) => user.0.to_string(),
+      ::core::option::Option::None => "root".to_string(),
+    },
+  )
 }
 
 pub fn parent_directories(live: &str) -> Result<Vec<PathBuf>, Never> {

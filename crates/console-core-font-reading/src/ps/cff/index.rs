@@ -24,11 +24,13 @@ impl<'a> Index<'a> {
       CffVersion::Cff2 => {
         let Ok(value_2) = data_2.len();
 
-        match ::core::primitive::bool::then_some(value_2 == 4 && {
-          let checked_value = data_2.read_at::<u32>(0)?;
-          checked_value
-        } == 0, ())
-        {
+        match ::core::primitive::bool::then_some(
+          value_2 == 4 && {
+            let checked_value = data_2.read_at::<u32>(0)?;
+            checked_value
+          } == 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             return Ok(Self::Empty);
           }
@@ -44,11 +46,13 @@ impl<'a> Index<'a> {
       CffVersion::Cff1 => {
         let Ok(value_3) = data_2.len();
 
-        match ::core::primitive::bool::then_some(value_3 == 2 && {
-          let checked_value_2 = data_2.read_at::<u16>(0)?;
-          checked_value_2
-        } == 0, ())
-        {
+        match ::core::primitive::bool::then_some(
+          value_3 == 2 && {
+            let checked_value_2 = data_2.read_at::<u16>(0)?;
+            checked_value_2
+          } == 0,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             return Ok(Self::Empty);
           }
@@ -67,7 +71,10 @@ impl<'a> Index<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Index::count` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Index::count` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn count(&self) -> u32 {
     match self {
@@ -88,14 +95,18 @@ impl<'a> Index<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Index::subr_bias` method returns `i32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Index::subr_bias` method returns `i32` directly in the existing parser interface"
+    )
   )]
   pub fn subr_bias(&self) -> i32 {
     let count = self.count();
 
     match ::core::primitive::bool::then_some(count < 1240, ()) {
       ::core::option::Option::Some(()) => 107,
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(count < 33900, ()) {
+      ::core::option::Option::None => match ::core::primitive::bool::then_some(count < 33900, ())
+      {
         ::core::option::Option::Some(()) => 1131,
         ::core::option::Option::None => 32768,
       },
@@ -133,7 +144,10 @@ impl<'a> Index<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Index::off_size` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Index::off_size` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn off_size(&self) -> u8 {
     match self {
@@ -280,7 +294,12 @@ struct OffsetRequest<'a> {
 }
 
 fn read_offset(request: OffsetRequest<'_>) -> Result<u64, Error> {
-  let OffsetRequest { index, count, offset_size, data } = request;
+  let OffsetRequest {
+    index,
+    count,
+    offset_size,
+    data,
+  } = request;
 
   match ::core::primitive::bool::then_some(index > count, ()) {
     ::core::option::Option::Some(()) => {
@@ -405,7 +424,10 @@ mod tests {
       IndexParams::Format1 { off_size, count } => (CffVersion::Cff1, off_size, count),
       IndexParams::Format2 { off_size, count } => (CffVersion::Cff2, off_size, count),
     };
-    let options = MakeIndexArguments { version, offset_size };
+    let options = MakeIndexArguments {
+      version,
+      offset_size,
+    };
     let buf = make_index(options, count)?;
     let index = Index::new(&buf, version)?;
     let built_off_size = match &index {
@@ -426,7 +448,8 @@ mod tests {
     for ordinal in 0..count {
       let object = index.get(ordinal)?;
       let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(ordinal);
-      let Ok(size) = console_core_number_conversion::index(ordinal.wrapping_add(1).wrapping_mul(10));
+      let Ok(size) =
+        console_core_number_conversion::index(ordinal.wrapping_add(1).wrapping_mul(10));
       assert!(object.iter().copied().eq(core::iter::repeat_n(byte, size)));
     }
 
@@ -434,7 +457,10 @@ mod tests {
   }
 
   fn make_index(
-    MakeIndexArguments { version, offset_size }: MakeIndexArguments,
+    MakeIndexArguments {
+      version,
+      offset_size,
+    }: MakeIndexArguments,
     count: u64,
   ) -> Result<BeBuffer, crate::test_support::Failure> {
     let mut buf = BeBuffer::default();
@@ -471,14 +497,19 @@ mod tests {
         3 => {
           let value = u32::try_from(offset)?;
           let Ok(candidate) = Uint24::checked_new(value);
-          let encoded = crate::test_support::fixture_value(candidate, "three-byte CFF INDEX offset")?;
+          let encoded =
+            crate::test_support::fixture_value(candidate, "three-byte CFF INDEX offset")?;
           buf.extend([encoded]);
         }
         4 => {
           let value = u32::try_from(offset)?;
           buf.extend([value]);
         }
-        other => return Err(crate::test_support::Failure::from(Error::InvalidIndexOffsetSize(other))),
+        other => {
+          return Err(crate::test_support::Failure::from(
+            Error::InvalidIndexOffsetSize(other),
+          ));
+        }
       }
 
       offset = offset.wrapping_add(ordinal.wrapping_add(1).wrapping_mul(10));
@@ -486,7 +517,8 @@ mod tests {
 
     for ordinal in 0..count {
       let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(ordinal);
-      let Ok(length) = console_core_number_conversion::index(ordinal.wrapping_add(1).wrapping_mul(10));
+      let Ok(length) =
+        console_core_number_conversion::index(ordinal.wrapping_add(1).wrapping_mul(10));
       buf.extend(core::iter::repeat_n(byte, length));
     }
 

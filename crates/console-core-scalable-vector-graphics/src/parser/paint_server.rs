@@ -329,7 +329,10 @@ fn convert_pattern(
 
       let Ok(has_children) = g.has_children();
 
-      match ::core::primitive::bool::then_some(!matches!(has_children, crate::Presence::Present), ()) {
+      match ::core::primitive::bool::then_some(
+        !matches!(has_children, crate::Presence::Present),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(None);
         }
@@ -344,7 +347,10 @@ fn convert_pattern(
 
       let Ok(has_children) = patt.root.has_children();
 
-      match ::core::primitive::bool::then_some(!matches!(has_children, crate::Presence::Present), ()) {
+      match ::core::primitive::bool::then_some(
+        !matches!(has_children, crate::Presence::Present),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(None);
         }
@@ -366,8 +372,8 @@ fn convert_spread_method(
   let Ok(attribute) = node_2.attribute(AId::SpreadMethod);
 
   Ok(match attribute {
-      ::core::option::Option::Some(explicit_present) => explicit_present,
-      ::core::option::Option::None => crate::tree::SpreadMethod::Pad,
+    ::core::option::Option::Some(explicit_present) => explicit_present,
+    ::core::option::Option::None => crate::tree::SpreadMethod::Pad,
   })
 }
 
@@ -500,14 +506,19 @@ fn convert_stop(node: SvgNode, previous: Length) -> Result<(Stop, Length), Never
     None => Opacity::ONE,
   };
 
-  Ok((Stop {
-    offset: StopOffset::new_clamped(normalized),
-    color,
-    opacity: opacity * stop_opacity,
-  }, length))
+  Ok((
+    Stop {
+      offset: StopOffset::new_clamped(normalized),
+      color,
+      opacity: opacity * stop_opacity,
+    },
+    length,
+  ))
 }
 
-fn color_for_stop(node: SvgNode) -> Result<console_core_scalable_vector_graphics_values::Color, Never> {
+fn color_for_stop(
+  node: SvgNode,
+) -> Result<console_core_scalable_vector_graphics_values::Color, Never> {
   use console_core_scalable_vector_graphics_values::Color as SvgColor;
 
   let Ok(attribute) = node.attribute(AId::StopColor);
@@ -550,7 +561,10 @@ fn compact_stop_runs(raw: Vec<Stop>) -> Result<Vec<Stop>, Never> {
     let second = middle.offset.get();
     let third = right.offset.get();
 
-    match ::core::primitive::bool::then_some(first.approx_eq_ulps(&second, 4) && second.approx_eq_ulps(&third, 4), ()) {
+    match ::core::primitive::bool::then_some(
+      first.approx_eq_ulps(&second, 4) && second.approx_eq_ulps(&third, 4),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => {
         stops.push(left);
@@ -576,8 +590,13 @@ fn separate_neighbor_stops(stops: &mut [Stop]) -> Result<(), Never> {
     let lower = previous.offset.get();
     let upper = current.offset.get();
 
-    match ::core::primitive::bool::then_some(lower.approx_eq_ulps(&0.0, 4) && upper.approx_eq_ulps(&0.0, 4), ()) {
-      ::core::option::Option::Some(()) => current.offset = StopOffset::new_clamped(lower + f32::EPSILON),
+    match ::core::primitive::bool::then_some(
+      lower.approx_eq_ulps(&0.0, 4) && upper.approx_eq_ulps(&0.0, 4),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        current.offset = StopOffset::new_clamped(lower + f32::EPSILON)
+      }
       ::core::option::Option::None => {}
     }
 
@@ -593,7 +612,8 @@ fn separate_neighbor_stops(stops: &mut [Stop]) -> Result<(), Never> {
     let lower = previous_2.offset.get();
     let upper = current.offset.get();
 
-    match ::core::primitive::bool::then_some(lower > upper || lower.approx_eq_ulps(&upper, 4), ()) {
+    match ::core::primitive::bool::then_some(lower > upper || lower.approx_eq_ulps(&upper, 4), ())
+    {
       ::core::option::Option::Some(()) => {
         previous_2.offset = StopOffset::new_clamped(lower - f32::EPSILON);
         current.offset = StopOffset::new_clamped(lower);
@@ -815,8 +835,8 @@ fn stops_to_color(
 pub fn update_paint_servers(
   group: &mut Group,
   context_transform: Transform,
-  context_bbox: Option<Rect>,
-  text_bbox: Option<Rect>,
+  context_bbox: Option<FloatRectangle>,
+  text_bbox: Option<FloatRectangle>,
   cache: &mut Cache,
 ) -> core::result::Result<(), console_core_never::Never> {
   let _depth = match cache.descend() {
@@ -839,16 +859,22 @@ pub fn update_paint_servers(
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "Mask and filter subroots enter the guarded paint traversal")
+  expect(
+    explicit049_no_recursion,
+    reason = "Mask and filter subroots enter the guarded paint traversal"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "Mask and filter definitions are updated only while their existing immutable resource handle has one owner")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "Mask and filter definitions are updated only while their existing immutable resource handle has one owner"
+  )
 )]
 fn update_group_resources(
   group: &mut Group,
   transform: Transform,
-  bounds: Option<Rect>,
+  bounds: Option<FloatRectangle>,
   cache: &mut Cache,
 ) -> Result<(), console_core_never::Never> {
   match group.mask.as_mut().and_then(Arc::get_mut) {
@@ -865,16 +891,31 @@ fn update_group_resources(
     None => {}
   }
 
-  for primitive in group.filters.iter_mut().filter_map(Arc::get_mut).flat_map(|filter| &mut filter.primitives) {
+  for primitive in group
+    .filters
+    .iter_mut()
+    .filter_map(Arc::get_mut)
+    .flat_map(|filter| &mut filter.primitives)
+  {
     match &mut primitive.kind {
       filter::Kind::Image(image) => {
         let Ok(()) = update_paint_servers(&mut image.root, transform, bounds, None, cache);
       }
-      filter::Kind::Blend(_) | filter::Kind::ColorMatrix(_) | filter::Kind::ComponentTransfer(_)
-      | filter::Kind::Composite(_) | filter::Kind::ConvolveMatrix(_) | filter::Kind::DiffuseLighting(_)
-      | filter::Kind::DisplacementMap(_) | filter::Kind::DropShadow(_) | filter::Kind::Flood(_)
-      | filter::Kind::GaussianBlur(_) | filter::Kind::Merge(_) | filter::Kind::Morphology(_)
-      | filter::Kind::Offset(_) | filter::Kind::SpecularLighting(_) | filter::Kind::Tile(_)
+      filter::Kind::Blend(_)
+      | filter::Kind::ColorMatrix(_)
+      | filter::Kind::ComponentTransfer(_)
+      | filter::Kind::Composite(_)
+      | filter::Kind::ConvolveMatrix(_)
+      | filter::Kind::DiffuseLighting(_)
+      | filter::Kind::DisplacementMap(_)
+      | filter::Kind::DropShadow(_)
+      | filter::Kind::Flood(_)
+      | filter::Kind::GaussianBlur(_)
+      | filter::Kind::Merge(_)
+      | filter::Kind::Morphology(_)
+      | filter::Kind::Offset(_)
+      | filter::Kind::SpecularLighting(_)
+      | filter::Kind::Tile(_)
       | filter::Kind::Turbulence(_) => {}
     }
   }
@@ -892,8 +933,8 @@ fn update_group_resources(
 fn node_to_user_coordinates(
   node: &mut Node,
   context_transform: Transform,
-  context_bbox: Option<Rect>,
-  text_bbox: Option<Rect>,
+  context_bbox: Option<FloatRectangle>,
+  text_bbox: Option<FloatRectangle>,
   cache: &mut Cache,
 ) -> core::result::Result<(), console_core_never::Never> {
   match node {
@@ -977,7 +1018,14 @@ fn node_to_user_coordinates(
           cache,
         );
 
-        for path in [&mut span.overline, &mut span.underline, &mut span.line_through].into_iter().flatten() {
+        for path in [
+          &mut span.overline,
+          &mut span.underline,
+          &mut span.line_through,
+        ]
+        .into_iter()
+        .flatten()
+        {
           let ::core::result::Result::Ok(()) = process_fill(
             &mut path.fill,
             text.abs_transform,
@@ -1021,8 +1069,8 @@ fn process_fill(
   fill: &mut Option<Fill>,
   path_transform: Transform,
   context_transform: Transform,
-  context_bbox: Option<Rect>,
-  bbox: Rect,
+  context_bbox: Option<FloatRectangle>,
+  bbox: FloatRectangle,
   cache: &mut Cache,
 ) -> core::result::Result<(), console_core_never::Never> {
   let mut ok = false;
@@ -1072,8 +1120,8 @@ fn process_stroke(
   stroke: &mut Option<Stroke>,
   path_transform: Transform,
   context_transform: Transform,
-  context_bbox: Option<Rect>,
-  bbox: Rect,
+  context_bbox: Option<FloatRectangle>,
+  bbox: FloatRectangle,
   cache: &mut Cache,
 ) -> core::result::Result<(), console_core_never::Never> {
   let mut ok = false;
@@ -1213,9 +1261,9 @@ pub(crate) fn process_paint(
   paint: &mut Paint,
   coordinates: PaintCoordinates,
   context_transform: Transform,
-  context_bbox: Option<Rect>,
+  context_bbox: Option<FloatRectangle>,
   path_transform: Transform,
-  bbox: Rect,
+  bbox: FloatRectangle,
   cache: &mut Cache,
 ) -> core::result::Result<crate::ProcessPaintAnswer, console_core_never::Never> {
   let Ok(units) = paint.units();
@@ -1270,7 +1318,7 @@ pub(crate) fn process_paint(
 )]
 fn process_text_decoration(
   style: &mut Option<TextDecorationStyle>,
-  bbox: Rect,
+  bbox: FloatRectangle,
   cache: &mut Cache,
 ) -> core::result::Result<(), console_core_never::Never> {
   match style.as_mut() {
@@ -1308,7 +1356,7 @@ impl Paint {
   )]
   fn resolve_user_coordinates(
     &mut self,
-    bbox: Rect,
+    bbox: FloatRectangle,
     cache: &mut Cache,
   ) -> core::result::Result<Option<()>, console_core_never::Never> {
     let name = match self {
@@ -1382,17 +1430,18 @@ impl Paint {
         }
       }
       Paint::Pattern(patt) => {
-        let rect = match ::core::primitive::bool::then_some(patt.units == Units::ObjectBoundingBox, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(mapped) = patt.rect.bbox_transform(bbox_2);
+        let rect =
+          match ::core::primitive::bool::then_some(patt.units == Units::ObjectBoundingBox, ()) {
+            ::core::option::Option::Some(()) => {
+              let Ok(mapped) = patt.rect.bbox_transform(bbox_2);
 
-            match mapped {
-              Some(bounds) => bounds,
-              None => return Ok(None),
+              match mapped {
+                Some(bounds) => bounds,
+                None => return Ok(None),
+              }
             }
-          }
-          ::core::option::Option::None => patt.rect,
-        };
+            ::core::option::Option::None => patt.rect,
+          };
 
         let Ok(content_transform) = pattern_content_transform(patt, rect, bbox_2);
 
@@ -1428,7 +1477,10 @@ impl Paint {
   }
 }
 
-fn transform_pattern_content(root: &mut Group, transform: Option<Transform>) -> Result<(), console_core_never::Never> {
+fn transform_pattern_content(
+  root: &mut Group,
+  transform: Option<Transform>,
+) -> Result<(), console_core_never::Never> {
   match transform {
     Some(transform_2) => push_pattern_transform(root, transform_2),
     None => Ok(()),
@@ -1450,7 +1502,8 @@ fn pattern_content_transform(
     (None, Units::ObjectBoundingBox) => {
       let Ok(x) = bounds.width();
       let Ok(y) = bounds.height();
-      let Ok(transform) = Transform::from_scale_factors(console_core_paths::ScaleFactors { x, y });
+      let Ok(transform) =
+        Transform::from_scale_factors(console_core_paths::ScaleFactors { x, y });
 
       Ok(Some(transform))
     }

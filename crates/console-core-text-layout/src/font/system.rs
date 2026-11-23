@@ -417,7 +417,9 @@ impl FontSystem {
   pub fn with_prepared_platform_fonts(&self) -> Result<Self, console_core_never::Never> {
     let Ok(mut system) = Self::new_with_locale_and_db(self.locale.clone(), self.db.clone());
     system.font_cache.clone_from(&self.font_cache);
-    system.font_matches_cache.clone_from(&self.font_matches_cache);
+    system
+      .font_matches_cache
+      .clone_from(&self.font_matches_cache);
 
     Ok(system)
   }

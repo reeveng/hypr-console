@@ -418,7 +418,11 @@ impl<I: Iterator<Item = RangeInclusive<u32>>> Iterator for JoinedRanges<I> {
     };
 
     for next in self.ranges.by_ref() {
-      match current.end().checked_add(1).filter(|after| after == next.start()) {
+      match current
+        .end()
+        .checked_add(1)
+        .filter(|after| after == next.start())
+      {
         Some(_adjacent) => current = *current.start()..=*next.end(),
         None => {
           self.pending = Some(next);

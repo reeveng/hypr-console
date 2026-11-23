@@ -59,7 +59,6 @@ pub const DAV1D_INLOOPFILTER_DEBLOCK: Dav1dInloopFilterType = ::console_core_num
 pub const DAV1D_INLOOPFILTER_CDEF: Dav1dInloopFilterType = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => Dav1dInloopFilterType, Rav1dInloopFilterType::CDEF.bits());
 pub const DAV1D_INLOOPFILTER_RESTORATION: Dav1dInloopFilterType = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => Dav1dInloopFilterType, Rav1dInloopFilterType::RESTORATION.bits());
 
-
 impl From<Rav1dInloopFilterType> for Dav1dInloopFilterType {
   fn from(value: Rav1dInloopFilterType) -> Self {
     <::core::primitive::u32 as ::core::convert::From<::core::primitive::u8>>::from(value.bits())
@@ -119,7 +118,6 @@ impl TryFrom<Dav1dDecodeFrameType> for Rav1dDecodeFrameType {
 pub type Dav1dEventFlags = c_uint;
 pub const DAV1D_EVENT_FLAG_NEW_SEQUENCE: Dav1dEventFlags = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => Dav1dEventFlags, Rav1dEventFlags::NEW_SEQUENCE.bits());
 pub const DAV1D_EVENT_FLAG_NEW_OP_PARAMS_INFO: Dav1dEventFlags = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => Dav1dEventFlags, Rav1dEventFlags::NEW_OP_PARAMS_INFO.bits());
-
 
 impl From<Rav1dEventFlags> for Dav1dEventFlags {
   fn from(value: Rav1dEventFlags) -> Self {
@@ -240,7 +238,8 @@ impl Dav1dSettings {
       decode_frame_type,
       reserved: _,
     } = self;
-    let operating_index = u8::try_from(operating_point).map_err(|_invalid_index| Rav1dError::EINVAL)?;
+    let operating_index =
+      u8::try_from(operating_point).map_err(|_invalid_index| Rav1dError::EINVAL)?;
     let picture_allocator = Rav1dPicAllocator::try_from(allocator)?;
     let frame_type = Rav1dDecodeFrameType::try_from(decode_frame_type)?;
 

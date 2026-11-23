@@ -25,21 +25,21 @@ use console_core_text_direction::{
 const BY_CLASS: &str = include_str!("fixtures/BidiTest.txt");
 const BY_CHARACTER: &str = include_str!("fixtures/BidiCharacterTest.txt");
 
-struct Asked {
+struct Request {
   bit: u8,
   level: Option<Level>,
 }
 
-const ASKED: [Asked; 3] = [
-  Asked {
+const ASKED: [Request; 3] = [
+  Request {
     bit: 1,
     level: None,
   },
-  Asked {
+  Request {
     bit: 2,
     level: Some(Level::LEFT_TO_RIGHT),
   },
-  Asked {
+  Request {
     bit: 4,
     level: Some(Level::RIGHT_TO_LEFT),
   },
@@ -169,11 +169,11 @@ const SAMPLES: [Sample; 23] = [
   },
 ];
 
-enum Fault {
-  Unreadable { line: u32, reading: Reading },
+enum Error {
+  Read { line: u32, reading: Reading },
   NoCases,
   NoParagraph { line: u32 },
-  Refused { line: u32, fault: LineFault },
+  Rejected { line: u32, fault: LineFault },
   TwoOrders { line: u32 },
   Misclassified(Vec<&'static str>),
   Wrong(Vec<Mismatch>),
@@ -189,24 +189,24 @@ enum Reading {
   NoLevelsYet,
 }
 
-impl std::fmt::Debug for Fault {
+impl std::fmt::Debug for Error {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Fault::Unreadable { line, reading } => {
+      Error::Read { line, reading } => {
         write!(to, "line {line} cannot be read: {reading:?}")
       }
-      Fault::NoCases => write!(to, "the fixture holds no cases"),
-      Fault::NoParagraph { line } => write!(to, "line {line} came out with no paragraph"),
-      Fault::Refused { line, fault } => write!(to, "line {line}: {fault}"),
-      Fault::TwoOrders { line } => write!(
+      Error::NoCases => write!(to, "the fixture holds no cases"),
+      Error::NoParagraph { line } => write!(to, "line {line} came out with no paragraph"),
+      Error::Rejected { line, fault } => write!(to, "line {line}: {fault}"),
+      Error::TwoOrders { line } => write!(
         to,
         "line {line}: visual_runs and reorder_visual disagree on the order"
       ),
-      Fault::Misclassified(names) => write!(
+      Error::Misclassified(names) => write!(
         to,
         "the characters standing for {names:?} have other classes"
       ),
-      Fault::Wrong(wrong) => {
+      Error::Wrong(wrong) => {
         for one in wrong {
           writeln!(
             to,
@@ -239,7 +239,7 @@ impl std::fmt::Debug for Reading {
 }
 
 enum Line<'text> {
-  Nothing,
+  Absent,
   Levels(&'text str),
   Order(&'text str),
   Case(&'text str),
@@ -253,7 +253,7 @@ struct Shown {
 
 #[derive(Clone, Copy)]
 enum Paragraph {
-  Said(Level),
+  Specified(Level),
   Unsaid,
 }
 
@@ -306,7 +306,7 @@ fn line_of(text: &str) -> Result<Line<'_>, Never> {
       trimmed.strip_prefix("@Levels:"),
       trimmed.strip_prefix("@Reorder:"),
     ) {
-      (None | Some('#'), _, _) => Line::Nothing,
+      (None | Some('#'), _, _) => Line::Absent,
       (Some(_), Some(levels), _) => Line::Levels(levels),
       (Some(_), None, Some(order)) => Line::Order(order),
       (Some(_), None, None) => Line::Case(trimmed),
@@ -345,7 +345,7 @@ fn character(hexadecimal: &str) -> Result<char, Reading> {
   char::from_u32(code).ok_or(Reading::Character)
 }
 
-fn by_class() -> Result<Vec<Case>, Fault> {
+fn by_class() -> Result<Vec<Case>, Error> {
   let mut levels: Option<Vec<Option<u8>>> = None;
   let mut order: Option<Vec<u32>> = None;
   let mut cases = Vec::new();
@@ -354,14 +354,14 @@ fn by_class() -> Result<Vec<Case>, Fault> {
     let Ok(found) = line_of(text);
 
     match found {
-      Line::Nothing => {}
+      Line::Absent => {}
       Line::Levels(said) => {
-        let read = levels_in(said).map_err(|reading| Fault::Unreadable { line, reading })?;
+        let read = levels_in(said).map_err(|reading| Error::Read { line, reading })?;
 
         levels = Some(read);
       }
       Line::Order(said) => {
-        let read = order_in(said).map_err(|reading| Fault::Unreadable { line, reading })?;
+        let read = order_in(said).map_err(|reading| Error::Read { line, reading })?;
 
         order = Some(read);
       }
@@ -372,14 +372,14 @@ fn by_class() -> Result<Vec<Case>, Fault> {
             order: order_2.clone(),
           },
           (None, _) | (_, None) => {
-            return Err(Fault::Unreadable {
+            return Err(Error::Read {
               line,
               reading: Reading::NoLevelsYet,
             });
           }
         };
         let asked = by_class_at(line, said, &wanted)
-          .map_err(|reading| Fault::Unreadable { line, reading })?;
+          .map_err(|reading| Error::Read { line, reading })?;
 
         cases.extend(asked);
       }
@@ -412,23 +412,23 @@ fn by_class_at(line: u32, said: &str, wanted: &Shown) -> Result<Vec<Case>, Readi
   )
 }
 
-fn by_character() -> Result<Vec<Case>, Fault> {
+fn by_character() -> Result<Vec<Case>, Error> {
   let mut cases = Vec::new();
 
   for (line, text) in (1_u32..).zip(BY_CHARACTER.lines()) {
     let Ok(found) = line_of(text);
 
     match found {
-      Line::Nothing => {}
+      Line::Absent => {}
       Line::Levels(_) | Line::Order(_) => {
-        return Err(Fault::Unreadable {
+        return Err(Error::Read {
           line,
           reading: Reading::Fields,
         });
       }
       Line::Case(said) => {
         let case =
-          by_character_at(line, said).map_err(|reading| Fault::Unreadable { line, reading })?;
+          by_character_at(line, said).map_err(|reading| Error::Read { line, reading })?;
 
         cases.push(case);
       }
@@ -462,7 +462,7 @@ fn by_character_at(line: u32, said: &str) -> Result<Case, Reading> {
         line,
         text,
         asked,
-        paragraph: Paragraph::Said(level),
+        paragraph: Paragraph::Specified(level),
         wanted: Shown {
           levels: levels_2,
           order: order_2,
@@ -473,9 +473,9 @@ fn by_character_at(line: u32, said: &str) -> Result<Case, Reading> {
   }
 }
 
-fn some_of(cases: Vec<Case>) -> Result<Vec<Case>, Fault> {
+fn some_of(cases: Vec<Case>) -> Result<Vec<Case>, Error> {
   match cases.as_slice() {
-    [] => Err(Fault::NoCases),
+    [] => Err(Error::NoCases),
     [_, ..] => Ok(cases),
   }
 }
@@ -486,17 +486,17 @@ fn level_at(levels: &[Level], start: u32) -> Result<Option<Level>, Never> {
   Ok(levels.get(at).copied())
 }
 
-fn seen(case: &Case) -> Result<Seen, Fault> {
+fn seen(case: &Case) -> Result<Seen, Error> {
   let Ok(info) = BidiInfo::new(&case.text, case.asked);
   let Ok(paragraphs) = info.paragraphs();
 
   let paragraph = match paragraphs.first() {
     Some(paragraph) => paragraph,
-    None => return Err(Fault::NoParagraph { line: case.line }),
+    None => return Err(Error::NoParagraph { line: case.line }),
   };
   let (levels, runs) = info
     .visual_runs(paragraph, paragraph.range.clone())
-    .map_err(|fault| Fault::Refused {
+    .map_err(|fault| Error::Rejected {
       line: case.line,
       fault,
     })?;
@@ -517,7 +517,7 @@ fn seen(case: &Case) -> Result<Seen, Fault> {
 
   match FixtureAgreement::from(reordered == walked) {
     FixtureAgreement::Met => {}
-    FixtureAgreement::Different => return Err(Fault::TwoOrders { line: case.line }),
+    FixtureAgreement::Different => return Err(Error::TwoOrders { line: case.line }),
   }
 
   let Ok(shown) = shown(&case.wanted, &each, &reordered);
@@ -573,13 +573,13 @@ fn shown(wanted: &Shown, each: &[Level], reordered: &[u32]) -> Result<Shown, Nev
   Ok(Shown { levels, order })
 }
 
-fn mismatches(cases: &[Case]) -> Result<Vec<Mismatch>, Fault> {
+fn mismatches(cases: &[Case]) -> Result<Vec<Mismatch>, Error> {
   let mut wrong = Vec::new();
 
   for case in cases {
     let found = seen(case)?;
     let paragraph = match case.paragraph {
-      Paragraph::Said(level) => FixtureAgreement::from(level == found.paragraph),
+      Paragraph::Specified(level) => FixtureAgreement::from(level == found.paragraph),
       Paragraph::Unsaid => FixtureAgreement::Met,
     };
 
@@ -603,15 +603,15 @@ fn mismatches(cases: &[Case]) -> Result<Vec<Mismatch>, Fault> {
   Ok(wrong)
 }
 
-fn none_of(wrong: Vec<Mismatch>) -> Result<(), Fault> {
+fn none_of(wrong: Vec<Mismatch>) -> Result<(), Error> {
   match wrong.as_slice() {
     [] => Ok(()),
-    [_, ..] => Err(Fault::Wrong(wrong)),
+    [_, ..] => Err(Error::Wrong(wrong)),
   }
 }
 
 #[test]
-fn every_case_named_by_its_classes_comes_out_as_unicode_says() -> Result<(), Fault> {
+fn every_case_named_by_its_classes_comes_out_as_unicode_says() -> Result<(), Error> {
   let cases = by_class()?;
   let wrong = mismatches(&cases)?;
 
@@ -619,7 +619,7 @@ fn every_case_named_by_its_classes_comes_out_as_unicode_says() -> Result<(), Fau
 }
 
 #[test]
-fn every_case_named_by_its_characters_comes_out_as_unicode_says() -> Result<(), Fault> {
+fn every_case_named_by_its_characters_comes_out_as_unicode_says() -> Result<(), Error> {
   let cases = by_character()?;
   let wrong = mismatches(&cases)?;
 
@@ -627,7 +627,7 @@ fn every_case_named_by_its_characters_comes_out_as_unicode_says() -> Result<(), 
 }
 
 #[test]
-fn every_character_standing_for_a_class_has_that_class() -> Result<(), Fault> {
+fn every_character_standing_for_a_class_has_that_class() -> Result<(), Error> {
   let misread: Vec<&'static str> = SAMPLES
     .iter()
     .filter(|sample| match bidi_class(sample.character) {
@@ -638,6 +638,6 @@ fn every_character_standing_for_a_class_has_that_class() -> Result<(), Fault> {
 
   match misread.as_slice() {
     [] => Ok(()),
-    [_, ..] => Err(Fault::Misclassified(misread)),
+    [_, ..] => Err(Error::Misclassified(misread)),
   }
 }

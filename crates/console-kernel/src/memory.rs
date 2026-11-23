@@ -110,8 +110,11 @@ impl<'a> MemoryMap<'a> {
     )
   )]
   pub fn new(bytes: &'a [u8], descriptor_size: u64) -> Result<Self, MemoryError> {
-    let stride = match ::core::primitive::bool::then_some(descriptor_size >= DESCRIPTOR_SIZE, ()) {
-      ::core::option::Option::Some(()) => usize::try_from(descriptor_size).map_err(|_too_wide| MemoryError::Overflow),
+    let stride = match ::core::primitive::bool::then_some(descriptor_size >= DESCRIPTOR_SIZE, ())
+    {
+      ::core::option::Option::Some(()) => {
+        usize::try_from(descriptor_size).map_err(|_too_wide| MemoryError::Overflow)
+      }
       ::core::option::Option::None => Err(MemoryError::DescriptorTooSmall(descriptor_size)),
     };
     let stride_2 = stride?;
@@ -195,9 +198,11 @@ impl<'a> MemoryMap<'a> {
   }
 
   pub fn usable(&self) -> Result<impl Iterator<Item = Region> + use<'a>, Never> {
-    Ok(self.regions().filter_map(|(kind, region)| {
-      (kind == CONVENTIONAL).then_some(region)
-    }))
+    Ok(
+      self
+        .regions()
+        .filter_map(|(kind, region)| (kind == CONVENTIONAL).then_some(region)),
+    )
   }
 
   pub fn usable_bytes(&self) -> Result<u64, MemoryError> {

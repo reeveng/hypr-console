@@ -73,7 +73,10 @@ fn following(listening: subscription::Subscriber) -> Result<(), Never> {
 
     #[cfg_attr(
       dylint_lib = "explicit055_no_unbounded_loop",
-      expect(explicit055_no_unbounded_loop, reason = "this is the process-lifetime folder listener; it ends when its owned subscription closes")
+      expect(
+        explicit055_no_unbounded_loop,
+        reason = "this is the process-lifetime folder listener; it ends when its owned subscription closes"
+      )
     )]
     for received in arriving {
       match received {

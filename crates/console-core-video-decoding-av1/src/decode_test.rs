@@ -55,9 +55,16 @@ mod tests {
         Self::Read(error) => write!(to, "Reading the IVF fixture failed ({error})"),
         Self::InvalidHeader => to.write_str("Incomplete IVF header"),
         Self::InvalidPacket => to.write_str("Incomplete IVF packet"),
-        Self::Decoder(stage, error) => write!(to, "The fixture decoder failed during {stage:?} ({error:?})"),
-        Self::PictureBudgetExceeded => to.write_str("The decoder exceeded the fixture picture budget"),
-        Self::InputStalled => to.write_str("The decoder could not accept the remaining fixture packet"),
+        Self::Decoder(stage, error) => write!(
+          to,
+          "The fixture decoder failed during {stage:?} ({error:?})"
+        ),
+        Self::PictureBudgetExceeded => {
+          to.write_str("The decoder exceeded the fixture picture budget")
+        }
+        Self::InputStalled => {
+          to.write_str("The decoder could not accept the remaining fixture packet")
+        }
         Self::InvalidDimensions => to.write_str("Invalid fixture picture dimensions"),
         Self::MissingPixels => to.write_str("Missing fixture picture data"),
         Self::InvalidPlane => to.write_str("Invalid fixture plane geometry"),
@@ -68,7 +75,9 @@ mod tests {
   type FixtureResult<T> = Result<T, FixtureError>;
 
   fn parse_ivf(data: &[u8]) -> FixtureResult<Vec<&[u8]>> {
-    let (header, mut unread) = data.split_at_checked(32).ok_or(FixtureError::InvalidHeader)?;
+    let (header, mut unread) = data
+      .split_at_checked(32)
+      .ok_or(FixtureError::InvalidHeader)?;
     let marker = header.get(..4).ok_or(FixtureError::InvalidHeader)?;
     let codec = header.get(8..12).ok_or(FixtureError::InvalidHeader)?;
     assert_eq!(marker, b"DKIF", "Not an IVF file");
@@ -82,7 +91,9 @@ mod tests {
         Some(record_and_payload) => record_and_payload,
         None => break,
       };
-      let size = record.first_chunk::<4>().ok_or(FixtureError::InvalidPacket)?;
+      let size = record
+        .first_chunk::<4>()
+        .ok_or(FixtureError::InvalidPacket)?;
       let Ok(packet_size) = index(u32::from_le_bytes(*size));
 
       match payload.split_at_checked(packet_size) {
@@ -146,7 +157,8 @@ mod tests {
     maximum_pictures: u64,
   ) -> FixtureResult<()> {
     let Ok(boxed) = CBox::from_box(packet.to_vec().into_boxed_slice());
-    let storage = CArc::wrap(boxed).map_err(|error| FixtureError::Decoder(DecoderStage::AllocatePacket, error))?;
+    let storage = CArc::wrap(boxed)
+      .map_err(|error| FixtureError::Decoder(DecoderStage::AllocatePacket, error))?;
     let mut input = Rav1dData::from(storage);
 
     for _ in 0..=maximum_pictures {
@@ -184,8 +196,7 @@ mod tests {
   }
 
   fn decode_ivf_to_hash(ivf_path: &str) -> FixtureResult<(String, u64)> {
-    let ivf_data = fs::read(ivf_path)
-      .map_err(FixtureError::Read)?;
+    let ivf_data = fs::read(ivf_path).map_err(FixtureError::Read)?;
     let packets = parse_ivf(&ivf_data)?;
     assert!(!packets.is_empty(), "No frames found in IVF file");
 
@@ -224,18 +235,24 @@ mod tests {
     let step = stride.unsigned_abs();
     let direction = stride.cmp(&0);
     let origin = match direction {
-      Ordering::Less => byte_length.checked_sub(step).ok_or(FixtureError::InvalidPlane)?,
+      Ordering::Less => byte_length
+        .checked_sub(step)
+        .ok_or(FixtureError::InvalidPlane)?,
       Ordering::Equal | Ordering::Greater => 0,
     };
 
     for row in 0..shape.rows {
-      let distance = u64::from(row).checked_mul(step).ok_or(FixtureError::InvalidPlane)?;
+      let distance = u64::from(row)
+        .checked_mul(step)
+        .ok_or(FixtureError::InvalidPlane)?;
       let row_start = match direction {
         Ordering::Less => origin.checked_sub(distance),
         Ordering::Equal | Ordering::Greater => origin.checked_add(distance),
       };
       let start = row_start.ok_or(FixtureError::InvalidPlane)?;
-      let end = start.checked_add(shape.row_bytes).ok_or(FixtureError::InvalidPlane)?;
+      let end = start
+        .checked_add(shape.row_bytes)
+        .ok_or(FixtureError::InvalidPlane)?;
       let Ok(row_bounds) = indices(start..end);
       let pixels = bytes.get(row_bounds).ok_or(FixtureError::InvalidPlane)?;
       output.extend_from_slice(pixels);
@@ -245,8 +262,10 @@ mod tests {
   }
 
   fn extract_pixels(pic: &Rav1dPicture, output: &mut Vec<u8>) -> FixtureResult<()> {
-    let width = u32::try_from(pic.p.w).map_err(|_negative_width| FixtureError::InvalidDimensions)?;
-    let height = u32::try_from(pic.p.h).map_err(|_negative_height| FixtureError::InvalidDimensions)?;
+    let width =
+      u32::try_from(pic.p.w).map_err(|_negative_width| FixtureError::InvalidDimensions)?;
+    let height =
+      u32::try_from(pic.p.h).map_err(|_negative_height| FixtureError::InvalidDimensions)?;
     let data = pic.data.as_ref().ok_or(FixtureError::MissingPixels)?;
     let [luma, chroma_u, chroma_v] = &data.data;
     let [luma_stride, chroma_stride] = pic.stride.map(|pitch| {
@@ -261,7 +280,10 @@ mod tests {
     append_plane(
       output,
       luma,
-      PlaneRows { row_bytes: u64::from(width).wrapping_mul(bytes_per_sample), rows: height },
+      PlaneRows {
+        row_bytes: u64::from(width).wrapping_mul(bytes_per_sample),
+        rows: height,
+      },
       luma_stride,
     )?;
 

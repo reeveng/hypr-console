@@ -6,7 +6,7 @@ pub enum LengthUnit {
   Em,
   Ex,
   Px,
-  In,
+  Inches,
   Cm,
   Mm,
   Pt,
@@ -116,7 +116,7 @@ impl Stream<'_> {
       (b"em", LengthUnit::Em),
       (b"ex", LengthUnit::Ex),
       (b"px", LengthUnit::Px),
-      (b"in", LengthUnit::In),
+      (b"in", LengthUnit::Inches),
       (b"cm", LengthUnit::Cm),
       (b"mm", LengthUnit::Mm),
       (b"pt", LengthUnit::Pt),
@@ -209,7 +209,7 @@ mod tests {
     test_p!(parse_2,  "1em", Length { number: 1.0, unit: LengthUnit::Em });
     test_p!(parse_3,  "1ex", Length { number: 1.0, unit: LengthUnit::Ex });
     test_p!(parse_4,  "1px", Length { number: 1.0, unit: LengthUnit::Px });
-    test_p!(parse_5,  "1in", Length { number: 1.0, unit: LengthUnit::In });
+    test_p!(parse_5,  "1in", Length { number: 1.0, unit: LengthUnit::Inches });
     test_p!(parse_6,  "1cm", Length { number: 1.0, unit: LengthUnit::Cm });
     test_p!(parse_7,  "1mm", Length { number: 1.0, unit: LengthUnit::Mm });
     test_p!(parse_8,  "1pt", Length { number: 1.0, unit: LengthUnit::Pt });

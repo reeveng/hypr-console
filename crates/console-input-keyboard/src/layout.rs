@@ -201,15 +201,26 @@ pub fn layout_keys(layout: &Layout, room: Size<f64>) -> Result<Vec<Placed>, Neve
 
       match key.kind {
         Kind::Pad => {}
-        Kind::Code { .. } | Kind::Mod(_) | Kind::Copy { .. } | Kind::Layout(_) | Kind::Back
-        | Kind::Next | Kind::Language | Kind::Symbols | Kind::Compose | Kind::EndRow => {
+        Kind::Code { .. }
+        | Kind::Mod(_)
+        | Kind::Copy { .. }
+        | Kind::Layout(_)
+        | Kind::Back
+        | Kind::Next
+        | Kind::Language
+        | Kind::Symbols
+        | Kind::Compose
+        | Kind::EndRow => {
           let Ok(row_2) = down.float();
 
           out.push(Placed {
             at: *at,
             bounds: Rectangle {
               origin: Point { x, y: row_2 * deep },
-              size: Size { width, height: deep },
+              size: Size {
+                width,
+                height: deep,
+              },
             },
           });
         }
@@ -331,10 +342,12 @@ pub fn toward(
       .iter()
       .filter(|key| key.at != selected.at)
       .map(|key| (key.at, scored(key)))
-      .filter(|(_, (along, _))| match ::core::primitive::bool::then_some(ahead, ()) {
-        ::core::option::Option::Some(()) => *along >= 0.0,
-        ::core::option::Option::None => *along < 0.0,
-      })
+      .filter(
+        |(_, (along, _))| match ::core::primitive::bool::then_some(ahead, ()) {
+          ::core::option::Option::Some(()) => *along >= 0.0,
+          ::core::option::Option::None => *along < 0.0,
+        },
+      )
       .min_by(|one, other| one.1.1.total_cmp(&other.1.1));
 
     match best {

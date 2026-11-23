@@ -10,7 +10,10 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "the same OpenType tags define the cache, its lookups and the public raw accessors")
+  expect(
+    explicit080_macro_budget,
+    reason = "the same OpenType tags define the cache, its lookups and the public raw accessors"
+  )
 )]
 macro_rules! font_tables {
   ($($tag:literal => $entry:ident, $accessor:ident;)*) => {
@@ -148,7 +151,10 @@ type TableFunctionEntry = Once<Option<(AtomicU8, FontBlob)>>;
 #[derive(Clone)]
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "cloned font sources share a provider callback and its once-initialized table bytes and validation flags")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "cloned font sources share a provider callback and its once-initialized table bytes and validation flags"
+  )
 )]
 pub struct FontTableFunction {
   table_fn: Arc<dyn Fn(Tag) -> Option<FontBlob> + Send + Sync>,
@@ -159,11 +165,17 @@ impl FontTableFunction {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "the published constructor accepts an existing provider callback and initializes the table cache shared by clones")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the published constructor accepts an existing provider callback and initializes the table cache shared by clones"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontTableFunction::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontTableFunction::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(table_fn: Arc<dyn Fn(Tag) -> Option<FontBlob> + Send + Sync>) -> Self {
     Self {
@@ -258,17 +270,22 @@ impl FontTables {
         .table_records();
         let Ok(()) = tables.init_all(|tag, entry: &mut BlobTableEntry| {
           entry.start = u32::MAX;
-          let ::core::result::Result::Ok(index_3) = ::console_core_number_conversion::fixed_index(match table_records.binary_search_by_key(&tag, |record| {
-            let Ok(table_tag) = record.tag();
-            table_tag
-          }) {
-            Ok(index_2) => index_2,
-            Err(_insertion_position) => return,
-          });
-          let record = match table_records.get(match ::console_core_number_conversion::index(index_3) { ::core::result::Result::Ok(native_position) => native_position }) {
-            Some(record) => record,
-            None => return,
-          };
+          let ::core::result::Result::Ok(index_3) = ::console_core_number_conversion::fixed_index(
+            match table_records.binary_search_by_key(&tag, |record| {
+              let Ok(table_tag) = record.tag();
+              table_tag
+            }) {
+              Ok(index_2) => index_2,
+              Err(_insertion_position) => return,
+            },
+          );
+          let record =
+            match table_records.get(match ::console_core_number_conversion::index(index_3) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            }) {
+              Some(record) => record,
+              None => return,
+            };
           let Ok(start) = record.offset();
           let Ok(length) = record.length();
           let end = match start.checked_add(length) {
@@ -324,7 +341,7 @@ impl FontTables {
 
   fn load_table_with_args<'a, T: TopLevelTable + FontReadWithArgs<'a>>(
     &'a self,
-    args: &T::Args,
+    args: &T::Arguments,
   ) -> Result<T, ReadError> {
     let Ok(state) = self.table_state(T::TAG);
     let state_2 = state.ok_or(ReadError::TableIsMissing(T::TAG))?;
@@ -433,12 +450,12 @@ impl<'a> TableProvider<'a> for &'a FontTables {
     {
       Some(format_2) => format_2,
       None => {
-          let head = self.head()?;
+        let head = self.head()?;
 
-          match head.index_to_loc_format() {
-            Ok(1) => OffsetFormat::Long,
-            Ok(_) => OffsetFormat::Short,
-          }
+        match head.index_to_loc_format() {
+          Ok(1) => OffsetFormat::Long,
+          Ok(_) => OffsetFormat::Short,
+        }
       }
     };
 
@@ -580,7 +597,7 @@ impl<'a> TableProvider<'a> for &'a FontTables {
     self.load_table_with_tag(value_3)
   }
 
-  fn meta(&self) -> Result<tables::meta::Meta<'a>, ReadError> {
+  fn meta(&self) -> Result<tables::meta::MetadataTable<'a>, ReadError> {
     self.load_table()
   }
 
@@ -614,10 +631,15 @@ mod tests {
   #[test]
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "the fixture passes an external callback to the public FontTableFunction constructor")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the fixture passes an external callback to the public FontTableFunction constructor"
+    )
   )]
-  fn table_function_matches_font_ref() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::AHEM), "fixture value")?;
+  fn table_function_matches_font_ref() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
+    let font =
+      crate::test_support::fixture_value(FontRef::new(font_test_data::AHEM), "fixture value")?;
     let font_copy = font.clone();
     let table_fn = FontTableFunction::new(Arc::new(move |tag| {
       let table = match font_copy.data_for_tag(tag) {
@@ -631,7 +653,8 @@ mod tests {
         >>::from(Vec::from(bytes))
       })
     }));
-    let fixture_value = crate::test_support::fixture_value(FontTables::new(table_fn, 0), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(FontTables::new(table_fn, 0), "fixture value")?;
     let tables = &fixture_value;
 
     for (data, tag) in [
@@ -640,20 +663,21 @@ mod tests {
       (tables.hmtx_data(), b"hmtx"),
     ] {
       let font_ref_data = {
-        let font_ref_table = crate::test_support::fixture_value(font
-        .data_for_tag({
-          let Ok(explicit_value) = Tag::new(tag);
-          explicit_value
-        }), "fixture value")?;
+        let font_ref_table = crate::test_support::fixture_value(
+          font.data_for_tag({
+            let Ok(explicit_value) = Tag::new(tag);
+            explicit_value
+          }),
+          "fixture value",
+        )?;
         font_ref_table
       }
-        .map(|d| {
-          let Ok(bytes) = d.as_bytes();
-          bytes
-        });
+      .map(|d| {
+        let Ok(bytes) = d.as_bytes();
+        bytes
+      });
       assert_eq!(data, font_ref_data);
     }
-  ;
 
     Ok(())
   }

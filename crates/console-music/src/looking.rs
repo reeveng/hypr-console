@@ -64,10 +64,12 @@ impl Song {
   }
 
   pub fn says(&self) -> Result<&str, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.tags.title.is_empty(), ()) {
-      ::core::option::Option::Some(()) => &self.name,
-      ::core::option::Option::None => &self.tags.title,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.tags.title.is_empty(), ()) {
+        ::core::option::Option::Some(()) => &self.name,
+        ::core::option::Option::None => &self.tags.title,
+      },
+    )
   }
 
   pub fn aside(&self, folder: &Path) -> Result<String, Never> {

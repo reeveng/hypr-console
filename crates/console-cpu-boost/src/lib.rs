@@ -92,14 +92,14 @@ pub const HURRY: &str = "balance_performance";
 
 pub const FOR: Duration = Duration::from_millis(750);
 
-enum Complaint {
+enum ValidationError {
   Pending,
   Reported,
 }
 
 enum HintWrites {
   None,
-  Changed,
+  Different,
 }
 
 #[cfg_attr(
@@ -114,7 +114,7 @@ pub struct HighPowerMode {
   note: PathBuf,
   until: Option<Instant>,
   was: Vec<(PathBuf, String)>,
-  complaint: Complaint,
+  complaint: ValidationError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +138,7 @@ impl HighPowerMode {
       note: note.to_path_buf(),
       until: None,
       was: Vec::new(),
-      complaint: Complaint::Pending,
+      complaint: ValidationError::Pending,
     })
   }
 
@@ -270,7 +270,7 @@ impl HighPowerMode {
       match std::fs::write(&hint, HURRY) {
         Ok(()) => {
           self.was.push((hint, was));
-          writes = HintWrites::Changed;
+          writes = HintWrites::Different;
         }
         Err(_unwritten) => {
           let Ok(()) = self.complain(&hint);
@@ -279,7 +279,7 @@ impl HighPowerMode {
     }
 
     match writes {
-      HintWrites::Changed => self.until = Some(ending),
+      HintWrites::Different => self.until = Some(ending),
       HintWrites::None => {}
     }
 
@@ -338,11 +338,11 @@ impl HighPowerMode {
 
   fn complain(&mut self, hint: &Path) -> Result<(), Never> {
     match self.complaint {
-      Complaint::Reported => return Ok(()),
-      Complaint::Pending => {}
+      ValidationError::Reported => return Ok(()),
+      ValidationError::Pending => {}
     }
 
-    self.complaint = Complaint::Reported;
+    self.complaint = ValidationError::Reported;
     eprintln!(
       "console-haste: {} will not take a word, so panels open at whatever \
              clock the machine happens to be at",
@@ -354,11 +354,11 @@ impl HighPowerMode {
 
   fn complain_about_the_note(&mut self) -> Result<(), Never> {
     match self.complaint {
-      Complaint::Reported => return Ok(()),
-      Complaint::Pending => {}
+      ValidationError::Reported => return Ok(()),
+      ValidationError::Pending => {}
     }
 
-    self.complaint = Complaint::Reported;
+    self.complaint = ValidationError::Reported;
     eprintln!(
       "console-haste: {} cannot be written, so the processors are left alone: hurrying \
              them without writing down what they held is how they get stuck at {HURRY}",

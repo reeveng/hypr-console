@@ -99,10 +99,12 @@ pub fn places(zones: &[String], region: &str) -> Result<Vec<Place>, Never> {
 pub fn parse_zone(said: &str) -> Result<Option<String>, Never> {
   let zone = said.trim();
 
-  Ok(match ::core::primitive::bool::then_some(zone.is_empty(), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(zone.to_string()),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(zone.is_empty(), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(zone.to_string()),
+    },
+  )
 }
 
 #[cfg(test)]

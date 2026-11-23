@@ -640,7 +640,7 @@ impl<'a> MinByteRange<'a> for Feature<'a> {
 }
 
 impl ReadArgs for Feature<'_> {
-    type Args = Tag;
+    type Arguments = Tag;
 }
 
 impl<'a> FontReadWithArgs<'a> for Feature<'a> {

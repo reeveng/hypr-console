@@ -261,7 +261,7 @@ impl CMap {
       let Ok(found) = layer.cid_code(code, byte_len);
 
       match found {
-        Lookup::Settled(cid) => return Ok(cid),
+        Lookup::Ready(cid) => return Ok(cid),
         Lookup::Unsettled => {}
       }
     }
@@ -274,7 +274,7 @@ impl CMap {
       let Ok(found) = layer.bf_string(code);
 
       match found {
-        Lookup::Settled(string) => return Ok(string),
+        Lookup::Ready(string) => return Ok(string),
         Lookup::Unsettled => {}
       }
     }

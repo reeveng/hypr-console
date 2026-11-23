@@ -24,7 +24,10 @@ impl MatchModeAndCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MatchModeAndCount::bits` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MatchModeAndCount::bits` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn bits(self) -> u8 {
     self.0
@@ -33,7 +36,10 @@ impl MatchModeAndCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MatchModeAndCount::from_bits` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MatchModeAndCount::from_bits` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_bits(bits: u8) -> Self {
     Self(bits)
@@ -42,11 +48,17 @@ impl MatchModeAndCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MatchModeAndCount::conjunctive_match` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MatchModeAndCount::conjunctive_match` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `MatchModeAndCount::conjunctive_match` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `MatchModeAndCount::conjunctive_match` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn conjunctive_match(self) -> bool {
     (self.0 & Self::MATCH_MODE_MASK) != 0
@@ -55,7 +67,10 @@ impl MatchModeAndCount {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MatchModeAndCount::count` method returns `u8` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MatchModeAndCount::count` method returns `u8` directly in the existing parser interface"
+    )
   )]
   pub fn count(self) -> u8 {
     self.0 & Self::COUNT_MASK
@@ -97,7 +112,10 @@ impl CompatibilityId {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompatibilityId::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompatibilityId::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(value: [u8; 16]) -> Self {
     CompatibilityId(value)
@@ -106,12 +124,18 @@ impl CompatibilityId {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompatibilityId::from_u32s` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompatibilityId::from_u32s` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_u32s(values: [u32; 4]) -> Self {
     let mut data = [0u8; 16];
 
-    for (byte, value) in data.iter_mut().zip(values.into_iter().flat_map(u32::to_be_bytes)) {
+    for (byte, value) in data
+      .iter_mut()
+      .zip(values.into_iter().flat_map(u32::to_be_bytes))
+    {
       *byte = value;
     }
 
@@ -121,7 +145,10 @@ impl CompatibilityId {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CompatibilityId::as_slice` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CompatibilityId::as_slice` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn as_slice(&self) -> &[u8] {
     &self.0
@@ -144,20 +171,22 @@ impl Scalar for CompatibilityId {
 pub struct U8Or16(u16);
 
 impl ReadArgs for U8Or16 {
-  type Args = u16;
+  type Arguments = u16;
 }
 
 impl ComputeSize for U8Or16 {
   fn compute_size(max_entry_index: &u16) -> Result<u64, ReadError> {
-    Ok(match ::core::primitive::bool::then_some(*max_entry_index < 256, ()) {
-      ::core::option::Option::Some(()) => 1,
-      ::core::option::Option::None => 2,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(*max_entry_index < 256, ()) {
+        ::core::option::Option::Some(()) => 1,
+        ::core::option::Option::None => 2,
+      },
+    )
   }
 }
 
 impl FontReadWithArgs<'_> for U8Or16 {
-  fn read_with_args(data: FontData<'_>, max_entry_index: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'_>, max_entry_index: &Self::Arguments) -> Result<Self, ReadError> {
     match ::core::primitive::bool::then_some(*max_entry_index < 256, ()) {
       ::core::option::Option::Some(()) => data.read_at::<u8>(0).map(|v| {
         Self({
@@ -175,7 +204,10 @@ impl U8Or16 {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `U8Or16::get` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `U8Or16::get` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn get(self) -> u16 {
     self.0
@@ -186,7 +218,7 @@ impl U8Or16 {
 pub struct U16Or24(u32);
 
 impl ReadArgs for U16Or24 {
-  type Args = GlyphKeyedFlags;
+  type Arguments = GlyphKeyedFlags;
 }
 
 impl ComputeSize for U16Or24 {
@@ -201,7 +233,7 @@ impl ComputeSize for U16Or24 {
 }
 
 impl FontReadWithArgs<'_> for U16Or24 {
-  fn read_with_args(data: FontData<'_>, flags: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'_>, flags: &Self::Arguments) -> Result<Self, ReadError> {
     let Ok(wide_glyph_ids) = flags.contains(GlyphKeyedFlags::WIDE_GLYPH_IDS);
 
     match wide_glyph_ids {
@@ -225,7 +257,10 @@ impl U16Or24 {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `U16Or24::get` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `U16Or24::get` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn get(self) -> u32 {
     self.0
@@ -236,12 +271,18 @@ impl<'a> EntryData<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `EntryData::trailing_data` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `EntryData::trailing_data` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn trailing_data(&self) -> &'a [u8] {
     let Ok(range) = self.trailing_data_byte_range();
 
-    match match self.data.read_array(range) { Ok(value) => Some(value), Err(_invalid_feature_mask) => None } {
+    match match self.data.read_array(range) {
+      Ok(value) => Some(value),
+      Err(_invalid_feature_mask) => None,
+    } {
       ::core::option::Option::Some(option_value) => option_value,
       ::core::option::Option::None => &[],
     }
@@ -252,23 +293,30 @@ impl<'a> PatchMapFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PatchMapFormat1::gid_to_entry_iter` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PatchMapFormat1::gid_to_entry_iter` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn gid_to_entry_iter(&'a self) -> impl Iterator<Item = (GlyphId, u16)> + 'a {
     let Ok(glyph_count) = self.glyph_count();
     let Ok(value_4) = glyph_count.to_u32();
 
     GidToEntryIter {
-      glyph_map: (match self.glyph_map() { Ok(value) => Some(value), Err(_unavailable_glyph_map) => None }),
+      glyph_map: (match self.glyph_map() {
+        Ok(value) => Some(value),
+        Err(_unavailable_glyph_map) => None,
+      }),
       glyph_count: value_4,
-      gid: (match self
-        .glyph_map()
-        .map(|glyph_map| {
-          let Ok(first_mapped_glyph) = glyph_map.first_mapped_glyph();
-          let Ok(migrated_value) =
-            console_core_number_conversion::wrapped::<_, u32>(first_mapped_glyph);
-          migrated_value
-        }) { Ok(value) => value, Err(_unavailable_glyph_map) => 0 }),
+      gid: (match self.glyph_map().map(|glyph_map| {
+        let Ok(first_mapped_glyph) = glyph_map.first_mapped_glyph();
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u32>(first_mapped_glyph);
+        migrated_value
+      }) {
+        Ok(value) => value,
+        Err(_unavailable_glyph_map) => 0,
+      }),
     }
     .filter(|(_, entry_index)| *entry_index > 0)
   }
@@ -276,7 +324,10 @@ impl<'a> PatchMapFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PatchMapFormat1::entry_count` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PatchMapFormat1::entry_count` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn entry_count(&self) -> u32 {
     ::core::primitive::u32::wrapping_add(
@@ -293,11 +344,17 @@ impl<'a> PatchMapFormat1<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `PatchMapFormat1::is_entry_applied` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `PatchMapFormat1::is_entry_applied` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `PatchMapFormat1::is_entry_applied` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `PatchMapFormat1::is_entry_applied` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_entry_applied(&self, entry_index: u16) -> bool {
     let byte_index = ::core::primitive::u16::wrapping_div(entry_index, 8);
@@ -417,7 +474,10 @@ impl<'a> GlyphPatches<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `GlyphPatches::glyph_data_for_table` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `GlyphPatches::glyph_data_for_table` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn glyph_data_for_table(
     &'a self,
@@ -497,7 +557,9 @@ where
     match self.state {
       GlyphPatchIteration::After(previous) => match glyph_id.cmp(&previous) {
         core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {
-          return Err(ReadError::MalformedData("Glyph IDs are unsorted or duplicated."));
+          return Err(ReadError::MalformedData(
+            "Glyph IDs are unsorted or duplicated.",
+          ));
         }
         core::cmp::Ordering::Greater => {}
       },
@@ -554,14 +616,21 @@ mod tests {
   #[test]
   fn format_1_gid_to_u8_entry_iter() -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::simple_format1()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format1(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     let entries: Vec<(GlyphId, u16)> = map.gid_to_entry_iter().collect();
@@ -588,16 +657,24 @@ mod tests {
   }
 
   #[test]
-  fn format_1_gid_to_u16_entry_iter() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn format_1_gid_to_u16_entry_iter() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
     let data = test_data::u16_entries_format1()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format1(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     let entries: Vec<(GlyphId, u16)> = map.gid_to_entry_iter().collect();
@@ -634,24 +711,39 @@ mod tests {
   #[test]
   fn format_1_feature_map() -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::feature_map_format1()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format1(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     let feature_map = {
-        let outcome_feature_map = map.feature_map();
+      let outcome_feature_map = map.feature_map();
 
-        match outcome_feature_map {
-            Ok(Some(matched_feature_map)) => matched_feature_map,
-            Ok(None) => return Err(crate::test_support::Failure::from(alloc::format!("should have a non null feature map."))),
-            Err(_unreadable_feature_map) => return Err(crate::test_support::Failure::from(alloc::format!("should have a non null feature map."))),
+      match outcome_feature_map {
+        Ok(Some(matched_feature_map)) => matched_feature_map,
+        Ok(None) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "should have a non null feature map."
+          )));
         }
+        Err(_unreadable_feature_map) => {
+          return Err(crate::test_support::Failure::from(alloc::format!(
+            "should have a non null feature map."
+          )));
+        }
+      }
     };
 
     assert_eq!(
@@ -678,7 +770,8 @@ mod tests {
     assert_eq!(*entry_map_count, U8Or16(0x01));
 
     let Ok(feature_map_feature_records) = feature_map.feature_records();
-    let fr1 = crate::test_support::fixture_value(feature_map_feature_records.get(1), "fixture value")?;
+    let fr1 =
+      crate::test_support::fixture_value(feature_map_feature_records.get(1), "fixture value")?;
     assert_eq!(
       fr1.feature_tag(),
       Ok({
@@ -695,44 +788,66 @@ mod tests {
   }
 
   #[test]
-  fn format_1_get_charstrings_offset() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn format_1_get_charstrings_offset() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
     let data = test_data::simple_format1()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format1(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     assert_eq!(map.cff_charstrings_offset(), Ok(None));
     assert_eq!(map.cff2_charstrings_offset(), Ok(None));
 
     let data_2 = test_data::simple_format1_with_one_charstrings_offset()?;
-    let table_2 = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data_2);
-      explicit_value
-    }), "fixture value")?;
+    let table_2 = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data_2);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map_2 = match table_2 {
-        Ift::Format1(matched_map_2) => matched_map_2,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map_2) => matched_map_2,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     assert_eq!(map_2.cff_charstrings_offset(), Ok(Some(456)));
     assert_eq!(map_2.cff2_charstrings_offset(), Ok(None));
 
     let data_3 = test_data::simple_format1_with_two_charstrings_offsets()?;
-    let table_3 = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data_3);
-      explicit_value
-    }), "fixture value")?;
+    let table_3 = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data_3);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map_3 = match table_3 {
-        Ift::Format1(matched_map_3) => matched_map_3,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map_3) => matched_map_3,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     assert_eq!(map_3.cff_charstrings_offset(), Ok(Some(456)));
@@ -742,44 +857,66 @@ mod tests {
   }
 
   #[test]
-  fn format_2_get_charstrings_offset() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn format_2_get_charstrings_offset() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
     let data = test_data::codepoints_only_format2()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format2(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format1(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 2."))),
+      Ift::Format2(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format1(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 2."
+        )));
+      }
     };
 
     assert_eq!(map.cff_charstrings_offset(), Ok(None));
     assert_eq!(map.cff2_charstrings_offset(), Ok(None));
 
     let data_2 = test_data::format2_with_one_charstrings_offset()?;
-    let table_2 = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data_2);
-      explicit_value
-    }), "fixture value")?;
+    let table_2 = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data_2);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map_2 = match table_2 {
-        Ift::Format2(matched_map_2) => matched_map_2,
-        crate::tables::ift::Ift::Format1(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 2."))),
+      Ift::Format2(matched_map_2) => matched_map_2,
+      crate::tables::ift::Ift::Format1(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 2."
+        )));
+      }
     };
 
     assert_eq!(map_2.cff_charstrings_offset(), Ok(Some(456)));
     assert_eq!(map_2.cff2_charstrings_offset(), Ok(None));
 
     let data_3 = test_data::format2_with_two_charstrings_offset()?;
-    let table_3 = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data_3);
-      explicit_value
-    }), "fixture value")?;
+    let table_3 = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data_3);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map_3 = match table_3 {
-        Ift::Format2(matched_map_3) => matched_map_3,
-        crate::tables::ift::Ift::Format1(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 2."))),
+      Ift::Format2(matched_map_3) => matched_map_3,
+      crate::tables::ift::Ift::Format1(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 2."
+        )));
+      }
     };
 
     assert_eq!(map_3.cff_charstrings_offset(), Ok(Some(456)));
@@ -799,7 +936,9 @@ mod tests {
     }) {
       Err(err) => err,
       Ok(_) => {
-        return Err(crate::test_support::Failure::from(alloc::format!("Read should have failed due to invalid format number.")));
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Read should have failed due to invalid format number."
+        )));
       }
     };
 
@@ -811,14 +950,21 @@ mod tests {
   #[test]
   fn compatibility_id() -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::simple_format1()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format1(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     assert_eq!(
@@ -832,14 +978,21 @@ mod tests {
   #[test]
   fn is_entry_applied() -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::simple_format1()?;
-    let table = crate::test_support::fixture_value(Ift::read({
-      let Ok(explicit_value) = FontData::new(&data);
-      explicit_value
-    }), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      Ift::read({
+        let Ok(explicit_value) = FontData::new(&data);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let map = match table {
-        Ift::Format1(matched_map) => matched_map,
-        crate::tables::ift::Ift::Format2(..) => return Err(crate::test_support::Failure::from(alloc::format!("Not format 1."))),
+      Ift::Format1(matched_map) => matched_map,
+      crate::tables::ift::Ift::Format2(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Not format 1."
+        )));
+      }
     };
 
     assert!(!map.is_entry_applied(0));
@@ -850,15 +1003,19 @@ mod tests {
   }
 
   #[test]
-  fn glyph_keyed_glyph_data_for_one_table() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn glyph_keyed_glyph_data_for_one_table()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::glyf_u16_glyph_patches()?;
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(&data);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(&data);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     let it = table.glyph_data_for_table(0);
 
@@ -912,13 +1069,16 @@ mod tests {
   fn glyph_keyed_glyph_data_for_one_table_u24_ids()
   -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::glyf_u24_glyph_patches()?;
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(&data);
-        explicit_value
-      },
-      GlyphKeyedFlags::WIDE_GLYPH_IDS,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(&data);
+          explicit_value
+        },
+        GlyphKeyedFlags::WIDE_GLYPH_IDS,
+      ),
+      "fixture value",
+    )?;
 
     let it = table.glyph_data_for_table(0);
 
@@ -972,13 +1132,16 @@ mod tests {
   fn glyph_keyed_glyph_data_for_multiple_tables()
   -> ::core::result::Result<(), crate::test_support::Failure> {
     let data = test_data::glyf_and_gvar_u16_glyph_patches()?;
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(&data);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(&data);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     assert_eq!(
       table.glyph_data_for_table(0).collect::<Vec<_>>(),
@@ -1044,13 +1207,16 @@ mod tests {
   -> ::core::result::Result<(), crate::test_support::Failure> {
     let mut builder = test_data::glyf_u16_glyph_patches()?;
     builder.write_at("gid_8", 6)?;
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(&builder);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(&builder);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     let it = table.glyph_data_for_table(0);
 
@@ -1081,17 +1247,20 @@ mod tests {
   }
 
   #[test]
-  fn glyph_keyed_glyph_data_duplicate_gids() -> ::core::result::Result<(), crate::test_support::Failure>
-  {
+  fn glyph_keyed_glyph_data_duplicate_gids()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     let mut builder = test_data::glyf_u16_glyph_patches()?;
     builder.write_at("gid_8", 7)?;
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(&builder);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(&builder);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     let it = table.glyph_data_for_table(0);
 
@@ -1138,13 +1307,16 @@ mod tests {
     builder.write_at("gid_13_offset", gid_9)?;
     builder.write_at("gid_9_offset", gid_13)?;
 
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(&builder);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(&builder);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     let it = table.glyph_data_for_table(0);
 
@@ -1202,7 +1374,9 @@ mod tests {
     ) {
       Err(err) => err,
       Ok(_) => {
-        return Err(crate::test_support::Failure::from(alloc::format!("Expected to fail.")));
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Expected to fail."
+        )));
       }
     };
     assert_eq!(ReadError::OutOfBounds, err);
@@ -1220,13 +1394,16 @@ mod tests {
       .get(..position)
       .ok_or(font_test_data::bebuffer::BufferError::InvalidOffset(len))?;
 
-    let table = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(data);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let table = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(data);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     let it = table.glyph_data_for_table(0);
 
@@ -1271,13 +1448,16 @@ mod tests {
       .get(..position)
       .ok_or(font_test_data::bebuffer::BufferError::InvalidOffset(len))?;
 
-    let derp = crate::test_support::fixture_value(GlyphPatches::read(
-      {
-        let Ok(explicit_value) = FontData::new(data);
-        explicit_value
-      },
-      GlyphKeyedFlags::NONE,
-    ), "fixture value")?;
+    let derp = crate::test_support::fixture_value(
+      GlyphPatches::read(
+        {
+          let Ok(explicit_value) = FontData::new(data);
+          explicit_value
+        },
+        GlyphKeyedFlags::NONE,
+      ),
+      "fixture value",
+    )?;
 
     let Ok(glyph_data_offsets) = derp.glyph_data_offsets();
     assert!(glyph_data_offsets.is_empty());

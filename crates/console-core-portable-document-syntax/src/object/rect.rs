@@ -8,9 +8,9 @@ use crate::reader::Reader;
 
 use console_core_point::Point;
 
-pub type Rect = console_core_rectangle::Bounds<f64>;
+pub type Rectangle = console_core_rectangle::Bounds<f64>;
 
-impl<'a> Readable<'a> for Rect {
+impl<'a> Readable<'a> for Rectangle {
   fn read(r: &mut Reader<'a>, ctx: &ReaderContext<'a>) -> Option<Self> {
     let arr = r.read::<Array<'_>>(ctx)?;
 
@@ -21,7 +21,7 @@ impl<'a> Readable<'a> for Rect {
   }
 }
 
-fn from_arr(array: &Array<'_>) -> core::result::Result<Option<Rect>, console_core_never::Never> {
+fn from_arr(array: &Array<'_>) -> core::result::Result<Option<Rectangle>, console_core_never::Never> {
   let Ok(mut iter) = array.iter::<f32>();
   let x0 = f64::from(match iter.next() {
     Some(value) => value,
@@ -40,12 +40,12 @@ fn from_arr(array: &Array<'_>) -> core::result::Result<Option<Rect>, console_cor
     None => return Ok(None),
   });
 
-  let Ok(rect) = Rect::from_points(Point { x: x0, y: y0 }, Point { x: x1, y: y1 });
+  let Ok(rect) = Rectangle::from_points(Point { x: x0, y: y0 }, Point { x: x1, y: y1 });
 
   Ok(Some(rect))
 }
 
-impl TryFrom<Object<'_>> for Rect {
+impl TryFrom<Object<'_>> for Rectangle {
   type Error = ();
 
   fn try_from(value: Object<'_>) -> Result<Self, Self::Error> {
@@ -66,4 +66,4 @@ impl TryFrom<Object<'_>> for Rect {
   }
 }
 
-impl ObjectLike<'_> for Rect {}
+impl ObjectLike<'_> for Rectangle {}

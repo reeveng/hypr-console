@@ -140,7 +140,7 @@ pub enum WakeState {
 
 impl WakeState {
   pub fn detect() -> Result<Self, Never> {
-    let Ok(marked) = marked(Marker::Awake);
+    let Ok(marked) = marked(Marker::Wake);
 
     Ok(match marked {
       Presence::Present => WakeState::Yes,
@@ -150,7 +150,7 @@ impl WakeState {
 }
 
 enum Marker {
-  Awake,
+  Wake,
   Carrying,
 }
 
@@ -176,7 +176,7 @@ fn note(marker: Marker) -> Result<PathBuf, Error> {
   let application = runtime.join(console_core_places::APPLICATION);
 
   Ok(match marker {
-    Marker::Awake => application.join("home-awake"),
+    Marker::Wake => application.join("home-awake"),
     Marker::Carrying => application.join("home-carrying"),
   })
 }
@@ -202,17 +202,20 @@ fn write_note(marker: Marker, said: Note) -> Result<(), Error> {
     }
     Note::Closed => match std::fs::remove_file(&note) {
       Ok(()) => Ok(()),
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => Ok(()),
-        ::core::option::Option::None => Err(Error::Removing(note, fault)),
-      },
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => Ok(()),
+          ::core::option::Option::None => Err(Error::Removing(note, fault)),
+        }
+      }
     },
   }
 }
 
 pub fn set_awake(awake: WakeState) -> Result<(), Error> {
   write_note(
-    Marker::Awake,
+    Marker::Wake,
     match awake {
       WakeState::Yes => Note::Message("awake\n"),
       WakeState::No => Note::Closed,

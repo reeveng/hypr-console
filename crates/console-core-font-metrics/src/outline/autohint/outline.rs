@@ -119,7 +119,10 @@ pub(crate) struct Point {
 
 impl Point {
   pub fn is_on_curve(&self) -> bool {
-    matches!(self.flags.curve_membership(), read_fonts::tables::glyf::CurveMembership::OnCurve)
+    matches!(
+      self.flags.curve_membership(),
+      read_fonts::tables::glyf::CurveMembership::OnCurve
+    )
   }
 
   /// Returns the index of the next point in the contour.
@@ -471,7 +474,10 @@ impl Outline {
         read_fonts::Presence::Present => continue,
         read_fonts::Presence::Absent => {}
       }
-      match !matches!(point.flags.curve_membership(), read_fonts::tables::glyf::CurveMembership::OnCurve) {
+      match !matches!(
+        point.flags.curve_membership(),
+        read_fonts::tables::glyf::CurveMembership::OnCurve
+      ) {
         true => {
           make_weak = true;
         }

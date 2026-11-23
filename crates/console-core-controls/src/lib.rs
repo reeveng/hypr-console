@@ -149,10 +149,12 @@ pub(crate) fn whole(many: u32) -> Result<i32, Never> {
 }
 
 pub(crate) fn toward<T: PartialEq>(now: T, wanted: T) -> Result<Answer<T>, Never> {
-  Ok(match ::core::primitive::bool::then_some(now == wanted, ()) {
-    ::core::option::Option::Some(()) => Answer::Same,
-    ::core::option::Option::None => Answer::Now(wanted),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(now == wanted, ()) {
+      ::core::option::Option::Some(()) => Answer::Same,
+      ::core::option::Option::None => Answer::Now(wanted),
+    },
+  )
 }
 
 #[cfg(test)]

@@ -219,7 +219,7 @@ fn filter_edges(
 struct GroupLocation {
   position: u64,
   along: u64,
-  across: u64,
+  column: u64,
 }
 
 struct Group {
@@ -294,7 +294,7 @@ fn edge_group(
     location: GroupLocation {
       position,
       along,
-      across,
+      column: across,
     },
     filter_size: geometry.filter_size,
     limits,
@@ -448,12 +448,12 @@ fn filter_group(destination: &mut [u16], group: Group) -> Result<(), Never> {
       .location
       .position
       .wrapping_add(lane.wrapping_mul(group.location.along));
-    let start = center.wrapping_sub(group.location.across.wrapping_mul(radius));
+    let start = center.wrapping_sub(group.location.column.wrapping_mul(radius));
     let Ok(samples) = gather(
       destination,
       LaneSpan {
         start,
-        step: group.location.across,
+        step: group.location.column,
         radius,
       },
     );
@@ -479,7 +479,7 @@ fn filter_group(destination: &mut [u16], group: Group) -> Result<(), Never> {
       let Ok(sample) = wrapped::<_, u16>(*value);
       let Ok(()) = write(
         destination,
-        start.wrapping_add(offset.wrapping_mul(group.location.across)),
+        start.wrapping_add(offset.wrapping_mul(group.location.column)),
         sample,
       );
     }

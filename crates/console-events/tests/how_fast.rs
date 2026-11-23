@@ -129,10 +129,12 @@ fn until_counted(
   let Ok(schedule) = Schedule::asking_every(patience, EVERY_SO_OFTEN);
 
   console_waiting::until(schedule, || {
-    Ok(match ::core::primitive::bool::then_some(count.load(Ordering::SeqCst) >= wanted, ()) {
-      ::core::option::Option::Some(()) => Ready::Yes,
-      ::core::option::Option::None => Ready::NotYet,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(count.load(Ordering::SeqCst) >= wanted, ()) {
+        ::core::option::Option::Some(()) => Ready::Yes,
+        ::core::option::Option::None => Ready::NotYet,
+      },
+    )
   })
 }
 

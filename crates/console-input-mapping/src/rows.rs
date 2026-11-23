@@ -90,10 +90,15 @@ impl Part {
   }
 
   pub fn here(&self) -> Result<Has, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.plays.iter().any(|one| one.here == Has::Yes), ()) {
-      ::core::option::Option::Some(()) => Has::Yes,
-      ::core::option::Option::None => Has::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        self.plays.iter().any(|one| one.here == Has::Yes),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Has::Yes,
+        ::core::option::Option::None => Has::No,
+      },
+    )
   }
 
   pub fn unplayed(&self) -> Result<&'static str, Never> {
@@ -248,7 +253,10 @@ pub fn every(table: &Table) -> Result<BTreeMap<String, Vec<Binding>>, Never> {
 pub fn button_label(button: &str) -> Result<String, Never> {
   let Ok(spoken) = spoken_for(button);
 
-  match ::core::primitive::bool::then_some(spoken.contains(|letter: char| letter.is_uppercase()), ()) {
+  match ::core::primitive::bool::then_some(
+    spoken.contains(|letter: char| letter.is_uppercase()),
+    (),
+  ) {
     ::core::option::Option::Some(()) => split(spoken),
     ::core::option::Option::None => Ok(spoken.replace('-', " ")),
   }

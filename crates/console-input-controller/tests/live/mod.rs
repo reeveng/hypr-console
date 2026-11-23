@@ -318,10 +318,12 @@ impl Running {
       let Ok(said) = self.said();
 
       Ok(
-        match ::core::primitive::bool::then_some(READS
-          .iter()
-          .all(|name| said.contains(&format!("reading the {name}"))), ())
-        {
+        match ::core::primitive::bool::then_some(
+          READS
+            .iter()
+            .all(|name| said.contains(&format!("reading the {name}"))),
+          (),
+        ) {
           ::core::option::Option::Some(()) => Ready::Yes,
           ::core::option::Option::None => Ready::NotYet,
         },
@@ -365,7 +367,10 @@ impl Running {
               .into_iter()
               .filter(|event| event.kind != EventType::SYNCHRONIZATION),
           ),
-          Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::WouldBlock, ()) {
+          Err(fault) => match ::core::primitive::bool::then_some(
+            fault.kind() == std::io::ErrorKind::WouldBlock,
+            (),
+          ) {
             ::core::option::Option::Some(()) => return Ok(Ready::NotYet),
             ::core::option::Option::None => {
               **fault_slot = Some(fault);

@@ -129,10 +129,12 @@ impl Deploy {
           let Ok(()) = self.abandon(lays);
           let Ok(put_back) = self.undo(lays);
 
-          return Err(match ::core::primitive::bool::then_some(put_back.is_empty(), ()) {
-            ::core::option::Option::Some(()) => fault,
-            ::core::option::Option::None => Unapplied::WentBack(Box::new(fault)),
-          });
+          return Err(
+            match ::core::primitive::bool::then_some(put_back.is_empty(), ()) {
+              ::core::option::Option::Some(()) => fault,
+              ::core::option::Option::None => Unapplied::WentBack(Box::new(fault)),
+            },
+          );
         }
       }
     }
@@ -307,7 +309,10 @@ mod tests {
     fn stage(&mut self, from: &Path, live: &str) -> Result<(), Unapplied> {
       self.asked.push(format!("stage {live}"));
 
-      match ::core::primitive::bool::then_some(self.wont_stage.iter().any(|which| which == live), ()) {
+      match ::core::primitive::bool::then_some(
+        self.wont_stage.iter().any(|which| which == live),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Err(Unapplied::Staging(
             live.to_string(),
@@ -337,7 +342,10 @@ mod tests {
     fn swap(&mut self, live: &str) -> Result<Back, Unapplied> {
       self.asked.push(format!("swap {live}"));
 
-      match ::core::primitive::bool::then_some(self.wont_swap.iter().any(|which| which == live), ()) {
+      match ::core::primitive::bool::then_some(
+        self.wont_swap.iter().any(|which| which == live),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Err(Unapplied::Staging(
             live.to_string(),
@@ -373,7 +381,10 @@ mod tests {
     fn put_back(&mut self, laid: &Install) -> Result<(), Unapplied> {
       self.asked.push(format!("put back {}", laid.at));
 
-      match ::core::primitive::bool::then_some(self.wont_put_back.iter().any(|which| which == &laid.at), ()) {
+      match ::core::primitive::bool::then_some(
+        self.wont_put_back.iter().any(|which| which == &laid.at),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Err(Unapplied::NothingKept(laid.at.clone()));
         }

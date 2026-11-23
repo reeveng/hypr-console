@@ -253,5 +253,5 @@ impl DerefMut for GraphicsState<'_> {
 #[derive(Clone, Copy)]
 pub(crate) enum Touch {
   Mark,
-  Keep,
+  Retain,
 }

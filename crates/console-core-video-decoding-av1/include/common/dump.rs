@@ -27,8 +27,11 @@ fn pixel_rows<BD: BitDepth>(
     _ => stride,
   };
   let signed_step = i64::try_from(row_step).map_err(|_too_wide| io::ErrorKind::InvalidInput)?;
-  let layout = RowLayout::new(size, 0, signed_step).map_err(|_layout| io::ErrorKind::InvalidInput)?;
-  let rows = layout.rows(buf).map_err(|_bounds| io::ErrorKind::UnexpectedEof)?;
+  let layout =
+    RowLayout::new(size, 0, signed_step).map_err(|_layout| io::ErrorKind::InvalidInput)?;
+  let rows = layout
+    .rows(buf)
+    .map_err(|_bounds| io::ErrorKind::UnexpectedEof)?;
 
   for row in rows {
     for &pixel in row {
@@ -55,7 +58,8 @@ pub fn hex_dump_pic<BD: BitDepth>(
   size: Size<u64>,
   what: &str,
 ) -> io::Result<()> {
-  let width = checked_index(size.width).map_err(|_outside_indices| io::ErrorKind::InvalidInput)?;
+  let width =
+    checked_index(size.width).map_err(|_outside_indices| io::ErrorKind::InvalidInput)?;
   let Ok(source) = buf.as_src();
   let Ok(stride) = fixed_offset(match buf.pixel_stride::<BD>() {
     Ok(pixel_stride) => pixel_stride,
@@ -65,8 +69,11 @@ pub fn hex_dump_pic<BD: BitDepth>(
 
   for y in 0..size.height {
     let row_number = i64::try_from(y).map_err(|_too_many_rows| io::ErrorKind::InvalidInput)?;
-    let position = row_number.checked_mul(stride).ok_or(io::ErrorKind::InvalidInput)?;
-    let offset = checked_offset(position).map_err(|_outside_offsets| io::ErrorKind::InvalidInput)?;
+    let position = row_number
+      .checked_mul(stride)
+      .ok_or(io::ErrorKind::InvalidInput)?;
+    let offset =
+      checked_offset(position).map_err(|_outside_offsets| io::ErrorKind::InvalidInput)?;
     let Ok(row) = source.at(offset);
     let Ok(pixels) = row.slice::<BD>(width);
 
@@ -98,7 +105,9 @@ pub fn coef_dump<Coef: Display>(
     checked_index(field_width).map_err(|_outside_indices| io::ErrorKind::InvalidInput)?;
   let stride = i64::try_from(size.width).map_err(|_too_wide| io::ErrorKind::InvalidInput)?;
   let layout = RowLayout::new(size, 0, stride).map_err(|_layout| io::ErrorKind::InvalidInput)?;
-  let rows = layout.rows(buf).map_err(|_bounds| io::ErrorKind::UnexpectedEof)?;
+  let rows = layout
+    .rows(buf)
+    .map_err(|_bounds| io::ErrorKind::UnexpectedEof)?;
 
   for row in rows {
     for coefficient in row {

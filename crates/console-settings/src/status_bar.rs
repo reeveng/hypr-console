@@ -109,7 +109,8 @@ mod tests {
         .ok_or("missing setting")
     };
     let position = row("Position")?;
-    let placement = position.choices
+    let placement = position
+      .choices
       .as_ref()
       .ok_or("missing position choices")?;
     let clock = row("Clock")?;
@@ -127,11 +128,7 @@ mod tests {
         ::core::option::Option::None => Switch::Off,
       };
       let setting = row(&title)?;
-      assert_eq!(
-        setting.control,
-        Some(Control::Switch(expected)),
-        "{tab:?}"
-      );
+      assert_eq!(setting.control, Some(Control::Switch(expected)), "{tab:?}");
     }
 
     (placement.choose)(&Nowhere, 1);

@@ -101,10 +101,14 @@ impl Drop for Locking {
 fn remove_lock(at: &Path) -> Result<(), Never> {
   match std::fs::remove_dir_all(at) {
     Ok(()) => {}
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => eprintln!("console-deploy: removing lock {}: {fault}", at.display()),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => {}
+        ::core::option::Option::None => {
+          eprintln!("console-deploy: removing lock {}: {fault}", at.display())
+        }
+      }
+    }
   }
 
   Ok(())
@@ -170,8 +174,10 @@ fn read_holder(at: &Path) -> Result<Holder, Never> {
   let Ok(here) = here();
 
   Ok(Holder {
-    alive: match ::core::primitive::bool::then_some(std::fs::metadata(format!("/proc/{pid}")).is_ok_and(|metadata| metadata.is_dir()), ())
-    {
+    alive: match ::core::primitive::bool::then_some(
+      std::fs::metadata(format!("/proc/{pid}")).is_ok_and(|metadata| metadata.is_dir()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Alive::Yes,
       ::core::option::Option::None => Alive::No,
     },

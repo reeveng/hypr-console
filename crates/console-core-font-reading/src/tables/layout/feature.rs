@@ -59,7 +59,12 @@ mod tests {
         value
       }
     );
-    assert!((match &(feature_list.get(2)) { Ok(_validated_input) => false, Err(_invalid_fixture_input) => true }));
+    assert!(
+      (match &(feature_list.get(2)) {
+        Ok(_validated_input) => false,
+        Err(_invalid_fixture_input) => true,
+      })
+    );
     ::core::result::Result::Ok(())
   }
 }

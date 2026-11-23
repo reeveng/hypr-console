@@ -69,7 +69,9 @@ mod tests {
       (*match <[_]>::get(&*base_script_records, 3) {
         ::core::option::Option::Some(indexed_value) => indexed_value,
         ::core::option::Option::None =>
-          return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds)),
+          return ::core::result::Result::Err(crate::test_support::Failure::from(
+            crate::read::ReadError::OutOfBounds
+          )),
       })
       .base_script_tag(),
       Ok({

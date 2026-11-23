@@ -4,16 +4,13 @@ use console_core_scalable_vector_graphics_values::Length;
 
 use super::svgtree::{AId, EId, SvgNode};
 use super::{converter, units};
-use crate::{ApproxEqUlps, IsValidLength, Rect};
+use crate::{ApproxEqUlps, IsValidLength, FloatRectangle};
 
-pub(crate) fn convert(
-  node: SvgNode,
-  state: &converter::State,
-) -> Result<Option<Path>, Never> {
+pub(crate) fn convert(node: SvgNode, state: &converter::State) -> Result<Option<Path>, Never> {
   let Ok(tag) = node.tag_name();
 
   match tag {
-    Some(EId::Rect) => convert_rect(node, state),
+    Some(EId::Rectangle) => convert_rect(node, state),
     Some(EId::Circle) => convert_circle(node, state),
     Some(EId::Ellipse) => convert_ellipse(node, state),
     Some(EId::Line) => convert_line(node, state),
@@ -59,7 +56,14 @@ pub(crate) fn convert_path(
         let Ok(end) = path_point(kurbo::Point::new(x, y));
         let Ok(()) = builder.quad_to_pt(control, end);
       }
-      SimplePathSegment::CurveTo { x1, y1, x2, y2, x, y } => {
+      SimplePathSegment::CurveTo {
+        x1,
+        y1,
+        x2,
+        y2,
+        x,
+        y,
+      } => {
         let Ok(first) = path_point(kurbo::Point::new(x1, y1));
         let Ok(second) = path_point(kurbo::Point::new(x2, y2));
         let Ok(end) = path_point(kurbo::Point::new(x, y));
@@ -145,7 +149,7 @@ fn convert_rect(
 
   let path = match ::core::primitive::bool::then_some(rx.approx_eq_ulps(&0.0, 4), ()) {
     ::core::option::Option::Some(()) => {
-      let Ok(rect) = Rect::from_xywh(x, y, width, height);
+      let Ok(rect) = FloatRectangle::from_xywh(x, y, width, height);
       let Ok(path_builder) = console_core_paths::PathBuilder::from_rect(match rect {
         Some(value) => value,
         None => return Ok(None),
@@ -158,16 +162,38 @@ fn convert_rect(
       let Ok(()) = builder.move_to(x + rx, y);
 
       let Ok(()) = builder.line_to(x + width - rx, y);
-      let Ok(()) = append_quarter_arc(&mut builder, Radii { x: rx, y: ry }, Point { x: x + width, y: y + ry });
+      let Ok(()) = append_quarter_arc(
+        &mut builder,
+        Radii { x: rx, y: ry },
+        Point {
+          x: x + width,
+          y: y + ry,
+        },
+      );
 
       let Ok(()) = builder.line_to(x + width, y + height - ry);
-      let Ok(()) = append_quarter_arc(&mut builder, Radii { x: rx, y: ry }, Point { x: x + width - rx, y: y + height });
+      let Ok(()) = append_quarter_arc(
+        &mut builder,
+        Radii { x: rx, y: ry },
+        Point {
+          x: x + width - rx,
+          y: y + height,
+        },
+      );
 
       let Ok(()) = builder.line_to(x + rx, y + height);
-      let Ok(()) = append_quarter_arc(&mut builder, Radii { x: rx, y: ry }, Point { x, y: y + height - ry });
+      let Ok(()) = append_quarter_arc(
+        &mut builder,
+        Radii { x: rx, y: ry },
+        Point {
+          x,
+          y: y + height - ry,
+        },
+      );
 
       let Ok(()) = builder.line_to(x, y + ry);
-      let Ok(()) = append_quarter_arc(&mut builder, Radii { x: rx, y: ry }, Point { x: x + rx, y });
+      let Ok(()) =
+        append_quarter_arc(&mut builder, Radii { x: rx, y: ry }, Point { x: x + rx, y });
 
       let Ok(()) = builder.close();
 
@@ -293,10 +319,7 @@ fn convert_polygon(
   Ok(finish)
 }
 
-fn points_to_path(
-  node: SvgNode,
-  shape: &str,
-) -> Result<Option<PathBuilder>, Never> {
+fn points_to_path(node: SvgNode, shape: &str) -> Result<Option<PathBuilder>, Never> {
   use console_core_scalable_vector_graphics_values::PointsParser;
 
   let Ok(id) = node.element_id();
@@ -325,9 +348,16 @@ fn points_to_path(
     let Ok(()) = builder.line_to_pt(point_2);
   }
 
-  let Ok(length) = ::console_core_number_conversion::fixed_index(match builder.len() { ::core::result::Result::Ok(length) => length });
+  let Ok(length) = ::console_core_number_conversion::fixed_index(match builder.len() {
+    ::core::result::Result::Ok(length) => length,
+  });
 
-  match ::core::primitive::bool::then_some((match ::console_core_number_conversion::index(length) { ::core::result::Result::Ok(native_position) => native_position }) < 2, ()) {
+  match ::core::primitive::bool::then_some(
+    (match ::console_core_number_conversion::index(length) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    }) < 2,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       console_core_logging::warn!("{shape} {id:?} has fewer than 2 points");
       Ok(None)

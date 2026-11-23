@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use console_core_never::Never;
 
-use crate::Fault;
+use crate::Error;
 use crate::stream::Stream;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,7 +233,7 @@ struct Parsing<'a> {
   expecting: Expecting,
 }
 
-pub(crate) fn parse<'a>(stream: &mut Stream<'a>) -> Result<Selector<'a>, Fault> {
+pub(crate) fn parse<'a>(stream: &mut Stream<'a>) -> Result<Selector<'a>, Error> {
   let mut parsing = Parsing {
     components: Vec::new(),
     combinator: Combinator::None,
@@ -254,17 +254,17 @@ pub(crate) fn parse<'a>(stream: &mut Stream<'a>) -> Result<Selector<'a>, Fault> 
 }
 
 impl<'a> Parsing<'a> {
-  fn finish(self) -> Result<Selector<'a>, Fault> {
+  fn finish(self) -> Result<Selector<'a>, Error> {
     match self.expecting {
-      Expecting::Selector => Err(Fault::SelectorMissing),
+      Expecting::Selector => Err(Error::SelectorMissing),
       Expecting::Continuation => match self.components.first().map(|first| first.combinator) {
         Some(Combinator::None) => Ok(Selector {
           components: self.components,
         }),
         Some(Combinator::Descendant | Combinator::Child | Combinator::AdjacentSibling) => {
-          Err(Fault::UnexpectedCombinator)
+          Err(Error::UnexpectedCombinator)
         }
-        None => Err(Fault::SelectorMissing),
+        None => Err(Error::SelectorMissing),
       },
     }
   }
@@ -294,7 +294,7 @@ impl<'a> Parsing<'a> {
     }
   }
 
-  fn step(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn step(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     let Ok(first) = s.first();
 
     match first {
@@ -303,7 +303,7 @@ impl<'a> Parsing<'a> {
     }
   }
 
-  fn dispatch(&mut self, s: &mut Stream<'a>, byte: u8) -> Result<Flow, Fault> {
+  fn dispatch(&mut self, s: &mut Stream<'a>, byte: u8) -> Result<Flow, Error> {
     match byte {
       b'*' => self.universal(s),
       b'#' => self.attached(s, "id", AttributeOperator::Matches),
@@ -319,9 +319,9 @@ impl<'a> Parsing<'a> {
     }
   }
 
-  fn universal(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn universal(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     match self.expecting {
-      Expecting::Continuation => Err(Fault::UnexpectedSelector),
+      Expecting::Continuation => Err(Error::UnexpectedSelector),
       Expecting::Selector => {
         s.bump()?;
         self.expecting = Expecting::Continuation;
@@ -337,7 +337,7 @@ impl<'a> Parsing<'a> {
     s: &mut Stream<'a>,
     attribute: &'static str,
     operator: fn(&'a str) -> AttributeOperator<'a>,
-  ) -> Result<Flow, Fault> {
+  ) -> Result<Flow, Error> {
     self.expecting = Expecting::Continuation;
     s.bump()?;
 
@@ -348,7 +348,7 @@ impl<'a> Parsing<'a> {
     Ok(Flow::Continue)
   }
 
-  fn bracketed(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn bracketed(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     self.expecting = Expecting::Continuation;
     s.bump()?;
 
@@ -361,7 +361,7 @@ impl<'a> Parsing<'a> {
     Ok(Flow::Continue)
   }
 
-  fn pseudo(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn pseudo(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     self.expecting = Expecting::Continuation;
     s.bump()?;
 
@@ -376,7 +376,7 @@ impl<'a> Parsing<'a> {
         s.consume(")")?;
 
         match ::core::primitive::bool::then_some(language.is_empty(), ()) {
-          ::core::option::Option::Some(()) => return Err(Fault::InvalidLanguagePseudoClass),
+          ::core::option::Option::Some(()) => return Err(Error::InvalidLanguagePseudoClass),
           ::core::option::Option::None => PseudoClass::Lang(language),
         }
       }
@@ -386,7 +386,7 @@ impl<'a> Parsing<'a> {
       "hover" => PseudoClass::Hover,
       "active" => PseudoClass::Active,
       "focus" => PseudoClass::Focus,
-      _unsupported => return Err(Fault::UnsupportedPseudoClass),
+      _unsupported => return Err(Error::UnsupportedPseudoClass),
     };
 
     self.refine(SubSelector::PseudoClass(class))?;
@@ -394,9 +394,9 @@ impl<'a> Parsing<'a> {
     Ok(Flow::Continue)
   }
 
-  fn combine(&mut self, s: &mut Stream<'a>, combinator: Combinator) -> Result<Flow, Fault> {
+  fn combine(&mut self, s: &mut Stream<'a>, combinator: Combinator) -> Result<Flow, Error> {
     match self.expecting {
-      Expecting::Selector => Err(Fault::UnexpectedCombinator),
+      Expecting::Selector => Err(Error::UnexpectedCombinator),
       Expecting::Continuation => {
         s.bump()?;
         self.expecting = Expecting::Selector;
@@ -407,7 +407,7 @@ impl<'a> Parsing<'a> {
     }
   }
 
-  fn spaced(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn spaced(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     s.skip_spaces()?;
 
     match self.expecting {
@@ -442,7 +442,7 @@ impl<'a> Parsing<'a> {
     }
   }
 
-  fn slashed(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn slashed(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     let Ok(second) = s.second();
 
     match second {
@@ -455,11 +455,11 @@ impl<'a> Parsing<'a> {
     }
   }
 
-  fn named(&mut self, s: &mut Stream<'a>) -> Result<Flow, Fault> {
+  fn named(&mut self, s: &mut Stream<'a>) -> Result<Flow, Error> {
     let name = s.consume_ident()?;
 
     match self.expecting {
-      Expecting::Continuation => Err(Fault::UnexpectedSelector),
+      Expecting::Continuation => Err(Error::UnexpectedSelector),
       Expecting::Selector => {
         self.expecting = Expecting::Continuation;
         self.push(Kind::Type(name), Vec::new())?;
@@ -470,9 +470,9 @@ impl<'a> Parsing<'a> {
   }
 }
 
-fn attribute_operator<'a>(s: &mut Stream<'a>) -> Result<AttributeOperator<'a>, Fault> {
+fn attribute_operator<'a>(s: &mut Stream<'a>) -> Result<AttributeOperator<'a>, Error> {
   let Ok(first) = s.first();
-  let byte = first.ok_or(Fault::UnexpectedEnd)?;
+  let byte = first.ok_or(Error::UnexpectedEnd)?;
 
   match byte {
     b']' => Ok(AttributeOperator::Exists),
@@ -499,6 +499,6 @@ fn attribute_operator<'a>(s: &mut Stream<'a>) -> Result<AttributeOperator<'a>, F
 
       Ok(AttributeOperator::StartsWith(wanted))
     }
-    _other => Err(Fault::InvalidAttributeSelector),
+    _other => Err(Error::InvalidAttributeSelector),
   }
 }

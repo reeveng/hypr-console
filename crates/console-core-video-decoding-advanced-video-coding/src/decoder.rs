@@ -937,7 +937,7 @@ impl Decoder {
     let Ok(poc) = self.poc_state.compute(header, sps);
     let frame_poc = match header.reference_reset() {
       ReferenceReset::Reset => 0,
-      ReferenceReset::Keep => {
+      ReferenceReset::Retain => {
         let Ok(number) = poc.frame();
         number
       }
@@ -1079,7 +1079,7 @@ impl Decoder {
         ::core::option::Option::Some(()) => {
           self.prev_ref_frame_num = match first.reference_reset() {
             ReferenceReset::Reset => 0,
-            ReferenceReset::Keep => first.frame_num,
+            ReferenceReset::Retain => first.frame_num,
           };
         }
         ::core::option::Option::None => {}

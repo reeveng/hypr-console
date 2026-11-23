@@ -33,7 +33,10 @@ impl<'a> Kern<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Kern::subtables` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Kern::subtables` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn subtables(
     &self,
@@ -97,21 +100,23 @@ impl<'a> Iterator for Subtables<'a> {
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(at);
         migrated_value
       }
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(self.n_tables == 0, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(value_17) = self.data.len();
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(self.n_tables == 0, ()) {
+          ::core::option::Option::Some(()) => {
+            let Ok(value_17) = self.data.len();
 
-          value_17
+            value_17
+          }
+          ::core::option::Option::None => {
+            let at = match self.data.read_at::<u16>(2) {
+              ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+              ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
+            }?;
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(at);
+            migrated_value
+          }
         }
-        ::core::option::Option::None => {
-          let at = match self.data.read_at::<u16>(2) {
-            ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-            ::core::result::Result::Err(_unreadable_font_data) => ::core::option::Option::None,
-          }?;
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(at);
-          migrated_value
-        }
-      },
+      }
     };
 
     match ::core::primitive::bool::then_some(len == 0, ()) {
@@ -142,11 +147,11 @@ pub enum Subtable<'a> {
 }
 
 impl ReadArgs for Subtable<'_> {
-  type Args = bool;
+  type Arguments = bool;
 }
 
 impl<'a> FontReadWithArgs<'a> for Subtable<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let is_aat = *args;
 
     match ::core::primitive::bool::then_some(is_aat, ()) {
@@ -169,11 +174,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_vertical` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_vertical` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_vertical` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_vertical` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_vertical(&self) -> bool {
     match self {
@@ -194,11 +205,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_horizontal` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_horizontal` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_horizontal` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_horizontal` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_horizontal(&self) -> bool {
     !self.is_vertical()
@@ -208,11 +225,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_cross_stream` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_cross_stream` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_cross_stream` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_cross_stream` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_cross_stream(&self) -> bool {
     match self {
@@ -233,11 +256,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_variable` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_variable` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_variable` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_variable` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_variable(&self) -> bool {
     match self {
@@ -254,11 +283,17 @@ impl<'a> Subtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable::is_state_machine` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable::is_state_machine` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Subtable::is_state_machine` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Subtable::is_state_machine` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_state_machine(&self) -> bool {
     let Ok(data_and_format) = self.data_and_format();
@@ -276,34 +311,34 @@ impl<'a> Subtable<'a> {
 
   #[must_use]
   fn data_and_format(&self) -> core::result::Result<(&'a [u8], u8), console_core_never::Never> {
-      Ok(match self {
-        Self::Ot(subtable) => {
-          let Ok(data) = subtable.data();
+    Ok(match self {
+      Self::Ot(subtable) => {
+        let Ok(data) = subtable.data();
 
-          (
-            data,
-            ({
-              let Ok(coverage) = subtable.coverage();
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u8>(
-                ::core::primitive::u16::wrapping_shr(coverage & 0xFF00, 8_u32),
-              );
-              migrated_value
-            }),
-          )
-        }
-        Self::Aat(subtable) => {
-          let Ok(data) = subtable.data();
+        (
+          data,
+          ({
+            let Ok(coverage) = subtable.coverage();
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u8>(
+              ::core::primitive::u16::wrapping_shr(coverage & 0xFF00, 8_u32),
+            );
+            migrated_value
+          }),
+        )
+      }
+      Self::Aat(subtable) => {
+        let Ok(data) = subtable.data();
 
-          (
-            data,
-            ({
-              let Ok(coverage) = subtable.coverage();
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u8>(coverage);
-              migrated_value
-            }),
-          )
-        }
-      })
+        (
+          data,
+          ({
+            let Ok(coverage) = subtable.coverage();
+            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u8>(coverage);
+            migrated_value
+          }),
+        )
+      }
+    })
   }
 }
 
@@ -316,11 +351,11 @@ pub enum SubtableKind<'a> {
 }
 
 impl ReadArgs for SubtableKind<'_> {
-  type Args = (u8, bool);
+  type Arguments = (u8, bool);
 }
 
 impl<'a> FontReadWithArgs<'a> for SubtableKind<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let (format, is_aat) = *args;
 
     match format {
@@ -360,7 +395,10 @@ impl Subtable0<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable0::kerning` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable0::kerning` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn kerning(&self, left: GlyphId, right: GlyphId) -> Option<i32> {
     let Ok(pairs) = self.pairs();
@@ -381,11 +419,11 @@ pub struct Subtable2<'a> {
 }
 
 impl ReadArgs for Subtable2<'_> {
-  type Args = u64;
+  type Arguments = u64;
 }
 
 impl<'a> FontReadWithArgs<'a> for Subtable2<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let Ok(mut cursor) = data.cursor();
     let header_len = *args;
 
@@ -438,12 +476,18 @@ impl Subtable2<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable2::kerning` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable2::kerning` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn kerning(&self, left: GlyphId, right: GlyphId) -> Option<i32> {
     let left_offset = {
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-        match { let Ok(explicit_value) = self.left_offset_table.value(left); explicit_value } {
+        match {
+          let Ok(explicit_value) = self.left_offset_table.value(left);
+          explicit_value
+        } {
           ::core::option::Option::Some(present) => present,
           ::core::option::Option::None => 0,
         },
@@ -452,7 +496,10 @@ impl Subtable2<'_> {
     };
     let right_offset = {
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(
-        match { let Ok(explicit_value) = self.right_offset_table.value(right); explicit_value } {
+        match {
+          let Ok(explicit_value) = self.right_offset_table.value(right);
+          explicit_value
+        } {
           ::core::option::Option::Some(present) => present,
           ::core::option::Option::None => 0,
         },
@@ -483,29 +530,38 @@ impl Subtable2<'_> {
 
 impl Subtable2ClassTable<'_> {
   #[must_use]
-  fn value(&self, glyph_id: GlyphId) -> core::result::Result<Option<u16>, console_core_never::Never> {
-      let Ok(value_10) = glyph_id.to_u32();
+  fn value(
+    &self,
+    glyph_id: GlyphId,
+  ) -> core::result::Result<Option<u16>, console_core_never::Never> {
+    let Ok(value_10) = glyph_id.to_u32();
 
-      let glyph_id_2: u16 = match match value_10.try_into() {
-        ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
-        ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
-      } { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let Ok(first_glyph) = self.first_glyph();
-      let Ok(value_5) = first_glyph.to_u16();
+    let glyph_id_2: u16 = match match value_10.try_into() {
+      ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+      ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+    } {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let Ok(first_glyph) = self.first_glyph();
+    let Ok(value_5) = first_glyph.to_u16();
 
-      let index = match glyph_id_2.checked_sub(value_5) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let Ok(value_12) = console_core_number_conversion::index({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(index);
-        migrated_value
-      });
+    let index = match glyph_id_2.checked_sub(value_5) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let Ok(value_12) = console_core_number_conversion::index({
+      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(index);
+      migrated_value
+    });
 
-      let Ok(offsets) = self.offsets();
+    let Ok(offsets) = self.offsets();
 
-      Ok(offsets.get(value_12).map(|offset| {
-        let Ok(value_18) = offset.get();
+    Ok(offsets.get(value_12).map(|offset| {
+      let Ok(value_18) = offset.get();
 
-        value_18
-      }))
+      value_18
+    }))
   }
 }
 
@@ -513,7 +569,10 @@ impl Subtable3<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Subtable3::kerning` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Subtable3::kerning` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn kerning(&self, left: GlyphId, right: GlyphId) -> Option<i32> {
     let Ok(value_6) = left.to_u32();
@@ -605,14 +664,21 @@ mod tests {
             0x00, 0x04, 0x00, 0x1C, 0x00, 0x28,
             0x00, 0x05, 0x00, 0x28, 0xFF, 0xCE,
         ];
-    let kern = crate::test_support::fixture_value(Kern::read({
-      let Ok(explicit_value) = FontData::new(KERN_VER_0_FMT_0_DATA);
-      explicit_value
-    }), "fixture value")?;
+    let kern = crate::test_support::fixture_value(
+      Kern::read({
+        let Ok(explicit_value) = FontData::new(KERN_VER_0_FMT_0_DATA);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let ot_kern = match &kern {
-        Kern::Ot(matched_ot_kern) => matched_ot_kern,
-        crate::tables::kern::Kern::Aat(..) => return Err(crate::test_support::Failure::from(alloc::format!("Should be an OpenType kerning table"))),
+      Kern::Ot(matched_ot_kern) => matched_ot_kern,
+      crate::tables::kern::Kern::Aat(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Should be an OpenType kerning table"
+        )));
+      }
     };
 
     assert_eq!(ot_kern.version(), Ok(0));
@@ -624,8 +690,12 @@ mod tests {
     assert!(subtable.is_horizontal());
 
     let ot_subtable = match subtable {
-        Subtable::Ot(matched_ot_subtable) => matched_ot_subtable,
-        crate::tables::kern::Subtable::Aat(..) => return Err(crate::test_support::Failure::from(alloc::format!("Should be an OpenType subtable"))),
+      Subtable::Ot(matched_ot_subtable) => matched_ot_subtable,
+      crate::tables::kern::Subtable::Aat(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Should be an OpenType subtable"
+        )));
+      }
     };
 
     assert_eq!(ot_subtable.coverage(), Ok(1));
@@ -653,14 +723,21 @@ mod tests {
             0x00, 0x04, 0x00, 0x1C, 0x00, 0x28,
             0x00, 0x05, 0x00, 0x28, 0xFF, 0xCE,
         ];
-    let kern = crate::test_support::fixture_value(Kern::read({
-      let Ok(explicit_value) = FontData::new(KERN_VER_1_FMT_0_DATA);
-      explicit_value
-    }), "fixture value")?;
+    let kern = crate::test_support::fixture_value(
+      Kern::read({
+        let Ok(explicit_value) = FontData::new(KERN_VER_1_FMT_0_DATA);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     let aat_kern = match &kern {
-        Kern::Aat(matched_aat_kern) => matched_aat_kern,
-        crate::tables::kern::Kern::Ot(..) => return Err(crate::test_support::Failure::from(alloc::format!("Should be an AAT kerning table"))),
+      Kern::Aat(matched_aat_kern) => matched_aat_kern,
+      crate::tables::kern::Kern::Ot(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Should be an AAT kerning table"
+        )));
+      }
     };
 
     assert_eq!(aat_kern.version(), Ok(MajorMinor::VERSION_1_0));
@@ -672,8 +749,12 @@ mod tests {
     assert!(subtable.is_horizontal());
 
     let aat_subtable = match subtable {
-        Subtable::Aat(matched_aat_subtable) => matched_aat_subtable,
-        crate::tables::kern::Subtable::Ot(..) => return Err(crate::test_support::Failure::from(alloc::format!("Should be an AAT subtable"))),
+      Subtable::Aat(matched_aat_subtable) => matched_aat_subtable,
+      crate::tables::kern::Subtable::Ot(..) => {
+        return Err(crate::test_support::Failure::from(alloc::format!(
+          "Should be an AAT subtable"
+        )));
+      }
     };
 
     assert_eq!(aat_subtable.coverage(), Ok(0));
@@ -685,12 +766,18 @@ mod tests {
 
   fn check_format_0(subtable: &Subtable) -> Result<(), ReadError> {
     let format0 = {
-        let outcome_format0 = subtable.kind()?;
+      let outcome_format0 = subtable.kind()?;
 
-        match outcome_format0 {
-            SubtableKind::Format0(matched_format0) => matched_format0,
-            crate::tables::kern::SubtableKind::Format1(..) | crate::tables::kern::SubtableKind::Format2(..) | crate::tables::kern::SubtableKind::Format3(..) => return Err(ReadError::MalformedData("expected a format 0 kern subtable")),
+      match outcome_format0 {
+        SubtableKind::Format0(matched_format0) => matched_format0,
+        crate::tables::kern::SubtableKind::Format1(..)
+        | crate::tables::kern::SubtableKind::Format2(..)
+        | crate::tables::kern::SubtableKind::Format3(..) => {
+          return Err(ReadError::MalformedData(
+            "expected a format 0 kern subtable",
+          ));
         }
+      }
     };
 
     const EXPECTED: &[(u32, u32, i32)] = &[(4, 12, -40), (4, 28, 40), (5, 40, -50)];
@@ -819,12 +906,18 @@ mod tests {
 
   fn check_format_2(subtable: &Subtable, expected: &[(u32, u32, i32)]) -> Result<(), ReadError> {
     let format2 = {
-        let outcome_format2 = subtable.kind()?;
+      let outcome_format2 = subtable.kind()?;
 
-        match outcome_format2 {
-            SubtableKind::Format2(matched_format2) => matched_format2,
-            crate::tables::kern::SubtableKind::Format0(..) | crate::tables::kern::SubtableKind::Format1(..) | crate::tables::kern::SubtableKind::Format3(..) => return Err(ReadError::MalformedData("expected a format 2 kern subtable")),
+      match outcome_format2 {
+        SubtableKind::Format2(matched_format2) => matched_format2,
+        crate::tables::kern::SubtableKind::Format0(..)
+        | crate::tables::kern::SubtableKind::Format1(..)
+        | crate::tables::kern::SubtableKind::Format3(..) => {
+          return Err(ReadError::MalformedData(
+            "expected a format 2 kern subtable",
+          ));
         }
+      }
     };
 
     for (left, right, value) in expected.iter().copied() {
@@ -930,10 +1023,13 @@ mod tests {
     buf.extend([0u8, 2, 1, 1, 2]);
     buf.extend([0u8, 1, 1, 0, 1]);
     buf.extend([0u8, 1, 2, 3, 2, 1]);
-    let format3 = crate::test_support::fixture_value(Subtable3::read({
-      let Ok(explicit_value) = FontData::new(&buf);
-      explicit_value
-    }), "fixture value")?;
+    let format3 = crate::test_support::fixture_value(
+      Subtable3::read({
+        let Ok(explicit_value) = FontData::new(&buf);
+        explicit_value
+      }),
+      "fixture value",
+    )?;
 
     const EXPECTED: [(u32, u32, i32); 25] = [
       (0, 0, 0),
@@ -972,7 +1068,6 @@ mod tests {
         "left = {left}, right = {right}"
       );
     }
-  ;
 
     Ok(())
   }

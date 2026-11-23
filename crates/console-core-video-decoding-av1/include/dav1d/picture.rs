@@ -53,11 +53,17 @@ publication and retained across copies. This conservative fallback remains
 for raw/legacy components whose scheduling context is unknown."###]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the exported legacy threading latch has a unit return and remains compatible with its existing callback callers")
+  expect(
+    explicit002_infallible_result,
+    reason = "the exported legacy threading latch has a unit return and remains compatible with its existing callback callers"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit008_no_bool_param",
-  expect(explicit008_no_bool_param, reason = "the exported legacy latch accepts the existing native boolean flag")
+  expect(
+    explicit008_no_bool_param,
+    reason = "the exported legacy latch accepts the existing native boolean flag"
+  )
 )]
 pub fn set_tile_threading(active: bool) {
   match ::core::primitive::bool::then_some(active, ()) {
@@ -71,11 +77,17 @@ pub fn set_tile_threading(active: bool) {
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "this exported compatibility query returns the historical threading flag directly")
+  expect(
+    explicit002_infallible_result,
+    reason = "this exported compatibility query returns the historical threading flag directly"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit007_no_bool_return",
-  expect(explicit007_no_bool_return, reason = "existing compatibility callers consume this native predicate as a boolean")
+  expect(
+    explicit007_no_bool_return,
+    reason = "existing compatibility callers consume this native predicate as a boolean"
+  )
 )]
 pub fn tile_threading_active() -> bool {
   TILE_THREADING.load(Ordering::Relaxed)
@@ -85,11 +97,17 @@ pub fn tile_threading_active() -> bool {
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "this exported compatibility query returns the established ARM hull flag directly")
+  expect(
+    explicit002_infallible_result,
+    reason = "this exported compatibility query returns the established ARM hull flag directly"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit007_no_bool_return",
-  expect(explicit007_no_bool_return, reason = "existing compatibility callers consume this native predicate as a boolean")
+  expect(
+    explicit007_no_bool_return,
+    reason = "existing compatibility callers consume this native predicate as a boolean"
+  )
 )]
 pub fn rect_hull_arm() -> bool {
   false
@@ -99,11 +117,17 @@ pub fn rect_hull_arm() -> bool {
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "this exported compatibility query returns the established CDEF reservation flag directly")
+  expect(
+    explicit002_infallible_result,
+    reason = "this exported compatibility query returns the established CDEF reservation flag directly"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit007_no_bool_return",
-  expect(explicit007_no_bool_return, reason = "existing compatibility callers consume this native predicate as a boolean")
+  expect(
+    explicit007_no_bool_return,
+    reason = "existing compatibility callers consume this native predicate as a boolean"
+  )
 )]
 pub fn cdef_double_reads() -> bool {
   false
@@ -148,14 +172,17 @@ uses this to apply exactly the bound the decoder applies."###]
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "this exported const compatibility query returns the optional native reservation limit")
+  expect(
+    explicit002_infallible_result,
+    reason = "this exported const compatibility query returns the optional native reservation limit"
+  )
 )]
 pub fn pic_extent_ceiling_const(
   file: &str,
 ) -> Option<::console_core_api_compatibility::NativeSize> {
-  PIC_EXTENT_CEILINGS.iter().find_map(|(path, limit)| {
-    file.ends_with(*path).then_some(*limit)
-  })
+  PIC_EXTENT_CEILINGS
+    .iter()
+    .find_map(|(path, limit)| file.ends_with(*path).then_some(*limit))
 }
 
 #[doc = r###"row is `row_bytes` long.
@@ -168,7 +195,10 @@ reserved and that AV1's column-partitioned tiles make unsafe."###]
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "this exported diagnostic API returns the native byte limit to the existing picture probes")
+  expect(
+    explicit002_infallible_result,
+    reason = "this exported diagnostic API returns the native byte limit to the existing picture probes"
+  )
 )]
 pub fn pic_extent_ceiling(
   file: &str,
@@ -245,7 +275,10 @@ pub(crate) fn recycle_compact_scratch(buffer: Vec<u8>) -> Result<(), Never> {
       }
     };
 
-    match destination.as_ref().map(|cached| cached.capacity().cmp(&buffer.capacity())) {
+    match destination
+      .as_ref()
+      .map(|cached| cached.capacity().cmp(&buffer.capacity()))
+    {
       Some(Equal | Greater) => {}
       Some(Less) | None => *destination = Some(buffer),
     }
@@ -274,11 +307,17 @@ exists to fix."###]
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the native picture visitor returns its callback's existing result type")
+  expect(
+    explicit002_infallible_result,
+    reason = "the native picture visitor returns its callback's existing result type"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit024_no_swappable_params",
-  expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+  expect(
+    explicit024_no_swappable_params,
+    reason = "this compatibility entry point retains the existing positional width and height arguments"
+  )
 )]
 pub fn with_pixel_guard_mut<BD: BitDepth, R>(
   pic: &crate::src::with_offset::WithOffset<&Rav1dPictureDataComponent>,
@@ -291,7 +330,8 @@ pub fn with_pixel_guard_mut<BD: BitDepth, R>(
   ) -> R,
 ) -> R {
   let mut block = pic.block_mut::<BD>(w, h);
-  let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
+  let Ok(pixel_bytes) =
+    console_core_number_conversion::fixed_index(core::mem::size_of::<BD::Pixel>());
   let Ok(start) = console_core_number_conversion::index(block.base.wrapping_mul(pixel_bytes));
   let Ok(pitch) = console_core_number_conversion::wrapped_offset(block.byte_stride);
   f(block.as_mut_bytes(), start, pitch)
@@ -314,11 +354,17 @@ are unsafe under tile threading even in the immutable case (they cover
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "the native picture visitor returns its callback's existing result type")
+  expect(
+    explicit002_infallible_result,
+    reason = "the native picture visitor returns its callback's existing result type"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit024_no_swappable_params",
-  expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+  expect(
+    explicit024_no_swappable_params,
+    reason = "this compatibility entry point retains the existing positional width and height arguments"
+  )
 )]
 pub fn with_pixel_guard_immut<BD: BitDepth, R>(
   pic: &crate::src::with_offset::WithOffset<&Rav1dPictureDataComponent>,
@@ -340,7 +386,10 @@ pub fn with_pixel_guard_immut<BD: BitDepth, R>(
     PictureGuardMode::SeparateRows => {
       #[cfg_attr(
         dylint_lib = "explicit051_no_machine_width",
-        expect(explicit051_no_machine_width, reason = "the compatibility compact view returns its native stride beside the owned bytes")
+        expect(
+          explicit051_no_machine_width,
+          reason = "the compatibility compact view returns its native stride beside the owned bytes"
+        )
       )]
       let (buf, pitch) = pic.compact_read_per_row::<BD>(w, h);
       let Ok(byte_stride) = console_core_number_conversion::fixed_offset(pitch.cast_signed());
@@ -352,7 +401,10 @@ pub fn with_pixel_guard_immut<BD: BitDepth, R>(
     PictureGuardMode::WholeHull => {
       #[cfg_attr(
         dylint_lib = "explicit051_no_machine_width",
-        expect(explicit051_no_machine_width, reason = "the compatibility hull returns the native origin of row zero alongside the guard")
+        expect(
+          explicit051_no_machine_width,
+          reason = "the compatibility hull returns the native origin of row zero alongside the guard"
+        )
       )]
       let (guard, base) = pic.narrow_guard::<BD>(w, h);
       let Ok(first) = console_core_number_conversion::fixed_index(base);
@@ -438,12 +490,18 @@ Thread safety rationale:
 struct PicDataPtr(SendSyncNonNull<u8>);
 
 #[cfg(feature = "c-ffi")]
-#[allow(unsafe_code, reason = "only C allocator pointers and the aligned fallback sentinel are wrapped here")]
+#[allow(
+  unsafe_code,
+  reason = "only C allocator pointers and the aligned fallback sentinel are wrapped here"
+)]
 impl PicDataPtr {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit058_contain_unsafe",
-    expect(explicit058_contain_unsafe, reason = "the C allocation or borrowed scratch storage remains live and pixel access is registered with the disjoint guard")
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the C allocation or borrowed scratch storage remains live and pixel access is registered with the disjoint guard"
+    )
   )]
   fn from_non_null(ptr: NonNull<u8>) -> Result<Self, Never> {
     // SAFETY: C construction verifies the allocator descriptor and the scratch constructor lends an aligned mutable slice.
@@ -473,7 +531,10 @@ pub struct Dav1dPictureParameters {
 #[repr(C)]
 #[cfg_attr(
   all(feature = "c-ffi", dylint_lib = "explicit065_checked_constructors"),
-  expect(explicit065_checked_constructors, reason = "the wire conversion validates the C layout tag and bit-depth width, and Rust picture parameters already store those types")
+  expect(
+    explicit065_checked_constructors,
+    reason = "the wire conversion validates the C layout tag and bit-depth width, and Rust picture parameters already store those types"
+  )
 )]
 pub(crate) struct Rav1dPictureParameters {
   pub w: c_int,
@@ -490,7 +551,12 @@ impl TryFrom<Dav1dPictureParameters> for Rav1dPictureParameters {
     let Dav1dPictureParameters { w, h, layout, bpc } = value;
     let layout_2 = Rav1dPixelLayout::try_from(layout).map_err(|_| EINVAL)?;
     let bpc_2 = u8::try_from(bpc).map_err(|_| EINVAL)?;
-    Ok(Self { w, h, layout: layout_2, bpc: bpc_2 })
+    Ok(Self {
+      w,
+      h,
+      layout: layout_2,
+      bpc: bpc_2,
+    })
   }
 }
 
@@ -565,7 +631,9 @@ mod picture_abi {
   const RESERVED_REF: NativeSize = ITUT_REF.wrapping_add(POINTER);
   const PICTURE_REF: NativeSize = RESERVED_REF.wrapping_add(POINTER.wrapping_mul(4));
   const ALLOCATOR_COOKIE: NativeSize = PICTURE_REF.wrapping_add(POINTER);
-  const PICTURE_BYTES: NativeSize = ALLOCATOR_COOKIE.wrapping_add(POINTER).next_multiple_of(ALIGNMENT);
+  const PICTURE_BYTES: NativeSize = ALLOCATOR_COOKIE
+    .wrapping_add(POINTER)
+    .next_multiple_of(ALIGNMENT);
   const RELEASE: NativeSize = POINTER.wrapping_mul(2);
   const ALLOCATOR_BYTES: NativeSize = POINTER.wrapping_mul(3);
 
@@ -607,7 +675,6 @@ mod picture_abi {
     assert!(offset_of!(Dav1dPictureParameters, bpc) == 12);
   };
 }
-
 
 #[derive(Clone, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
@@ -662,14 +729,23 @@ impl Rav1dPictureDataComponentInner {
     let CPlaneLayout { length, stride } = layout;
     let pointer = match ptr {
       None => {
-        let Ok(dangling) = PicDataPtr::from_non_null(NonNull::<AlignedPixelChunk>::dangling().cast());
+        let Ok(dangling) =
+          PicDataPtr::from_non_null(NonNull::<AlignedPixelChunk>::dangling().cast());
 
-        return Ok(Self { ptr: dangling, len: 0, stride });
+        return Ok(Self {
+          ptr: dangling,
+          len: 0,
+          stride,
+        });
       }
       Some(address) => address,
     };
 
-    match (length, length.wrapping_rem(RAV1D_PICTURE_MULTIPLE), pointer.cast::<AlignedPixelChunk>().is_aligned()) {
+    match (
+      length,
+      length.wrapping_rem(RAV1D_PICTURE_MULTIPLE),
+      pointer.cast::<AlignedPixelChunk>().is_aligned(),
+    ) {
       (1.., 0, true) => {}
       _ => return Err(EINVAL),
     }
@@ -683,7 +759,11 @@ impl Rav1dPictureDataComponentInner {
         let Ok(offset) = console_core_number_conversion::index(distance);
         let address = NonNull::new(pointer.as_ptr().wrapping_sub(offset)).ok_or(EINVAL)?;
 
-        match address.cast::<AlignedPixelChunk>().is_aligned().then_some(()) {
+        match address
+          .cast::<AlignedPixelChunk>()
+          .is_aligned()
+          .then_some(())
+        {
           Some(()) => address,
           None => return Err(EINVAL),
         }
@@ -692,7 +772,11 @@ impl Rav1dPictureDataComponentInner {
     };
     let Ok(ptr_2) = PicDataPtr::from_non_null(start);
 
-    Ok(Self { ptr: ptr_2, len: length, stride })
+    Ok(Self {
+      ptr: ptr_2,
+      len: length,
+      stride,
+    })
   }
 
   #[doc = r###"
@@ -721,7 +805,10 @@ caller satisfies it as a TYPE property: the scratch buffers in
 `scratch_alignment` assertions there."###]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported slice-to-picture adapter returns the existing picture component type directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported slice-to-picture adapter returns the existing picture component type directly"
+    )
   )]
   pub fn wrap_buf<BD: BitDepth>(
     buf: &mut [BD::Pixel],
@@ -733,20 +820,31 @@ caller satisfies it as a TYPE property: the scratch buffers in
     let Ok(length) = console_core_number_conversion::fixed_index(bytes.len());
     assert!(length.wrapping_rem(RAV1D_PICTURE_GUARANTEED_MULTIPLE) == 0);
     let Ok(samples) = console_core_number_conversion::fixed_offset(stride.cast_signed());
-    let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
+    let Ok(pixel_bytes) =
+      console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
     let signed_stride = samples.wrapping_mul(pixel_bytes.cast_signed());
     let Ok(ptr) = PicDataPtr::from_non_null(pointer);
 
-    Self { ptr, len: length, stride: signed_stride }
+    Self {
+      ptr,
+      len: length,
+      stride: signed_stride,
+    }
   }
 }
 
 // SAFETY: We only store the raw pointer (via PicDataPtr), so we never materialize a `&mut`.
 #[cfg(feature = "c-ffi")]
-#[allow(unsafe_code, reason = "the external buffer adapter lends the address while disjoint borrow guards reserve its bytes")]
+#[allow(
+  unsafe_code,
+  reason = "the external buffer adapter lends the address while disjoint borrow guards reserve its bytes"
+)]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the external decoder allocator hands off a raw pixel address through the disjoint guard's unsafe interoperability trait")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the external decoder allocator hands off a raw pixel address through the disjoint guard's unsafe interoperability trait"
+  )
 )]
 unsafe impl ExternalAsMutPtr for Rav1dPictureDataComponentInner {
   type Target = u8;
@@ -832,8 +930,12 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   pub(crate) fn guard_mode(&self) -> Result<PictureGuardMode, Never> {
     Ok(match self.threading {
-      Some(PictureThreading::OneWorkerOneTile | PictureThreading::OneWorkerMultipleTiles) => PictureGuardMode::WholeHull,
-      Some(PictureThreading::MultipleWorkersOneTile | PictureThreading::MultipleWorkersMultipleTiles) => PictureGuardMode::SeparateRows,
+      Some(PictureThreading::OneWorkerOneTile | PictureThreading::OneWorkerMultipleTiles) => {
+        PictureGuardMode::WholeHull
+      }
+      Some(
+        PictureThreading::MultipleWorkersOneTile | PictureThreading::MultipleWorkersMultipleTiles,
+      ) => PictureGuardMode::SeparateRows,
       None => match tile_threading_active().then_some(()) {
         Some(()) => PictureGuardMode::SeparateRows,
         None => PictureGuardMode::WholeHull,
@@ -862,7 +964,10 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the native disjoint-buffer adapter lends the existing external guard container directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the native disjoint-buffer adapter lends the existing external guard container directly"
+    )
   )]
   pub(crate) fn dm(&self) -> &DisjointMut<Rav1dPictureDataComponentInner> {
     &self.data
@@ -874,7 +979,10 @@ impl Rav1dPictureDataComponent {
   fn from_parts(inner: Rav1dPictureDataComponentInner) -> Result<Self, Never> {
     let stride = inner.stride;
     let Ok(data) = crate::src::disjoint_mut::dm_new(inner);
-    let mut component = Self { data, threading: None };
+    let mut component = Self {
+      data,
+      threading: None,
+    };
     let Ok(()) = component.declare_stride(stride);
 
     Ok(component)
@@ -882,7 +990,10 @@ impl Rav1dPictureDataComponent {
 
   #[cfg(not(feature = "c-ffi"))]
   #[must_use]
-  pub(crate) fn from_parts(inner: Rav1dPictureDataComponentInner, stride: i64) -> Result<Self, Never> {
+  pub(crate) fn from_parts(
+    inner: Rav1dPictureDataComponentInner,
+    stride: i64,
+  ) -> Result<Self, Never> {
     let Ok(data) = crate::src::disjoint_mut::dm_new(inner);
     let mut component = Self {
       data,
@@ -935,21 +1046,26 @@ undetected; test harnesses should allocate through
 [`copy_pixels_to`]: Self::copy_pixels_to"###]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported slice-to-picture adapter returns the existing picture component type directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported slice-to-picture adapter returns the existing picture component type directly"
+    )
   )]
   pub fn wrap_buf<BD: BitDepth>(
     buf: &mut [BD::Pixel],
     stride: ::console_core_api_compatibility::NativeSize,
   ) -> Self {
     #[cfg(feature = "c-ffi")]
-    let Ok(mut this) = Self::from_parts(Rav1dPictureDataComponentInner::wrap_buf::<BD>(buf, stride));
+    let Ok(mut this) =
+      Self::from_parts(Rav1dPictureDataComponentInner::wrap_buf::<BD>(buf, stride));
     #[cfg(not(feature = "c-ffi"))]
     let Ok(mut this) = {
       let bytes = IntoBytes::as_bytes(buf);
       let Ok(length) = console_core_number_conversion::fixed_index(bytes.len());
       assert!(length.wrapping_rem(RAV1D_PICTURE_GUARANTEED_MULTIPLE) == 0);
       let Ok(samples) = console_core_number_conversion::fixed_offset(stride.cast_signed());
-      let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
+      let Ok(pixel_bytes) =
+        console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
       let pitch = samples.wrapping_mul(pixel_bytes.cast_signed());
 
       Self::from_parts(PicBuf::from_slice_copy(bytes), pitch)
@@ -965,21 +1081,31 @@ to retrieve the results for subsequent operations (e.g., blend)."###]
   #[cfg(not(feature = "c-ffi"))]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported transfer adapter uses the established native pixel slice and unit return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported transfer adapter uses the established native pixel slice and unit return"
+    )
   )]
   pub fn copy_pixels_to<BD: BitDepth>(&self, dst: &mut [BD::Pixel]) {
     let guard = self.slice::<BD, _>(..);
-    let Ok(output) = require_picture_layout(dst.get_mut(..guard.len()).ok_or(RowLayoutError::Bounds));
+    let Ok(output) =
+      require_picture_layout(dst.get_mut(..guard.len()).ok_or(RowLayoutError::Bounds));
     let Ok(()) = require_picture_layout(copy_picture_samples(output, &guard));
   }
 }
 
 #[cfg(feature = "c-ffi")]
-#[allow(unsafe_code, reason = "the C-backed stride is read from its descriptor alongside the tracked pixel allocation")]
+#[allow(
+  unsafe_code,
+  reason = "the C-backed stride is read from its descriptor alongside the tracked pixel allocation"
+)]
 impl Strided for Rav1dPictureDataComponent {
   #[cfg_attr(
     dylint_lib = "explicit058_contain_unsafe",
-    expect(explicit058_contain_unsafe, reason = "the descriptor's immutable stride is read at the C disjoint-allocation boundary")
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the descriptor's immutable stride is read at the C disjoint-allocation boundary"
+    )
   )]
   fn fixed_stride(&self) -> Result<i64, Never> {
     // SAFETY: The component owns the descriptor. The stride field is immutable while the view is live.
@@ -999,7 +1125,10 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture buffer length accessor returns the native slice length")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture buffer length accessor returns the native slice length"
+    )
   )]
   pub fn byte_len(&self) -> ::console_core_api_compatibility::NativeSize {
     self.dm().len()
@@ -1008,11 +1137,17 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported pointer identity predicate returns the conventional boolean for picture references")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported pointer identity predicate returns the conventional boolean for picture references"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "existing compatibility callers consume this native predicate as a boolean")
+    expect(
+      explicit007_no_bool_return,
+      reason = "existing compatibility callers consume this native predicate as a boolean"
+    )
   )]
   pub fn ref_eq(&self, other: &Self) -> bool {
     self.dm().as_mut_ptr() == other.dm().as_mut_ptr()
@@ -1021,12 +1156,18 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture buffer length accessor returns the native pixel count")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture buffer length accessor returns the native pixel count"
+    )
   )]
   pub fn pixel_len<BD: BitDepth>(&self) -> ::console_core_api_compatibility::NativeSize {
     let Ok(length) = console_core_number_conversion::fixed_index(self.dm().len());
-    let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
-    let count = length.checked_div(pixel_bytes).ok_or(RowLayoutError::Stride);
+    let Ok(pixel_bytes) =
+      console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
+    let count = length
+      .checked_div(pixel_bytes)
+      .ok_or(RowLayoutError::Stride);
     let Ok(pixels) = require_picture_layout(count);
     let Ok(samples) = console_core_number_conversion::index(pixels);
     samples
@@ -1035,7 +1176,10 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported guard offset accessor returns the native slice index")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported guard offset accessor returns the native slice index"
+    )
   )]
   pub fn pixel_offset<BD: BitDepth>(&self) -> ::console_core_api_compatibility::NativeSize {
     let Ok(stride) = console_core_number_conversion::fixed_offset(self.stride());
@@ -1054,7 +1198,10 @@ impl Rav1dPictureDataComponent {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture view constructor preserves the original borrowed view type")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture view constructor preserves the original borrowed view type"
+    )
   )]
   pub fn with_offset<BD: BitDepth>(&self) -> Rav1dPictureDataComponentOffset<'_> {
     Rav1dPictureDataComponentOffset {
@@ -1084,7 +1231,10 @@ Only used by asm (mc emu_edge) and c-ffi (Dav1dPicture conversion)."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this C picture adapter returns the established borrowed plane pointer")
+    expect(
+      explicit002_infallible_result,
+      reason = "this C picture adapter returns the established borrowed plane pointer"
+    )
   )]
   pub fn as_strided_mut_ptr<BD: BitDepth>(&self) -> *mut BD::Pixel {
     // SAFETY: Transmutation is safe because we verify this with `zerocopy` in `Self::slice`.
@@ -1106,7 +1256,10 @@ Only used by asm (mc emu_edge) and c-ffi (Dav1dPicture conversion)."###]
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this exported copy adapter preserves the established picture transfer signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "this exported copy adapter preserves the established picture transfer signature"
+    )
   )]
   pub fn copy_from(&self, src: &Self) {
     let dst = &mut *self.dm().index_mut(..);
@@ -1119,7 +1272,10 @@ Only used by asm (mc emu_edge) and c-ffi (Dav1dPicture conversion)."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint guard"
+    )
   )]
   pub fn index<'a, BD: BitDepth>(
     &'a self,
@@ -1133,7 +1289,10 @@ Only used by asm (mc emu_edge) and c-ffi (Dav1dPicture conversion)."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint guard"
+    )
   )]
   pub fn index_mut<'a, BD: BitDepth>(
     &'a self,
@@ -1206,25 +1365,39 @@ the reservation or read the thread policy at this call site."###]
     let Ok(slice_length) = console_core_number_conversion::index(total);
     #[cfg_attr(
       dylint_lib = "explicit051_no_machine_width",
-      expect(explicit051_no_machine_width, reason = "SliceBounds describes its source slice using native Rust range endpoints")
+      expect(
+        explicit051_no_machine_width,
+        reason = "SliceBounds describes its source slice using native Rust range endpoints"
+      )
     )]
     let range = index.clone().to_range(slice_length);
     let Ok(start) = console_core_number_conversion::fixed_index(range.start);
     let Ok(end) = console_core_number_conversion::fixed_index(range.end);
 
-    match (start == 0 && end == total, matches!(self.guard_mode(), Ok(PictureGuardMode::SeparateRows))) {
+    match (
+      start == 0 && end == total,
+      matches!(self.guard_mode(), Ok(PictureGuardMode::SeparateRows)),
+    ) {
       (false, true) => {}
       (true, _) | (false, false) => return Ok(()),
     }
 
     let Ok(pixel_size) = console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
-    let Ok(stride) = ::console_core_number_conversion::fixed_offset(match self.pixel_stride::<BD>() { ::core::result::Result::Ok(stride) => stride });
-    let Ok(pixel_stride) = console_core_number_conversion::fixed_offset(match ::console_core_number_conversion::wrapped_offset(stride) { ::core::result::Result::Ok(native_position) => native_position });
+    let Ok(stride) =
+      ::console_core_number_conversion::fixed_offset(match self.pixel_stride::<BD>() {
+        ::core::result::Result::Ok(stride) => stride,
+      });
+    let Ok(pixel_stride) = console_core_number_conversion::fixed_offset(
+      match ::console_core_number_conversion::wrapped_offset(stride) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    );
     let row_bytes = pixel_stride.unsigned_abs().wrapping_mul(pixel_size);
     let bytes = end.saturating_sub(start).wrapping_mul(pixel_size);
     let loc = core::panic::Location::caller();
     let Ok(row_byte_count) = console_core_number_conversion::index(row_bytes);
-    let Ok(ceiling) = console_core_number_conversion::fixed_index(pic_extent_ceiling(loc.file(), row_byte_count));
+    let Ok(ceiling) =
+      console_core_number_conversion::fixed_index(pic_extent_ceiling(loc.file(), row_byte_count));
 
     match bytes.cmp(&ceiling) {
       core::cmp::Ordering::Greater => {
@@ -1264,7 +1437,10 @@ the reservation or read the thread policy at this call site."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint slice guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint slice guard"
+    )
   )]
   pub fn slice<'a, BD, I>(
     &'a self,
@@ -1284,7 +1460,10 @@ the reservation or read the thread policy at this call site."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint slice guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint slice guard"
+    )
   )]
   pub fn slice_mut<'a, BD, I>(
     &'a self,
@@ -1326,11 +1505,13 @@ impl CompactPictureRows {
     component: &Rav1dPictureDataComponentOffset<'_>,
     samples: Size<u64>,
   ) -> Result<Self, Never> {
-    let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
+    let Ok(pixel_bytes) =
+      console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
     let Ok(base) = console_core_number_conversion::fixed_index(component.offset);
-    let Ok(stride) = console_core_number_conversion::fixed_offset(match component.data.pixel_stride::<BD>() {
-      Ok(samples_per_row) => samples_per_row,
-    });
+    let Ok(stride) =
+      console_core_number_conversion::fixed_offset(match component.data.pixel_stride::<BD>() {
+        Ok(samples_per_row) => samples_per_row,
+      });
     Ok(Self {
       samples,
       base,
@@ -1347,7 +1528,8 @@ impl CompactPictureRows {
     data: &Rav1dPictureDataComponent,
     access: CompactPictureAccess,
   ) -> Result<(), Never> {
-    let Ok(offset) = console_core_number_conversion::wrapped_index(self.base.wrapping_mul(self.pixel_bytes));
+    let Ok(offset) =
+      console_core_number_conversion::wrapped_index(self.base.wrapping_mul(self.pixel_bytes));
     let Ok(row_bytes) = console_core_number_conversion::wrapped_index(self.row_bytes);
     let Ok(height) = console_core_number_conversion::wrapped_index(self.samples.height);
     let stride_bytes = self.stride.wrapping_mul(self.pixel_bytes.cast_signed());
@@ -1365,7 +1547,9 @@ impl CompactPictureRows {
 
   #[inline]
   fn row(&self, ordinal: u64) -> Result<CompactPictureRow, Never> {
-    let plane_offset = self.base.wrapping_add_signed(ordinal.cast_signed().wrapping_mul(self.stride));
+    let plane_offset = self
+      .base
+      .wrapping_add_signed(ordinal.cast_signed().wrapping_mul(self.stride));
     let buffer_offset = ordinal.wrapping_mul(self.row_bytes);
     let buffer_end = buffer_offset.wrapping_add(self.row_bytes);
     Ok(CompactPictureRow {
@@ -1388,7 +1572,8 @@ impl PictureBlockHull {
     &self,
     mut declare: impl FnMut(u64, u64, u64, i64),
   ) -> Result<(), Never> {
-    let Ok(pixel_bytes) = console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
+    let Ok(pixel_bytes) =
+      console_core_number_conversion::fixed_index(mem::size_of::<BD::Pixel>());
     declare(
       self.start.wrapping_mul(pixel_bytes),
       self.extent.width.wrapping_mul(pixel_bytes),
@@ -1414,16 +1599,24 @@ struct GuardedRows {
 #[track_caller]
 #[cfg_attr(
   dylint_lib = "explicit004_no_panic",
-  expect(explicit004_no_panic, reason = "the existing synchronous picture view contract rejects invalid geometry before returning a guard")
+  expect(
+    explicit004_no_panic,
+    reason = "the existing synchronous picture view contract rejects invalid geometry before returning a guard"
+  )
 )]
 fn require_picture_layout<T>(result: Result<T, RowLayoutError>) -> Result<T, Never> {
   Ok(result.expect("picture buffer must cover its declared geometry"))
 }
 
-fn copy_picture_samples<T: Copy>(destination: &mut [T], source: &[T]) -> Result<(), RowLayoutError> {
+fn copy_picture_samples<T: Copy>(
+  destination: &mut [T],
+  source: &[T],
+) -> Result<(), RowLayoutError> {
   match destination.len().cmp(&source.len()) {
     core::cmp::Ordering::Equal => {}
-    core::cmp::Ordering::Less | core::cmp::Ordering::Greater => return Err(RowLayoutError::Bounds),
+    core::cmp::Ordering::Less | core::cmp::Ordering::Greater => {
+      return Err(RowLayoutError::Bounds);
+    }
   }
 
   for (output, &input) in destination.iter_mut().zip(source) {
@@ -1439,7 +1632,10 @@ impl<'a> Rav1dPictureDataComponentOffset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint guard"
+    )
   )]
   pub fn index<BD: BitDepth>(
     &self,
@@ -1452,7 +1648,10 @@ impl<'a> Rav1dPictureDataComponentOffset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint guard"
+    )
   )]
   pub fn index_mut<BD: BitDepth>(
     &self,
@@ -1465,11 +1664,17 @@ impl<'a> Rav1dPictureDataComponentOffset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint slice guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint slice guard"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn slice<BD: BitDepth>(
     &self,
@@ -1483,11 +1688,17 @@ impl<'a> Rav1dPictureDataComponentOffset<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this picture access adapter returns the existing native disjoint slice guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "this picture access adapter returns the existing native disjoint slice guard"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn slice_mut<BD: BitDepth>(
     &self,
@@ -1508,15 +1719,24 @@ is the index within the guard's slice that corresponds to `self.offset`."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture guard keeps the native guard and base-index contract")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture guard keeps the native guard and base-index contract"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn strided_slice_mut<BD: BitDepth>(
     &self,
@@ -1564,22 +1784,34 @@ from the picture, because the compact buffer has its own stride."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported native picture accessor returns the existing RAII write guard")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported native picture accessor returns the existing RAII write guard"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn block_mut<BD: BitDepth>(&self, w: NativeSize, h: NativeSize) -> BlockMut<'a, BD> {
     let Ok(width) = console_core_number_conversion::fixed_index(w);
     let Ok(height) = console_core_number_conversion::fixed_index(h);
     let extent = Size { width, height };
 
-    match ::core::primitive::bool::then_some(matches!(self.data.guard_mode(), Ok(PictureGuardMode::SeparateRows)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(self.data.guard_mode(), Ok(PictureGuardMode::SeparateRows)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let (buf, byte_stride) = self.compact_read_per_row::<BD>(w, h);
         let Ok(pitch) = console_core_number_conversion::fixed_index(byte_stride);
@@ -1612,15 +1844,24 @@ from the picture, because the compact buffer has its own stride."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture guard keeps the native guard and base-index contract")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture guard keeps the native guard and base-index contract"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn strided_slice<BD: BitDepth>(
     &self,
@@ -1635,28 +1876,57 @@ from the picture, because the compact buffer has its own stride."###]
 
   #[doc = "Finds the physical storage between the lowest row start and the end of the highest row, preserving the first logical row's offset for either stride direction."]
   #[inline]
-  fn block_hull<BD: BitDepth>(&self, extent: Size<u64>) -> Result<PictureBlockHull, RowLayoutError> {
+  fn block_hull<BD: BitDepth>(
+    &self,
+    extent: Size<u64>,
+  ) -> Result<PictureBlockHull, RowLayoutError> {
     let Ok(origin) = console_core_number_conversion::fixed_index(self.offset);
-    let Ok(pixel_stride) = console_core_number_conversion::fixed_offset(
-      match self.data.pixel_stride::<BD>() { Ok(samples) => samples },
-    );
+    let Ok(pixel_stride) =
+      console_core_number_conversion::fixed_offset(match self.data.pixel_stride::<BD>() {
+        Ok(samples) => samples,
+      });
 
     match (extent.width, extent.height) {
-      (0, _) | (_, 0) => return Ok(PictureBlockHull { extent, start: origin, end: origin, first: 0, pixel_stride }),
+      (0, _) | (_, 0) => {
+        return Ok(PictureBlockHull {
+          extent,
+          start: origin,
+          end: origin,
+          first: 0,
+          pixel_stride,
+        });
+      }
       _ => {}
     }
 
-    let distance = extent.height.wrapping_sub(1).checked_mul(pixel_stride.unsigned_abs())
+    let distance = extent
+      .height
+      .wrapping_sub(1)
+      .checked_mul(pixel_stride.unsigned_abs())
       .ok_or(RowLayoutError::Bounds)?;
     let (start, first) = match pixel_stride {
-      i64::MIN..=-1 => ({ let checked_value_4 = origin.checked_sub(distance).ok_or(RowLayoutError::Bounds)?; checked_value_4 }, distance),
+      i64::MIN..=-1 => (
+        {
+          let checked_value_4 = origin.checked_sub(distance).ok_or(RowLayoutError::Bounds)?;
+          checked_value_4
+        },
+        distance,
+      ),
       0.. => (origin, 0),
     };
     let last_row = start.checked_add(distance).ok_or(RowLayoutError::Bounds)?;
-    let end = last_row.checked_add(extent.width).ok_or(RowLayoutError::Bounds)?;
+    let end = last_row
+      .checked_add(extent.width)
+      .ok_or(RowLayoutError::Bounds)?;
     console_core_number_conversion::checked_index(end).map_err(|_| RowLayoutError::Bounds)?;
 
-    Ok(PictureBlockHull { extent, start, end, first, pixel_stride })
+    Ok(PictureBlockHull {
+      extent,
+      start,
+      end,
+      first,
+      pixel_stride,
+    })
   }
 
   #[inline]
@@ -1673,15 +1943,24 @@ Returns `(guard, base)`: `base` is 0 for a positive stride and
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture guard keeps the native guard and base-index contract")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture guard keeps the native guard and base-index contract"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn narrow_guard<BD: BitDepth>(
     &self,
@@ -1740,15 +2019,24 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
   #[cfg_attr(debug_assertions, track_caller)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported native slice visitor retains its existing callback and unit return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported native slice visitor retains its existing callback and unit return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn for_rows<BD: BitDepth, F: FnMut(NativeSize, &[BD::Pixel])>(
     &self,
@@ -1803,13 +2091,23 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
         let Ok(bytes) = index(visible_width.wrapping_mul(pixel_bytes));
         let Ok(stride_bytes) = wrapped_offset(pitch.wrapping_mul(pixel_bytes.cast_signed()));
         let writable = matches!(access, GuardAccess::Mutable);
-        self.data.dm().probe_eval_rect(core::panic::Location::caller(), writable, start, bytes, height, stride_bytes);
+        self.data.dm().probe_eval_rect(
+          core::panic::Location::caller(),
+          writable,
+          start,
+          bytes,
+          height,
+          stride_bytes,
+        );
       }
       PictureGuardMode::WholeHull => {}
     }
 
     Ok(Some(GuardedRows {
-      extent: Size { width: visible_width, height: visible_height },
+      extent: Size {
+        width: visible_width,
+        height: visible_height,
+      },
       origin,
       pitch,
       mode,
@@ -1819,7 +2117,11 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
   #[doc = "Visits guarded rows with the caller's mutable context passed explicitly."]
   #[inline]
   #[cfg_attr(debug_assertions, track_caller)]
-  pub(crate) fn for_rows_with_context<BD: BitDepth, Context, F: FnMut(u64, &[BD::Pixel], &mut Context)>(
+  pub(crate) fn for_rows_with_context<
+    BD: BitDepth,
+    Context,
+    F: FnMut(u64, &[BD::Pixel], &mut Context),
+  >(
     &self,
     extent: console_core_geometry::Size<u64>,
     context: &mut Context,
@@ -1828,7 +2130,12 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
     use console_core_number_conversion::index;
 
     let Ok(reservation) = self.row_reservation::<BD>(extent, GuardAccess::Shared);
-    let GuardedRows { extent: size, origin, pitch, mode } = match reservation {
+    let GuardedRows {
+      extent: size,
+      origin,
+      pitch,
+      mode,
+    } = match reservation {
       Some(rows) => rows,
       None => return Ok(()),
     };
@@ -1839,7 +2146,10 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
 
     match mode {
       PictureGuardMode::SeparateRows => {
-        let rectangle = self.data.dm().index_rect_as::<BD::Pixel>(base_index, width, height, stride);
+        let rectangle = self
+          .data
+          .dm()
+          .index_rect_as::<BD::Pixel>(base_index, width, height, stride);
 
         match rectangle {
           Some(rect) => {
@@ -1857,13 +2167,16 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
           let delta = ordinal.cast_signed().wrapping_mul(pitch);
           let Ok(start) = index(origin.wrapping_add_signed(delta));
           let guard = self.data.slice::<BD, _>((start.., ..width));
-          visit(ordinal, & guard, context);
+          visit(ordinal, &guard, context);
         }
       }
       PictureGuardMode::WholeHull => {
         #[cfg_attr(
           dylint_lib = "explicit051_no_machine_width",
-          expect(explicit051_no_machine_width, reason = "the public hull guard returns its native slice origin alongside the guard")
+          expect(
+            explicit051_no_machine_width,
+            reason = "the public hull guard returns its native slice origin alongside the guard"
+          )
         )]
         let (guard, base) = self.narrow_guard::<BD>(width, height);
         let Ok(first) = console_core_number_conversion::fixed_index(base);
@@ -1885,55 +2198,84 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
   #[inline(always)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the legacy native reservation instrumentation hook retains its unit return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the legacy native reservation instrumentation hook retains its unit return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn dup_rows<BD: BitDepth>(
     &self,
     _width: ::console_core_api_compatibility::NativeSize,
     _height: ::console_core_api_compatibility::NativeSize,
-  ) {}
+  ) {
+  }
 
   #[doc = "Legacy instrumentation entry point for write reservations."]
   #[inline(always)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the legacy native reservation instrumentation hook retains its unit return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the legacy native reservation instrumentation hook retains its unit return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn dup_rows_mut<BD: BitDepth>(
     &self,
     _width: ::console_core_api_compatibility::NativeSize,
     _height: ::console_core_api_compatibility::NativeSize,
-  ) {}
+  ) {
+  }
 
   #[inline]
   #[cfg_attr(debug_assertions, track_caller)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported native slice visitor retains its existing callback and unit return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported native slice visitor retains its existing callback and unit return"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn for_rows_mut<BD: BitDepth, F: FnMut(NativeSize, &mut [BD::Pixel])>(
     &self,
@@ -1967,7 +2309,12 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
     use console_core_number_conversion::index;
 
     let Ok(reservation) = self.row_reservation::<BD>(extent, GuardAccess::Mutable);
-    let GuardedRows { extent: size, origin, pitch, mode } = match reservation {
+    let GuardedRows {
+      extent: size,
+      origin,
+      pitch,
+      mode,
+    } = match reservation {
       Some(rows) => rows,
       None => return Ok(()),
     };
@@ -1978,7 +2325,10 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
 
     match mode {
       PictureGuardMode::SeparateRows => {
-        let rectangle = self.data.dm().index_rect_mut_as::<BD::Pixel>(base_index, width, height, stride);
+        let rectangle = self
+          .data
+          .dm()
+          .index_rect_mut_as::<BD::Pixel>(base_index, width, height, stride);
 
         match rectangle {
           Some(mut rect) => {
@@ -2002,7 +2352,10 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
       PictureGuardMode::WholeHull => {
         #[cfg_attr(
           dylint_lib = "explicit051_no_machine_width",
-          expect(explicit051_no_machine_width, reason = "the public hull guard returns its native slice origin alongside the guard")
+          expect(
+            explicit051_no_machine_width,
+            reason = "the public hull guard returns its native slice origin alongside the guard"
+          )
         )]
         let (mut guard, base) = self.narrow_guard_mut::<BD>(width, height);
         let Ok(first) = console_core_number_conversion::fixed_index(base);
@@ -2010,7 +2363,9 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
         for ordinal in 0..size.height {
           let delta = ordinal.cast_signed().wrapping_mul(pitch);
           let Ok(start) = index(first.wrapping_add_signed(delta));
-          let selected = guard.get_mut(start..).and_then(|window| window.get_mut(..width));
+          let selected = guard
+            .get_mut(start..)
+            .and_then(|window| window.get_mut(..width));
           let Ok(pixels) = require_picture_layout(selected.ok_or(RowLayoutError::Bounds));
           visit(ordinal, pixels, context)?;
         }
@@ -2024,7 +2379,10 @@ at t=1: collapsing the per-row loops in the loopfilter, `ipred` and
   #[cfg_attr(debug_assertions, track_caller)]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the checked adapter preserves the existing native row-index callback of for_rows_mut")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the checked adapter preserves the existing native row-index callback of for_rows_mut"
+    )
   )]
   pub(crate) fn checked_for_rows_mut<BD: BitDepth>(
     &self,
@@ -2064,27 +2422,43 @@ threading (compact layout) or the original stride when single-threaded."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the native compact view returns the existing buffer and byte stride")
+    expect(
+      explicit002_infallible_result,
+      reason = "the native compact view returns the existing buffer and byte stride"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
-  pub fn compact_read<BD: BitDepth>(&self, w: NativeSize, h: NativeSize) -> (Vec<u8>, NativeSize) {
+  pub fn compact_read<BD: BitDepth>(
+    &self,
+    w: NativeSize,
+    h: NativeSize,
+  ) -> (Vec<u8>, NativeSize) {
     use crate::src::strided::Strided as _;
 
-    match ::core::primitive::bool::then_some({
-      matches!(self.data.guard_mode(), Ok(PictureGuardMode::SeparateRows))
-        || ({
-          match self.data.pixel_stride::<BD>() {
-            ::core::result::Result::Ok(value_) => value_,
-          }
-        }) < 0
-    }, ()) {
+    match ::core::primitive::bool::then_some(
+      {
+        matches!(self.data.guard_mode(), Ok(PictureGuardMode::SeparateRows))
+          || ({
+            match self.data.pixel_stride::<BD>() {
+              ::core::result::Result::Ok(value_) => value_,
+            }
+          }) < 0
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => self.compact_read_per_row::<BD>(w, h),
       ::core::option::Option::None => {
         let Ok(width) = console_core_number_conversion::fixed_index(w);
@@ -2116,15 +2490,24 @@ and by tile threading (needs per-row guards to avoid stride overlap)."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the native compact view returns the existing buffer and byte stride")
+    expect(
+      explicit002_infallible_result,
+      reason = "the native compact view returns the existing buffer and byte stride"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn compact_read_per_row<BD: BitDepth>(
     &self,
@@ -2155,27 +2538,39 @@ Matches the layout produced by [`compact_read`]."###]
   #[cfg_attr(debug_assertions, track_caller)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the native compact buffer write retains the established unit-returning interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the native compact buffer write retains the established unit-returning interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn compact_write_back<BD: BitDepth>(&self, w: NativeSize, h: NativeSize, buf: &[u8]) {
     use crate::src::strided::Strided as _;
 
-    match ::core::primitive::bool::then_some({
-      matches!(self.data.guard_mode(), Ok(PictureGuardMode::SeparateRows))
-        || ({
-          match self.data.pixel_stride::<BD>() {
-            ::core::result::Result::Ok(value_) => value_,
-          }
-        }) < 0
-    }, ()) {
+    match ::core::primitive::bool::then_some(
+      {
+        matches!(self.data.guard_mode(), Ok(PictureGuardMode::SeparateRows))
+          || ({
+            match self.data.pixel_stride::<BD>() {
+              ::core::result::Result::Ok(value_) => value_,
+            }
+          }) < 0
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         self.compact_write_back_per_row::<BD>(w, h, buf);
       }
@@ -2193,17 +2588,31 @@ Matches the layout produced by [`compact_read`]."###]
   #[cfg_attr(debug_assertions, track_caller)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the native compact buffer write retains the established unit-returning interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the native compact buffer write retains the established unit-returning interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
-  pub fn compact_write_back_per_row<BD: BitDepth>(&self, w: NativeSize, h: NativeSize, buf: &[u8]) {
+  pub fn compact_write_back_per_row<BD: BitDepth>(
+    &self,
+    w: NativeSize,
+    h: NativeSize,
+    buf: &[u8],
+  ) {
     let Ok(width) = console_core_number_conversion::fixed_index(w);
     let Ok(height) = console_core_number_conversion::fixed_index(h);
     let Ok(()) = self.write_compact_rows::<BD>(Size { width, height }, buf);
@@ -2251,15 +2660,24 @@ this write-back's 7th tap row) wedged the decode wait forever.
   #[cfg_attr(debug_assertions, track_caller)]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the native compact buffer write retains the established unit-returning interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the native compact buffer write retains the established unit-returning interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn compact_write_back_per_row_diff<BD: BitDepth>(
     &self,
@@ -2276,26 +2694,52 @@ this write-back's 7th tap row) wedged the decode wait forever.
     for ordinal in 0..rows.samples.height {
       let Ok(CompactPictureRow { plane, buffer }) = rows.row(ordinal);
       let Ok(range) = console_core_number_conversion::indices(buffer);
-      let Ok(work_row) = require_picture_layout(work.get(range.clone()).ok_or(RowLayoutError::Bounds));
-      let Ok(pristine_row) = require_picture_layout(pristine.get(range).ok_or(RowLayoutError::Bounds));
+      let Ok(work_row) =
+        require_picture_layout(work.get(range.clone()).ok_or(RowLayoutError::Bounds));
+      let Ok(pristine_row) =
+        require_picture_layout(pristine.get(range).ok_or(RowLayoutError::Bounds));
       let mut differences = iter::zip(work_row, pristine_row);
 
-      let ::core::result::Result::Ok(changed_start) = ::console_core_number_conversion::fixed_index(match differences.clone().position(|(after, before)| after != before) {
-        Some(changed) => changed,
-        None => continue,
-      });
-      let ::core::result::Result::Ok(changed_end) = ::console_core_number_conversion::fixed_index(match differences.rposition(|(after, before)| after != before) {
-        Some(changed) => changed,
-        None => continue,
-      });
-      let Ok(first_pixel) = require_picture_layout(changed_start.checked_div(rows.pixel_bytes).ok_or(RowLayoutError::Bounds));
-      let Ok(last_pixel) = require_picture_layout(changed_end.checked_div(rows.pixel_bytes).ok_or(RowLayoutError::Bounds));
+      let ::core::result::Result::Ok(changed_start) =
+        ::console_core_number_conversion::fixed_index(
+          match differences
+            .clone()
+            .position(|(after, before)| after != before)
+          {
+            Some(changed) => changed,
+            None => continue,
+          },
+        );
+      let ::core::result::Result::Ok(changed_end) = ::console_core_number_conversion::fixed_index(
+        match differences.rposition(|(after, before)| after != before) {
+          Some(changed) => changed,
+          None => continue,
+        },
+      );
+      let Ok(first_pixel) = require_picture_layout(
+        changed_start
+          .checked_div(rows.pixel_bytes)
+          .ok_or(RowLayoutError::Bounds),
+      );
+      let Ok(last_pixel) = require_picture_layout(
+        changed_end
+          .checked_div(rows.pixel_bytes)
+          .ok_or(RowLayoutError::Bounds),
+      );
       let end_pixel = last_pixel.wrapping_add(1);
-      let Ok(start) = console_core_number_conversion::wrapped_index(plane.start.wrapping_add(first_pixel));
-      let Ok(changed_width) = console_core_number_conversion::wrapped_index(end_pixel.wrapping_sub(first_pixel));
-      let Ok(first_byte) = console_core_number_conversion::wrapped_index(first_pixel.wrapping_mul(rows.pixel_bytes));
-      let Ok(end_byte) = console_core_number_conversion::wrapped_index(end_pixel.wrapping_mul(rows.pixel_bytes));
-      let Ok(input) = require_picture_layout(work_row.get(first_byte..end_byte).ok_or(RowLayoutError::Bounds));
+      let Ok(start) =
+        console_core_number_conversion::wrapped_index(plane.start.wrapping_add(first_pixel));
+      let Ok(changed_width) =
+        console_core_number_conversion::wrapped_index(end_pixel.wrapping_sub(first_pixel));
+      let Ok(first_byte) =
+        console_core_number_conversion::wrapped_index(first_pixel.wrapping_mul(rows.pixel_bytes));
+      let Ok(end_byte) =
+        console_core_number_conversion::wrapped_index(end_pixel.wrapping_mul(rows.pixel_bytes));
+      let Ok(input) = require_picture_layout(
+        work_row
+          .get(first_byte..end_byte)
+          .ok_or(RowLayoutError::Bounds),
+      );
       let mut guard = self.data.slice_mut::<BD, _>((start.., ..changed_width));
       let Ok(()) = require_picture_layout(copy_picture_samples(guard.as_mut_bytes(), input));
     }
@@ -2311,11 +2755,17 @@ negative offsets from the base pointer)."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported full-plane view returns its native disjoint guard and offset directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported full-plane view returns its native disjoint guard and offset directly"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn full_guard_mut<BD: BitDepth>(
     &self,
@@ -2338,15 +2788,24 @@ hull starts at the last row. See [`Self::block_hull`]."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported picture guard keeps the native guard and base-index contract")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported picture guard keeps the native guard and base-index contract"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn narrow_guard_mut<BD: BitDepth>(
     &self,
@@ -2377,11 +2836,17 @@ hull starts at the last row. See [`Self::block_hull`]."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported full-plane view returns its native disjoint guard and offset directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported full-plane view returns its native disjoint guard and offset directly"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "this compatibility view requires native slice indices, lengths, and callback positions")
+    expect(
+      explicit051_no_machine_width,
+      reason = "this compatibility view requires native slice indices, lengths, and callback positions"
+    )
   )]
   pub fn full_guard<BD: BitDepth>(
     &self,
@@ -2442,44 +2907,68 @@ impl Drop for Rav1dPictureData {
 #[repr(C)]
 #[cfg_attr(
   all(feature = "c-ffi", dylint_lib = "explicit065_checked_constructors"),
-  expect(explicit065_checked_constructors, reason = "C conversion validates the incoming parameters while the Rust decoder uses a default empty picture when it has no output")
+  expect(
+    explicit065_checked_constructors,
+    reason = "C conversion validates the incoming parameters while the Rust decoder uses a default empty picture when it has no output"
+  )
 )]
 pub(crate) struct Rav1dPicture {
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "retained output pictures independently release their shared decoded sequence metadata")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "retained output pictures independently release their shared decoded sequence metadata"
+    )
   )]
   pub seq_hdr: Option<Arc<DRav1d<Rav1dSequenceHeader, Dav1dSequenceHeader>>>,
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "queued and retained pictures keep the frame metadata live until their last release")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "queued and retained pictures keep the frame metadata live until their last release"
+    )
   )]
   pub frame_hdr: Option<Arc<DRav1d<Rav1dFrameHeader, Dav1dFrameHeader>>>,
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "the scheduler and native output handles independently retain the same decoded plane allocation")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the scheduler and native output handles independently retain the same decoded plane allocation"
+    )
   )]
   pub data: Option<Arc<Rav1dPictureData>>,
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the retained Rust picture has the same signed stride representation used by existing C and Rust output views")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the retained Rust picture has the same signed stride representation used by existing C and Rust output views"
+    )
   )]
   pub stride: [NativeOffset; 2],
   pub p: Rav1dPictureParameters,
   pub m: Rav1dDataProps,
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "each retained native output handle keeps the inherited content-light metadata live")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "each retained native output handle keeps the inherited content-light metadata live"
+    )
   )]
   pub content_light: Option<Arc<Rav1dContentLightLevel>>,
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "each retained native output handle keeps the inherited display metadata live")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "each retained native output handle keeps the inherited display metadata live"
+    )
   )]
   pub mastering_display: Option<Arc<Rav1dMasteringDisplay>>,
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "native picture references independently retain and release shared ITU metadata")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "native picture references independently retain and release shared ITU metadata"
+    )
   )]
   pub itut_t35: Arc<DRav1d<Box<[Rav1dITUTT35]>, Box<[Dav1dITUTT35]>>>,
 }
@@ -2494,9 +2983,7 @@ impl Rav1dPicture {
       reason = "the initialized C picture still owns every raw reference while Rust retains its own copies"
     )
   )]
-  pub(crate) unsafe fn from_borrowed(
-    picture: &Dav1dPicture,
-  ) -> Rav1dResult<Self> {
+  pub(crate) unsafe fn from_borrowed(picture: &Dav1dPicture) -> Rav1dResult<Self> {
     #[cfg_attr(
       dylint_lib = "explicit058_contain_unsafe",
       expect(
@@ -2560,11 +3047,17 @@ impl TryFrom<Dav1dPicture> for Rav1dPicture {
   fn try_from(value: Dav1dPicture) -> Rav1dResult<Self> {
     #[cfg_attr(
       dylint_lib = "explicit058_contain_unsafe",
-      expect(explicit058_contain_unsafe, reason = "each initialized picture handle transfers its one raw Arc owner to this conversion")
+      expect(
+        explicit058_contain_unsafe,
+        reason = "each initialized picture handle transfers its one raw Arc owner to this conversion"
+      )
     )]
     #[cfg_attr(
       dylint_lib = "explicit081_no_shared_ownership",
-      expect(explicit081_no_shared_ownership, reason = "an existing C picture handle returns to its original shared allocation")
+      expect(
+        explicit081_no_shared_ownership,
+        reason = "an existing C picture handle returns to its original shared allocation"
+      )
     )]
     fn reclaim<T>(raw_owner: Option<RawArc<T>>) -> Result<Option<Arc<T>>, Never> {
       Ok(raw_owner.map(|token| {
@@ -2629,7 +3122,10 @@ impl From<Rav1dPicture> for Dav1dPicture {
     #[must_use]
     #[cfg_attr(
       dylint_lib = "explicit081_no_shared_ownership",
-      expect(explicit081_no_shared_ownership, reason = "export hands the picture's strong reference to C until the corresponding unref")
+      expect(
+        explicit081_no_shared_ownership,
+        reason = "export hands the picture's strong reference to C until the corresponding unref"
+      )
     )]
     fn export<T>(owner: Option<Arc<T>>) -> Result<Option<RawArc<T>>, Never> {
       Ok(owner.map(|retained| {
@@ -2640,7 +3136,9 @@ impl From<Rav1dPicture> for Dav1dPicture {
 
     let mut output = Self {
       seq_hdr: seq_hdr.as_ref().map(|handle| NonNull::from(&handle.dav1d)),
-      frame_hdr: frame_hdr.as_ref().map(|handle| NonNull::from(&handle.dav1d)),
+      frame_hdr: frame_hdr
+        .as_ref()
+        .map(|handle| NonNull::from(&handle.dav1d)),
       data: match &data {
         Some(owner) => owner.data.each_ref().map(|component| {
           let Ok(pointer) = component.as_dav1d();
@@ -2687,7 +3185,10 @@ impl Rav1dPicture {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the exported filtering adapter returns the established fixed set of three plane views")
+    expect(
+      explicit002_infallible_result,
+      reason = "the exported filtering adapter returns the established fixed set of three plane views"
+    )
   )]
   pub fn lf_offsets<BD: BitDepth>(&self, y: c_int) -> [Rav1dPictureDataComponentOffset<'_>; 3] {
     let Ok(picture) = require_picture_layout(self.data.as_deref().ok_or(RowLayoutError::Bounds));
@@ -2699,9 +3200,10 @@ impl Rav1dPicture {
     };
 
     planes.map(|(plane, shift)| {
-      let Ok(stride) = console_core_number_conversion::fixed_offset(
-        match plane.pixel_stride::<BD>() { Ok(samples) => samples },
-      );
+      let Ok(stride) =
+        console_core_number_conversion::fixed_offset(match plane.pixel_stride::<BD>() {
+          Ok(samples) => samples,
+        });
       let displacement = i64::from(y).wrapping_mul(stride).wrapping_shr(shift);
       let Ok(offset) = console_core_number_conversion::wrapped_offset(displacement);
       plane.with_offset::<BD>() + offset
@@ -2830,7 +3332,10 @@ If frame threading is not used, this function will only be called on the main th
 #[repr(C)]
 #[cfg_attr(
   dylint_lib = "explicit065_checked_constructors",
-  expect(explicit065_checked_constructors, reason = "imported C allocators require both callbacks and the Rust default installs its own matched allocation and release callbacks")
+  expect(
+    explicit065_checked_constructors,
+    reason = "imported C allocators require both callbacks and the Rust default installs its own matched allocation and release callbacks"
+  )
 )]
 pub(crate) struct Rav1dPicAllocator {
   #[doc = r###"
@@ -2845,7 +3350,10 @@ so a retained picture can allocate a copy after its decoder is dropped."###]
 ABI and is never exported as an owning C cookie."###]
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "retained C pictures recycle and copy their planes after their decoder has been released")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "retained C pictures recycle and copy their planes after their decoder has been released"
+    )
   )]
   pub(crate) default_pool: Option<Arc<MemPool<u8>>>,
 
@@ -2877,7 +3385,10 @@ i.e. [`Self::cookie`] must be [`Send`]` + `[`Sync`]."###]
 pub(crate) struct Rav1dPicAllocator {
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "retained output pictures can recycle or copy their planes after decoder shutdown")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "retained output pictures can recycle or copy their planes after decoder shutdown"
+    )
   )]
   pub(crate) pool: Arc<MemPool<u8>>,
 }
@@ -2925,15 +3436,24 @@ impl From<Rav1dPicAllocator> for Dav1dPicAllocator {
 impl Rav1dPicAllocator {
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "the output, decoder and caller may hold independent strong references to the picture and its headers")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the output, decoder and caller may hold independent strong references to the picture and its headers"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit058_contain_unsafe",
-    expect(explicit058_contain_unsafe, reason = "the c-ffi allocator invokes caller-supplied allocation callbacks and validates the returned plane descriptors")
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the c-ffi allocator invokes caller-supplied allocation callbacks and validates the returned plane descriptors"
+    )
   )]
   pub fn alloc_picture_data(
     &self,
@@ -2966,7 +3486,10 @@ impl Rav1dPicAllocator {
         match Rav1dResult::try_from(status) {
           Ok(result) => result,
           Err(unrecognized) => {
-            console_core_logging::warn!("AV1 picture allocator returned status {}", unrecognized.0);
+            console_core_logging::warn!(
+              "AV1 picture allocator returned status {}",
+              unrecognized.0
+            );
             Err(Rav1dError::EGeneric)
           }
         }
@@ -2991,25 +3514,44 @@ impl Rav1dPicAllocator {
         fixed
       });
       let [luma_bytes, chroma_bytes] = picture.p.pic_len([luma, chroma])?;
-      let y_layout = CPlaneLayout { length: luma_bytes, stride: luma };
-      let uv_layout = CPlaneLayout { length: chroma_bytes, stride: chroma };
+      let y_layout = CPlaneLayout {
+        length: luma_bytes,
+        stride: luma,
+      };
+      let uv_layout = CPlaneLayout {
+        length: chroma_bytes,
+        stride: chroma,
+      };
       let [y, u, v] = data.map(|pointer| pointer.map(NonNull::cast));
 
       match {
-          ::core::primitive::bool::then_some(y.is_none() || (picture.p.layout != Rav1dPixelLayout::I400 && (u.is_none() || v.is_none())), ())
+        ::core::primitive::bool::then_some(
+          y.is_none()
+            || (picture.p.layout != Rav1dPixelLayout::I400 && (u.is_none() || v.is_none())),
+          (),
+        )
       } {
-          ::core::option::Option::Some(()) => {
-            return Err(EINVAL);
-          },
-          ::core::option::Option::None => {},
+        ::core::option::Option::Some(()) => {
+          return Err(EINVAL);
+        }
+        ::core::option::Option::None => {}
       }
 
       // SAFETY: A successful allocation callback lends each initialized plane until release.
       let (y_2, u_2, v_2) = unsafe {
         (
-          { let checked_value = Rav1dPictureDataComponentInner::new(y, y_layout)?; checked_value },
-          { let checked_value_2 = Rav1dPictureDataComponentInner::new(u, uv_layout)?; checked_value_2 },
-          { let checked_value_3 = Rav1dPictureDataComponentInner::new(v, uv_layout)?; checked_value_3 },
+          {
+            let checked_value = Rav1dPictureDataComponentInner::new(y, y_layout)?;
+            checked_value
+          },
+          {
+            let checked_value_2 = Rav1dPictureDataComponentInner::new(u, uv_layout)?;
+            checked_value_2
+          },
+          {
+            let checked_value_3 = Rav1dPictureDataComponentInner::new(v, uv_layout)?;
+            checked_value_3
+          },
         )
       };
 
@@ -3040,15 +3582,18 @@ impl Rav1dPicAllocator {
     allocator_data: Option<Dav1dOpaquePointer>,
   ) -> Result<(), Never> {
     let pointers = data.each_ref().map(|component| {
-          let Ok(pointer) = component.as_dav1d();
-          pointer
-        });
+      let Ok(pointer) = component.as_dav1d();
+      pointer
+    });
     self.release_buffers(pointers, allocator_data)
   }
 
   #[cfg_attr(
     dylint_lib = "explicit058_contain_unsafe",
-    expect(explicit058_contain_unsafe, reason = "the C allocator release callback receives the same live allocation descriptor and cookie that produced the picture")
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the C allocator release callback receives the same live allocation descriptor and cookie that produced the picture"
+    )
   )]
   fn release_buffers(
     &self,
@@ -3075,11 +3620,17 @@ impl Rav1dPicAllocator {
 impl Rav1dPicAllocator {
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "this compatibility entry point retains the existing positional width and height arguments")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "this compatibility entry point retains the existing positional width and height arguments"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
-    expect(explicit081_no_shared_ownership, reason = "the output, decoder and caller may hold independent strong references to the picture and its headers")
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the output, decoder and caller may hold independent strong references to the picture and its headers"
+    )
   )]
   pub fn alloc_picture_data(
     &self,
@@ -3097,14 +3648,18 @@ impl Rav1dPicAllocator {
 
     let strides = p.default_strides()?;
     let [luma_stride, chroma_stride] = strides;
-    let y_stride = console_core_number_conversion::checked_offset(luma_stride).map_err(|_| Rav1dError::ENOMEM)?;
-    let uv_stride = console_core_number_conversion::checked_offset(chroma_stride).map_err(|_| Rav1dError::ENOMEM)?;
+    let y_stride = console_core_number_conversion::checked_offset(luma_stride)
+      .map_err(|_| Rav1dError::ENOMEM)?;
+    let uv_stride = console_core_number_conversion::checked_offset(chroma_stride)
+      .map_err(|_| Rav1dError::ENOMEM)?;
     let [luma_bytes, chroma_bytes] = p.pic_len(strides)?;
     let plane_multiple = RAV1D_PICTURE_MULTIPLE;
     let Ok(alignment) = console_core_number_conversion::fixed_index(RAV1D_PICTURE_ALIGNMENT);
 
     let alloc_plane = |bytes: u64| -> Rav1dResult<PicBuf> {
-      let padded = bytes.checked_next_multiple_of(plane_multiple).ok_or(Rav1dError::ENOMEM)?;
+      let padded = bytes
+        .checked_next_multiple_of(plane_multiple)
+        .ok_or(Rav1dError::ENOMEM)?;
       let storage = match padded {
         0 => Vec::new(),
         _ => {
@@ -3112,8 +3667,13 @@ impl Rav1dPicAllocator {
           self.pool.pop_init(capacity, 0)?
         }
       };
-      let length = console_core_number_conversion::checked_index(padded).map_err(|_| Rav1dError::ENOMEM)?;
-      Ok(PicBuf::from_vec_aligned(storage, RAV1D_PICTURE_ALIGNMENT, length))
+      let length =
+        console_core_number_conversion::checked_index(padded).map_err(|_| Rav1dError::ENOMEM)?;
+      Ok(PicBuf::from_vec_aligned(
+        storage,
+        RAV1D_PICTURE_ALIGNMENT,
+        length,
+      ))
     };
     let y = alloc_plane(luma_bytes)?;
     let u = alloc_plane(chroma_bytes)?;
@@ -3171,7 +3731,10 @@ may be negative in the direct case, exactly as the picture's is."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this RAII picture guard exposes its native byte stride directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "this RAII picture guard exposes its native byte stride directly"
+    )
   )]
   pub fn byte_stride(&self) -> ::console_core_api_compatibility::NativeOffset {
     let Ok(stride) = console_core_number_conversion::wrapped_offset(self.byte_stride);
@@ -3185,7 +3748,10 @@ the last row's offset, matching `strided_slice_mut`'s second return value."###]
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this RAII picture guard exposes its native base offset directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "this RAII picture guard exposes its native base offset directly"
+    )
   )]
   pub fn base(&self) -> ::console_core_api_compatibility::NativeSize {
     let Ok(index) = console_core_number_conversion::index(self.base);
@@ -3195,7 +3761,10 @@ the last row's offset, matching `strided_slice_mut`'s second return value."###]
   #[inline]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "this RAII picture guard exposes the existing borrowed native byte slice")
+    expect(
+      explicit002_infallible_result,
+      reason = "this RAII picture guard exposes the existing borrowed native byte slice"
+    )
   )]
   pub fn as_mut_bytes(&mut self) -> &mut [u8] {
     match &mut self.storage {
@@ -3278,7 +3847,6 @@ direction:
 
 So each test asserts which EXTENT got reserved, by holding a byte that only
 the hull covers and checking whether the tracker rejects the call."###]
-
 #[cfg(all(test, not(feature = "unchecked")))]
 mod row_guard_policy_tests {
   use super::{
@@ -3298,7 +3866,10 @@ mod row_guard_policy_tests {
   const W: u64 = 8;
   const SPAN: u64 = ROWS.wrapping_sub(1).wrapping_mul(STRIDE);
   const HULL: u64 = SPAN.wrapping_add(W);
-  const EXTENT: Size<u64> = Size { width: W, height: ROWS };
+  const EXTENT: Size<u64> = Size {
+    width: W,
+    height: ROWS,
+  };
   const BU_MEM_ROWS: u64 = ROWS.wrapping_add(2);
   const BU_TOP_ROW: u64 = BU_MEM_ROWS.wrapping_sub(2);
   const ROW0: u64 = BU_TOP_ROW.wrapping_mul(STRIDE);
@@ -3306,7 +3877,9 @@ mod row_guard_policy_tests {
   fn plane() -> Result<Rav1dPictureDataComponent, Never> {
     let mut buf = [0_u8; 256];
     let Ok(stride) = index(STRIDE);
-    Ok(Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut buf, stride))
+    Ok(Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(
+      &mut buf, stride,
+    ))
   }
 
   #[derive(Debug, PartialEq, Eq)]
@@ -3333,7 +3906,10 @@ mod row_guard_policy_tests {
       let Ok(()) = pic.set_threading_policy(policy);
       let Ok(gap) = index(W);
       let held = pic.slice_mut::<BitDepth8, _>((gap.., ..1));
-      let top = WithOffset { data: &pic, offset: 0 };
+      let top = WithOffset {
+        data: &pic,
+        offset: 0,
+      };
       let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
         let Ok(width) = index(W);
         let Ok(height) = index(ROWS);
@@ -3349,7 +3925,10 @@ mod row_guard_policy_tests {
     let Ok(pic) = plane();
     let Ok(position) = index(probe);
     let held = pic.slice_mut::<BitDepth8, _>((position.., ..1));
-    let top = WithOffset { data: &pic, offset: 0 };
+    let top = WithOffset {
+      data: &pic,
+      offset: 0,
+    };
     let prev = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -3388,7 +3967,10 @@ mod row_guard_policy_tests {
 
   #[cfg_attr(
     dylint_lib = "explicit026_env_read_once",
-    expect(explicit026_env_read_once, reason = "RAV1D_ROW_GUARD_CHILD selects the test fixture process in this module")
+    expect(
+      explicit026_env_read_once,
+      reason = "RAV1D_ROW_GUARD_CHILD selects the test fixture process in this module"
+    )
   )]
   fn fixture_execution() -> Result<FixtureExecution, Never> {
     Ok(match std::env::var_os(CHILD_ENV) {
@@ -3441,17 +4023,28 @@ mod row_guard_policy_tests {
   const TESTS: &str = "include::dav1d::picture::row_guard_policy_tests::";
 
   #[test]
-  fn for_rows_mut_reserves_the_strided_hull_when_tile_threading_is_off() -> Result<(), FixtureError> {
+  fn for_rows_mut_reserves_the_strided_hull_when_tile_threading_is_off()
+  -> Result<(), FixtureError> {
     in_child_process(
       ChildFixture {
-        name: &format!("{TESTS}for_rows_mut_reserves_the_strided_hull_when_tile_threading_is_off"),
+        name: &format!(
+          "{TESTS}for_rows_mut_reserves_the_strided_hull_when_tile_threading_is_off"
+        ),
         marker: "ROW_GUARD_HULL_CHILD_RAN",
       },
       || {
         let Ok(gap) = conflicts_with(W);
         let Ok(outside) = conflicts_with(HULL);
-        assert_eq!(gap, Reservation::Conflicts, "the whole hull must reserve inter-row gaps");
-        assert_eq!(outside, Reservation::Available, "a byte outside the hull must stay available");
+        assert_eq!(
+          gap,
+          Reservation::Conflicts,
+          "the whole hull must reserve inter-row gaps"
+        );
+        assert_eq!(
+          outside,
+          Reservation::Available,
+          "a byte outside the hull must stay available"
+        );
         Ok(())
       },
     )
@@ -3490,8 +4083,14 @@ mod row_guard_policy_tests {
       let Ok(policy) = super::PictureThreading::new(counts);
       let Ok(()) = pic.set_threading_policy(policy);
       let Ok(origin) = index(ROW0);
-      let top = WithOffset { data: &pic, offset: origin };
-      let invalid = WithOffset { data: &pic, offset: 0 };
+      let top = WithOffset {
+        data: &pic,
+        offset: origin,
+      };
+      let invalid = WithOffset {
+        data: &pic,
+        offset: 0,
+      };
       assert!(matches!(
         invalid.checked_for_rows_mut::<BitDepth8>(EXTENT, |_, row| row.fill(0)),
         Err(RowLayoutError::Bounds)
@@ -3506,7 +4105,10 @@ mod row_guard_policy_tests {
         row.fill(200);
       })?;
 
-      let extent = Size { width: W.wrapping_add(1), height: ROWS };
+      let extent = Size {
+        width: W.wrapping_add(1),
+        height: ROWS,
+      };
       let Ok(()) = top.for_rows_with_context::<BitDepth8, _, _>(extent, &mut (), |y, row, ()| {
         let Ok(width) = index(W);
         let Ok(neighbor) = stamp(Point { x: W, y });
@@ -3541,7 +4143,10 @@ mod row_guard_policy_tests {
       || {
         let Ok(pic) = bottom_up_plane();
         let Ok(origin) = index(ROW0);
-        let top = WithOffset { data: &pic, offset: origin };
+        let top = WithOffset {
+          data: &pic,
+          offset: origin,
+        };
         let Ok(width) = index(W);
         let Ok(height) = index(ROWS);
         let Ok(hull_length) = index(HULL);
@@ -3549,7 +4154,10 @@ mod row_guard_policy_tests {
         {
           #[cfg_attr(
             dylint_lib = "explicit051_no_machine_width",
-            expect(explicit051_no_machine_width, reason = "the test asserts the native hull origin through the existing public guard API")
+            expect(
+              explicit051_no_machine_width,
+              reason = "the test asserts the native hull origin through the existing public guard API"
+            )
           )]
           let (guard, base) = top.narrow_guard::<BitDepth8>(width, height);
           let Ok(first) = fixed_index(base);
@@ -3560,7 +4168,10 @@ mod row_guard_policy_tests {
 
         #[cfg_attr(
           dylint_lib = "explicit051_no_machine_width",
-          expect(explicit051_no_machine_width, reason = "the test asserts the native mutable hull origin through the existing public guard API")
+          expect(
+            explicit051_no_machine_width,
+            reason = "the test asserts the native mutable hull origin through the existing public guard API"
+          )
         )]
         let (guard, base) = top.narrow_guard_mut::<BitDepth8>(width, height);
         let Ok(first) = fixed_index(base);
@@ -3576,29 +4187,34 @@ mod row_guard_policy_tests {
     fn check() -> Result<(), FixtureError> {
       let Ok(pic) = bottom_up_plane();
       let Ok(origin) = index(ROW0);
-      let top = WithOffset { data: &pic, offset: origin };
+      let top = WithOffset {
+        data: &pic,
+        offset: origin,
+      };
       let mut seen = 0_u64;
-      let Ok(()) = top.for_rows_with_context::<BitDepth8, _, _>(EXTENT, &mut seen, |y, row, count| {
-        let Ok(width) = index(W);
-        assert_eq!(row.len(), width);
+      let Ok(()) =
+        top.for_rows_with_context::<BitDepth8, _, _>(EXTENT, &mut seen, |y, row, count| {
+          let Ok(width) = index(W);
+          assert_eq!(row.len(), width);
 
-        for (x, &pixel) in (0_u64..W).zip(row) {
-          let Ok(expected) = stamp(Point { x, y });
-          assert_eq!(pixel, expected, "row {y} col {x}");
-        }
+          for (x, &pixel) in (0_u64..W).zip(row) {
+            let Ok(expected) = stamp(Point { x, y });
+            assert_eq!(pixel, expected, "row {y} col {x}");
+          }
 
-        *count = count.wrapping_add(1);
-      });
+          *count = count.wrapping_add(1);
+        });
       assert_eq!(seen, ROWS);
-      let Ok(()) = top.for_rows_mut_with_context::<BitDepth8, _, Never>(EXTENT, &mut (), |y, row, ()| {
-        for (x, pixel) in (0_u64..W).zip(row) {
-          let Ok(expected) = stamp(Point { x, y });
-          assert_eq!(*pixel, expected, "row {y} col {x}");
-          *pixel ^= 0x80;
-        }
+      let Ok(()) =
+        top.for_rows_mut_with_context::<BitDepth8, _, Never>(EXTENT, &mut (), |y, row, ()| {
+          for (x, pixel) in (0_u64..W).zip(row) {
+            let Ok(expected) = stamp(Point { x, y });
+            assert_eq!(*pixel, expected, "row {y} col {x}");
+            *pixel ^= 0x80;
+          }
 
-        Ok(())
-      });
+          Ok(())
+        });
       let Ok(()) = top.for_rows_with_context::<BitDepth8, _, _>(EXTENT, &mut (), |y, row, ()| {
         for (x, &pixel) in (0_u64..W).zip(row) {
           let Ok(expected) = stamp(Point { x, y });
@@ -3625,16 +4241,22 @@ mod row_guard_policy_tests {
   }
 
   #[test]
-  fn compact_read_fast_hull_starts_at_the_last_row_on_a_negative_stride() -> Result<(), FixtureError> {
+  fn compact_read_fast_hull_starts_at_the_last_row_on_a_negative_stride()
+  -> Result<(), FixtureError> {
     in_child_process(
       ChildFixture {
-        name: &format!("{TESTS}compact_read_fast_hull_starts_at_the_last_row_on_a_negative_stride"),
+        name: &format!(
+          "{TESTS}compact_read_fast_hull_starts_at_the_last_row_on_a_negative_stride"
+        ),
         marker: "NEG_STRIDE_COMPACT_READ_FAST_CHILD_RAN",
       },
       || {
         let Ok(pic) = bottom_up_plane();
         let Ok(origin) = index(ROW0);
-        let top = WithOffset { data: &pic, offset: origin };
+        let top = WithOffset {
+          data: &pic,
+          offset: origin,
+        };
         let Ok((buf, byte_stride)) = top.compact_read_fast::<BitDepth8>(EXTENT);
         let Ok(length) = index(HULL);
         assert_eq!(byte_stride, STRIDE);
@@ -3645,7 +4267,8 @@ mod row_guard_policy_tests {
   }
 
   #[test]
-  fn compact_read_returns_picture_rows_top_down_on_a_negative_stride() -> Result<(), FixtureError> {
+  fn compact_read_returns_picture_rows_top_down_on_a_negative_stride() -> Result<(), FixtureError>
+  {
     in_child_process(
       ChildFixture {
         name: &format!("{TESTS}compact_read_returns_picture_rows_top_down_on_a_negative_stride"),
@@ -3654,12 +4277,18 @@ mod row_guard_policy_tests {
       || {
         let Ok(pic) = bottom_up_plane();
         let Ok(origin) = index(ROW0);
-        let top = WithOffset { data: &pic, offset: origin };
+        let top = WithOffset {
+          data: &pic,
+          offset: origin,
+        };
         let Ok(width) = index(W);
         let Ok(height) = index(ROWS);
         #[cfg_attr(
           dylint_lib = "explicit051_no_machine_width",
-          expect(explicit051_no_machine_width, reason = "the compatibility view exposes its native stride for the test to verify")
+          expect(
+            explicit051_no_machine_width,
+            reason = "the compatibility view exposes its native stride for the test to verify"
+          )
         )]
         let (buf, byte_stride) = top.compact_read::<BitDepth8>(width, height);
         let Ok(stride) = fixed_index(byte_stride);
@@ -3680,7 +4309,8 @@ mod row_guard_policy_tests {
 
   #[cfg(feature = "bitdepth_16")]
   #[test]
-  fn compact_difference_touches_only_changed_pixels_on_negative_stride() -> Result<(), super::RowLayoutError> {
+  fn compact_difference_touches_only_changed_pixels_on_negative_stride()
+  -> Result<(), super::RowLayoutError> {
     use crate::include::common::bitdepth::BitDepth16;
     use zerocopy::IntoBytes;
 
@@ -3690,13 +4320,22 @@ mod row_guard_policy_tests {
     });
     let allocation = Rav1dPictureDataComponentInner::from_slice_copy(pixels.as_bytes());
     let Ok(mut picture) = Rav1dPictureDataComponent::from_parts(allocation, -16);
-    let counts = super::PictureThreadingCounts { workers: 8, tiles: 4 };
+    let counts = super::PictureThreadingCounts {
+      workers: 8,
+      tiles: 4,
+    };
     let Ok(policy) = super::PictureThreading::new(counts);
     let Ok(()) = picture.set_threading_policy(policy);
-    let top = WithOffset { data: &picture, offset: 16 };
+    let top = WithOffset {
+      data: &picture,
+      offset: 16,
+    };
     #[cfg_attr(
       dylint_lib = "explicit051_no_machine_width",
-      expect(explicit051_no_machine_width, reason = "the test verifies the native byte stride returned by the public compact view")
+      expect(
+        explicit051_no_machine_width,
+        reason = "the test verifies the native byte stride returned by the public compact view"
+      )
     )]
     let (pristine, stride) = top.compact_read_per_row::<BitDepth16>(5, 3);
     assert_eq!(stride, 10);
@@ -3720,7 +4359,10 @@ mod row_guard_policy_tests {
     let Ok(position) = index(probe);
     let held = pic.slice_mut::<BitDepth8, _>((position.., ..1));
     let Ok(origin) = index(ROW0);
-    let top = WithOffset { data: &pic, offset: origin };
+    let top = WithOffset {
+      data: &pic,
+      offset: origin,
+    };
     let prev = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -3735,10 +4377,13 @@ mod row_guard_policy_tests {
   }
 
   #[test]
-  fn narrow_guard_mut_reserves_exactly_the_block_hull_on_a_negative_stride() -> Result<(), FixtureError> {
+  fn narrow_guard_mut_reserves_exactly_the_block_hull_on_a_negative_stride()
+  -> Result<(), FixtureError> {
     in_child_process(
       ChildFixture {
-        name: &format!("{TESTS}narrow_guard_mut_reserves_exactly_the_block_hull_on_a_negative_stride"),
+        name: &format!(
+          "{TESTS}narrow_guard_mut_reserves_exactly_the_block_hull_on_a_negative_stride"
+        ),
         marker: "NEG_STRIDE_RESERVATION_CHILD_RAN",
       },
       || {
@@ -3750,10 +4395,26 @@ mod row_guard_policy_tests {
         let Ok(row) = bottom_up_block_conflicts_with(last_row);
         let Ok(after) = bottom_up_block_conflicts_with(past_row);
         let Ok(before) = bottom_up_block_conflicts_with(before_row);
-        assert_eq!(column, Reservation::Conflicts, "the last column of row zero is held");
-        assert_eq!(row, Reservation::Conflicts, "the first column of the last row is held");
-        assert_eq!(after, Reservation::Available, "the adjacent column is available");
-        assert_eq!(before, Reservation::Available, "the preceding byte is available");
+        assert_eq!(
+          column,
+          Reservation::Conflicts,
+          "the last column of row zero is held"
+        );
+        assert_eq!(
+          row,
+          Reservation::Conflicts,
+          "the first column of the last row is held"
+        );
+        assert_eq!(
+          after,
+          Reservation::Available,
+          "the adjacent column is available"
+        );
+        assert_eq!(
+          before,
+          Reservation::Available,
+          "the preceding byte is available"
+        );
         Ok(())
       },
     )
@@ -3765,15 +4426,22 @@ mod row_guard_policy_tests {
     assert!(tile_threading_active());
     let Ok(gap) = conflicts_with(W);
     let Ok(row) = conflicts_with(STRIDE);
-    assert_eq!(gap, Reservation::Available, "tile workers may borrow inter-row gaps");
+    assert_eq!(
+      gap,
+      Reservation::Available,
+      "tile workers may borrow inter-row gaps"
+    );
     assert_eq!(row, Reservation::Conflicts, "the next picture row is held");
   }
 
   #[test]
-  fn live_block_keeps_its_storage_when_another_decoder_changes_threading() -> Result<(), FixtureError> {
+  fn live_block_keeps_its_storage_when_another_decoder_changes_threading()
+  -> Result<(), FixtureError> {
     in_child_process(
       ChildFixture {
-        name: &format!("{TESTS}live_block_keeps_its_storage_when_another_decoder_changes_threading"),
+        name: &format!(
+          "{TESTS}live_block_keeps_its_storage_when_another_decoder_changes_threading"
+        ),
         marker: "LIVE_BLOCK_THREADING_TRANSITION_RAN",
       },
       check_live_block,
@@ -3784,7 +4452,10 @@ mod row_guard_policy_tests {
     use crate::src::managed::{Decoder, Settings};
 
     let Ok(pic) = plane();
-    let top = WithOffset { data: &pic, offset: 0 };
+    let top = WithOffset {
+      data: &pic,
+      offset: 0,
+    };
     let Ok(width) = index(W);
     let Ok(height) = index(ROWS);
     let Ok(full_stride) = wrapped_offset(STRIDE.cast_signed());
@@ -3817,7 +4488,10 @@ mod row_guard_policy_tests {
     });
     #[cfg_attr(
       dylint_lib = "explicit057_no_unbounded_wait",
-      expect(explicit057_no_unbounded_wait, reason = "the fixture joins its one worker after four fixed decoder constructions before checking latch preservation")
+      expect(
+        explicit057_no_unbounded_wait,
+        reason = "the fixture joins its one worker after four fixed decoder constructions before checking latch preservation"
+      )
     )]
     let outcome = single_threaded.join();
 
@@ -3831,7 +4505,9 @@ mod row_guard_policy_tests {
     drop(old);
 
     let mut gap = pic.slice_mut::<BitDepth8, _>((width.., ..1));
-    let sample = gap.first_mut().ok_or(FixtureError::Layout(RowLayoutError::Bounds))?;
+    let sample = gap
+      .first_mut()
+      .ok_or(FixtureError::Layout(RowLayoutError::Bounds))?;
     *sample = 11;
     let mut new = top.block_mut::<BitDepth8>(width, height);
     assert_eq!(new.byte_stride(), compact_stride);
@@ -3854,7 +4530,9 @@ mod row_guard_policy_tests {
   fn paint_first_column(samples: &mut [u8], stride: u64, value: u8) -> Result<(), FixtureError> {
     for y in 0..ROWS {
       let Ok(offset) = index(y.wrapping_mul(stride));
-      let pixel = samples.get_mut(offset).ok_or(FixtureError::Layout(RowLayoutError::Bounds))?;
+      let pixel = samples
+        .get_mut(offset)
+        .ok_or(FixtureError::Layout(RowLayoutError::Bounds))?;
       *pixel = value;
     }
 

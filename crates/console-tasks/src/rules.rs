@@ -11,7 +11,7 @@ const MAXIMUM_METADATA_BYTES: u64 = 32 * 1024 * 1024;
 #[derive(Debug)]
 pub enum LibrariesFault {
   TooLarge,
-  Unreadable(cargo_metadata::Error),
+  ParseMetadata(cargo_metadata::Error),
   NoRules,
 }
 
@@ -19,7 +19,9 @@ pub fn read_metadata(output: &str) -> Result<Metadata, LibrariesFault> {
   let bytes = u64::try_from(output.len()).map_err(|_outside_u64| LibrariesFault::TooLarge)?;
 
   match ::core::primitive::bool::then_some(bytes <= MAXIMUM_METADATA_BYTES, ()) {
-    ::core::option::Option::Some(()) => MetadataCommand::parse(output).map_err(LibrariesFault::Unreadable),
+    ::core::option::Option::Some(()) => {
+      MetadataCommand::parse(output).map_err(LibrariesFault::ParseMetadata)
+    }
     ::core::option::Option::None => Err(LibrariesFault::TooLarge),
   }
 }
@@ -77,11 +79,11 @@ mod tests {
     ));
     assert!(matches!(
       libraries("{}"),
-      Err(LibrariesFault::Unreadable(_))
+      Err(LibrariesFault::ParseMetadata(_))
     ));
     assert!(matches!(
       libraries("not metadata"),
-      Err(LibrariesFault::Unreadable(_))
+      Err(LibrariesFault::ParseMetadata(_))
     ));
   }
 

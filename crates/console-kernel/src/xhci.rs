@@ -326,14 +326,16 @@ impl Geometry {
       .saturating_add(0x400)
       .saturating_add(u64::from(ports).saturating_mul(16));
 
-    match ::core::primitive::bool::then_some(length >= 0x20
-      && slots != 0
-      && ports != 0
-      && scratchpads <= 480
-      && registers_used <= BAR_BYTES
-      && doorbells.saturating_add(8) <= BAR_BYTES
-      && interrupter.saturating_add(32) <= BAR_BYTES, ())
-    {
+    match ::core::primitive::bool::then_some(
+      length >= 0x20
+        && slots != 0
+        && ports != 0
+        && scratchpads <= 480
+        && registers_used <= BAR_BYTES
+        && doorbells.saturating_add(8) <= BAR_BYTES
+        && interrupter.saturating_add(32) <= BAR_BYTES,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Err(Error::Registers),
     }
@@ -392,9 +394,11 @@ impl Controller {
       },
     )?;
 
-    match ::core::primitive::bool::then_some(properties.parameters & 1 == 0
-      && dma.bus.saturating_add(bytes.saturating_sub(1)) > u64::from(u32::MAX), ())
-    {
+    match ::core::primitive::bool::then_some(
+      properties.parameters & 1 == 0
+        && dma.bus.saturating_add(bytes.saturating_sub(1)) > u64::from(u32::MAX),
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Err(Error::Allocation),
       ::core::option::Option::None => {}
     }
@@ -763,10 +767,12 @@ impl Controller {
     let Ok(reported_speed) = port_speed(after);
     let connected = PORTSC_CONNECTED | PORTSC_ENABLED;
 
-    Ok(match ::core::primitive::bool::then_some(after & connected == connected, ()) {
-      ::core::option::Option::Some(()) => Some(reported_speed),
-      ::core::option::Option::None => None,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(after & connected == connected, ()) {
+        ::core::option::Option::Some(()) => Some(reported_speed),
+        ::core::option::Option::None => None,
+      },
+    )
   }
 
   fn address_device(&mut self, device: Device, packet: u16) -> Result<(), Error> {
@@ -1022,7 +1028,10 @@ fn command_completion(
   };
   let Ok(kind) = trb_type_of(event.control);
 
-  match ::core::primitive::bool::then_some(kind == TRB_COMMAND_COMPLETION && event.parameter == address, ()) {
+  match ::core::primitive::bool::then_some(
+    kind == TRB_COMMAND_COMPLETION && event.parameter == address,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => return Ok(None),
   }
@@ -1054,7 +1063,10 @@ impl Pipe {
     let Ok(endpoint) = trb_endpoint_of(event.control);
 
     Ok(
-      match ::core::primitive::bool::then_some(kind == TRB_TRANSFER_EVENT && slot == self.slot && endpoint == self.endpoint, ()) {
+      match ::core::primitive::bool::then_some(
+        kind == TRB_TRANSFER_EVENT && slot == self.slot && endpoint == self.endpoint,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Relation::Same,
         ::core::option::Option::None => Relation::Other,
       },

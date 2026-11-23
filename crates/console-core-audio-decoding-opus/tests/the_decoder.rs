@@ -13,37 +13,37 @@ use console_core_audio_decoding_opus::{Decoder, Error};
 use console_core_checksums::crc32;
 use console_core_number_conversion::{fitted, index};
 
-enum Fault {
+enum FixtureError {
   RunsPastTheEnd,
   Headless,
-  Refused(Error),
+  Rejected(Error),
   Wrong(Vec<Mismatch>),
 }
 
-impl From<Error> for Fault {
-  fn from(refused: Error) -> Fault {
-    Fault::Refused(refused)
+impl From<Error> for FixtureError {
+  fn from(refused: Error) -> FixtureError {
+    FixtureError::Rejected(refused)
   }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct Heard {
+struct Audio {
   checksum: u32,
   samples: u32,
 }
 
 struct Mismatch {
   name: &'static str,
-  heard: Heard,
+  heard: Audio,
 }
 
-impl std::fmt::Debug for Fault {
+impl std::fmt::Debug for FixtureError {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      Fault::RunsPastTheEnd => write!(to, "a packet runs past the end of its file"),
-      Fault::Headless => write!(to, "a fixture has no header"),
-      Fault::Refused(refused) => write!(to, "the decoder refused a fixture: {refused}"),
-      Fault::Wrong(wrong) => {
+      FixtureError::RunsPastTheEnd => write!(to, "a packet runs past the end of its file"),
+      FixtureError::Headless => write!(to, "a fixture has no header"),
+      FixtureError::Rejected(refused) => write!(to, "the decoder refused a fixture: {refused}"),
+      FixtureError::Wrong(wrong) => {
         for one in wrong {
           writeln!(
             to,
@@ -60,7 +60,7 @@ impl std::fmt::Debug for Fault {
 
 #[derive(Clone, Copy)]
 enum LostAs {
-  Nothing,
+  Absent,
   EmptyPacket,
 }
 
@@ -71,12 +71,12 @@ enum Start {
 }
 
 #[derive(Clone, Copy)]
-struct Listening {
+struct Subscriber {
   lost: LostAs,
   start: Start,
 }
 
-fn packets(file: &[u8]) -> Result<Vec<&[u8]>, Fault> {
+fn packets(file: &[u8]) -> Result<Vec<&[u8]>, FixtureError> {
   let mut found = Vec::new();
   let mut rest = file;
 
@@ -92,19 +92,19 @@ fn packets(file: &[u8]) -> Result<Vec<&[u8]>, Fault> {
         found.push(packet);
         rest = after;
       }
-      None => return Err(Fault::RunsPastTheEnd),
+      None => return Err(FixtureError::RunsPastTheEnd),
     }
   }
 
   Ok(found)
 }
 
-fn heard(file: &[u8], listening: Listening) -> Result<Heard, Fault> {
+fn heard(file: &[u8], listening: Subscriber) -> Result<Audio, FixtureError> {
   let all = packets(file)?;
 
   let (head, rest) = match all.split_first() {
     Some(split) => split,
-    None => return Err(Fault::Headless),
+    None => return Err(FixtureError::Headless),
   };
   let mut decoder = Decoder::new(head)?;
 
@@ -120,8 +120,8 @@ fn heard(file: &[u8], listening: Listening) -> Result<Heard, Fault> {
 
   for packet in rest {
     let asked = match (*packet, listening.lost) {
-      ([], LostAs::Nothing) => None,
-      ([], LostAs::EmptyPacket) | ([_, ..], LostAs::Nothing | LostAs::EmptyPacket) => {
+      ([], LostAs::Absent) => None,
+      ([], LostAs::EmptyPacket) | ([_, ..], LostAs::Absent | LostAs::EmptyPacket) => {
         Some(*packet)
       }
     };
@@ -140,13 +140,13 @@ fn heard(file: &[u8], listening: Listening) -> Result<Heard, Fault> {
 
   let Ok(checksum) = crc32::of(&bytes);
 
-  Ok(Heard { checksum, samples })
+  Ok(Audio { checksum, samples })
 }
 
 struct Case {
   name: &'static str,
   file: &'static [u8],
-  heard: Heard,
+  heard: Audio,
 }
 
 #[cfg_attr(
@@ -161,7 +161,7 @@ macro_rules! fixture {
     Case {
       name: $name,
       file: include_bytes!(concat!("fixtures/", $name, ".packets")),
-      heard: Heard {
+      heard: Audio {
         checksum: $checksum,
         samples: $samples,
       },
@@ -210,7 +210,7 @@ const TRIMMED: &[Case] = &[
   fixture!("surround", 0x58c8de25, 234288),
 ];
 
-fn mismatches(cases: &[Case], listening: Listening) -> Result<Vec<Mismatch>, Fault> {
+fn mismatches(cases: &[Case], listening: Subscriber) -> Result<Vec<Mismatch>, FixtureError> {
   let mut wrong = Vec::new();
 
   for case in cases {
@@ -231,19 +231,19 @@ fn mismatches(cases: &[Case], listening: Listening) -> Result<Vec<Mismatch>, Fau
   Ok(wrong)
 }
 
-fn none_of(wrong: Vec<Mismatch>) -> Result<(), Fault> {
+fn none_of(wrong: Vec<Mismatch>) -> Result<(), FixtureError> {
   match wrong.as_slice() {
     [] => Ok(()),
-    [_, ..] => Err(Fault::Wrong(wrong)),
+    [_, ..] => Err(FixtureError::Wrong(wrong)),
   }
 }
 
 #[test]
-fn every_kind_of_stream_decodes_to_what_it_always_has() -> Result<(), Fault> {
+fn every_kind_of_stream_decodes_to_what_it_always_has() -> Result<(), FixtureError> {
   let wrong = mismatches(
     CASES,
-    Listening {
-      lost: LostAs::Nothing,
+    Subscriber {
+      lost: LostAs::Absent,
       start: Start::AtTheBeginning,
     },
   )?;
@@ -252,11 +252,11 @@ fn every_kind_of_stream_decodes_to_what_it_always_has() -> Result<(), Fault> {
 }
 
 #[test]
-fn a_stream_heard_from_its_start_drops_what_its_header_says_to() -> Result<(), Fault> {
+fn a_stream_heard_from_its_start_drops_what_its_header_says_to() -> Result<(), FixtureError> {
   let wrong = mismatches(
     TRIMMED,
-    Listening {
-      lost: LostAs::Nothing,
+    Subscriber {
+      lost: LostAs::Absent,
       start: Start::AfterThePreSkip,
     },
   )?;
@@ -265,10 +265,10 @@ fn a_stream_heard_from_its_start_drops_what_its_header_says_to() -> Result<(), F
 }
 
 #[test]
-fn a_lost_packet_is_concealed_the_same_whether_it_is_none_or_empty() -> Result<(), Fault> {
+fn a_lost_packet_is_concealed_the_same_whether_it_is_none_or_empty() -> Result<(), FixtureError> {
   let wrong = mismatches(
     CASES,
-    Listening {
+    Subscriber {
       lost: LostAs::EmptyPacket,
       start: Start::AtTheBeginning,
     },
@@ -278,7 +278,7 @@ fn a_lost_packet_is_concealed_the_same_whether_it_is_none_or_empty() -> Result<(
 }
 
 #[test]
-fn a_stereo_packet_at_the_duration_limit_keeps_every_sample() -> Result<(), Fault> {
+fn a_stereo_packet_at_the_duration_limit_keeps_every_sample() -> Result<(), FixtureError> {
   const HEAD: &[u8] = b"OpusHead\x01\x02\x00\x00\x80\xbb\x00\x00\x00\x00\x00";
   const COUNTED_SILK_STEREO_60_MS: u8 = 31;
   let mut decoder = Decoder::new(HEAD)?;

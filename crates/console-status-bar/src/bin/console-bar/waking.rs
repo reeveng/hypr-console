@@ -80,22 +80,22 @@ fn pulse(output: &File) -> rustix::io::Result<()> {
 }
 
 enum Reading {
-  Changed,
-  Quiet,
+  Different,
+  Idle,
   Ended,
 }
 
 fn reading(one: &Source) -> Result<Reading, Never> {
   let mut incoming = [0; 4096];
-  let mut pending = Reading::Quiet;
+  let mut pending = Reading::Idle;
 
   for _ in 0..16 {
     match rustix::io::read(&one.reading, &mut incoming) {
       Ok(0) => match pending {
-        Reading::Changed => return Ok(Reading::Changed),
-        Reading::Quiet | Reading::Ended => return Ok(Reading::Ended),
+        Reading::Different => return Ok(Reading::Different),
+        Reading::Idle | Reading::Ended => return Ok(Reading::Ended),
       },
-      Ok(_bytes) => pending = Reading::Changed,
+      Ok(_bytes) => pending = Reading::Different,
       Err(Errno::AGAIN) => return Ok(pending),
       Err(Errno::INTR) => continue,
       Err(fault) => {
@@ -118,10 +118,10 @@ pub(super) fn take_woken(sources: &mut Vec<Source>) -> Result<BTreeSet<Woke>, Ne
     let Ok(observed) = reading(source);
 
     match observed {
-      Reading::Changed => {
+      Reading::Different => {
         seen.insert(source.from);
       }
-      Reading::Quiet => {}
+      Reading::Idle => {}
       Reading::Ended => {
         ended.insert(source.from);
       }

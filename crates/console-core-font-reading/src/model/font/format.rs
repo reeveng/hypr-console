@@ -19,7 +19,10 @@ impl FontFormat {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontFormat::new` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontFormat::new` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn new(data: &[u8]) -> Option<Self> {
     let sfnt = match FileRef::new(data) {
@@ -62,7 +65,10 @@ impl FontFormat {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontFormat::container` method returns `FontContainer` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontFormat::container` method returns `FontContainer` directly in the existing parser interface"
+    )
   )]
   pub fn container(&self) -> FontContainer {
     match self {
@@ -74,7 +80,10 @@ impl FontFormat {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FontFormat::num_fonts` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FontFormat::num_fonts` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn num_fonts(&self) -> u32 {
     match self {
@@ -86,9 +95,11 @@ impl FontFormat {
 
 #[must_use]
 fn type1_header(data: &[u8]) -> Result<Option<&[u8]>, console_core_never::Never> {
-  Ok(data
-    .strip_prefix(b"%!PS-AdobeFont")
-    .or_else(|| data.strip_prefix(b"%!FontType")))
+  Ok(
+    data
+      .strip_prefix(b"%!PS-AdobeFont")
+      .or_else(|| data.strip_prefix(b"%!FontType")),
+  )
 }
 
 #[cfg(test)]
@@ -98,10 +109,21 @@ mod tests {
 
   #[test]
   fn check_formats() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let Ok(pure_cff) = match match FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET) { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)) }
-      .cff() { ::core::result::Result::Ok(read_value) => read_value, ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)) }
-      .offset_data()
-      .as_bytes();
+    let Ok(pure_cff) = match match FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET) {
+      ::core::result::Result::Ok(read_value) => read_value,
+      ::core::result::Result::Err(read_error) => {
+        return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+      }
+    }
+    .cff()
+    {
+      ::core::result::Result::Ok(read_value) => read_value,
+      ::core::result::Result::Err(read_error) => {
+        return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+      }
+    }
+    .offset_data()
+    .as_bytes();
     use FontFormat::*;
 
     #[rustfmt::skip]
@@ -113,7 +135,8 @@ mod tests {
             (font_test_data::type1::NOTO_SERIF_REGULAR_SUBSET_PFA, Type1),
         ];
     for (data, expected_format) in pairs {
-      let fixture_value = crate::test_support::fixture_value(FontFormat::new(data), "fixture value")?;
+      let fixture_value =
+        crate::test_support::fixture_value(FontFormat::new(data), "fixture value")?;
       assert_eq!(fixture_value, expected_format);
     }
 

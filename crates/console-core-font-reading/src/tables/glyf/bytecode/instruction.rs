@@ -31,11 +31,14 @@ impl<'a> InlineOperands<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `InlineOperands::len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `InlineOperands::len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn len(&self) -> u64 {
     match self.encoding {
-      OperandEncoding::Words => {
+      OperandEncoding::WordArray => {
         let Ok(value_1) =
           console_core_number_conversion::fitted::<_, u64>(self.bytes.len().wrapping_div(2));
 
@@ -52,7 +55,10 @@ impl<'a> InlineOperands<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `InlineOperands::is_empty` method returns `Emptiness` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `InlineOperands::is_empty` method returns `Emptiness` directly in the existing parser interface"
+    )
   )]
   pub fn is_empty(&self) -> Emptiness {
     match self.bytes {
@@ -65,11 +71,14 @@ impl<'a> InlineOperands<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `InlineOperands::values` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `InlineOperands::values` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn values(&self) -> impl Iterator<Item = i32> + 'a + Clone + use<'a> {
     let (bytes, words): (&[u8], &[u8]) = match self.encoding {
-      OperandEncoding::Words => (&[], self.bytes),
+      OperandEncoding::WordArray => (&[], self.bytes),
       OperandEncoding::Bytes | OperandEncoding::NoInlineOperands => (self.bytes, &[]),
     };
     bytes
@@ -100,7 +109,10 @@ impl MockInlineOperands {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MockInlineOperands::from_bytes` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MockInlineOperands::from_bytes` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_bytes(bytes: &[u8]) -> Self {
     Self {
@@ -114,7 +126,10 @@ impl MockInlineOperands {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MockInlineOperands::from_words` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MockInlineOperands::from_words` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_words(words: &[i16]) -> Self {
     Self {
@@ -139,14 +154,17 @@ impl MockInlineOperands {
           ]
         })
         .collect(),
-      encoding: OperandEncoding::Words,
+      encoding: OperandEncoding::WordArray,
     }
   }
 
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MockInlineOperands::operands` method returns `InlineOperands` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MockInlineOperands::operands` method returns `InlineOperands` directly in the existing parser interface"
+    )
   )]
   pub fn operands(&self) -> InlineOperands<'_> {
     InlineOperands {

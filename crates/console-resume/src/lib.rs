@@ -46,7 +46,10 @@ impl<'a> LocalName<'a> {
     let spelling = std::ffi::OsStr::new(name);
     let path = std::path::Path::new(spelling);
 
-    match ::core::primitive::bool::then_some(path.file_name() == Some(spelling) && !name.contains('\0'), ()) {
+    match ::core::primitive::bool::then_some(
+      path.file_name() == Some(spelling) && !name.contains('\0'),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Self(name)),
       ::core::option::Option::None => Err(Unresumed::InvalidName(name.to_owned())),
     }

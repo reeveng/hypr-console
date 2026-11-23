@@ -50,37 +50,40 @@ impl<'a> CollectFeaturesContext<'a> {
     feature_list: &'a FeatureList<'a>,
     feature_indices: &'a mut IntSet<u16>,
   ) -> core::result::Result<Self, console_core_never::Never> {
-      let Ok(value_1) = IntSet::empty();
-      let Ok(value_2) = IntSet::empty();
+    let Ok(value_1) = IntSet::empty();
+    let Ok(value_2) = IntSet::empty();
 
-      let Ok(feature_records) = feature_list.feature_records();
+    let Ok(feature_records) = feature_list.feature_records();
 
-      Ok(Self {
-        script_count: 0,
-        langsys_count: 0,
-        feature_index_count: 0,
-        visited_script: value_1,
-        visited_langsys: value_2,
-        feature_indices,
-        feature_indices_filter: feature_records
-          .iter()
-          .enumerate()
-          .filter(|(_i, record)| {
-            let Ok(feature_tag) = record.feature_tag();
-            let Ok(value_58) = features.contains(feature_tag);
+    Ok(Self {
+      script_count: 0,
+      langsys_count: 0,
+      feature_index_count: 0,
+      visited_script: value_1,
+      visited_langsys: value_2,
+      feature_indices,
+      feature_indices_filter: feature_records
+        .iter()
+        .enumerate()
+        .filter(|(_i, record)| {
+          let Ok(feature_tag) = record.feature_tag();
+          let Ok(value_58) = features.contains(feature_tag);
 
-            value_58 == console_core_integer_sets::Presence::Present
-          })
-          .map(|(idx, _)| {
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(idx);
-            migrated_value
-          })
-          .collect(),
-        table_head,
-      })
+          value_58 == console_core_integer_sets::Presence::Present
+        })
+        .map(|(idx, _)| {
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(idx);
+          migrated_value
+        })
+        .collect(),
+      table_head,
+    })
   }
 
-  pub(crate) fn visit_script(&mut self, script: &Script) -> Result<VisitDecision, console_core_never::Never> {
+  pub(crate) fn visit_script(
+    &mut self,
+    script: &Script,
+  ) -> Result<VisitDecision, console_core_never::Never> {
     match self.script_count.cmp(&MAX_SCRIPTS) {
       core::cmp::Ordering::Greater => return Ok(VisitDecision::Skip),
       core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {}
@@ -89,14 +92,18 @@ impl<'a> CollectFeaturesContext<'a> {
     self.script_count = self.script_count.wrapping_add(1);
     let Ok(data) = script.offset_data();
     let Ok(address) = data.base_address();
-    let Ok(offset) = console_core_number_conversion::wrapped::<_, u32>(address.wrapping_sub(self.table_head));
+    let Ok(offset) =
+      console_core_number_conversion::wrapped::<_, u32>(address.wrapping_sub(self.table_head));
     Ok(match self.visited_script.insert(offset) {
       Ok(crate::Presence::Present) => VisitDecision::Skip,
       Ok(crate::Presence::Absent) => VisitDecision::Visit,
     })
   }
 
-  pub(crate) fn visit_langsys(&mut self, langsys: &LangSys) -> Result<VisitDecision, console_core_never::Never> {
+  pub(crate) fn visit_langsys(
+    &mut self,
+    langsys: &LangSys,
+  ) -> Result<VisitDecision, console_core_never::Never> {
     match self.langsys_count.cmp(&MAX_LANGSYS) {
       core::cmp::Ordering::Greater => return Ok(VisitDecision::Skip),
       core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {}
@@ -105,14 +112,18 @@ impl<'a> CollectFeaturesContext<'a> {
     self.langsys_count = self.langsys_count.wrapping_add(1);
     let Ok(data) = langsys.offset_data();
     let Ok(address) = data.base_address();
-    let Ok(offset) = console_core_number_conversion::wrapped::<_, u32>(address.wrapping_sub(self.table_head));
+    let Ok(offset) =
+      console_core_number_conversion::wrapped::<_, u32>(address.wrapping_sub(self.table_head));
     Ok(match self.visited_langsys.insert(offset) {
       Ok(crate::Presence::Present) => VisitDecision::Skip,
       Ok(crate::Presence::Absent) => VisitDecision::Visit,
     })
   }
 
-  pub(crate) fn charge_feature_indices(&mut self, count: u16) -> Result<TraversalBudget, console_core_never::Never> {
+  pub(crate) fn charge_feature_indices(
+    &mut self,
+    count: u16,
+  ) -> Result<TraversalBudget, console_core_never::Never> {
     self.feature_index_count = match self.feature_index_count.checked_add(count) {
       Some(new_count) => new_count,
       None => {
@@ -139,7 +150,8 @@ impl ScriptList<'_> {
     let Ok(mut out) = IntSet::empty();
     let value_8 = &mut out;
 
-    let Ok(mut c) = CollectFeaturesContext::new(features, layout_table_head, feature_list, value_8);
+    let Ok(mut c) =
+      CollectFeaturesContext::new(features, layout_table_head, feature_list, value_8);
     let Ok(script_records) = self.script_records();
     let Ok(font_data) = self.offset_data();
     let Ok(value_9) = scripts
@@ -209,7 +221,10 @@ impl Script<'_> {
     c: &mut CollectFeaturesContext,
     languages: &IntSet<Tag>,
   ) -> Result<(), ReadError> {
-    match ::core::primitive::bool::then_some(matches!(c.visit_script(self), Ok(VisitDecision::Skip)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(c.visit_script(self), Ok(VisitDecision::Skip)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -290,87 +305,117 @@ impl Script<'_> {
 }
 
 impl LangSys<'_> {
-  fn collect_features(&self, c: &mut CollectFeaturesContext) -> core::result::Result<(), console_core_never::Never> { {
-    match ::core::primitive::bool::then_some(matches!(c.visit_langsys(self), Ok(VisitDecision::Skip)), ()) {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      }
-      ::core::option::Option::None => {}
-    }
-
-    let Ok(value_19) = c.feature_indices_filter.is_empty();
-
-    match ::core::primitive::bool::then_some(value_19 == console_core_integer_sets::Emptiness::Empty, ()) {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      }
-      ::core::option::Option::None => {}
-    }
-
-    let Ok(required_feature_idx) = self.required_feature_index();
-
-    match ::core::primitive::bool::then_some({
-      required_feature_idx != 0xFFFF && matches!(c.charge_feature_indices(1), Ok(TraversalBudget::Available)) && {
-        let Ok(value_63) = c.feature_indices_filter.contains(required_feature_idx);
-
-        value_63 == console_core_integer_sets::Presence::Present
-      }
-    }, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(_presence_changed) = c.feature_indices.insert(required_feature_idx);
-      }
-      ::core::option::Option::None => {}
-    }
-
-    let Ok(feature_index_count) = self.feature_index_count();
-
-    match ::core::primitive::bool::then_some(matches!(c.charge_feature_indices(feature_index_count), Ok(TraversalBudget::Exhausted)), ()) {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      }
-      ::core::option::Option::None => {}
-    }
-
-    let Ok(feature_indices) = self.feature_indices();
-
-    for feature_index in feature_indices {
-      let Ok(value_76) = feature_index.get();
-
-      let idx = value_76;
-      let value_21 = idx;
-
-      let Ok(value_64) = c.feature_indices_filter.contains(value_21);
-
-      match ::core::primitive::bool::then_some(value_64 == console_core_integer_sets::Presence::Absent, ()) {
+  fn collect_features(
+    &self,
+    c: &mut CollectFeaturesContext,
+  ) -> core::result::Result<(), console_core_never::Never> {
+    {
+      match ::core::primitive::bool::then_some(
+        matches!(c.visit_langsys(self), Ok(VisitDecision::Skip)),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
-          continue;
+          return Ok(());
         }
         ::core::option::Option::None => {}
       }
 
-      let value_22 = idx;
+      let Ok(value_19) = c.feature_indices_filter.is_empty();
 
-      let Ok(_presence_changed) = c.feature_indices.insert(value_22);
-      let value_23 = idx;
+      match ::core::primitive::bool::then_some(
+        value_19 == console_core_integer_sets::Emptiness::Empty,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => {
+          return Ok(());
+        }
+        ::core::option::Option::None => {}
+      }
 
-      let Ok(_presence_changed) = c.feature_indices_filter.remove(value_23);
-    }
-  }; Ok(()) }
+      let Ok(required_feature_idx) = self.required_feature_index();
+
+      match ::core::primitive::bool::then_some(
+        {
+          required_feature_idx != 0xFFFF
+            && matches!(c.charge_feature_indices(1), Ok(TraversalBudget::Available))
+            && {
+              let Ok(value_63) = c.feature_indices_filter.contains(required_feature_idx);
+
+              value_63 == console_core_integer_sets::Presence::Present
+            }
+        },
+        (),
+      ) {
+        ::core::option::Option::Some(()) => {
+          let Ok(_presence_changed) = c.feature_indices.insert(required_feature_idx);
+        }
+        ::core::option::Option::None => {}
+      }
+
+      let Ok(feature_index_count) = self.feature_index_count();
+
+      match ::core::primitive::bool::then_some(
+        matches!(
+          c.charge_feature_indices(feature_index_count),
+          Ok(TraversalBudget::Exhausted)
+        ),
+        (),
+      ) {
+        ::core::option::Option::Some(()) => {
+          return Ok(());
+        }
+        ::core::option::Option::None => {}
+      }
+
+      let Ok(feature_indices) = self.feature_indices();
+
+      for feature_index in feature_indices {
+        let Ok(value_76) = feature_index.get();
+
+        let idx = value_76;
+        let value_21 = idx;
+
+        let Ok(value_64) = c.feature_indices_filter.contains(value_21);
+
+        match ::core::primitive::bool::then_some(
+          value_64 == console_core_integer_sets::Presence::Absent,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => {
+            continue;
+          }
+          ::core::option::Option::None => {}
+        }
+
+        let value_22 = idx;
+
+        let Ok(_presence_changed) = c.feature_indices.insert(value_22);
+        let value_23 = idx;
+
+        let Ok(_presence_changed) = c.feature_indices_filter.remove(value_23);
+      }
+    };
+    Ok(())
+  }
 }
 
 impl Feature<'_> {
   #[must_use]
-  pub(crate) fn collect_lookups(&self) -> core::result::Result<Vec<u16>, console_core_never::Never> {
-      let Ok(lookup_list_indices) = self.lookup_list_indices();
+  pub(crate) fn collect_lookups(
+    &self,
+  ) -> core::result::Result<Vec<u16>, console_core_never::Never> {
+    let Ok(lookup_list_indices) = self.lookup_list_indices();
 
-      Ok(lookup_list_indices
+    Ok(
+      lookup_list_indices
         .iter()
         .map(|idx| {
           let Ok(value_65) = idx.get();
 
           value_65
         })
-        .collect())
+        .collect(),
+    )
   }
 }
 
@@ -527,38 +572,53 @@ pub(crate) struct LookupClosureCtx<'a> {
 
 impl<'a> LookupClosureCtx<'a> {
   #[must_use]
-  pub(crate) fn new(glyph_set: &'a IntSet<GlyphId>, lookup_list: &'a LayoutLookupList) -> core::result::Result<Self, console_core_never::Never> {
-      let Ok(value_32) = IntSet::empty();
-      let Ok(value_33) = IntSet::empty();
+  pub(crate) fn new(
+    glyph_set: &'a IntSet<GlyphId>,
+    lookup_list: &'a LayoutLookupList,
+  ) -> core::result::Result<Self, console_core_never::Never> {
+    let Ok(value_32) = IntSet::empty();
+    let Ok(value_33) = IntSet::empty();
 
-      Ok(Self {
-        visited_lookups: value_32,
-        inactive_lookups: value_33,
-        glyph_set,
-        lookup_count: 0,
-        nesting_level_left: MAX_NESTING_LEVEL,
-        lookup_list,
-      })
+    Ok(Self {
+      visited_lookups: value_32,
+      inactive_lookups: value_33,
+      glyph_set,
+      lookup_count: 0,
+      nesting_level_left: MAX_NESTING_LEVEL,
+      lookup_list,
+    })
   }
 
   #[must_use]
-  pub(crate) fn visited_lookups(&self) -> core::result::Result<&IntSet<u16>, console_core_never::Never> {
-      Ok(&self.visited_lookups)
+  pub(crate) fn visited_lookups(
+    &self,
+  ) -> core::result::Result<&IntSet<u16>, console_core_never::Never> {
+    Ok(&self.visited_lookups)
   }
 
   #[must_use]
-  pub(crate) fn inactive_lookups(&self) -> core::result::Result<&IntSet<u16>, console_core_never::Never> {
-      Ok(&self.inactive_lookups)
+  pub(crate) fn inactive_lookups(
+    &self,
+  ) -> core::result::Result<&IntSet<u16>, console_core_never::Never> {
+    Ok(&self.inactive_lookups)
   }
 
   #[must_use]
-  pub(crate) fn glyphs(&self) -> core::result::Result<&IntSet<GlyphId>, console_core_never::Never> {
-      Ok(self.glyph_set)
+  pub(crate) fn glyphs(
+    &self,
+  ) -> core::result::Result<&IntSet<GlyphId>, console_core_never::Never> {
+    Ok(self.glyph_set)
   }
 
-  pub(crate) fn set_lookup_inactive(&mut self, lookup_index: u16) -> core::result::Result<(), console_core_never::Never> { {
-    let Ok(_presence_changed) = self.inactive_lookups.insert(lookup_index);
-  }; Ok(()) }
+  pub(crate) fn set_lookup_inactive(
+    &mut self,
+    lookup_index: u16,
+  ) -> core::result::Result<(), console_core_never::Never> {
+    {
+      let Ok(_presence_changed) = self.inactive_lookups.insert(lookup_index);
+    };
+    Ok(())
+  }
 
   pub(crate) fn lookup_budget(&self) -> Result<TraversalBudget, console_core_never::Never> {
     Ok(match self.lookup_count.cmp(&MAX_LOOKUP_VISIT_COUNT) {
@@ -567,7 +627,10 @@ impl<'a> LookupClosureCtx<'a> {
     })
   }
 
-  pub(crate) fn visit_lookup(&mut self, lookup_index: u16) -> Result<VisitDecision, console_core_never::Never> {
+  pub(crate) fn visit_lookup(
+    &mut self,
+    lookup_index: u16,
+  ) -> Result<VisitDecision, console_core_never::Never> {
     match self.lookup_budget() {
       Ok(TraversalBudget::Exhausted) => return Ok(VisitDecision::Skip),
       Ok(TraversalBudget::Available) => {}
@@ -588,13 +651,16 @@ impl<'a> LookupClosureCtx<'a> {
       ::core::option::Option::None => {}
     }
 
-    match ::core::primitive::bool::then_some({
-      matches!(self.lookup_budget(), Ok(TraversalBudget::Exhausted)) || {
-        let Ok(value_73) = self.visited_lookups.contains(lookup_index);
+    match ::core::primitive::bool::then_some(
+      {
+        matches!(self.lookup_budget(), Ok(TraversalBudget::Exhausted)) || {
+          let Ok(value_73) = self.visited_lookups.contains(lookup_index);
 
-        value_73 == console_core_integer_sets::Presence::Present
-      }
-    }, ()) {
+          value_73 == console_core_integer_sets::Presence::Present
+        }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -657,7 +723,10 @@ pub(crate) trait LookupClosure {
 pub trait Intersect {
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `Intersect::intersects` trait method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `Intersect::intersects` trait method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   fn intersects(&self, glyph_set: &IntSet<GlyphId>) -> Result<bool, ReadError>;
 }
@@ -693,14 +762,16 @@ impl Intersect for ClassDefFormat1<'_> {
     let Ok(class_values) = self.class_value_array();
     let Ok(value_36) = glyph_set.contains(start_glyph);
 
-    match ::core::primitive::bool::then_some((value_36 == console_core_integer_sets::Presence::Present)
-      && *match <[_]>::get(&*class_values, 0) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => {
-          return ::core::result::Result::Err(crate::read::ReadError::OutOfBounds);
-        }
-      } != 0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      (value_36 == console_core_integer_sets::Presence::Present)
+        && *match <[_]>::get(&*class_values, 0) {
+          ::core::option::Option::Some(indexed_value) => indexed_value,
+          ::core::option::Option::None => {
+            return ::core::result::Result::Err(crate::read::ReadError::OutOfBounds);
+          }
+        } != 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(true);
       }
@@ -740,7 +811,6 @@ impl Intersect for ClassDefFormat1<'_> {
         }
         ::core::option::Option::None => {}
       }
-
     }
 
     Ok(false)
@@ -753,13 +823,16 @@ impl Intersect for ClassDefFormat2<'_> {
     let num_bits = ::core::primitive::u32::wrapping_sub(16, num_ranges.leading_zeros());
     let Ok(value_38) = glyph_set.len();
 
-    match ::core::primitive::bool::then_some(({
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_ranges);
-      migrated_value
-    }) > ::core::primitive::u64::wrapping_mul(value_38, {
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_bits);
-      migrated_value
-    }), ()) {
+    match ::core::primitive::bool::then_some(
+      ({
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_ranges);
+        migrated_value
+      }) > ::core::primitive::u64::wrapping_mul(value_38, {
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(num_bits);
+        migrated_value
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_95) = glyph_set.iter();
 
@@ -789,12 +862,14 @@ impl Intersect for ClassDefFormat2<'_> {
           let last = GlyphId::from(end_glyph_id);
           let Ok(value_39) = glyph_set.intersects_range(first..=last);
 
-          match ::core::primitive::bool::then_some((value_39 == console_core_integer_sets::Overlap::Intersecting)
-            && ({
-              let Ok(explicit_value) = record.class();
-              explicit_value
-            }) != 0, ())
-          {
+          match ::core::primitive::bool::then_some(
+            (value_39 == console_core_integer_sets::Overlap::Intersecting)
+              && ({
+                let Ok(explicit_value) = record.class();
+                explicit_value
+              }) != 0,
+            (),
+          ) {
             ::core::option::Option::Some(()) => {
               return Ok(true);
             }
@@ -896,97 +971,113 @@ impl ContextFormat1<'_> {
   #[must_use]
   pub(crate) fn rule_sets(
     &self,
-  ) -> core::result::Result<impl Iterator<Item = Result<Option<Format1RuleSet<'_>>, ReadError>>, console_core_never::Never> {
-      let (left, right) = match self {
-        ContextFormat1::Plain(table) => {
-          let Ok(seq_rule_sets) = table.seq_rule_sets();
-          let Ok(value_77) = seq_rule_sets.iter();
+  ) -> core::result::Result<
+    impl Iterator<Item = Result<Option<Format1RuleSet<'_>>, ReadError>>,
+    console_core_never::Never,
+  > {
+    let (left, right) = match self {
+      ContextFormat1::Plain(table) => {
+        let Ok(seq_rule_sets) = table.seq_rule_sets();
+        let Ok(value_77) = seq_rule_sets.iter();
 
-          (
-            Some(value_77.map(|rs| rs.map(|rs_2| rs_2.map(Format1RuleSet::Plain)))),
-            None,
-          )
-        }
-        ContextFormat1::Chain(table) => {
-          let Ok(chained_seq_rule_sets) = table.chained_seq_rule_sets();
-          let Ok(value_79) = chained_seq_rule_sets.iter();
+        (
+          Some(value_77.map(|rs| rs.map(|rs_2| rs_2.map(Format1RuleSet::Plain)))),
+          None,
+        )
+      }
+      ContextFormat1::Chain(table) => {
+        let Ok(chained_seq_rule_sets) = table.chained_seq_rule_sets();
+        let Ok(value_79) = chained_seq_rule_sets.iter();
 
-          (
-            None,
-            Some(value_79.map(|rs| rs.map(|rs_3| rs_3.map(Format1RuleSet::Chain)))),
-          )
-        }
-      };
+        (
+          None,
+          Some(value_79.map(|rs| rs.map(|rs_3| rs_3.map(Format1RuleSet::Chain)))),
+        )
+      }
+    };
 
-      Ok(left
+    Ok(
+      left
         .into_iter()
         .flatten()
-        .chain(right.into_iter().flatten()))
+        .chain(right.into_iter().flatten()),
+    )
   }
 }
 
 impl Format1RuleSet<'_> {
   #[must_use]
-  pub(crate) fn rules(&self) -> core::result::Result<impl Iterator<Item = Result<Option<Format1Rule<'_>>, ReadError>>, console_core_never::Never> {
-      let (left, right) = match self {
-        Self::Plain(table) => {
-          let Ok(seq_rules) = table.seq_rules();
-          let Ok(value_82) = seq_rules.iter_as_nullable();
+  pub(crate) fn rules(
+    &self,
+  ) -> core::result::Result<
+    impl Iterator<Item = Result<Option<Format1Rule<'_>>, ReadError>>,
+    console_core_never::Never,
+  > {
+    let (left, right) = match self {
+      Self::Plain(table) => {
+        let Ok(seq_rules) = table.seq_rules();
+        let Ok(value_82) = seq_rules.iter_as_nullable();
 
-          (
-            Some(value_82.map(|rule| rule.map(|r| r.map(Format1Rule::Plain)))),
-            None,
-          )
-        }
-        Self::Chain(table) => {
-          let Ok(chained_seq_rules) = table.chained_seq_rules();
-          let Ok(value_83) = chained_seq_rules.iter_as_nullable();
+        (
+          Some(value_82.map(|rule| rule.map(|r| r.map(Format1Rule::Plain)))),
+          None,
+        )
+      }
+      Self::Chain(table) => {
+        let Ok(chained_seq_rules) = table.chained_seq_rules();
+        let Ok(value_83) = chained_seq_rules.iter_as_nullable();
 
-          (
-            None,
-            Some(value_83.map(|rule| rule.map(|r| r.map(Format1Rule::Chain)))),
-          )
-        }
-      };
+        (
+          None,
+          Some(value_83.map(|rule| rule.map(|r| r.map(Format1Rule::Chain)))),
+        )
+      }
+    };
 
-      Ok(left
+    Ok(
+      left
         .into_iter()
         .flatten()
-        .chain(right.into_iter().flatten()))
+        .chain(right.into_iter().flatten()),
+    )
   }
 }
 
 impl Format1Rule<'_> {
   #[must_use]
-  pub(crate) fn input_sequence(&self) -> core::result::Result<&[BigEndian<GlyphId16>], console_core_never::Never> {
-      Ok(match self {
-        Self::Plain(table) => {
-          let Ok(input_sequence) = table.input_sequence();
+  pub(crate) fn input_sequence(
+    &self,
+  ) -> core::result::Result<&[BigEndian<GlyphId16>], console_core_never::Never> {
+    Ok(match self {
+      Self::Plain(table) => {
+        let Ok(input_sequence) = table.input_sequence();
 
-          input_sequence
-        }
-        Self::Chain(table) => {
-          let Ok(input_sequence) = table.input_sequence();
+        input_sequence
+      }
+      Self::Chain(table) => {
+        let Ok(input_sequence) = table.input_sequence();
 
-          input_sequence
-        }
-      })
+        input_sequence
+      }
+    })
   }
 
   #[must_use]
-  pub(crate) fn lookup_records(&self) -> core::result::Result<&[SequenceLookupRecord], console_core_never::Never> {
-      Ok(match self {
-        Self::Plain(table) => {
-          let Ok(seq_lookup_records) = table.seq_lookup_records();
+  pub(crate) fn lookup_records(
+    &self,
+  ) -> core::result::Result<&[SequenceLookupRecord], console_core_never::Never> {
+    Ok(match self {
+      Self::Plain(table) => {
+        let Ok(seq_lookup_records) = table.seq_lookup_records();
 
-          seq_lookup_records
-        }
-        Self::Chain(table) => {
-          let Ok(seq_lookup_records) = table.seq_lookup_records();
+        seq_lookup_records
+      }
+      Self::Chain(table) => {
+        let Ok(seq_lookup_records) = table.seq_lookup_records();
 
-          seq_lookup_records
-        }
-      })
+        seq_lookup_records
+      }
+    })
   }
 }
 
@@ -1040,10 +1131,17 @@ impl Intersect for Format1Rule<'_> {
 
 impl LookupClosure for Format1Rule<'_> {
   fn closure_lookups(&self, c: &mut LookupClosureCtx, _arg: u16) -> Result<(), ReadError> {
-    match ::core::primitive::bool::then_some(matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)) || !{
-      let glyph_overlap = self.intersects({ let Ok(explicit_value) = c.glyphs(); explicit_value })?;
-      glyph_overlap
-    }, ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted))
+        || !{
+          let glyph_overlap = self.intersects({
+            let Ok(explicit_value) = c.glyphs();
+            explicit_value
+          })?;
+          glyph_overlap
+        },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1126,97 +1224,113 @@ impl ContextFormat2<'_> {
   #[must_use]
   pub(crate) fn rule_sets(
     &self,
-  ) -> core::result::Result<impl Iterator<Item = Result<Option<Format2RuleSet<'_>>, ReadError>>, console_core_never::Never> {
-      let (left, right) = match self {
-        ContextFormat2::Plain(table) => {
-          let Ok(class_seq_rule_sets) = table.class_seq_rule_sets();
-          let Ok(value_80) = class_seq_rule_sets.iter();
+  ) -> core::result::Result<
+    impl Iterator<Item = Result<Option<Format2RuleSet<'_>>, ReadError>>,
+    console_core_never::Never,
+  > {
+    let (left, right) = match self {
+      ContextFormat2::Plain(table) => {
+        let Ok(class_seq_rule_sets) = table.class_seq_rule_sets();
+        let Ok(value_80) = class_seq_rule_sets.iter();
 
-          (
-            Some(value_80.map(|rs| rs.map(|rs_2| rs_2.map(Format2RuleSet::Plain)))),
-            None,
-          )
-        }
-        ContextFormat2::Chain(table) => {
-          let Ok(chained_class_seq_rule_sets) = table.chained_class_seq_rule_sets();
-          let Ok(value_81) = chained_class_seq_rule_sets.iter();
+        (
+          Some(value_80.map(|rs| rs.map(|rs_2| rs_2.map(Format2RuleSet::Plain)))),
+          None,
+        )
+      }
+      ContextFormat2::Chain(table) => {
+        let Ok(chained_class_seq_rule_sets) = table.chained_class_seq_rule_sets();
+        let Ok(value_81) = chained_class_seq_rule_sets.iter();
 
-          (
-            None,
-            Some(value_81.map(|rs| rs.map(|rs_3| rs_3.map(Format2RuleSet::Chain)))),
-          )
-        }
-      };
+        (
+          None,
+          Some(value_81.map(|rs| rs.map(|rs_3| rs_3.map(Format2RuleSet::Chain)))),
+        )
+      }
+    };
 
-      Ok(left
+    Ok(
+      left
         .into_iter()
         .flatten()
-        .chain(right.into_iter().flatten()))
+        .chain(right.into_iter().flatten()),
+    )
   }
 }
 
 impl Format2RuleSet<'_> {
   #[must_use]
-  pub(crate) fn rules(&self) -> core::result::Result<impl Iterator<Item = Result<Option<Format2Rule<'_>>, ReadError>>, console_core_never::Never> {
-      let (left, right) = match self {
-        Format2RuleSet::Plain(table) => {
-          let Ok(class_seq_rules) = table.class_seq_rules();
-          let Ok(value_85) = class_seq_rules.iter_as_nullable();
+  pub(crate) fn rules(
+    &self,
+  ) -> core::result::Result<
+    impl Iterator<Item = Result<Option<Format2Rule<'_>>, ReadError>>,
+    console_core_never::Never,
+  > {
+    let (left, right) = match self {
+      Format2RuleSet::Plain(table) => {
+        let Ok(class_seq_rules) = table.class_seq_rules();
+        let Ok(value_85) = class_seq_rules.iter_as_nullable();
 
-          (
-            Some(value_85.map(|rule| rule.map(|r| r.map(Format2Rule::Plain)))),
-            None,
-          )
-        }
-        Format2RuleSet::Chain(table) => {
-          let Ok(chained_class_seq_rules) = table.chained_class_seq_rules();
-          let Ok(value_86) = chained_class_seq_rules.iter_as_nullable();
+        (
+          Some(value_85.map(|rule| rule.map(|r| r.map(Format2Rule::Plain)))),
+          None,
+        )
+      }
+      Format2RuleSet::Chain(table) => {
+        let Ok(chained_class_seq_rules) = table.chained_class_seq_rules();
+        let Ok(value_86) = chained_class_seq_rules.iter_as_nullable();
 
-          (
-            None,
-            Some(value_86.map(|rule| rule.map(|r| r.map(Format2Rule::Chain)))),
-          )
-        }
-      };
+        (
+          None,
+          Some(value_86.map(|rule| rule.map(|r| r.map(Format2Rule::Chain)))),
+        )
+      }
+    };
 
-      Ok(left
+    Ok(
+      left
         .into_iter()
         .flatten()
-        .chain(right.into_iter().flatten()))
+        .chain(right.into_iter().flatten()),
+    )
   }
 }
 
 impl Format2Rule<'_> {
   #[must_use]
-  pub(crate) fn input_sequence(&self) -> core::result::Result<&[BigEndian<u16>], console_core_never::Never> {
-      Ok(match self {
-        Self::Plain(table) => {
-          let Ok(input_sequence) = table.input_sequence();
+  pub(crate) fn input_sequence(
+    &self,
+  ) -> core::result::Result<&[BigEndian<u16>], console_core_never::Never> {
+    Ok(match self {
+      Self::Plain(table) => {
+        let Ok(input_sequence) = table.input_sequence();
 
-          input_sequence
-        }
-        Self::Chain(table) => {
-          let Ok(input_sequence) = table.input_sequence();
+        input_sequence
+      }
+      Self::Chain(table) => {
+        let Ok(input_sequence) = table.input_sequence();
 
-          input_sequence
-        }
-      })
+        input_sequence
+      }
+    })
   }
 
   #[must_use]
-  pub(crate) fn lookup_records(&self) -> core::result::Result<&[SequenceLookupRecord], console_core_never::Never> {
-      Ok(match self {
-        Self::Plain(table) => {
-          let Ok(seq_lookup_records) = table.seq_lookup_records();
+  pub(crate) fn lookup_records(
+    &self,
+  ) -> core::result::Result<&[SequenceLookupRecord], console_core_never::Never> {
+    Ok(match self {
+      Self::Plain(table) => {
+        let Ok(seq_lookup_records) = table.seq_lookup_records();
 
-          seq_lookup_records
-        }
-        Self::Chain(table) => {
-          let Ok(seq_lookup_records) = table.seq_lookup_records();
+        seq_lookup_records
+      }
+      Self::Chain(table) => {
+        let Ok(seq_lookup_records) = table.seq_lookup_records();
 
-          seq_lookup_records
-        }
-      })
+        seq_lookup_records
+      }
+    })
   }
 
   #[must_use]
@@ -1235,7 +1349,10 @@ impl Format2Rule<'_> {
 
 impl ClassSequenceRule<'_> {
   #[must_use]
-  fn intersects(&self, input_classes: &IntSet<u16>) -> Result<crate::Overlap, console_core_never::Never> {
+  fn intersects(
+    &self,
+    input_classes: &IntSet<u16>,
+  ) -> Result<crate::Overlap, console_core_never::Never> {
     let Ok(input_sequence) = self.input_sequence();
 
     Ok(crate::Overlap::from(input_sequence.iter().all(|c| {
@@ -1258,35 +1375,37 @@ impl ChainedClassSequenceRule<'_> {
   ) -> Result<crate::Overlap, console_core_never::Never> {
     let Ok(input_sequence) = self.input_sequence();
 
-    Ok(crate::Overlap::from(input_sequence.iter().all(|c| {
-      let Ok(value_43) = c.get();
+    Ok(crate::Overlap::from(
+      input_sequence.iter().all(|c| {
+        let Ok(value_43) = c.get();
 
-      let Ok(value_69) = input_classes.contains(value_43);
+        let Ok(value_69) = input_classes.contains(value_43);
 
-      value_69 == console_core_integer_sets::Presence::Present
-    }) && ({
-      let Ok(explicit_value) = self.backtrack_sequence();
-      explicit_value
-    })
-    .iter()
-    .all(|c| {
-      let Ok(value_44) = c.get();
+        value_69 == console_core_integer_sets::Presence::Present
+      }) && ({
+        let Ok(explicit_value) = self.backtrack_sequence();
+        explicit_value
+      })
+      .iter()
+      .all(|c| {
+        let Ok(value_44) = c.get();
 
-      let Ok(value_70) = backtrack_classes.contains(value_44);
+        let Ok(value_70) = backtrack_classes.contains(value_44);
 
-      value_70 == console_core_integer_sets::Presence::Present
-    }) && ({
-      let Ok(explicit_value) = self.lookahead_sequence();
-      explicit_value
-    })
-    .iter()
-    .all(|c| {
-      let Ok(value_45) = c.get();
+        value_70 == console_core_integer_sets::Presence::Present
+      }) && ({
+        let Ok(explicit_value) = self.lookahead_sequence();
+        explicit_value
+      })
+      .iter()
+      .all(|c| {
+        let Ok(value_45) = c.get();
 
-      let Ok(value_71) = lookahead_classes.contains(value_45);
+        let Ok(value_71) = lookahead_classes.contains(value_45);
 
-      value_71 == console_core_integer_sets::Presence::Present
-    })))
+        value_71 == console_core_integer_sets::Presence::Present
+      }),
+    ))
   }
 }
 
@@ -1297,38 +1416,45 @@ pub(crate) enum ContextFormat3<'a> {
 
 impl ContextFormat3<'_> {
   #[must_use]
-  pub(crate) fn coverages(&self) -> core::result::Result<ArrayOfOffsets<'_, CoverageTable<'_>>, console_core_never::Never> {
-      Ok(match self {
-        ContextFormat3::Plain(table) => {
-          let Ok(coverages) = table.coverages();
+  pub(crate) fn coverages(
+    &self,
+  ) -> core::result::Result<ArrayOfOffsets<'_, CoverageTable<'_>>, console_core_never::Never> {
+    Ok(match self {
+      ContextFormat3::Plain(table) => {
+        let Ok(coverages) = table.coverages();
 
-          coverages
-        }
-        ContextFormat3::Chain(table) => {
-          let Ok(input_coverages) = table.input_coverages();
+        coverages
+      }
+      ContextFormat3::Chain(table) => {
+        let Ok(input_coverages) = table.input_coverages();
 
-          input_coverages
-        }
-      })
+        input_coverages
+      }
+    })
   }
 
   #[must_use]
-  pub(crate) fn lookup_records(&self) -> core::result::Result<&[SequenceLookupRecord], console_core_never::Never> {
-      Ok(match self {
-        ContextFormat3::Plain(table) => {
-          let Ok(seq_lookup_records) = table.seq_lookup_records();
+  pub(crate) fn lookup_records(
+    &self,
+  ) -> core::result::Result<&[SequenceLookupRecord], console_core_never::Never> {
+    Ok(match self {
+      ContextFormat3::Plain(table) => {
+        let Ok(seq_lookup_records) = table.seq_lookup_records();
 
-          seq_lookup_records
-        }
-        ContextFormat3::Chain(table) => {
-          let Ok(seq_lookup_records) = table.seq_lookup_records();
+        seq_lookup_records
+      }
+      ContextFormat3::Chain(table) => {
+        let Ok(seq_lookup_records) = table.seq_lookup_records();
 
-          seq_lookup_records
-        }
-      })
+        seq_lookup_records
+      }
+    })
   }
 
-  pub(crate) fn matches_glyphs(&self, glyphs: &IntSet<GlyphId>) -> Result<crate::Overlap, ReadError> {
+  pub(crate) fn matches_glyphs(
+    &self,
+    glyphs: &IntSet<GlyphId>,
+  ) -> Result<crate::Overlap, ReadError> {
     let (backtrack, lookahead) = match self {
       Self::Plain(_) => (None, None),
       Self::Chain(table) => (
@@ -1392,7 +1518,10 @@ impl Intersect for ContextFormat1<'_> {
 
     for rule_set in coverage
       .iter()
-      .zip({ let Ok(explicit_value) = self.rule_sets(); explicit_value })
+      .zip({
+        let Ok(explicit_value) = self.rule_sets();
+        explicit_value
+      })
       .filter_map(|(g, rule_set)| {
         rule_set.transpose().filter(|_| {
           let Ok(value_90) = glyph_set.contains(GlyphId::from(g));
@@ -1465,7 +1594,10 @@ impl LookupClosure for ContextFormat1<'_> {
         value_92 == console_core_integer_sets::Presence::Present
       })
     }) {
-      match ::core::primitive::bool::then_some(matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)), ()) {
+      match ::core::primitive::bool::then_some(
+        matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(());
         }
@@ -1503,7 +1635,10 @@ impl Intersect for ContextFormat2<'_> {
     let retained_coverage_glyphs = coverage.intersect_set(glyph_set);
     let Ok(value_50) = retained_coverage_glyphs.is_empty();
 
-    match ::core::primitive::bool::then_some(value_50 == console_core_integer_sets::Emptiness::Empty, ()) {
+    match ::core::primitive::bool::then_some(
+      value_50 == console_core_integer_sets::Emptiness::Empty,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(false);
       }
@@ -1595,7 +1730,13 @@ impl Intersect for ContextFormat2<'_> {
           }
         };
 
-        match ::core::primitive::bool::then_some(matches!(rule_3.intersects(&input_glyph_classes, &backtrack_classes, &lookahead_classes), Ok(crate::Overlap::Intersecting)), ()) {
+        match ::core::primitive::bool::then_some(
+          matches!(
+            rule_3.intersects(&input_glyph_classes, &backtrack_classes, &lookahead_classes),
+            Ok(crate::Overlap::Intersecting)
+          ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             return Ok(true);
           }
@@ -1621,7 +1762,10 @@ impl LookupClosure for ContextFormat2<'_> {
     let retained_coverage_glyphs = coverage.intersect_set(glyph_set);
     let Ok(value_54) = retained_coverage_glyphs.is_empty();
 
-    match ::core::primitive::bool::then_some(value_54 == console_core_integer_sets::Emptiness::Empty, ()) {
+    match ::core::primitive::bool::then_some(
+      value_54 == console_core_integer_sets::Emptiness::Empty,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1701,7 +1845,10 @@ impl LookupClosure for ContextFormat2<'_> {
         .then_some(rule_set.transpose())
         .flatten()
     }) {
-      match ::core::primitive::bool::then_some(matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)), ()) {
+      match ::core::primitive::bool::then_some(
+        matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(());
         }
@@ -1712,7 +1859,10 @@ impl LookupClosure for ContextFormat2<'_> {
       let Ok(rules) = rule_set_2.rules();
 
       'over_rule_2: for rule in rules {
-        match ::core::primitive::bool::then_some(matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)), ()) {
+        match ::core::primitive::bool::then_some(
+          matches!(c.lookup_budget(), Ok(TraversalBudget::Exhausted)),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             return Ok(());
           }
@@ -1727,7 +1877,13 @@ impl LookupClosure for ContextFormat2<'_> {
           }
         };
 
-        match ::core::primitive::bool::then_some(!matches!(rule_3.intersects(&input_glyph_classes, &backtrack_classes, &lookahead_classes), Ok(crate::Overlap::Intersecting)), ()) {
+        match ::core::primitive::bool::then_some(
+          !matches!(
+            rule_3.intersects(&input_glyph_classes, &backtrack_classes, &lookahead_classes),
+            Ok(crate::Overlap::Intersecting)
+          ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             continue 'over_rule_2;
           }
@@ -1749,7 +1905,9 @@ impl LookupClosure for ContextFormat2<'_> {
 
 impl Intersect for ContextFormat3<'_> {
   fn intersects(&self, glyph_set: &IntSet<GlyphId>) -> Result<bool, ReadError> {
-    self.matches_glyphs(glyph_set).map(|overlap| overlap == crate::Overlap::Intersecting)
+    self
+      .matches_glyphs(glyph_set)
+      .map(|overlap| overlap == crate::Overlap::Intersecting)
   }
 }
 

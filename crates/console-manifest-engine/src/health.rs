@@ -72,10 +72,12 @@ impl Piece {
   }
 
   fn label(&self) -> Result<String, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.said == self.unit, ()) {
-      ::core::option::Option::Some(()) => self.unit.clone(),
-      ::core::option::Option::None => format!("{} ({})", self.said, self.unit),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.said == self.unit, ()) {
+        ::core::option::Option::Some(()) => self.unit.clone(),
+        ::core::option::Option::None => format!("{} ({})", self.said, self.unit),
+      },
+    )
   }
 }
 

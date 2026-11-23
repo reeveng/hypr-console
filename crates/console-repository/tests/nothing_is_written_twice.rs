@@ -1175,7 +1175,10 @@ fn flatten(stream: TokenStream) -> Result<Vec<String>, Never> {
         Some(TokenTree::Literal(literal)) => {
           let said = literal.to_string();
 
-          match ::core::primitive::bool::then_some(said.starts_with('"') || said.starts_with('r'), ()) {
+          match ::core::primitive::bool::then_some(
+            said.starts_with('"') || said.starts_with('r'),
+            (),
+          ) {
             ::core::option::Option::Some(()) => into.push("\"\"".to_string()),
             ::core::option::Option::None => into.push(said),
           }
@@ -1205,19 +1208,21 @@ fn shape(body: &syn::Block) -> Result<Option<BTreeSet<u64>>, Never> {
   let Ok(long) = fitted::<_, u32>(tokens.len());
   let Ok(run) = index(RUN);
 
-  Ok(match ::core::primitive::bool::then_some(long < SHORTEST, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(
-      tokens
-        .windows(run.max(1))
-        .map(|run_2| {
-          let mut hasher = DefaultHasher::new();
-          run_2.hash(&mut hasher);
-          hasher.finish()
-        })
-        .collect(),
-    ),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(long < SHORTEST, ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(
+        tokens
+          .windows(run.max(1))
+          .map(|run_2| {
+            let mut hasher = DefaultHasher::new();
+            run_2.hash(&mut hasher);
+            hasher.finish()
+          })
+          .collect(),
+      ),
+    },
+  )
 }
 
 #[derive(Clone, Copy)]
@@ -1228,10 +1233,12 @@ enum Caller {
 
 fn asked_by(attributes: &[syn::Attribute]) -> Result<Caller, Never> {
   Ok(
-    match ::core::primitive::bool::then_some(attributes
-      .iter()
-      .any(|attribute| attribute.path().is_ident("test")), ())
-    {
+    match ::core::primitive::bool::then_some(
+      attributes
+        .iter()
+        .any(|attribute| attribute.path().is_ident("test")),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Caller::ByATest,
       ::core::option::Option::None => Caller::ByTheTree,
     },

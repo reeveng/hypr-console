@@ -41,7 +41,7 @@ enum Redundancy {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Crossing {
   Same,
-  Changed,
+  Different,
 }
 
 struct Redundant {
@@ -372,8 +372,8 @@ impl StreamDecoder {
         Some(Mode::SilkOnly | Mode::Hybrid),
         Mode::CeltOnly,
         Redundancy::Absent | Redundancy::CeltToSilk,
-      ) => Crossing::Changed,
-      (Some(Mode::CeltOnly), Mode::SilkOnly | Mode::Hybrid, _) => Crossing::Changed,
+      ) => Crossing::Different,
+      (Some(Mode::CeltOnly), Mode::SilkOnly | Mode::Hybrid, _) => Crossing::Different,
     })
   }
 
@@ -520,10 +520,10 @@ impl StreamDecoder {
     let mut faded = vec![0f32; faded_length.min(480)];
 
     match (crossing, mode) {
-      (Crossing::Changed, Mode::CeltOnly) => {
+      (Crossing::Different, Mode::CeltOnly) => {
         let _made = self.concealed(&mut faded, F5.min(size))?;
       }
-      (Crossing::Changed, Mode::SilkOnly | Mode::Hybrid) | (Crossing::Same, _) => {}
+      (Crossing::Different, Mode::SilkOnly | Mode::Hybrid) | (Crossing::Same, _) => {}
     }
 
     let Ok(silk) = self.silk_layer(Some(&mut dec), mode, size);
@@ -534,10 +534,10 @@ impl StreamDecoder {
     };
 
     match (crossing_2, mode) {
-      (Crossing::Changed, Mode::SilkOnly | Mode::Hybrid) => {
+      (Crossing::Different, Mode::SilkOnly | Mode::Hybrid) => {
         let _made = self.concealed(&mut faded, F5.min(size))?;
       }
-      (Crossing::Changed, Mode::CeltOnly) | (Crossing::Same, _) => {}
+      (Crossing::Different, Mode::CeltOnly) | (Crossing::Same, _) => {}
     }
 
     let Ok(end) = self.bandwidth.celt_end_band();
@@ -648,7 +648,7 @@ impl StreamDecoder {
     let Ok(window) = self.celt.window();
 
     match (blend.crossing, blend.size.cmp(&F5)) {
-      (Crossing::Changed, Ordering::Equal | Ordering::Greater) => {
+      (Crossing::Different, Ordering::Equal | Ordering::Greater) => {
         let Ok(()) = copied(pcm, blend.faded, step);
         let Ok(rest) = tail(pcm, step);
         let Ok(current) = front(rest, step);
@@ -663,7 +663,7 @@ impl StreamDecoder {
           window,
         );
       }
-      (Crossing::Changed, Ordering::Less) => {
+      (Crossing::Different, Ordering::Less) => {
         let Ok(current) = front(pcm, step);
         let Ok(()) = smooth_fade(
           Crossfade {

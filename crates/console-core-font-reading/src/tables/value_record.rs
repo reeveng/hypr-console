@@ -34,7 +34,10 @@ impl ValueFormat {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueFormat::record_byte_len` method returns `u64` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueFormat::record_byte_len` method returns `u64` directly in the existing parser interface"
+    )
   )]
   pub fn record_byte_len(self) -> u64 {
     ::core::primitive::u64::wrapping_mul(
@@ -59,7 +62,10 @@ impl<'a> ValueContext<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueContext::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueContext::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new() -> Self {
     Self::default()
@@ -68,7 +74,10 @@ impl<'a> ValueContext<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueContext::with_coords` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueContext::with_coords` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn with_coords(mut self, coords: &'a [F2Dot14]) -> Self {
     self.coords = coords;
@@ -78,7 +87,10 @@ impl<'a> ValueContext<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueContext::with_var_store` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueContext::with_var_store` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn with_var_store(mut self, var_store: Option<ItemVariationStore<'a>>) -> Self {
     self.var_store = var_store;
@@ -406,7 +418,10 @@ impl ValueRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueRecord::x_placement` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueRecord::x_placement` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn x_placement(&self) -> Option<i16> {
     self.x_placement.map(|val| {
@@ -419,7 +434,10 @@ impl ValueRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueRecord::y_placement` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueRecord::y_placement` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn y_placement(&self) -> Option<i16> {
     self.y_placement.map(|val| {
@@ -432,7 +450,10 @@ impl ValueRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueRecord::x_advance` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueRecord::x_advance` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn x_advance(&self) -> Option<i16> {
     self.x_advance.map(|val| {
@@ -445,7 +466,10 @@ impl ValueRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `ValueRecord::y_advance` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `ValueRecord::y_advance` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn y_advance(&self) -> Option<i16> {
     self.y_advance.map(|val| {
@@ -579,11 +603,11 @@ impl ValueRecord {
 }
 
 impl ReadArgs for ValueRecord {
-  type Args = ValueFormat;
+  type Arguments = ValueFormat;
 }
 
 impl<'a> FontReadWithArgs<'a> for ValueRecord {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     ValueRecord::read(data, *args)
   }
 }

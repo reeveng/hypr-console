@@ -154,7 +154,9 @@ pub fn configuration() -> Result<String, Never> {
       Temperature::Kelvin(kelvin) => format!("temperature = {kelvin}"),
       Temperature::Neutral => "identity = true".to_string(),
     };
-    said.push_str(&format!("\nprofile {{\n    time = {clock}\n    {setting}\n}}\n"));
+    said.push_str(&format!(
+      "\nprofile {{\n    time = {clock}\n    {setting}\n}}\n"
+    ));
   }
 
   Ok(said)
@@ -241,10 +243,12 @@ impl NightShift {
   }
 
   pub fn switched(self) -> Result<Switched, Never> {
-    Ok(match ::core::primitive::bool::then_some(self == NightShift::Scheduled, ()) {
-      ::core::option::Option::Some(()) => Switched::On,
-      ::core::option::Option::None => Switched::Off,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self == NightShift::Scheduled, ()) {
+        ::core::option::Option::Some(()) => Switched::On,
+        ::core::option::Option::None => Switched::Off,
+      },
+    )
   }
 }
 

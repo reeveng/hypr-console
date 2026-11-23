@@ -3212,7 +3212,10 @@ impl Reader {
                     x: f64::from(at.x),
                     y: f64::from(at.y),
                   },
-                  LineSegment { start: from, end: to },
+                  LineSegment {
+                    start: from,
+                    end: to,
+                  },
                 );
 
                 away <= f64::from(reach)

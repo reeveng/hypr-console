@@ -3,8 +3,8 @@ use std::sync::Arc;
 use console_core_never::Never;
 use console_core_scalable_vector_graphics_values::{Length, LengthUnit as Unit};
 
-use super::svgtree::{AId, EId, SvgNode};
 use super::converter;
+use super::svgtree::{AId, EId, SvgNode};
 use crate::{Group, Mask, MaskType, Node, NonEmptyString, NonZeroRect, Transform, Units};
 
 #[cfg_attr(
@@ -48,7 +48,10 @@ pub(crate) fn convert(
     None => Units::UserSpaceOnUse,
   };
   let Ok(authored_id) = node.element_id();
-  let cacheable = matches!((units, content_units), (Units::UserSpaceOnUse, Units::UserSpaceOnUse));
+  let cacheable = matches!(
+    (units, content_units),
+    (Units::UserSpaceOnUse, Units::UserSpaceOnUse)
+  );
   let existing = cache.masks.get(authored_id);
 
   match (cacheable.then_some(()), existing) {
@@ -75,7 +78,13 @@ pub(crate) fn convert(
   let mask = match region {
     MaskRegion::Empty(rect) => {
       let Ok(root) = Group::empty();
-      Mask { id, rect, kind: MaskType::Luminance, mask: None, root }
+      Mask {
+        id,
+        rect,
+        kind: MaskType::Luminance,
+        mask: None,
+        root,
+      }
     }
     MaskRegion::Visible(rect) => {
       let Ok(definition) = render_mask(node, id, rect, content_units, object_bbox, state, cache);
@@ -132,7 +141,10 @@ fn mask_region(
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "Mask links reenter convert under its shared depth guard")
+  expect(
+    explicit049_no_recursion,
+    reason = "Mask links reenter convert under its shared depth guard"
+  )
 )]
 fn render_mask(
   node: SvgNode,
@@ -191,5 +203,11 @@ fn render_mask(
     }
   };
 
-  Ok(Some(Mask { id, rect, kind, mask, root }))
+  Ok(Some(Mask {
+    id,
+    rect,
+    kind,
+    mask,
+    root,
+  }))
 }

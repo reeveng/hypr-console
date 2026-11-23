@@ -110,7 +110,10 @@ pub fn pulled(value: i32, (low, high): (i32, i32)) -> Result<Trigger, Never> {
   let span = f64::from(high.saturating_sub(low).max(1));
 
   Ok(
-    match ::core::primitive::bool::then_some(f64::from(value.saturating_sub(low)) / span > CARRY_HELD, ()) {
+    match ::core::primitive::bool::then_some(
+      f64::from(value.saturating_sub(low)) / span > CARRY_HELD,
+      (),
+    ) {
       ::core::option::Option::Some(()) => Trigger::Pressed,
       ::core::option::Option::None => Trigger::Loose,
     },
@@ -347,10 +350,12 @@ impl Controller {
       range: self.ranges.thumbstick,
     });
 
-    Ok(match ::core::primitive::bool::then_some(pushed.abs() > 0.0, ()) {
-      ::core::option::Option::Some(()) => Meant::Some,
-      ::core::option::Option::None => Meant::None,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(pushed.abs() > 0.0, ()) {
+        ::core::option::Option::Some(()) => Meant::Some,
+        ::core::option::Option::None => Meant::None,
+      },
+    )
   }
 
   fn on_trigger_button(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
@@ -400,7 +405,8 @@ impl Controller {
   }
 
   fn on_hat(&mut self, code: u16, value: i32) -> Result<Vec<Effect>, Never> {
-    let was = match ::core::primitive::bool::then_some(code == AbsoluteAxisCode::ABS_HAT0X.0, ()) {
+    let was = match ::core::primitive::bool::then_some(code == AbsoluteAxisCode::ABS_HAT0X.0, ())
+    {
       ::core::option::Option::Some(()) => std::mem::replace(&mut self.hat.0, value),
       ::core::option::Option::None => std::mem::replace(&mut self.hat.1, value),
     };
@@ -462,7 +468,10 @@ impl Controller {
   }
 
   fn press(&mut self, button: &'static str) -> Result<Vec<Effect>, Never> {
-    match ::core::primitive::bool::then_some(self.holding.iter().any(|(down, _)| *down == button), ()) {
+    match ::core::primitive::bool::then_some(
+      self.holding.iter().any(|(down, _)| *down == button),
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(Vec::new()),
       ::core::option::Option::None => {}
     }
@@ -516,11 +525,13 @@ impl Controller {
       None => return Ok(Vec::new()),
     };
 
-    match ::core::primitive::bool::then_some(self
-      .stepping
-      .as_ref()
-      .is_some_and(|held| held.button == button), ())
-    {
+    match ::core::primitive::bool::then_some(
+      self
+        .stepping
+        .as_ref()
+        .is_some_and(|held| held.button == button),
+      (),
+    ) {
       ::core::option::Option::Some(()) => self.stepping = None,
       ::core::option::Option::None => {}
     }
@@ -640,7 +651,10 @@ impl Controller {
       None => Wake::OnInput,
     };
 
-    let stick = match ::core::primitive::bool::then_some(self.thumbstick.0.abs() > 0.0 || self.thumbstick.1.abs() > 0.0, ()) {
+    let stick = match ::core::primitive::bool::then_some(
+      self.thumbstick.0.abs() > 0.0 || self.thumbstick.1.abs() > 0.0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => Wake::Within(POLL),
       ::core::option::Option::None => Wake::OnInput,
     };

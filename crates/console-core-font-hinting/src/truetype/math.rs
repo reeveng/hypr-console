@@ -195,7 +195,10 @@ pub fn normalize14(point: Point<i32>) -> Result<Point<i32>, Never> {
   let mut shift = Wrapping(leading);
   let Ok(initial_shift) = index(leading);
   shift -= Wrapping(15)
-    + match ::core::primitive::bool::then_some(length >= (Wrapping(0xAAAAAAAAu32) >> initial_shift), ()) {
+    + match ::core::primitive::bool::then_some(
+      length >= (Wrapping(0xAAAAAAAAu32) >> initial_shift),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Wrapping(1),
       ::core::option::Option::None => Wrapping(0),
     };

@@ -247,6 +247,10 @@ fn power_change() -> Result<Option<PowerChange>, Never> {
       ::core::option::Option::Some(present) => present,
       ::core::option::Option::None => NOTHING_SAID,
     })),
-    Cable::Disconnected => { let checked_value = now.emergency()?; checked_value }.map(PowerChange::Emergency),
+    Cable::Disconnected => {
+      let checked_value = now.emergency()?;
+      checked_value
+    }
+    .map(PowerChange::Emergency),
   })
 }

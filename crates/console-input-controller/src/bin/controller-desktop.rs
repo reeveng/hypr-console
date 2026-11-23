@@ -656,15 +656,18 @@ impl Bound {
 
     let written = match std::fs::metadata(&at).and_then(|held| held.modified()) {
       Ok(when) => Some(when),
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => None,
-        ::core::option::Option::None => {
-          self.written = None;
-          self.read = true;
+      Err(fault) => {
+        match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ())
+        {
+          ::core::option::Option::Some(()) => None,
+          ::core::option::Option::None => {
+            self.written = None;
+            self.read = true;
 
-          return Err(Unscrolled::Read(at, fault));
+            return Err(Unscrolled::Read(at, fault));
+          }
         }
-      },
+      }
     };
 
     match ::core::primitive::bool::then_some(self.read && written == self.written, ()) {
@@ -972,7 +975,10 @@ impl Plugged for Machine {
 
     let arrived = match device.read_events() {
       Ok(arrived) => Ok(arrived),
-      Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::WouldBlock, ()) {
+      Err(fault) => match ::core::primitive::bool::then_some(
+        fault.kind() == std::io::ErrorKind::WouldBlock,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ok(Vec::new()),
         ::core::option::Option::None => Err(Closed),
       },

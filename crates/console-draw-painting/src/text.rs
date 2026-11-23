@@ -339,7 +339,10 @@ impl TextSystem {
       None => return Ok(None),
     };
 
-    match ::core::primitive::bool::then_some(image_3.placement.width == 0 || image_3.placement.height == 0, ()) {
+    match ::core::primitive::bool::then_some(
+      image_3.placement.width == 0 || image_3.placement.height == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Ok(None),
       ::core::option::Option::None => {}
     }

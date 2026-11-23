@@ -3,23 +3,23 @@ use console_core_never::Never;
 use std::fmt;
 
 #[derive(Debug)]
-enum Fault {
+enum Error {
   NotEmbedded(String),
   NotParsed(String),
   Drifted(String),
 }
 
-impl fmt::Display for Fault {
+impl fmt::Display for Error {
   fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Fault::NotEmbedded(name) => write!(to, "{name} is not in the bundle"),
-      Fault::NotParsed(name) => write!(to, "{name} does not parse"),
-      Fault::Drifted(found) => write!(to, "the maps answer differently: {found}"),
+      Error::NotEmbedded(name) => write!(to, "{name} is not in the bundle"),
+      Error::NotParsed(name) => write!(to, "{name} does not parse"),
+      Error::Drifted(found) => write!(to, "the maps answer differently: {found}"),
     }
   }
 }
 
-impl std::error::Error for Fault {}
+impl std::error::Error for Error {}
 
 const STRIDE: u32 = 0x0101_0101 / 3;
 
@@ -115,15 +115,15 @@ impl Fingerprint {
   }
 }
 
-fn fingerprint(name: &str) -> Result<u64, Fault> {
+fn fingerprint(name: &str) -> Result<u64, Error> {
   let shown = String::from(name);
   let Ok(wanted) = CMapName::from_bytes(name.as_bytes());
   let Ok(found) = load_embedded(wanted);
-  let data = found.ok_or_else(|| Fault::NotEmbedded(shown.clone()))?;
+  let data = found.ok_or_else(|| Error::NotEmbedded(shown.clone()))?;
   let cmap = CMap::parse(data, |base| match load_embedded(base) {
     Ok(embedded) => embedded,
   })
-  .map_err(|_unreadable| Fault::NotParsed(shown))?;
+  .map_err(|_unreadable| Error::NotParsed(shown))?;
   let Ok(mut held) = Fingerprint::new();
   let metadata = &cmap.metadata;
 
@@ -179,7 +179,7 @@ fn fingerprint(name: &str) -> Result<u64, Fault> {
 }
 
 #[test]
-fn every_embedded_map_answers_as_it_did_when_it_came_in() -> Result<(), Fault> {
+fn every_embedded_map_answers_as_it_did_when_it_came_in() -> Result<(), Error> {
   let mut drifted = Vec::new();
 
   for (name, expected) in ANSWERS {
@@ -195,6 +195,6 @@ fn every_embedded_map_answers_as_it_did_when_it_came_in() -> Result<(), Fault> {
 
   match drifted.as_slice() {
     [] => Ok(()),
-    [_, ..] => Err(Fault::Drifted(drifted.join("\n"))),
+    [_, ..] => Err(Error::Drifted(drifted.join("\n"))),
   }
 }

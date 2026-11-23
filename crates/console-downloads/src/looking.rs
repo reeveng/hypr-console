@@ -60,7 +60,10 @@ pub fn target(asked: &str) -> Result<String, Never> {
   let asked_2 = asked.trim();
 
   Ok(
-    match ::core::primitive::bool::then_some(asked_2.starts_with("http://") || asked_2.starts_with("https://"), ()) {
+    match ::core::primitive::bool::then_some(
+      asked_2.starts_with("http://") || asked_2.starts_with("https://"),
+      (),
+    ) {
       ::core::option::Option::Some(()) => asked_2.to_string(),
       ::core::option::Option::None => format!("ytsearch{MANY}:{asked}", asked = asked_2),
     },
@@ -175,7 +178,16 @@ fn one(entry: &Value) -> Result<Option<Found>, Never> {
     Some(_) | None => LiveStatus::NotLive,
   };
 
-  Ok(Some(Found { id, title, url, by, seconds, views, live, picture }))
+  Ok(Some(Found {
+    id,
+    title,
+    url,
+    by,
+    seconds,
+    views,
+    live,
+    picture,
+  }))
 }
 
 pub const SAID_NOTHING: &str = "";
@@ -279,7 +291,11 @@ pub fn parse(said: &str) -> Result<Looked, Never> {
   let Ok(asked) = word_in(&reply, "asked");
   let Ok(fault) = word_in(&reply, "fault");
 
-  Ok(Looked { asked, fault, found })
+  Ok(Looked {
+    asked,
+    fault,
+    found,
+  })
 }
 
 pub fn counted(views: u64) -> Result<String, Never> {

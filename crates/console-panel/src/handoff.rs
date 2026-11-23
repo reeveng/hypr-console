@@ -318,7 +318,9 @@ pub fn stood_in(who: &str, arguments: &[String]) -> Result<DrawnBy, Never> {
   let Ok(drawn) = match where_ {
     Some(at) => stood_in_at(&at, who, arguments),
     None => {
-      console_core_logging::warn!("{who}: XDG_RUNTIME_DIR names nothing, so there is no host to ask");
+      console_core_logging::warn!(
+        "{who}: XDG_RUNTIME_DIR names nothing, so there is no host to ask"
+      );
 
       Ok(DrawnBy::Here)
     }
@@ -340,7 +342,9 @@ pub fn stood_in_at(at: &Path, who: &str, arguments: &[String]) -> Result<DrawnBy
   request(at, who, arguments, |progress| {
     match crate::completion::record(completion.as_deref(), progress) {
       Ok(()) => {}
-      Err(fault) => console_core_logging::warn!("{who}: the completion could not be recorded: {fault}"),
+      Err(fault) => {
+        console_core_logging::warn!("{who}: the completion could not be recorded: {fault}")
+      }
     }
 
     Ok(())
@@ -433,9 +437,14 @@ fn read_reply(
       }
     };
 
-    match ::core::primitive::bool::then_some(progress_3 == crate::completion::Progress::Visible && !accepted, ()) {
+    match ::core::primitive::bool::then_some(
+      progress_3 == crate::completion::Progress::Visible && !accepted,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
-        console_core_logging::warn!("{who}: the host claimed a drawing without accepting its request");
+        console_core_logging::warn!(
+          "{who}: the host claimed a drawing without accepting its request"
+        );
 
         return Ok(DrawnBy::Here);
       }
@@ -466,7 +475,9 @@ fn read_reply(
   Ok(match drawn {
     DrawnBy::ByTheHost => DrawnBy::ByTheHost,
     DrawnBy::Here => {
-      console_core_logging::warn!("{who}: the host went away before it drew anything, so this panel does");
+      console_core_logging::warn!(
+        "{who}: the host went away before it drew anything, so this panel does"
+      );
 
       DrawnBy::Here
     }
@@ -556,7 +567,10 @@ extern "C" fn on_signal(_number: core::ffi::c_int) {
     ::core::option::Option::Some(()) => {
       #[cfg_attr(
         dylint_lib = "explicit058_contain_unsafe",
-        expect(explicit058_contain_unsafe, reason = "the POSIX signal handler borrows the descriptor already owned by request; withdrawal waits for WRITING before returning ownership")
+        expect(
+          explicit058_contain_unsafe,
+          reason = "the POSIX signal handler borrows the descriptor already owned by request; withdrawal waits for WRITING before returning ownership"
+        )
       )]
       // SAFETY: request keeps the socket open until the current WRITING operation clears its flag.
       let held = unsafe { BorrowedFd::borrow_raw(fd) };

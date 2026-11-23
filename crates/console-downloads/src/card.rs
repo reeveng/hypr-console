@@ -55,7 +55,9 @@ fn at(held: &Panel, tab: u32) -> Result<Tab, Never> {
       at
     }
     Err(_the_actor_has_gone) => {
-      console_core_logging::warn!("downloads: the panel's own state is missing, so it drew as it opened");
+      console_core_logging::warn!(
+        "downloads: the panel's own state is missing, so it drew as it opened"
+      );
 
       Tab::default()
     }
@@ -66,7 +68,9 @@ fn decided(held: &Panel, heard: DownloadsEvent) -> Result<Vec<Effect<DownloadsEf
   Ok(match held.send(Event::Custom(heard)) {
     Ok(effects) => effects,
     Err(_the_actor_has_gone) => {
-      console_core_logging::warn!("downloads: the panel's own state is missing, so the press did nothing");
+      console_core_logging::warn!(
+        "downloads: the panel's own state is missing, so the press did nothing"
+      );
 
       Vec::new()
     }
@@ -95,7 +99,7 @@ fn carry(effect: &Effect<DownloadsEffect>, showing: &dyn Showing) -> Result<(), 
     Effect::Custom(DownloadsEffect::ForgetTyping) => showing.forget_typing(),
 
     Effect::Custom(
-      DownloadsEffect::Search { .. } | DownloadsEffect::Cancel { .. } | DownloadsEffect::Keep(_),
+      DownloadsEffect::Search { .. } | DownloadsEffect::Cancel { .. } | DownloadsEffect::Retain(_),
     ) => {}
 
     Effect::Run(runs) => {
@@ -383,19 +387,20 @@ fn looking_for(
           | DownloadsEffect::Refresh
           | DownloadsEffect::Note(_)
           | DownloadsEffect::ForgetTyping
-          | DownloadsEffect::Keep(_)
-        ) | Effect::Run(_)
-          | Effect::Stream(_)
-          | Effect::Fork(_)
-          | Effect::Interrupt(_)
-          | Effect::Prompt(_)
-          | Effect::Spawn(_)
-          | Effect::Subscribe(_)
-          | Effect::Unsubscribe(_)
-          | Effect::Write(_)
-          | Effect::Notify(_)
-          | Effect::Print(_)
-          | Effect::Stop(_)) => {
+          | DownloadsEffect::Retain(_),
+        )
+        | Effect::Run(_)
+        | Effect::Stream(_)
+        | Effect::Fork(_)
+        | Effect::Interrupt(_)
+        | Effect::Prompt(_)
+        | Effect::Spawn(_)
+        | Effect::Subscribe(_)
+        | Effect::Unsubscribe(_)
+        | Effect::Write(_)
+        | Effect::Notify(_)
+        | Effect::Print(_)
+        | Effect::Stop(_)) => {
           let Ok(()) = carry(&effect_2, showing);
         }
       }

@@ -14,38 +14,25 @@ use crate::src::levels::ADST_FLIPADST;
 use crate::src::levels::BlockLevel;
 use crate::src::levels::BlockPartition;
 use crate::src::levels::BlockSize;
-use crate::src::levels::NEWMV_NEWMV;
-use crate::src::levels::GLOBALMV_GLOBALMV;
-use crate::src::levels::NEWMV_NEARMV;
-use crate::src::levels::NEARMV_NEWMV;
-use crate::src::levels::NEWMV_NEARESTMV;
-use crate::src::levels::NEARESTMV_NEWMV;
-use crate::src::levels::NEARMV_NEARMV;
-use crate::src::levels::NEARESTMV_NEARESTMV;
 use crate::src::levels::CFL_PRED;
-use crate::src::levels::PAETH_PRED;
-use crate::src::levels::SMOOTH_H_PRED;
-use crate::src::levels::SMOOTH_V_PRED;
-use crate::src::levels::SMOOTH_PRED;
-use crate::src::levels::VERT_LEFT_PRED;
-use crate::src::levels::HOR_UP_PRED;
-use crate::src::levels::VERT_RIGHT_PRED;
-use crate::src::levels::DIAG_DOWN_RIGHT_PRED;
-use crate::src::levels::DIAG_DOWN_LEFT_PRED;
 use crate::src::levels::DC_PRED;
 use crate::src::levels::DCT_ADST;
 use crate::src::levels::DCT_DCT;
 use crate::src::levels::DCT_FLIPADST;
+use crate::src::levels::DIAG_DOWN_LEFT_PRED;
+use crate::src::levels::DIAG_DOWN_RIGHT_PRED;
 use crate::src::levels::FLIPADST_ADST;
 use crate::src::levels::FLIPADST_DCT;
 use crate::src::levels::FLIPADST_FLIPADST;
 use crate::src::levels::Filter2d;
 use crate::src::levels::GLOBALMV;
+use crate::src::levels::GLOBALMV_GLOBALMV;
 use crate::src::levels::H_ADST;
 use crate::src::levels::H_DCT;
 use crate::src::levels::H_FLIPADST;
 use crate::src::levels::HOR_DOWN_PRED;
 use crate::src::levels::HOR_PRED;
+use crate::src::levels::HOR_UP_PRED;
 use crate::src::levels::IDTX;
 use crate::src::levels::InterPredMode;
 use crate::src::levels::N_COMP_INTER_PRED_MODES;
@@ -53,15 +40,28 @@ use crate::src::levels::N_INTRA_PRED_MODES;
 use crate::src::levels::N_TX_TYPES_PLUS_LL;
 use crate::src::levels::N_UV_INTRA_PRED_MODES;
 use crate::src::levels::NEARESTMV;
+use crate::src::levels::NEARESTMV_NEARESTMV;
+use crate::src::levels::NEARESTMV_NEWMV;
 use crate::src::levels::NEARMV;
+use crate::src::levels::NEARMV_NEARMV;
+use crate::src::levels::NEARMV_NEWMV;
 use crate::src::levels::NEWMV;
+use crate::src::levels::NEWMV_NEARESTMV;
+use crate::src::levels::NEWMV_NEARMV;
+use crate::src::levels::NEWMV_NEWMV;
+use crate::src::levels::PAETH_PRED;
+use crate::src::levels::SMOOTH_H_PRED;
+use crate::src::levels::SMOOTH_PRED;
+use crate::src::levels::SMOOTH_V_PRED;
 use crate::src::levels::TxClass;
 use crate::src::levels::TxfmSize;
 use crate::src::levels::TxfmType;
 use crate::src::levels::V_ADST;
 use crate::src::levels::V_DCT;
 use crate::src::levels::V_FLIPADST;
+use crate::src::levels::VERT_LEFT_PRED;
 use crate::src::levels::VERT_PRED;
+use crate::src::levels::VERT_RIGHT_PRED;
 use aligned::Aligned;
 use std::ffi::c_uint;
 use strum::EnumCount;
@@ -193,7 +193,10 @@ impl BlockSize {
   #[inline]
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "the dimension table has one entry per block size in the exact enum order")
+    expect(
+      explicit014_no_index_slice,
+      reason = "the dimension table has one entry per block size in the exact enum order"
+    )
   )]
   pub fn dimensions(self) -> core::result::Result<&'static [u8; 4], console_core_never::Never> {
     let Ok(ordinal) = self.ordinal();
@@ -447,22 +450,25 @@ pub static dav1d_txtp_from_uvmode: [TxfmType; {
     Ok(extent) => extent,
   }
 }] = {
-  let Ok(table) = mode_table(DCT_DCT, [
-    (DC_PRED, DCT_DCT),
-    (VERT_PRED, ADST_DCT),
-    (HOR_PRED, DCT_ADST),
-    (DIAG_DOWN_LEFT_PRED, DCT_DCT),
-    (DIAG_DOWN_RIGHT_PRED, ADST_ADST),
-    (VERT_RIGHT_PRED, ADST_DCT),
-    (HOR_DOWN_PRED, DCT_ADST),
-    (HOR_UP_PRED, DCT_ADST),
-    (VERT_LEFT_PRED, ADST_DCT),
-    (SMOOTH_PRED, ADST_ADST),
-    (SMOOTH_V_PRED, ADST_DCT),
-    (SMOOTH_H_PRED, DCT_ADST),
-    (PAETH_PRED, ADST_ADST),
-    (CFL_PRED, DCT_DCT),
-  ]);
+  let Ok(table) = mode_table(
+    DCT_DCT,
+    [
+      (DC_PRED, DCT_DCT),
+      (VERT_PRED, ADST_DCT),
+      (HOR_PRED, DCT_ADST),
+      (DIAG_DOWN_LEFT_PRED, DCT_DCT),
+      (DIAG_DOWN_RIGHT_PRED, ADST_ADST),
+      (VERT_RIGHT_PRED, ADST_DCT),
+      (HOR_DOWN_PRED, DCT_ADST),
+      (HOR_UP_PRED, DCT_ADST),
+      (VERT_LEFT_PRED, ADST_DCT),
+      (SMOOTH_PRED, ADST_ADST),
+      (SMOOTH_V_PRED, ADST_DCT),
+      (SMOOTH_H_PRED, DCT_ADST),
+      (PAETH_PRED, ADST_ADST),
+      (CFL_PRED, DCT_DCT),
+    ],
+  );
   table
 };
 
@@ -471,22 +477,31 @@ pub static dav1d_comp_inter_pred_modes: [[InterPredMode; 2]; {
     Ok(extent) => extent,
   }
 }] = {
-  let Ok(table) = mode_table([NEARESTMV; 2], [
-    (NEARESTMV_NEARESTMV, [NEARESTMV, NEARESTMV]),
-    (NEARMV_NEARMV, [NEARMV, NEARMV]),
-    (NEARESTMV_NEWMV, [NEARESTMV, NEWMV]),
-    (NEWMV_NEARESTMV, [NEWMV, NEARESTMV]),
-    (NEARMV_NEWMV, [NEARMV, NEWMV]),
-    (NEWMV_NEARMV, [NEWMV, NEARMV]),
-    (GLOBALMV_GLOBALMV, [GLOBALMV, GLOBALMV]),
-    (NEWMV_NEWMV, [NEWMV, NEWMV]),
-  ]);
+  let Ok(table) = mode_table(
+    [NEARESTMV; 2],
+    [
+      (NEARESTMV_NEARESTMV, [NEARESTMV, NEARESTMV]),
+      (NEARMV_NEARMV, [NEARMV, NEARMV]),
+      (NEARESTMV_NEWMV, [NEARESTMV, NEWMV]),
+      (NEWMV_NEARESTMV, [NEWMV, NEARESTMV]),
+      (NEARMV_NEWMV, [NEARMV, NEWMV]),
+      (NEWMV_NEARMV, [NEWMV, NEARMV]),
+      (GLOBALMV_GLOBALMV, [GLOBALMV, GLOBALMV]),
+      (NEWMV_NEWMV, [NEWMV, NEWMV]),
+    ],
+  );
   table
 };
 
 pub static dav1d_partition_type_count: [u8; BlockLevel::COUNT] = {
   let _partition_variants: [(); 10] = [(); BlockPartition::COUNT];
-  [7, 9, 9, 9, BlockPartition::N_SUB8X8_PARTITIONS.wrapping_sub(1)]
+  [
+    7,
+    9,
+    9,
+    9,
+    BlockPartition::N_SUB8X8_PARTITIONS.wrapping_sub(1),
+  ]
 };
 
 pub static dav1d_tx_types_per_set: [u8; 40] = [
@@ -630,14 +645,15 @@ pub static dav1d_intra_mode_context: [u8; {
   match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
     Ok(extent) => extent,
   }
-}] =
-  [0, 1, 2, 3, 4, 4, 4, 4, 3, 0, 1, 2, 0];
+}] = [0, 1, 2, 3, 4, 4, 4, 4, 3, 0, 1, 2, 0];
 
 pub static dav1d_wedge_ctx_lut: [u8; BlockSize::COUNT] = [
   0, 0, 0, 0, 0, 0, 0, 6, 5, 8, 0, 4, 3, 2, 0, 7, 1, 0, 0, 0, 0, 0,
 ];
 
-const fn block_size_mask(mut sizes: &[BlockSize]) -> core::result::Result<u32, console_core_never::Never> {
+const fn block_size_mask(
+  mut sizes: &[BlockSize],
+) -> core::result::Result<u32, console_core_never::Never> {
   let mut mask = 0u32;
   const_for!(_size in 0..sizes.len() => {
     match sizes {
@@ -656,8 +672,8 @@ const fn block_size_mask(mut sizes: &[BlockSize]) -> core::result::Result<u32, c
 pub const cfl_allowed_mask: c_uint = {
   use BlockSize::*;
   let Ok(mask) = block_size_mask(&[
-    Bs32x32, Bs32x16, Bs32x8, Bs16x32, Bs16x16, Bs16x8, Bs16x4,
-    Bs8x32, Bs8x16, Bs8x8, Bs8x4, Bs4x16, Bs4x8, Bs4x4,
+    Bs32x32, Bs32x16, Bs32x8, Bs16x32, Bs16x16, Bs16x8, Bs16x4, Bs8x32, Bs8x16, Bs8x8, Bs8x4,
+    Bs4x16, Bs4x8, Bs4x4,
   ]);
   mask
 };
@@ -665,17 +681,14 @@ pub const cfl_allowed_mask: c_uint = {
 pub const wedge_allowed_mask: c_uint = {
   use BlockSize::*;
   let Ok(mask) = block_size_mask(&[
-    Bs32x32, Bs32x16, Bs32x8, Bs16x32, Bs16x16, Bs16x8, Bs8x32,
-    Bs8x16, Bs8x8,
+    Bs32x32, Bs32x16, Bs32x8, Bs16x32, Bs16x16, Bs16x8, Bs8x32, Bs8x16, Bs8x8,
   ]);
   mask
 };
 
 pub const interintra_allowed_mask: c_uint = {
   use BlockSize::*;
-  let Ok(mask) = block_size_mask(&[
-    Bs32x32, Bs32x16, Bs16x32, Bs16x16, Bs16x8, Bs8x16, Bs8x8,
-  ]);
+  let Ok(mask) = block_size_mask(&[Bs32x32, Bs32x16, Bs16x32, Bs16x16, Bs16x8, Bs8x16, Bs8x8]);
   mask
 };
 
@@ -1129,9 +1142,12 @@ pub fn filter_predictions(
   pixels: [i32; 7],
 ) -> Result<[[i32; 4]; 2], console_core_never::Never> {
   let [a, b, c, d, e, f, g, h] = coefficients.map(|pixel_taps| {
-    pixel_taps.into_iter().zip(pixels).fold(0i32, |sum, (tap, pixel)| {
-      sum.wrapping_add(i32::from(tap).wrapping_mul(pixel))
-    })
+    pixel_taps
+      .into_iter()
+      .zip(pixels)
+      .fold(0i32, |sum, (tap, pixel)| {
+        sum.wrapping_add(i32::from(tap).wrapping_mul(pixel))
+      })
   });
   Ok([[a, b, c, d], [e, f, g, h]])
 }

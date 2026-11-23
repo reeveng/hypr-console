@@ -130,9 +130,17 @@ fn cdef_direct<BD: BitDepth>(request: CdefFilter<'_, '_, BD>) -> Rav1dResult {
     let Ok(code) = request.shape.coded();
     let Ok(variant) = index(code);
     let handled = crate::src::safe_simd::cdef_wasm::cdef_filter_dispatch::<BD>(
-      variant, request.destination, request.left, request.top, request.bottom,
-      request.primary, i32::from(request.secondary), request.direction,
-      i32::from(request.damping), request.edges, request.bitdepth,
+      variant,
+      request.destination,
+      request.left,
+      request.top,
+      request.bottom,
+      request.primary,
+      i32::from(request.secondary),
+      request.direction,
+      i32::from(request.damping),
+      request.edges,
+      request.bitdepth,
     );
 
     match handled.then_some(()) {
@@ -232,10 +240,7 @@ fn cdef_copy_fixed_samples<BD: BitDepth, const N: usize>(
 }
 
 #[inline(always)]
-fn cdef_copy_samples<BD: BitDepth>(
-  destination: &mut [i16],
-  source: &[BD::Pixel],
-) -> Rav1dResult {
+fn cdef_copy_samples<BD: BitDepth>(destination: &mut [i16], source: &[BD::Pixel]) -> Rav1dResult {
   match destination.len() {
     4 => cdef_copy_fixed_samples::<BD, 4>(destination, source),
     6 => cdef_copy_fixed_samples::<BD, 6>(destination, source),
@@ -337,7 +342,10 @@ fn cdef_body_padding<BD: BitDepth>(
     width: u64::from(span.end.wrapping_sub(2)),
     height: u64::from(span.body.height),
   };
-  let left = request.edges.contains(CdefEdgeFlags::HAVE_LEFT).then_some(request.left);
+  let left = request
+    .edges
+    .contains(CdefEdgeFlags::HAVE_LEFT)
+    .then_some(request.left);
   let mut state = (rows, left, span.end, Ok(()));
   let Ok(()) = request.destination.for_rows_with_context::<BD, _, _>(
     extent,
@@ -629,7 +637,9 @@ fn cdef_add_sample(sums: &mut [[i32; 15]; 8], position: Point<u8>, sample: i32) 
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-pub(crate) fn cdef_widen_direction_lines(samples: impl IntoIterator<Item = i16>) -> Result<[i32; 15], Never> {
+pub(crate) fn cdef_widen_direction_lines(
+  samples: impl IntoIterator<Item = i16>,
+) -> Result<[i32; 15], Never> {
   let mut lines = [0_i32; 15];
 
   for (line, sample) in lines.iter_mut().zip(samples) {

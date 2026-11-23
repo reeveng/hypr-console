@@ -116,7 +116,12 @@ exit 0
 #[derive(Debug, Clone, Copy)]
 pub struct Scale(pub f64);
 
-fn monitor(output: &str, mode: Size<u32>, screen: &Screen, Scale(scale): Scale) -> Result<String, Never> {
+fn monitor(
+  output: &str,
+  mode: Size<u32>,
+  screen: &Screen,
+  Scale(scale): Scale,
+) -> Result<String, Never> {
   let Size {
     width: wide,
     height: tall,

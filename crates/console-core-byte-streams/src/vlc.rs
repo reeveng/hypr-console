@@ -279,9 +279,8 @@ impl CodebookBuilder {
     code_lens: &[u8],
     values: &[E::ValueType],
   ) -> io::Result<Codebook<E>> {
-    let description = Description::from(
-      code_words.len() == code_lens.len() && code_words.len() == values.len(),
-    );
+    let description =
+      Description::from(code_words.len() == code_lens.len() && code_words.len() == values.len());
 
     match (description, code_words) {
       (Description::LengthMismatch, _) => Err(io::Error::other(

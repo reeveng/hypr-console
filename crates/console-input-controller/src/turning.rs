@@ -73,7 +73,7 @@ pub trait Plugged {
 }
 
 enum Draining {
-  Listening,
+  AwaitingInput,
   Settling,
 }
 
@@ -145,7 +145,7 @@ impl Turning {
       for path in paths {
         let draining = match ::core::primitive::bool::then_some(deaf, ()) {
           ::core::option::Option::Some(()) => Draining::Settling,
-          ::core::option::Option::None => Draining::Listening,
+          ::core::option::Option::None => Draining::AwaitingInput,
         };
         let Ok(drained) = self.drain_device(machine, which, &path, now, draining);
 
@@ -176,7 +176,7 @@ impl Turning {
     draining: Draining,
   ) -> Result<Vec<Effect>, Never> {
     let tries = match draining {
-      Draining::Listening => 1,
+      Draining::AwaitingInput => 1,
       Draining::Settling => DRY,
     };
     let mut effects = Vec::new();
@@ -203,7 +203,7 @@ impl Turning {
           .saw(which, event.kind, event.code, event.value, now);
 
         match draining {
-          Draining::Listening => effects.extend(did),
+          Draining::AwaitingInput => effects.extend(did),
           Draining::Settling => {}
         }
       }
@@ -325,11 +325,13 @@ impl Turning {
       let Ok(found) = self.at(machine, which);
 
       'over_paths: for path in found {
-        match ::core::primitive::bool::then_some(self
-          .open
-          .get(&which)
-          .is_some_and(|paths| paths.contains(&path)), ())
-        {
+        match ::core::primitive::bool::then_some(
+          self
+            .open
+            .get(&which)
+            .is_some_and(|paths| paths.contains(&path)),
+          (),
+        ) {
           ::core::option::Option::Some(()) => continue 'over_paths,
           ::core::option::Option::None => {}
         }

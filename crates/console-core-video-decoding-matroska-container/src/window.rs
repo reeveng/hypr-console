@@ -81,10 +81,12 @@ impl Header {
     let Ok(start) = self.data_start();
 
     Ok(match self.size {
-      Size::Known(size) => match ::core::primitive::bool::then_some(start.saturating_add(size) > limit, ()) {
-        ::core::option::Option::Some(()) => ElementBounds::Overrun,
-        ::core::option::Option::None => ElementBounds::Within,
-      },
+      Size::Known(size) => {
+        match ::core::primitive::bool::then_some(start.saturating_add(size) > limit, ()) {
+          ::core::option::Option::Some(()) => ElementBounds::Overrun,
+          ::core::option::Option::None => ElementBounds::Within,
+        }
+      }
       Size::Unknown => ElementBounds::Within,
     })
   }
@@ -175,7 +177,9 @@ impl<'a, S: ByteSource + ?Sized> Window<'a, S> {
 
   pub(crate) fn read_vec(&mut self, span: Span) -> Result<Vec<u8>, Error> {
     match ::core::primitive::bool::then_some(span.end > self.len, ()) {
-      ::core::option::Option::Some(()) => return Err(Error::Io(io::Error::from(io::ErrorKind::UnexpectedEof))),
+      ::core::option::Option::Some(()) => {
+        return Err(Error::Io(io::Error::from(io::ErrorKind::UnexpectedEof)));
+      }
       ::core::option::Option::None => {}
     }
 
@@ -230,15 +234,20 @@ impl<'a, S: ByteSource + ?Sized> Window<'a, S> {
     };
     let header_len = u64::from(id_len.saturating_add(size_len));
 
-    Ok(match ::core::primitive::bool::then_some(span.start.saturating_add(header_len) > span.end, ()) {
-      ::core::option::Option::Some(()) => None,
-      ::core::option::Option::None => Some(Header {
-        id,
-        at: span.start,
-        size,
-        header_len,
-      }),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(
+        span.start.saturating_add(header_len) > span.end,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => None,
+        ::core::option::Option::None => Some(Header {
+          id,
+          at: span.start,
+          size,
+          header_len,
+        }),
+      },
+    )
   }
 
   pub(crate) fn resync(&mut self, span: Span) -> Result<Option<u64>, Error> {

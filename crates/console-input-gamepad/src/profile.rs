@@ -200,11 +200,13 @@ impl Profile {
 impl Profile {
   pub fn publishes(&self, target_device: &str) -> Result<Has, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self
-        .target_devices
-        .iter()
-        .any(|named| named == target_device), ())
-      {
+      match ::core::primitive::bool::then_some(
+        self
+          .target_devices
+          .iter()
+          .any(|named| named == target_device),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Has::Yes,
         ::core::option::Option::None => Has::No,
       },

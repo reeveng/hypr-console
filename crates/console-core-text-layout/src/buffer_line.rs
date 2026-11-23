@@ -76,7 +76,10 @@ impl BufferLine {
       let text_2 = text.as_ref();
 
       Ok(
-        match ::core::primitive::bool::then_some(text_2 != self.text || ending != self.ending || attrs_list != self.attrs_list, ()) {
+        match ::core::primitive::bool::then_some(
+          text_2 != self.text || ending != self.ending || attrs_list != self.attrs_list,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             self.text.clear();
             self.text.push_str(text_2);
@@ -85,7 +88,7 @@ impl BufferLine {
 
             let Ok(()) = self.reset();
 
-            crate::Modification::Changed
+            crate::Modification::Different
           }
           ::core::option::Option::None => crate::Modification::Unchanged,
         },
@@ -106,16 +109,18 @@ impl BufferLine {
     ending: LineEnding,
   ) -> Result<crate::Modification, console_core_never::Never> {
     {
-      Ok(match ::core::primitive::bool::then_some(ending != self.ending, ()) {
-        ::core::option::Option::Some(()) => {
-          self.ending = ending;
+      Ok(
+        match ::core::primitive::bool::then_some(ending != self.ending, ()) {
+          ::core::option::Option::Some(()) => {
+            self.ending = ending;
 
-          let Ok(()) = self.reset_shaping();
+            let Ok(()) = self.reset_shaping();
 
-          crate::Modification::Changed
-        }
-        ::core::option::Option::None => crate::Modification::Unchanged,
-      })
+            crate::Modification::Different
+          }
+          ::core::option::Option::None => crate::Modification::Unchanged,
+        },
+      )
     }
   }
 
@@ -128,16 +133,18 @@ impl BufferLine {
     attrs_list: AttrsList,
   ) -> Result<crate::Modification, console_core_never::Never> {
     {
-      Ok(match ::core::primitive::bool::then_some(attrs_list != self.attrs_list, ()) {
-        ::core::option::Option::Some(()) => {
-          self.attrs_list = attrs_list;
+      Ok(
+        match ::core::primitive::bool::then_some(attrs_list != self.attrs_list, ()) {
+          ::core::option::Option::Some(()) => {
+            self.attrs_list = attrs_list;
 
-          let Ok(()) = self.reset_shaping();
+            let Ok(()) = self.reset_shaping();
 
-          crate::Modification::Changed
-        }
-        ::core::option::Option::None => crate::Modification::Unchanged,
-      })
+            crate::Modification::Different
+          }
+          ::core::option::Option::None => crate::Modification::Unchanged,
+        },
+      )
     }
   }
 
@@ -150,16 +157,18 @@ impl BufferLine {
     align: Option<Align>,
   ) -> Result<crate::Modification, console_core_never::Never> {
     {
-      Ok(match ::core::primitive::bool::then_some(align != self.align, ()) {
-        ::core::option::Option::Some(()) => {
-          self.align = align;
+      Ok(
+        match ::core::primitive::bool::then_some(align != self.align, ()) {
+          ::core::option::Option::Some(()) => {
+            self.align = align;
 
-          let Ok(()) = self.reset_layout();
+            let Ok(()) = self.reset_layout();
 
-          crate::Modification::Changed
-        }
-        ::core::option::Option::None => crate::Modification::Unchanged,
-      })
+            crate::Modification::Different
+          }
+          ::core::option::Option::None => crate::Modification::Unchanged,
+        },
+      )
     }
   }
 

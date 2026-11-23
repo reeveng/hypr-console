@@ -81,7 +81,9 @@ fn integral(
   })
 }
 
-fn response(crate::quantities::SamplePosition(at): crate::quantities::SamplePosition) -> Result<f64, Never> {
+fn response(
+  crate::quantities::SamplePosition(at): crate::quantities::SamplePosition,
+) -> Result<f64, Never> {
   let pass = PASS_EDGE * PI;
   let Ok(flat) = integral(
     crate::quantities::SamplePosition(at),
@@ -97,7 +99,10 @@ fn response(crate::quantities::SamplePosition(at): crate::quantities::SamplePosi
   Ok(flat + SHOULDER_WEIGHT * shoulder)
 }
 
-fn system(offsets: &[f64], crate::quantities::SamplePosition(fraction): crate::quantities::SamplePosition) -> Result<Vec<Vec<f64>>, Never> {
+fn system(
+  offsets: &[f64],
+  crate::quantities::SamplePosition(fraction): crate::quantities::SamplePosition,
+) -> Result<Vec<Vec<f64>>, Never> {
   let mut rows = Vec::new();
 
   for (row, at) in (0u32..).zip(offsets.iter()) {
@@ -272,7 +277,10 @@ impl Resampler {
         .wrapping_sub(delay_steps);
       let base = place.div_euclid(i64::from(OUTPUT_RATE));
       let Ok(remainder) = fitted_offset(place.rem_euclid(i64::from(OUTPUT_RATE)));
-      let Ok(taps) = design(future, crate::quantities::SamplePosition(remainder / f64::from(OUTPUT_RATE)));
+      let Ok(taps) = design(
+        future,
+        crate::quantities::SamplePosition(remainder / f64::from(OUTPUT_RATE)),
+      );
 
       phases.push(Phase { base, taps });
     }

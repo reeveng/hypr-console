@@ -6,7 +6,10 @@ impl Feat<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Feat::find` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Feat::find` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn find(&self, feature: u16) -> Option<FeatureName> {
     let Ok(names) = self.names();
@@ -25,11 +28,17 @@ impl FeatureName {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FeatureName::is_exclusive` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FeatureName::is_exclusive` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `FeatureName::is_exclusive` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `FeatureName::is_exclusive` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_exclusive(&self) -> bool {
     let Ok(feature_flags) = self.feature_flags();
@@ -40,7 +49,10 @@ impl FeatureName {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FeatureName::default_setting_index` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FeatureName::default_setting_index` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn default_setting_index(&self) -> u16 {
     let Ok(feature_flags) = self.feature_flags();
@@ -138,10 +150,7 @@ mod tests {
       match ::core::primitive::bool::then_some(is_valid, ()) {
         ::core::option::Option::Some(()) => {
           let fixture_value = crate::test_support::fixture_value(name, "fixture value")?;
-          assert_eq!(
-            fixture_value.feature(),
-            Ok(i)
-          );
+          assert_eq!(fixture_value.feature(), Ok(i));
         }
         ::core::option::Option::None => {
           assert!(name.is_none());

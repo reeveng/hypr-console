@@ -36,7 +36,7 @@ use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue};
 use console_program_contract::{
-  Answer, Change, Command as Invocation, Effect, Elapsed, Event, EventGroup, Exit, Fork, Job,
+  Answer, Change, Command as Invocation, Effect, Elapsed, Event, EventGroup, Exit, Fork, Task,
   JobId, JobOwner, Subscription, Timer,
 };
 use console_weather::conditions::{self as forecast, Weather};
@@ -116,7 +116,7 @@ pub struct Sky<'a> {
   weather_timer: Option<Timer>,
   weather_delay: Duration,
   weather_attempt: u64,
-  weather_job: Option<Job>,
+  weather_job: Option<Task>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -333,7 +333,7 @@ fn ask_weather(state: &mut Sky<'_>, at: &Where, effects: &mut Effects) -> Result
   }
 
   state.weather_attempt = state.weather_attempt.saturating_add(1);
-  let job = Job {
+  let job = Task {
     owner: WEATHER_OWNER,
     id: JobId(state.weather_attempt),
   };

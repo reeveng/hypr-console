@@ -113,10 +113,7 @@ fn a_background_launch_is_reaped_without_another_launch() -> Result<(), Failure>
   let directory = console_core_temporary_directories::fresh("command-reaping")?;
   let pid_file = directory.join("pid");
   let pid_path = pid_file.to_str().ok_or("the fixture path is not UTF-8")?;
-  let Ok(invocation) = shell(
-    "printf '%s' $$ > \"$1\"",
-    &[pid_path.to_string()],
-  );
+  let Ok(invocation) = shell("printf '%s' $$ > \"$1\"", &[pid_path.to_string()]);
   let mut platform = Linux {
     timing: Timing::Background,
   };
@@ -166,7 +163,10 @@ fn capture_finishes_while_a_descendant_still_holds_an_output_pipe() -> Result<()
   let descendant = Pid::from_raw(raw).ok_or("the shell did not report a child process")?;
   let descriptor = pidfd_open(descendant, PidfdFlags::empty())?;
   let mut watched = [PollFd::new(&descriptor, PollFlags::IN)];
-  let now = Timespec { tv_sec: 0, tv_nsec: 0 };
+  let now = Timespec {
+    tv_sec: 0,
+    tv_nsec: 0,
+  };
   let exited = poll(&mut watched, Some(&now)).map(|count| {
     let Ok(measured) = console_core_number_conversion::fitted::<_, u32>(count);
 

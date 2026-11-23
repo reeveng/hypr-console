@@ -77,10 +77,12 @@ struct InstanceName(String);
 
 impl InstanceName {
   fn new(signature: String) -> Result<Self, Unplaced> {
-    match ::core::primitive::bool::then_some(signature.is_empty()
-      || matches!(signature.as_str(), "." | "..")
-      || signature.contains(['/', '\0']), ())
-    {
+    match ::core::primitive::bool::then_some(
+      signature.is_empty()
+        || matches!(signature.as_str(), "." | "..")
+        || signature.contains(['/', '\0']),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Err(Unplaced::Compositorless),
       ::core::option::Option::None => Ok(Self(signature)),
     }

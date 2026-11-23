@@ -28,16 +28,20 @@ fn observed(at: &Path, wanted: &str) -> Result<(), Box<dyn Error>> {
     |(at_2, wanted_2)| {
       let said = match std::fs::read_to_string(at_2) {
         Ok(said) => said,
-        Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
-          ::core::option::Option::Some(()) => return Ok(None),
-          ::core::option::Option::None => return Err(fault),
-        },
+        Err(fault) => {
+          match ::core::primitive::bool::then_some(fault.kind() == io::ErrorKind::NotFound, ()) {
+            ::core::option::Option::Some(()) => return Ok(None),
+            ::core::option::Option::None => return Err(fault),
+          }
+        }
       };
 
-      Ok(match ::core::primitive::bool::then_some(said.lines().any(|line| line == *wanted_2), ()) {
-        ::core::option::Option::Some(()) => Some(()),
-        ::core::option::Option::None => None,
-      })
+      Ok(
+        match ::core::primitive::bool::then_some(said.lines().any(|line| line == *wanted_2), ()) {
+          ::core::option::Option::Some(()) => Some(()),
+          ::core::option::Option::None => None,
+        },
+      )
     },
   )?;
 

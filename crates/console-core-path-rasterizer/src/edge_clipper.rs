@@ -9,7 +9,7 @@ use crate::answers::PointOrder;
 use crate::edge_builder::{PathEdge, PathEdgeIter, edge_iter};
 use crate::line_clipper::{self, Column, Row};
 use crate::path_geometry::Boundary;
-use crate::{Path, Point, Rect, path_geometry};
+use crate::{Path, Point, FloatRectangle, path_geometry};
 
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use console_core_paths::NoStdFloat;
@@ -25,7 +25,7 @@ struct ClipLimits {
 }
 
 impl ClipLimits {
-  fn from_rect(rect: &Rect) -> Result<Self, Never> {
+  fn from_rect(rect: &FloatRectangle) -> Result<Self, Never> {
     let Ok(left) = rect.left();
     let Ok(top) = rect.top();
     let Ok(right) = rect.right();
@@ -41,12 +41,12 @@ impl ClipLimits {
 }
 
 struct EdgeClipper {
-  clip: Rect,
+  clip: FloatRectangle,
   edges: ClippedEdges,
 }
 
 impl EdgeClipper {
-  fn new(clip: Rect) -> Result<Self, Never> {
+  fn new(clip: FloatRectangle) -> Result<Self, Never> {
     Ok(Self {
       clip,
       edges: FixedVec::new(),
@@ -88,7 +88,7 @@ impl EdgeClipper {
   }
 
   fn clip_quad(mut self, points: [Point; 3]) -> Result<Option<ClippedEdges>, Never> {
-    let Ok(rect) = Rect::from_points(&points);
+    let Ok(rect) = FloatRectangle::from_points(&points);
     let bounds = match rect {
       Some(extent) => extent,
       None => return Ok(None),
@@ -203,7 +203,7 @@ impl EdgeClipper {
   }
 
   fn clip_cubic(mut self, points: [Point; 4]) -> Result<Option<ClippedEdges>, Never> {
-    let Ok(rect) = Rect::from_points(&points);
+    let Ok(rect) = FloatRectangle::from_points(&points);
     let bounds = match rect {
       Some(extent) => extent,
       None => return Ok(None),
@@ -343,11 +343,11 @@ fn orient(
 
 pub struct EdgeClipperIter<'a> {
   edges: PathEdgeIter<'a>,
-  clip: Rect,
+  clip: FloatRectangle,
 }
 
 impl<'a> EdgeClipperIter<'a> {
-  pub fn new(path: &'a Path, clip: Rect) -> Result<Self, Never> {
+  pub fn new(path: &'a Path, clip: FloatRectangle) -> Result<Self, Never> {
     let Ok(edges) = edge_iter(path);
 
     Ok(Self { edges, clip })

@@ -1349,12 +1349,12 @@ mod tests {
   use std::os::unix::fs::symlink;
 
   #[derive(Default)]
-  struct Jobs {
+  struct Tasks {
     pending: RefCell<Option<Confirmation>>,
     commands: RefCell<Vec<Command>>,
   }
 
-  impl Showing for Jobs {
+  impl Showing for Tasks {
     fn refresh(&self) {}
 
     fn replace(&self, _standing_on: u32) {}
@@ -1396,7 +1396,7 @@ mod tests {
     }
   }
 
-  fn confirmation(jobs: &Jobs) -> Result<Confirmation, Box<dyn Error>> {
+  fn confirmation(jobs: &Tasks) -> Result<Confirmation, Box<dyn Error>> {
     let mut pending = jobs.pending.try_borrow_mut()?;
     let answer = pending.take().ok_or("one confirmation")?;
 
@@ -1420,7 +1420,7 @@ mod tests {
         return Err(Box::<dyn Error>::from("the row must ask before starting"));
       }
     };
-    let jobs = Jobs::default();
+    let jobs = Tasks::default();
 
     assert_eq!(activate(&jobs), ActionOutcome::Stay);
     let cancelled = confirmation(&jobs)?;

@@ -36,7 +36,8 @@ impl Backing {
   pub(crate) fn reserve_at_boot(limits: BackingLimits) -> Result<Self, HandleError> {
     let bytes = zeroed_at_boot(limits.bytes)?;
     let objects = checked_index(limits.objects).map_err(|_too_many| HandleError::NoResources)?;
-    let _layout = Layout::array::<Span>(objects).map_err(|_too_large| HandleError::NoResources)?;
+    let _layout =
+      Layout::array::<Span>(objects).map_err(|_too_large| HandleError::NoResources)?;
 
     #[cfg_attr(
       dylint_lib = "explicit066_no_heap_after_init",
@@ -120,7 +121,10 @@ impl Backing {
       None => {}
     }
 
-    let position = match self.live.binary_search_by_key(&span.start, |live| live.start) {
+    let position = match self
+      .live
+      .binary_search_by_key(&span.start, |live| live.start)
+    {
       Ok(native) => {
         let Ok(fixed) = fixed_index(native);
 

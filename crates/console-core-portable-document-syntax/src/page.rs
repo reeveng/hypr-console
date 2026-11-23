@@ -5,7 +5,7 @@ use crate::object::Array;
 use crate::object::Dict;
 use crate::object::Name;
 use crate::object::ObjectIdentifier;
-use crate::object::Rect;
+use crate::object::Rectangle;
 use crate::object::Stream;
 use crate::object::dict::keys::*;
 use crate::object::{Object, ObjectLike};
@@ -22,8 +22,8 @@ use core::ops::Deref;
 
 #[derive(Debug, Clone)]
 struct PagesContext {
-  media_box: Option<Rect>,
-  crop_box: Option<Rect>,
+  media_box: Option<Rectangle>,
+  crop_box: Option<Rectangle>,
   rotate: Option<i32>,
 }
 
@@ -150,7 +150,7 @@ fn resolve_pages<'a>(
     None => {}
   }
 
-  let Ok(explicit_value) = pages_dict.get::<Rect>(MEDIA_BOX);
+  let Ok(explicit_value) = pages_dict.get::<Rectangle>(MEDIA_BOX);
 
   match explicit_value {
     Some(media_box) => {
@@ -159,7 +159,7 @@ fn resolve_pages<'a>(
     None => {}
   }
 
-  let Ok(explicit_value_2) = pages_dict.get::<Rect>(CROP_BOX);
+  let Ok(explicit_value_2) = pages_dict.get::<Rectangle>(CROP_BOX);
 
   match explicit_value_2 {
     Some(crop_box) => {
@@ -253,8 +253,8 @@ pub enum PageCoordinates {
 
 pub struct Page<'a> {
   inner: Dict<'a>,
-  media_box: Rect,
-  crop_box: Rect,
+  media_box: Rectangle,
+  crop_box: Rectangle,
   rotation: Rotation,
   page_streams: OnceLock<Option<Vec<u8>>>,
   resources: Resources<'a>,
@@ -275,12 +275,12 @@ impl<'a> Page<'a> {
       (PageReading::Recovery, crate::ContainsKeyAnswer::Yes) | (PageReading::Tree, _) => {}
     }
 
-    let Ok(media) = dict.get::<Rect>(MEDIA_BOX);
+    let Ok(media) = dict.get::<Rectangle>(MEDIA_BOX);
     let media_box = match media.or(page_context.media_box) {
       Some(rectangle) => rectangle,
       None => A4,
     };
-    let Ok(crop) = dict.get::<Rect>(CROP_BOX);
+    let Ok(crop) = dict.get::<Rectangle>(CROP_BOX);
     let crop_box = match crop.or(page_context.crop_box) {
       Some(rectangle) => rectangle,
       None => media_box,
@@ -382,7 +382,7 @@ impl<'a> Page<'a> {
     Ok(&self.resources)
   }
 
-  pub fn media_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn media_box(&self) -> core::result::Result<Rectangle, console_core_never::Never> {
     Ok(self.media_box)
   }
 
@@ -390,11 +390,11 @@ impl<'a> Page<'a> {
     Ok(self.rotation)
   }
 
-  pub fn crop_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn crop_box(&self) -> core::result::Result<Rectangle, console_core_never::Never> {
     Ok(self.crop_box)
   }
 
-  pub fn intersected_crop_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn intersected_crop_box(&self) -> core::result::Result<Rectangle, console_core_never::Never> {
     Ok({
       let Ok(explicit_value) = ({
         let Ok(explicit_value) = self.crop_box();
@@ -759,7 +759,7 @@ impl<'a> Resources<'a> {
 const POINTS_PER_INCH: f64 = 72.0;
 const POINTS_PER_MM: f64 = 1.0 / (10.0 * 2.54) * POINTS_PER_INCH;
 
-pub const A4: Rect = Rect {
+pub const A4: Rectangle = Rectangle {
   x0: 0.0,
   y0: 0.0,
   x1: 210.0 * POINTS_PER_MM,
@@ -846,8 +846,8 @@ mod coordinate_tests {
     let Ok(inner) = Dict::empty();
     let Ok(ctx) = ReaderContext::dummy();
     let Ok(resources) = Resources::new(inner.clone(), None, &ctx);
-    let Ok(media_box) = Rect::new(10.0, 20.0, 310.0, 420.0);
-    let Ok(crop_box) = Rect::new(30.0, 40.0, 130.0, 240.0);
+    let Ok(media_box) = Rectangle::new(10.0, 20.0, 310.0, 420.0);
+    let Ok(crop_box) = Rectangle::new(30.0, 40.0, 130.0, 240.0);
     let mut page = Page {
       inner,
       media_box,

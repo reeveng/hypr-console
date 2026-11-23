@@ -190,10 +190,13 @@ const ARRIVES: f64 = 6.0;
 fn titled(stage: &mut Device, part: &str) -> Result<Ready, Never> {
   let Ok(titles) = stage.titles();
 
-  Ok(match ::core::primitive::bool::then_some(titles.iter().any(|title| title.contains(part)), ()) {
-    ::core::option::Option::Some(()) => Ready::Yes,
-    ::core::option::Option::None => Ready::NotYet,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(titles.iter().any(|title| title.contains(part)), ())
+    {
+      ::core::option::Option::Some(()) => Ready::Yes,
+      ::core::option::Option::None => Ready::NotYet,
+    },
+  )
 }
 
 fn in_a_page(stage: &mut Device) -> CheckResult {

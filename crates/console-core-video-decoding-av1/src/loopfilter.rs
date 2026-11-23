@@ -1,25 +1,25 @@
 #![forbid(unsafe_code)]
-use crate::src::error::{Rav1dError, Rav1dResult};
-use console_core_never::Never;
 use crate::include::common::bitdepth::AsPrimitive;
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::common::intops::iclip;
 use crate::include::dav1d::picture::PicOffset;
 use crate::src::align::Align16;
 use crate::src::cpu::CpuFlags;
+use crate::src::error::{Rav1dError, Rav1dResult};
 use crate::src::internal::Rav1dFrameData;
 use crate::src::lf_mask::Av1FilterLUT;
 use crate::src::strided::Strided as _;
 use crate::src::with_offset::WithOffset;
 use crate::src::wrap_fn_ptr::wrap_fn_ptr;
 use console_core_geometry::{Point, Size};
+use console_core_never::Never;
 use console_core_number_conversion::{checked_offset, fixed_index, index, indices};
 use console_core_pixel_buffers::RowLayout;
 use core::ops::Range;
-use std::sync::atomic::AtomicU8;
-use std::sync::atomic::Ordering::Relaxed;
 use std::cmp;
 use std::ffi::c_int;
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering::Relaxed;
 use strum::FromRepr;
 
 use crate::src::enum_map::DefaultValue;
@@ -59,7 +59,15 @@ struct SuperblockEdge<'a> {
 }
 
 fn loopfilter_sb_direct<BD: BitDepth>(edge: SuperblockEdge<'_>) -> Result<(), Never> {
-  let SuperblockEdge { frame, destination, masks, levels, width, plane, direction } = edge;
+  let SuperblockEdge {
+    frame,
+    destination,
+    masks,
+    levels,
+    width,
+    plane,
+    direction,
+  } = edge;
 
   let bounds = match masks {
     [0, 0, 0] => Ok(()),
@@ -83,15 +91,32 @@ fn loopfilter_sb_direct<BD: BitDepth>(edge: SuperblockEdge<'_>) -> Result<(), Ne
     #[cfg(any(target_arch = "x86_64", target_arch = "wasm32"))]
     {
       crate::src::safe_simd::loopfilter::loopfilter_sb_dispatch::<BD>(
-        destination, destination.stride(), masks, levels, native_step, lut, lanes, maximum, plane, direction,
+        destination,
+        destination.stride(),
+        masks,
+        levels,
+        native_step,
+        lut,
+        lanes,
+        maximum,
+        plane,
+        direction,
       )
     }
     #[cfg(target_arch = "aarch64")]
     {
       FilterDispatch::from(
         crate::src::safe_simd::loopfilter_arm::loopfilter_sb_dispatch::<BD>(
-          destination, destination.stride(), masks, levels, native_step, lut, lanes, maximum,
-          plane == YUV::Y, direction == HV::V,
+          destination,
+          destination.stride(),
+          masks,
+          levels,
+          native_step,
+          lut,
+          lanes,
+          maximum,
+          plane == YUV::Y,
+          direction == HV::V,
         ),
       )
     }
@@ -114,9 +139,20 @@ fn loopfilter_sb_direct<BD: BitDepth>(edge: SuperblockEdge<'_>) -> Result<(), Ne
   let Ok(step_in_blocks) = console_core_number_conversion::wrapped::<_, u64>(native_step);
   let bd = BD::from_c(maximum);
 
-  match loop_filter_sb128_rust::<BD>(destination, masks, levels, step_in_blocks, lut, bd, plane, direction) {
+  match loop_filter_sb128_rust::<BD>(
+    destination,
+    masks,
+    levels,
+    step_in_blocks,
+    lut,
+    bd,
+    plane,
+    direction,
+  ) {
     Ok(()) => {}
-    Err(problem) => console_core_logging::debug!("Invalid AV1 scalar loop-filter region: {problem:?}"),
+    Err(problem) => {
+      console_core_logging::debug!("Invalid AV1 scalar loop-filter region: {problem:?}")
+    }
   }
 
   Ok(())
@@ -125,7 +161,10 @@ fn loopfilter_sb_direct<BD: BitDepth>(edge: SuperblockEdge<'_>) -> Result<(), Ne
 impl loopfilter_sb::Fn {
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "preserves the public loop-filter callback's native picture width")
+    expect(
+      explicit051_no_machine_width,
+      reason = "preserves the public loop-filter callback's native picture width"
+    )
   )]
   pub fn call<BD: BitDepth>(
     &self,
@@ -139,7 +178,13 @@ impl loopfilter_sb::Fn {
   ) -> core::result::Result<(), console_core_never::Never> {
     let Ok(width) = fixed_index(w);
     loopfilter_sb_direct::<BD>(SuperblockEdge {
-      frame: f, destination: dst, masks: mask, levels: lvl, width, plane, direction,
+      frame: f,
+      destination: dst,
+      masks: mask,
+      levels: lvl,
+      width,
+      plane,
+      direction,
     })
   }
 }
@@ -168,7 +213,7 @@ trait LfTaps<BD: BitDepth> {
 pub(super) struct FilterWindow {
   pub(super) base: u64,
   pub(super) along: i64,
-  pub(super) across: i64,
+  pub(super) tap_stride: i64,
 }
 
 #[derive(Clone, Copy)]
@@ -179,14 +224,19 @@ pub(super) struct FilterLevels {
 }
 
 impl FilterLevels {
-  pub(super) fn from_cache(
-    lut: &Av1FilterLUT,
-    level: u8,
-  ) -> Rav1dResult<Self> {
+  pub(super) fn from_cache(lut: &Av1FilterLUT, level: u8) -> Rav1dResult<Self> {
     let Ok(index) = console_core_number_conversion::index(level);
-    let (&edge, &interior) = lut.e.get(index).zip(lut.i.get(index)).ok_or(Rav1dError::EINVAL)?;
+    let (&edge, &interior) = lut
+      .e
+      .get(index)
+      .zip(lut.i.get(index))
+      .ok_or(Rav1dError::EINVAL)?;
 
-    Ok(Self { edge, interior, variance: level.wrapping_shr(4) })
+    Ok(Self {
+      edge,
+      interior,
+      variance: level.wrapping_shr(4),
+    })
   }
 }
 
@@ -194,37 +244,50 @@ struct SliceTaps<'a, Pixel> {
   pixels: &'a mut [Pixel],
   center: i64,
   along: i64,
-  across: i64,
+  tap_stride: i64,
 }
 
 impl<'a, Pixel> SliceTaps<'a, Pixel> {
-  fn new(
-    pixels: &'a mut [Pixel],
-    window: FilterWindow,
-    reach: i64,
-  ) -> Rav1dResult<Self> {
-    let FilterWindow { base, along, across } = window;
+  fn new(pixels: &'a mut [Pixel], window: FilterWindow, reach: i64) -> Rav1dResult<Self> {
+    let FilterWindow {
+      base,
+      along,
+      tap_stride: across,
+    } = window;
     let center = i64::try_from(base).map_err(|_| Rav1dError::EINVAL)?;
     let last_lane = along.checked_mul(3).ok_or(Rav1dError::EINVAL)?;
-    let first_tap = across.checked_mul(reach.wrapping_neg()).ok_or(Rav1dError::EINVAL)?;
-    let last_tap = across.checked_mul(reach.wrapping_sub(1)).ok_or(Rav1dError::EINVAL)?;
-    let first = center.checked_add(last_lane.min(0))
+    let first_tap = across
+      .checked_mul(reach.wrapping_neg())
+      .ok_or(Rav1dError::EINVAL)?;
+    let last_tap = across
+      .checked_mul(reach.wrapping_sub(1))
+      .ok_or(Rav1dError::EINVAL)?;
+    let first = center
+      .checked_add(last_lane.min(0))
       .and_then(|first_lane| first_lane.checked_add(first_tap.min(last_tap)))
       .ok_or(Rav1dError::EINVAL)?;
-    let last = center.checked_add(last_lane.max(0))
+    let last = center
+      .checked_add(last_lane.max(0))
       .and_then(|final_lane| final_lane.checked_add(first_tap.max(last_tap)))
       .ok_or(Rav1dError::EINVAL)?;
-    let begin = console_core_number_conversion::checked_index(first).map_err(|_| Rav1dError::EINVAL)?;
-    let end = console_core_number_conversion::checked_index(last).map_err(|_| Rav1dError::EINVAL)?;
+    let begin =
+      console_core_number_conversion::checked_index(first).map_err(|_| Rav1dError::EINVAL)?;
+    let end =
+      console_core_number_conversion::checked_index(last).map_err(|_| Rav1dError::EINVAL)?;
     let active = pixels.get_mut(begin..=end).ok_or(Rav1dError::EINVAL)?;
 
-    Ok(Self { pixels: active, center: center.wrapping_sub(first), along, across })
+    Ok(Self {
+      pixels: active,
+      center: center.wrapping_sub(first),
+      along,
+      tap_stride: across,
+    })
   }
 
   #[inline(always)]
   fn offset(&self, offset: Point<i64>) -> Result<i64, Never> {
     let lane = self.along.wrapping_mul(offset.y);
-    let tap = self.across.wrapping_mul(offset.x);
+    let tap = self.tap_stride.wrapping_mul(offset.x);
 
     Ok(self.center.wrapping_add(lane).wrapping_add(tap))
   }
@@ -234,7 +297,10 @@ impl<BD: BitDepth> LfTaps<BD> for SliceTaps<'_, BD::Pixel> {
   #[inline(always)]
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "SliceTaps::new checks the four corners of the linear footprint containing every tap")
+    expect(
+      explicit014_no_index_slice,
+      reason = "SliceTaps::new checks the four corners of the linear footprint containing every tap"
+    )
   )]
   fn get(&self, position: Point<i64>) -> i32 {
     let Ok(offset) = self.offset(position);
@@ -245,7 +311,10 @@ impl<BD: BitDepth> LfTaps<BD> for SliceTaps<'_, BD::Pixel> {
   #[inline(always)]
   #[cfg_attr(
     dylint_lib = "explicit014_no_index_slice",
-    expect(explicit014_no_index_slice, reason = "SliceTaps::new checks the four corners of the linear footprint containing every tap")
+    expect(
+      explicit014_no_index_slice,
+      reason = "SliceTaps::new checks the four corners of the linear footprint containing every tap"
+    )
   )]
   fn set(&mut self, position: Point<i64>, value: BD::Pixel) {
     let Ok(offset) = self.offset(position);
@@ -278,7 +347,10 @@ struct DirectTaps<'a> {
 impl DirectTaps<'_> {
   #[inline(always)]
   fn position(&self, tap: Point<i64>) -> Result<PicOffset<'_>, Never> {
-    let displacement = self.steps.y.wrapping_mul(tap.y)
+    let displacement = self
+      .steps
+      .y
+      .wrapping_mul(tap.y)
       .wrapping_add(self.steps.x.wrapping_mul(tap.x));
     let Ok(offset) = console_core_number_conversion::wrapped_offset(displacement);
     Ok(self.dst + offset)
@@ -303,20 +375,30 @@ const FILTER_GROUPS: u16 = 4;
 const SCRATCH_WIDTH: u16 = 16;
 const SCRATCH_PIXELS: u16 = SCRATCH_WIDTH.wrapping_mul(SCRATCH_WIDTH);
 
-type FilterScratch<T> =
-  [T; match console_core_number_conversion::const_u16_index(SCRATCH_PIXELS) { Ok(length) => length }];
-type FilterGroups<T> =
-  [T; match console_core_number_conversion::const_u16_index(FILTER_GROUPS) { Ok(length) => length }];
+type FilterScratch<T> = [T;
+  match console_core_number_conversion::const_u16_index(SCRATCH_PIXELS) {
+    Ok(length) => length,
+  }];
+type FilterGroups<T> = [T;
+  match console_core_number_conversion::const_u16_index(FILTER_GROUPS) {
+    Ok(length) => length,
+  }];
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) const LF_BATCH_MAX: usize =
-  match console_core_number_conversion::const_u16_index(FILTER_GROUPS) { Ok(length) => length };
+  match console_core_number_conversion::const_u16_index(FILTER_GROUPS) {
+    Ok(length) => length,
+  };
 #[cfg(target_arch = "aarch64")]
 pub(crate) const LF_BLOCK_LEN: usize =
-  match console_core_number_conversion::const_u16_index(SCRATCH_PIXELS) { Ok(length) => length };
+  match console_core_number_conversion::const_u16_index(SCRATCH_PIXELS) {
+    Ok(length) => length,
+  };
 #[cfg(target_arch = "aarch64")]
 pub(crate) const LF_BW: usize =
-  match console_core_number_conversion::const_u16_index(SCRATCH_WIDTH) { Ok(length) => length };
+  match console_core_number_conversion::const_u16_index(SCRATCH_WIDTH) {
+    Ok(length) => length,
+  };
 
 struct LfScratch<BD: BitDepth> {
   buf: FilterScratch<BD::Pixel>,
@@ -334,7 +416,10 @@ impl<BD: BitDepth> LfScratch<BD> {
   }
 
   fn row_range(position: Point<u64>) -> Rav1dResult<Range<u64>> {
-    let first = position.y.checked_mul(u64::from(SCRATCH_WIDTH)).ok_or(Rav1dError::ERANGE)?;
+    let first = position
+      .y
+      .checked_mul(u64::from(SCRATCH_WIDTH))
+      .ok_or(Rav1dError::ERANGE)?;
     let end = first.checked_add(position.x).ok_or(Rav1dError::ERANGE)?;
     Ok(first..end)
   }
@@ -387,24 +472,49 @@ impl<'a> FilterPictureWindow<'a> {
     let along = u64::from(groups).wrapping_mul(4);
     let across = u64::from(reach).wrapping_mul(2);
     let (size, step) = match direction {
-      HV::V => (Size { width: along, height: across }, stride),
-      HV::H => (Size { width: across, height: along }, 1),
+      HV::V => (
+        Size {
+          width: along,
+          height: across,
+        },
+        stride,
+      ),
+      HV::H => (
+        Size {
+          width: across,
+          height: along,
+        },
+        1,
+      ),
     };
 
     let capacity = 1..=16;
 
-    match (capacity.contains(&size.width), capacity.contains(&size.height)) {
+    match (
+      capacity.contains(&size.width),
+      capacity.contains(&size.height),
+    ) {
       (true, true) => {}
       _ => return Err(Rav1dError::EINVAL),
     }
 
     let Ok(origin) = fixed_index(anchor.offset);
-    let before = i64::from(reach).wrapping_neg().checked_mul(step).ok_or(Rav1dError::ERANGE)?;
-    let first = origin.checked_add_signed(before).ok_or(Rav1dError::ERANGE)?;
+    let before = i64::from(reach)
+      .wrapping_neg()
+      .checked_mul(step)
+      .ok_or(Rav1dError::ERANGE)?;
+    let first = origin
+      .checked_add_signed(before)
+      .ok_or(Rav1dError::ERANGE)?;
     let last_row = i64::try_from(size.height.wrapping_sub(1)).map_err(|_| Rav1dError::ERANGE)?;
     let row_delta = last_row.checked_mul(stride).ok_or(Rav1dError::ERANGE)?;
-    let last = first.checked_add_signed(row_delta).ok_or(Rav1dError::ERANGE)?;
-    let end = first.max(last).checked_add(size.width).ok_or(Rav1dError::ERANGE)?;
+    let last = first
+      .checked_add_signed(row_delta)
+      .ok_or(Rav1dError::ERANGE)?;
+    let end = first
+      .max(last)
+      .checked_add(size.width)
+      .ok_or(Rav1dError::ERANGE)?;
     let Ok(available) = fixed_index(anchor.data.pixel_len::<BD>());
 
     match end.cmp(&available) {
@@ -413,27 +523,47 @@ impl<'a> FilterPictureWindow<'a> {
     }
 
     let low = first.min(last);
-    let layout = RowLayout::new(size, first.wrapping_sub(low), stride).map_err(|_| Rav1dError::EINVAL)?;
-    Ok(Self { anchor, size, first, stride, hull: low..end, layout })
+    let layout =
+      RowLayout::new(size, first.wrapping_sub(low), stride).map_err(|_| Rav1dError::EINVAL)?;
+    Ok(Self {
+      anchor,
+      size,
+      first,
+      stride,
+      hull: low..end,
+      layout,
+    })
   }
 
   fn row_start(&self, row: u64) -> Rav1dResult<u64> {
     let ordinal = i64::try_from(row).map_err(|_| Rav1dError::ERANGE)?;
     let offset = ordinal.checked_mul(self.stride).ok_or(Rav1dError::ERANGE)?;
-    self.first.checked_add_signed(offset).ok_or(Rav1dError::ERANGE)
+    self
+      .first
+      .checked_add_signed(offset)
+      .ok_or(Rav1dError::ERANGE)
   }
 
   fn capture<BD: BitDepth>(&self, scratch: &mut LfScratch<BD>) -> Rav1dResult {
     let Ok(pixel_bytes) = fixed_index(core::mem::size_of::<BD::Pixel>());
     let signed_pixel_bytes = i64::try_from(pixel_bytes).map_err(|_| Rav1dError::ERANGE)?;
-    let byte_pitch = self.stride.checked_mul(signed_pixel_bytes).ok_or(Rav1dError::ERANGE)?;
+    let byte_pitch = self
+      .stride
+      .checked_mul(signed_pixel_bytes)
+      .ok_or(Rav1dError::ERANGE)?;
     let native_stride = checked_offset(self.stride).map_err(|_| Rav1dError::ERANGE)?;
     let native_byte_pitch = checked_offset(byte_pitch).map_err(|_| Rav1dError::ERANGE)?;
     let Ok(width) = index(self.size.width);
     let Ok(height) = index(self.size.height);
     let Ok(width_bytes) = index(self.size.width.wrapping_mul(pixel_bytes));
 
-    match ::core::primitive::bool::then_some(matches!(self.anchor.data.guard_mode(), Ok(crate::include::dav1d::picture::PictureGuardMode::SeparateRows)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(
+        self.anchor.data.guard_mode(),
+        Ok(crate::include::dav1d::picture::PictureGuardMode::SeparateRows)
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(first) = index(self.first);
         let Ok(first_byte) = index(self.first.wrapping_mul(pixel_bytes));
@@ -446,7 +576,12 @@ impl<'a> FilterPictureWindow<'a> {
           native_byte_pitch,
         );
 
-        match self.anchor.data.dm().index_rect_as::<BD::Pixel>(first, width, height, native_stride) {
+        match self.anchor.data.dm().index_rect_as::<BD::Pixel>(
+          first,
+          width,
+          height,
+          native_stride,
+        ) {
           Some(rect) => {
             for row in 0..self.size.height {
               let Ok(native_row) = index(row);
@@ -457,7 +592,11 @@ impl<'a> FilterPictureWindow<'a> {
             for row in 0..self.size.height {
               let offset = self.row_start(row)?;
               let Ok(offset_2) = index(offset);
-              let source = PicOffset { offset: offset_2, ..self.anchor }.slice::<BD>(width);
+              let source = PicOffset {
+                offset: offset_2,
+                ..self.anchor
+              }
+              .slice::<BD>(width);
               scratch.capture_row(row, &source)?;
             }
           }
@@ -533,7 +672,8 @@ fn validate_filter_window<BD: BitDepth>(
     HV::H => (displacement.wrapping_rem(stride.get()), stride.get()),
     HV::V => {
       let position = displacement.wrapping_div(stride.get());
-      let subsampled = u32::from(plane == YUV::UV && frame.cur.p.layout == Rav1dPixelLayout::I420);
+      let subsampled =
+        u32::from(plane == YUV::UV && frame.cur.p.layout == Rav1dPixelLayout::I420);
       let block_step = match u32::try_from(frame.sb_step) {
         Ok(0) => return Ok(()),
         Err(_invalid_step) => return Ok(()),
@@ -628,34 +768,41 @@ impl<'a, 'b, BD: BitDepth> LfBlock<'a, 'b, BD> {
   }
 
   #[inline]
-  fn taps(
-    &mut self,
-    group: u32,
-    width: c_int,
-  ) -> Rav1dResult<SliceTaps<'_, BD::Pixel>> {
+  fn taps(&mut self, group: u32, width: c_int) -> Rav1dResult<SliceTaps<'_, BD::Pixel>> {
     let columns = i64::from(group).wrapping_mul(4).wrapping_mul(self.stridea);
-    let base = self.base.checked_add_signed(columns).ok_or(Rav1dError::ERANGE)?;
-    let span = self.picture.size.height.wrapping_sub(1).wrapping_mul(16)
+    let base = self
+      .base
+      .checked_add_signed(columns)
+      .ok_or(Rav1dError::ERANGE)?;
+    let span = self
+      .picture
+      .size
+      .height
+      .wrapping_sub(1)
+      .wrapping_mul(16)
       .wrapping_add(self.picture.size.width);
     let Ok(length) = index(span);
-    let pixels = self.scratch.buf.get_mut(..length).ok_or(Rav1dError::EINVAL)?;
-    let window = FilterWindow { base, along: self.stridea, across: self.strideb };
+    let pixels = self
+      .scratch
+      .buf
+      .get_mut(..length)
+      .ok_or(Rav1dError::EINVAL)?;
+    let window = FilterWindow {
+      base,
+      along: self.stridea,
+      tap_stride: self.strideb,
+    };
     let Ok(radius) = lf_reach(width);
     SliceTaps::new(pixels, window, i64::from(radius))
   }
 
   #[inline]
-  fn filter_run(
-    &mut self,
-    params: &[(u8, u8, u8, c_int)],
-    wd: c_int,
-    bd: BD,
-  ) -> Rav1dResult {
+  fn filter_run(&mut self, params: &[(u8, u8, u8, c_int)], wd: c_int, bd: BD) -> Rav1dResult {
     {
       #[cfg(target_arch = "aarch64")]
       {
-        use zerocopy::IntoBytes as _;
         use crate::src::safe_simd::loopfilter_arm::{CompactRun, lf_compact_run_neon};
+        use zerocopy::IntoBytes as _;
         let request = CompactRun {
           bpc: BD::BPC,
           scratch: self.scratch.buf.as_mut_bytes(),
@@ -679,7 +826,11 @@ impl<'a, 'b, BD: BitDepth> LfBlock<'a, 'b, BD> {
 
       for (group, &(e, i, h, _)) in (0u32..).zip(params) {
         let mut taps = self.taps(group, wd)?;
-        let levels = FilterLevels { edge: e, interior: i, variance: h };
+        let levels = FilterLevels {
+          edge: e,
+          interior: i,
+          variance: h,
+        };
         let Ok(()) = loop_filter::<BD, _>(&mut taps, levels, wd, bd);
       }
     };
@@ -697,8 +848,8 @@ impl<'a, 'b, BD: BitDepth> LfBlock<'a, 'b, BD> {
   ) -> Result<Option<Range<u64>>, Never> {
     #[cfg(target_arch = "aarch64")]
     {
-      use zerocopy::IntoBytes as _;
       use crate::src::safe_simd::loopfilter_arm::{ScratchComparison, lf_diff_span};
+      use zerocopy::IntoBytes as _;
       let request = ScratchComparison {
         bpc: BD::BPC,
         work: self.scratch.buf.as_bytes(),
@@ -715,19 +866,22 @@ impl<'a, 'b, BD: BitDepth> LfBlock<'a, 'b, BD> {
     #[cfg(not(target_arch = "aarch64"))]
     let _ = row;
 
-    let mut differing = work.iter().zip(reference).enumerate().filter_map(
-      |(native_column, (pixel, original))| {
-        let Ok(column) = fixed_index(native_column);
-        (pixel != original).then_some(column)
-      },
-    );
+    let mut differing =
+      work
+        .iter()
+        .zip(reference)
+        .enumerate()
+        .filter_map(|(native_column, (pixel, original))| {
+          let Ok(column) = fixed_index(native_column);
+          (pixel != original).then_some(column)
+        });
     let first = match differing.next() {
       Some(column) => column,
       None => return Ok(None),
     };
     let last = match differing.next_back() {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => first,
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => first,
     };
     Ok(Some(first..last.wrapping_add(1)))
   }
@@ -735,27 +889,40 @@ impl<'a, 'b, BD: BitDepth> LfBlock<'a, 'b, BD> {
   #[inline]
   fn close(self) -> Rav1dResult {
     for row in 0..self.picture.size.height {
-      let row_span = LfScratch::<BD>::row_range(Point { x: self.picture.size.width, y: row })?;
+      let row_span = LfScratch::<BD>::row_range(Point {
+        x: self.picture.size.width,
+        y: row,
+      })?;
       let Ok(range) = indices(row_span);
-      let work = self.scratch.buf.get(range.clone()).ok_or(Rav1dError::EINVAL)?;
+      let work = self
+        .scratch
+        .buf
+        .get(range.clone())
+        .ok_or(Rav1dError::EINVAL)?;
       let reference = self.scratch.pristine.get(range).ok_or(Rav1dError::EINVAL)?;
 
       let span = {
-          let Ok(optional_span) = self.changed_span(row, work, reference);
+        let Ok(optional_span) = self.changed_span(row, work, reference);
 
-          match optional_span {
-              Some(matched_span) => matched_span,
-              ::core::option::Option::None => continue,
-          }
+        match optional_span {
+          Some(matched_span) => matched_span,
+          ::core::option::Option::None => continue,
+        }
       };
 
       let checked_value = self.picture.row_start(row)?;
-      let start = checked_value.checked_add(span.start).ok_or(Rav1dError::ERANGE)?;
+      let start = checked_value
+        .checked_add(span.start)
+        .ok_or(Rav1dError::ERANGE)?;
       let Ok(offset) = index(start);
       let Ok(len) = index(span.end.wrapping_sub(span.start));
       let Ok(columns) = indices(span);
       let changed = work.get(columns).ok_or(Rav1dError::EINVAL)?;
-      let mut target = PicOffset { offset, ..self.picture.anchor }.slice_mut::<BD>(len);
+      let mut target = PicOffset {
+        offset,
+        ..self.picture.anchor
+      }
+      .slice_mut::<BD>(len);
 
       for (destination, &pixel) in target.iter_mut().zip(changed) {
         *destination = pixel;
@@ -886,7 +1053,9 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
 
       match ::core::primitive::bool::then_some(wd >= 16 && flat8out && flat8in, ()) {
         ::core::option::Option::Some(()) => {
-          let Ok(()) = store(&mut *taps, Point { x: -6, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: -6, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -900,32 +1069,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p6, p6), p6),
-                                    p6
+                                    p6,
                                   ),
-                                  p6
+                                  p6,
                                 ),
-                                i32::wrapping_mul(p6, 2)
+                                i32::wrapping_mul(p6, 2),
                               ),
-                              i32::wrapping_mul(p5, 2)
+                              i32::wrapping_mul(p5, 2),
                             ),
-                            i32::wrapping_mul(p4, 2)
+                            i32::wrapping_mul(p4, 2),
                           ),
-                          p3
+                          p3,
                         ),
-                        p2
+                        p2,
                       ),
-                      p1
+                      p1,
                     ),
-                    p0
+                    p0,
                   ),
-                  q0
+                  q0,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: -5, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: -5, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -939,32 +1110,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p6, p6), p6),
-                                    p6
+                                    p6,
                                   ),
-                                  p6
+                                  p6,
                                 ),
-                                i32::wrapping_mul(p5, 2)
+                                i32::wrapping_mul(p5, 2),
                               ),
-                              i32::wrapping_mul(p4, 2)
+                              i32::wrapping_mul(p4, 2),
                             ),
-                            i32::wrapping_mul(p3, 2)
+                            i32::wrapping_mul(p3, 2),
                           ),
-                          p2
+                          p2,
                         ),
-                        p1
+                        p1,
                       ),
-                      p0
+                      p0,
                     ),
-                    q0
+                    q0,
                   ),
-                  q1
+                  q1,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: -4, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: -4, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -978,32 +1151,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p6, p6), p6),
-                                    p6
+                                    p6,
                                   ),
-                                  p5
+                                  p5,
                                 ),
-                                i32::wrapping_mul(p4, 2)
+                                i32::wrapping_mul(p4, 2),
                               ),
-                              i32::wrapping_mul(p3, 2)
+                              i32::wrapping_mul(p3, 2),
                             ),
-                            i32::wrapping_mul(p2, 2)
+                            i32::wrapping_mul(p2, 2),
                           ),
-                          p1
+                          p1,
                         ),
-                        p0
+                        p0,
                       ),
-                      q0
+                      q0,
                     ),
-                    q1
+                    q1,
                   ),
-                  q2
+                  q2,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: -3, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: -3, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1017,32 +1192,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p6, p6), p6),
-                                    p5
+                                    p5,
                                   ),
-                                  p4
+                                  p4,
                                 ),
-                                i32::wrapping_mul(p3, 2)
+                                i32::wrapping_mul(p3, 2),
                               ),
-                              i32::wrapping_mul(p2, 2)
+                              i32::wrapping_mul(p2, 2),
                             ),
-                            i32::wrapping_mul(p1, 2)
+                            i32::wrapping_mul(p1, 2),
                           ),
-                          p0
+                          p0,
                         ),
-                        q0
+                        q0,
                       ),
-                      q1
+                      q1,
                     ),
-                    q2
+                    q2,
                   ),
-                  q3
+                  q3,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: -2, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: -2, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1056,32 +1233,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p6, p6), p5),
-                                    p4
+                                    p4,
                                   ),
-                                  p3
+                                  p3,
                                 ),
-                                i32::wrapping_mul(p2, 2)
+                                i32::wrapping_mul(p2, 2),
                               ),
-                              i32::wrapping_mul(p1, 2)
+                              i32::wrapping_mul(p1, 2),
                             ),
-                            i32::wrapping_mul(p0, 2)
+                            i32::wrapping_mul(p0, 2),
                           ),
-                          q0
+                          q0,
                         ),
-                        q1
+                        q1,
                       ),
-                      q2
+                      q2,
                     ),
-                    q3
+                    q3,
                   ),
-                  q4
+                  q4,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: -1, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: -1, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1095,32 +1274,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p6, p5), p4),
-                                    p3
+                                    p3,
                                   ),
-                                  p2
+                                  p2,
                                 ),
-                                i32::wrapping_mul(p1, 2)
+                                i32::wrapping_mul(p1, 2),
                               ),
-                              i32::wrapping_mul(p0, 2)
+                              i32::wrapping_mul(p0, 2),
                             ),
-                            i32::wrapping_mul(q0, 2)
+                            i32::wrapping_mul(q0, 2),
                           ),
-                          q1
+                          q1,
                         ),
-                        q2
+                        q2,
                       ),
-                      q3
+                      q3,
                     ),
-                    q4
+                    q4,
                   ),
-                  q5
+                  q5,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: 0, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: 0, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1134,32 +1315,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p5, p4), p3),
-                                    p2
+                                    p2,
                                   ),
-                                  p1
+                                  p1,
                                 ),
-                                i32::wrapping_mul(p0, 2)
+                                i32::wrapping_mul(p0, 2),
                               ),
-                              i32::wrapping_mul(q0, 2)
+                              i32::wrapping_mul(q0, 2),
                             ),
-                            i32::wrapping_mul(q1, 2)
+                            i32::wrapping_mul(q1, 2),
                           ),
-                          q2
+                          q2,
                         ),
-                        q3
+                        q3,
                       ),
-                      q4
+                      q4,
                     ),
-                    q5
+                    q5,
                   ),
-                  q6
+                  q6,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: 1, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: 1, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1173,32 +1356,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p4, p3), p2),
-                                    p1
+                                    p1,
                                   ),
-                                  p0
+                                  p0,
                                 ),
-                                i32::wrapping_mul(q0, 2)
+                                i32::wrapping_mul(q0, 2),
                               ),
-                              i32::wrapping_mul(q1, 2)
+                              i32::wrapping_mul(q1, 2),
                             ),
-                            i32::wrapping_mul(q2, 2)
+                            i32::wrapping_mul(q2, 2),
                           ),
-                          q3
+                          q3,
                         ),
-                        q4
+                        q4,
                       ),
-                      q5
+                      q5,
                     ),
-                    q6
+                    q6,
                   ),
-                  q6
+                  q6,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: 2, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: 2, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1212,32 +1397,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p3, p2), p1),
-                                    p0
+                                    p0,
                                   ),
-                                  q0
+                                  q0,
                                 ),
-                                i32::wrapping_mul(q1, 2)
+                                i32::wrapping_mul(q1, 2),
                               ),
-                              i32::wrapping_mul(q2, 2)
+                              i32::wrapping_mul(q2, 2),
                             ),
-                            i32::wrapping_mul(q3, 2)
+                            i32::wrapping_mul(q3, 2),
                           ),
-                          q4
+                          q4,
                         ),
-                        q5
+                        q5,
                       ),
-                      q6
+                      q6,
                     ),
-                    q6
+                    q6,
                   ),
-                  q6
+                  q6,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: 3, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: 3, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1251,32 +1438,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p2, p1), p0),
-                                    q0
+                                    q0,
                                   ),
-                                  q1
+                                  q1,
                                 ),
-                                i32::wrapping_mul(q2, 2)
+                                i32::wrapping_mul(q2, 2),
                               ),
-                              i32::wrapping_mul(q3, 2)
+                              i32::wrapping_mul(q3, 2),
                             ),
-                            i32::wrapping_mul(q4, 2)
+                            i32::wrapping_mul(q4, 2),
                           ),
-                          q5
+                          q5,
                         ),
-                        q6
+                        q6,
                       ),
-                      q6
+                      q6,
                     ),
-                    q6
+                    q6,
                   ),
-                  q6
+                  q6,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: 4, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: 4, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1290,32 +1479,34 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p1, p0), q0),
-                                    q1
+                                    q1,
                                   ),
-                                  q2
+                                  q2,
                                 ),
-                                i32::wrapping_mul(q3, 2)
+                                i32::wrapping_mul(q3, 2),
                               ),
-                              i32::wrapping_mul(q4, 2)
+                              i32::wrapping_mul(q4, 2),
                             ),
-                            i32::wrapping_mul(q5, 2)
+                            i32::wrapping_mul(q5, 2),
                           ),
-                          q6
+                          q6,
                         ),
-                        q6
+                        q6,
                       ),
-                      q6
+                      q6,
                     ),
-                    q6
+                    q6,
                   ),
-                  q6
+                  q6,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
-          let Ok(()) = store(&mut *taps, Point { x: 5, y: lane },
+          let Ok(()) = store(
+            &mut *taps,
+            Point { x: 5, y: lane },
             i32::wrapping_shr(
               i32::wrapping_add(
                 i32::wrapping_add(
@@ -1329,296 +1520,334 @@ fn loop_filter<BD: BitDepth, T: LfTaps<BD>>(
                                 i32::wrapping_add(
                                   i32::wrapping_add(
                                     i32::wrapping_add(i32::wrapping_add(p0, q0), q1),
-                                    q2
+                                    q2,
                                   ),
-                                  q3
+                                  q3,
                                 ),
-                                i32::wrapping_mul(q4, 2)
+                                i32::wrapping_mul(q4, 2),
                               ),
-                              i32::wrapping_mul(q5, 2)
+                              i32::wrapping_mul(q5, 2),
                             ),
-                            i32::wrapping_mul(q6, 2)
+                            i32::wrapping_mul(q6, 2),
                           ),
-                          q6
+                          q6,
                         ),
-                        q6
+                        q6,
                       ),
-                      q6
+                      q6,
                     ),
-                    q6
+                    q6,
                   ),
-                  q6
+                  q6,
                 ),
-                8
+                8,
               ),
-              4_u32
+              4_u32,
             ),
           );
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(wd >= 8 && flat8in, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(()) = store(&mut *taps, Point { x: -3, y: lane },
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  i32::wrapping_add(
-                    i32::wrapping_add(
-                      i32::wrapping_add(
-                        i32::wrapping_add(
-                          i32::wrapping_add(i32::wrapping_add(p3, p3), p3),
-                          i32::wrapping_mul(2, p2)
-                        ),
-                        p1
-                      ),
-                      p0
-                    ),
-                    q0
-                  ),
-                  4
-                ),
-                3_u32
-              )
-            );
-            let Ok(()) = store(&mut *taps, Point { x: -2, y: lane },
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  i32::wrapping_add(
-                    i32::wrapping_add(
-                      i32::wrapping_add(
-                        i32::wrapping_add(
-                          i32::wrapping_add(i32::wrapping_add(p3, p3), p2),
-                          i32::wrapping_mul(2, p1)
-                        ),
-                        p0
-                      ),
-                      q0
-                    ),
-                    q1
-                  ),
-                  4
-                ),
-                3_u32
-              )
-            );
-            let Ok(()) = store(&mut *taps, Point { x: -1, y: lane },
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  i32::wrapping_add(
-                    i32::wrapping_add(
-                      i32::wrapping_add(
-                        i32::wrapping_add(
-                          i32::wrapping_add(i32::wrapping_add(p3, p2), p1),
-                          i32::wrapping_mul(2, p0)
-                        ),
-                        q0
-                      ),
-                      q1
-                    ),
-                    q2
-                  ),
-                  4
-                ),
-                3_u32
-              )
-            );
-            let Ok(()) = store(&mut *taps, Point { x: 0, y: lane },
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  i32::wrapping_add(
-                    i32::wrapping_add(
-                      i32::wrapping_add(
-                        i32::wrapping_add(
-                          i32::wrapping_add(i32::wrapping_add(p2, p1), p0),
-                          i32::wrapping_mul(2, q0)
-                        ),
-                        q1
-                      ),
-                      q2
-                    ),
-                    q3
-                  ),
-                  4
-                ),
-                3_u32
-              )
-            );
-            let Ok(()) = store(&mut *taps, Point { x: 1, y: lane },
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  i32::wrapping_add(
-                    i32::wrapping_add(
-                      i32::wrapping_add(
-                        i32::wrapping_add(
-                          i32::wrapping_add(i32::wrapping_add(p1, p0), q0),
-                          i32::wrapping_mul(2, q1)
-                        ),
-                        q2
-                      ),
-                      q3
-                    ),
-                    q3
-                  ),
-                  4
-                ),
-                3_u32
-              )
-            );
-            let Ok(()) = store(&mut *taps, Point { x: 2, y: lane },
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  i32::wrapping_add(
-                    i32::wrapping_add(
-                      i32::wrapping_add(
-                        i32::wrapping_add(
-                          i32::wrapping_add(i32::wrapping_add(p0, q0), q1),
-                          i32::wrapping_mul(2, q2)
-                        ),
-                        q3
-                      ),
-                      q3
-                    ),
-                    q3
-                  ),
-                  4
-                ),
-                3_u32
-              )
-            );
-          }
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(wd == 6 && flat8in, ()) {
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(wd >= 8 && flat8in, ()) {
             ::core::option::Option::Some(()) => {
-              let Ok(()) = store(&mut *taps, Point { x: -2, y: lane },
+              let Ok(()) = store(
+                &mut *taps,
+                Point { x: -3, y: lane },
                 i32::wrapping_shr(
                   i32::wrapping_add(
                     i32::wrapping_add(
                       i32::wrapping_add(
                         i32::wrapping_add(
-                          i32::wrapping_add(p2, i32::wrapping_mul(2, p2)),
-                          i32::wrapping_mul(2, p1)
+                          i32::wrapping_add(
+                            i32::wrapping_add(i32::wrapping_add(p3, p3), p3),
+                            i32::wrapping_mul(2, p2),
+                          ),
+                          p1,
                         ),
-                        i32::wrapping_mul(2, p0)
+                        p0,
                       ),
-                      q0
+                      q0,
                     ),
-                    4
+                    4,
                   ),
-                  3_u32
-                )
+                  3_u32,
+                ),
               );
-              let Ok(()) = store(&mut *taps, Point { x: -1, y: lane },
+              let Ok(()) = store(
+                &mut *taps,
+                Point { x: -2, y: lane },
                 i32::wrapping_shr(
                   i32::wrapping_add(
                     i32::wrapping_add(
                       i32::wrapping_add(
                         i32::wrapping_add(
-                          i32::wrapping_add(p2, i32::wrapping_mul(2, p1)),
-                          i32::wrapping_mul(2, p0)
+                          i32::wrapping_add(
+                            i32::wrapping_add(i32::wrapping_add(p3, p3), p2),
+                            i32::wrapping_mul(2, p1),
+                          ),
+                          p0,
                         ),
-                        i32::wrapping_mul(2, q0)
+                        q0,
                       ),
-                      q1
+                      q1,
                     ),
-                    4
+                    4,
                   ),
-                  3_u32
-                )
+                  3_u32,
+                ),
               );
-              let Ok(()) = store(&mut *taps, Point { x: 0, y: lane },
+              let Ok(()) = store(
+                &mut *taps,
+                Point { x: -1, y: lane },
                 i32::wrapping_shr(
                   i32::wrapping_add(
                     i32::wrapping_add(
                       i32::wrapping_add(
                         i32::wrapping_add(
-                          i32::wrapping_add(p1, i32::wrapping_mul(2, p0)),
-                          i32::wrapping_mul(2, q0)
+                          i32::wrapping_add(
+                            i32::wrapping_add(i32::wrapping_add(p3, p2), p1),
+                            i32::wrapping_mul(2, p0),
+                          ),
+                          q0,
                         ),
-                        i32::wrapping_mul(2, q1)
+                        q1,
                       ),
-                      q2
+                      q2,
                     ),
-                    4
+                    4,
                   ),
-                  3_u32
-                )
+                  3_u32,
+                ),
               );
-              let Ok(()) = store(&mut *taps, Point { x: 1, y: lane },
+              let Ok(()) = store(
+                &mut *taps,
+                Point { x: 0, y: lane },
                 i32::wrapping_shr(
                   i32::wrapping_add(
                     i32::wrapping_add(
                       i32::wrapping_add(
                         i32::wrapping_add(
-                          i32::wrapping_add(p0, i32::wrapping_mul(2, q0)),
-                          i32::wrapping_mul(2, q1)
+                          i32::wrapping_add(
+                            i32::wrapping_add(i32::wrapping_add(p2, p1), p0),
+                            i32::wrapping_mul(2, q0),
+                          ),
+                          q1,
                         ),
-                        i32::wrapping_mul(2, q2)
+                        q2,
                       ),
-                      q2
+                      q3,
                     ),
-                    4
+                    4,
                   ),
-                  3_u32
-                )
+                  3_u32,
+                ),
+              );
+              let Ok(()) = store(
+                &mut *taps,
+                Point { x: 1, y: lane },
+                i32::wrapping_shr(
+                  i32::wrapping_add(
+                    i32::wrapping_add(
+                      i32::wrapping_add(
+                        i32::wrapping_add(
+                          i32::wrapping_add(
+                            i32::wrapping_add(i32::wrapping_add(p1, p0), q0),
+                            i32::wrapping_mul(2, q1),
+                          ),
+                          q2,
+                        ),
+                        q3,
+                      ),
+                      q3,
+                    ),
+                    4,
+                  ),
+                  3_u32,
+                ),
+              );
+              let Ok(()) = store(
+                &mut *taps,
+                Point { x: 2, y: lane },
+                i32::wrapping_shr(
+                  i32::wrapping_add(
+                    i32::wrapping_add(
+                      i32::wrapping_add(
+                        i32::wrapping_add(
+                          i32::wrapping_add(
+                            i32::wrapping_add(i32::wrapping_add(p0, q0), q1),
+                            i32::wrapping_mul(2, q2),
+                          ),
+                          q3,
+                        ),
+                        q3,
+                      ),
+                      q3,
+                    ),
+                    4,
+                  ),
+                  3_u32,
+                ),
               );
             }
             ::core::option::Option::None => {
-              let hev =
-                i32::wrapping_sub(p1, p0).abs() > h || i32::wrapping_sub(q1, q0).abs() > h;
-
-              fn iclip_diff(
-                v: c_int,
-                bitdepth_min_8: u8,
-              ) -> core::result::Result<i32, console_core_never::Never> {
-                Ok({
-                  iclip(
-                    v,
-                    i32::wrapping_mul(
-                      -128,
-                      i32::wrapping_shl(1, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, u32>(bitdepth_min_8);
-                        numeric_value
-                      }),
-                    ),
-                    i32::wrapping_sub(
-                      i32::wrapping_mul(
-                        128,
-                        i32::wrapping_shl(1, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u32>(bitdepth_min_8);
-                          numeric_value
-                        }),
+              match ::core::primitive::bool::then_some(wd == 6 && flat8in, ()) {
+                ::core::option::Option::Some(()) => {
+                  let Ok(()) = store(
+                    &mut *taps,
+                    Point { x: -2, y: lane },
+                    i32::wrapping_shr(
+                      i32::wrapping_add(
+                        i32::wrapping_add(
+                          i32::wrapping_add(
+                            i32::wrapping_add(
+                              i32::wrapping_add(p2, i32::wrapping_mul(2, p2)),
+                              i32::wrapping_mul(2, p1),
+                            ),
+                            i32::wrapping_mul(2, p0),
+                          ),
+                          q0,
+                        ),
+                        4,
                       ),
-                      1,
+                      3_u32,
                     ),
-                  )
-                })
-              }
-
-              let base_delta = 3_i32.wrapping_mul(q0.wrapping_sub(p0));
-              let adjusted = match hev {
-                true => {
-                  let Ok(side) = iclip_diff(p1.wrapping_sub(q1), bitdepth_min_8);
-                  base_delta.wrapping_add(side)
+                  );
+                  let Ok(()) = store(
+                    &mut *taps,
+                    Point { x: -1, y: lane },
+                    i32::wrapping_shr(
+                      i32::wrapping_add(
+                        i32::wrapping_add(
+                          i32::wrapping_add(
+                            i32::wrapping_add(
+                              i32::wrapping_add(p2, i32::wrapping_mul(2, p1)),
+                              i32::wrapping_mul(2, p0),
+                            ),
+                            i32::wrapping_mul(2, q0),
+                          ),
+                          q1,
+                        ),
+                        4,
+                      ),
+                      3_u32,
+                    ),
+                  );
+                  let Ok(()) = store(
+                    &mut *taps,
+                    Point { x: 0, y: lane },
+                    i32::wrapping_shr(
+                      i32::wrapping_add(
+                        i32::wrapping_add(
+                          i32::wrapping_add(
+                            i32::wrapping_add(
+                              i32::wrapping_add(p1, i32::wrapping_mul(2, p0)),
+                              i32::wrapping_mul(2, q0),
+                            ),
+                            i32::wrapping_mul(2, q1),
+                          ),
+                          q2,
+                        ),
+                        4,
+                      ),
+                      3_u32,
+                    ),
+                  );
+                  let Ok(()) = store(
+                    &mut *taps,
+                    Point { x: 1, y: lane },
+                    i32::wrapping_shr(
+                      i32::wrapping_add(
+                        i32::wrapping_add(
+                          i32::wrapping_add(
+                            i32::wrapping_add(
+                              i32::wrapping_add(p0, i32::wrapping_mul(2, q0)),
+                              i32::wrapping_mul(2, q1),
+                            ),
+                            i32::wrapping_mul(2, q2),
+                          ),
+                          q2,
+                        ),
+                        4,
+                      ),
+                      3_u32,
+                    ),
+                  );
                 }
-                false => base_delta,
-              };
-              let Ok(delta) = iclip_diff(adjusted, bitdepth_min_8);
-              let ceiling = 128_i32.wrapping_shl(u32::from(bitdepth_min_8)).wrapping_sub(1);
-              let right = delta.wrapping_add(4).min(ceiling).wrapping_shr(3);
-              let left = delta.wrapping_add(3).min(ceiling).wrapping_shr(3);
-              taps.set(Point { x: -1, y: lane }, bd.iclip_pixel(p0.wrapping_add(left)));
-              taps.set(Point { x: 0, y: lane }, bd.iclip_pixel(q0.wrapping_sub(right)));
+                ::core::option::Option::None => {
+                  let hev =
+                    i32::wrapping_sub(p1, p0).abs() > h || i32::wrapping_sub(q1, q0).abs() > h;
 
-              match hev {
-                true => {}
-                false => {
-                  let outer_delta = right.wrapping_add(1).wrapping_shr(1);
-                  taps.set(Point { x: -2, y: lane }, bd.iclip_pixel(p1.wrapping_add(outer_delta)));
-                  taps.set(Point { x: 1, y: lane }, bd.iclip_pixel(q1.wrapping_sub(outer_delta)));
+                  fn iclip_diff(
+                    v: c_int,
+                    bitdepth_min_8: u8,
+                  ) -> core::result::Result<i32, console_core_never::Never> {
+                    Ok({
+                      iclip(
+                        v,
+                        i32::wrapping_mul(
+                          -128,
+                          i32::wrapping_shl(1, {
+                            let Ok(numeric_value) =
+                              console_core_number_conversion::wrapped::<_, u32>(bitdepth_min_8);
+                            numeric_value
+                          }),
+                        ),
+                        i32::wrapping_sub(
+                          i32::wrapping_mul(
+                            128,
+                            i32::wrapping_shl(1, {
+                              let Ok(numeric_value) =
+                                console_core_number_conversion::wrapped::<_, u32>(bitdepth_min_8);
+                              numeric_value
+                            }),
+                          ),
+                          1,
+                        ),
+                      )
+                    })
+                  }
+
+                  let base_delta = 3_i32.wrapping_mul(q0.wrapping_sub(p0));
+                  let adjusted = match hev {
+                    true => {
+                      let Ok(side) = iclip_diff(p1.wrapping_sub(q1), bitdepth_min_8);
+                      base_delta.wrapping_add(side)
+                    }
+                    false => base_delta,
+                  };
+                  let Ok(delta) = iclip_diff(adjusted, bitdepth_min_8);
+                  let ceiling = 128_i32
+                    .wrapping_shl(u32::from(bitdepth_min_8))
+                    .wrapping_sub(1);
+                  let right = delta.wrapping_add(4).min(ceiling).wrapping_shr(3);
+                  let left = delta.wrapping_add(3).min(ceiling).wrapping_shr(3);
+                  taps.set(
+                    Point { x: -1, y: lane },
+                    bd.iclip_pixel(p0.wrapping_add(left)),
+                  );
+                  taps.set(
+                    Point { x: 0, y: lane },
+                    bd.iclip_pixel(q0.wrapping_sub(right)),
+                  );
+
+                  match hev {
+                    true => {}
+                    false => {
+                      let outer_delta = right.wrapping_add(1).wrapping_shr(1);
+                      taps.set(
+                        Point { x: -2, y: lane },
+                        bd.iclip_pixel(p1.wrapping_add(outer_delta)),
+                      );
+                      taps.set(
+                        Point { x: 1, y: lane },
+                        bd.iclip_pixel(q1.wrapping_sub(outer_delta)),
+                      );
+                    }
+                  }
                 }
               }
             }
-          },
-        },
+          }
+        }
       }
     }
   };
@@ -1659,7 +1888,8 @@ fn scalar_filter_groups(
   let lookback = blocks_across.checked_mul(4).ok_or(Rav1dError::ERANGE)?;
   let Ok(first) = console_core_number_conversion::fixed_index(cache.offset);
   let cached_level = |offset| -> Rav1dResult<u8> {
-    let index = console_core_number_conversion::checked_index(offset).map_err(|_| Rav1dError::ERANGE)?;
+    let index =
+      console_core_number_conversion::checked_index(offset).map_err(|_| Rav1dError::ERANGE)?;
     let entry = cache.data.get(index).ok_or(Rav1dError::EINVAL)?;
     Ok(entry.load(Relaxed))
   };
@@ -1674,7 +1904,8 @@ fn scalar_filter_groups(
       None => continue,
     }
 
-    let position = u64::from(ordinal).checked_mul(step)
+    let position = u64::from(ordinal)
+      .checked_mul(step)
       .and_then(|displacement| first.checked_add(displacement))
       .ok_or(Rav1dError::ERANGE)?;
     let current = cached_level(position)?;
@@ -1706,7 +1937,10 @@ struct ScalarFilterRun {
 }
 
 impl ScalarFilterRun {
-  fn adjacent(groups: &[Option<FilterGroup>], width: c_int) -> Result<Self, console_core_never::Never> {
+  fn adjacent(
+    groups: &[Option<FilterGroup>],
+    width: c_int,
+  ) -> Result<Self, console_core_never::Never> {
     let mut params: FilterGroups<_> = [(0, 0, 0, width); _];
     let mut len = 0u32;
 
@@ -1751,13 +1985,21 @@ impl<BD: BitDepth> ScalarFilterPath<'_, BD> {
         HV::V => 1,
       };
       let column = lanes.checked_mul(step).ok_or(Rav1dError::ERANGE)?;
-      let offset = console_core_number_conversion::checked_offset(column).map_err(|_| Rav1dError::ERANGE)?;
+      let offset =
+        console_core_number_conversion::checked_offset(column).map_err(|_| Rav1dError::ERANGE)?;
       Ok(self.plane + offset)
     };
     let Ok(len) = console_core_number_conversion::index(run.len);
     let params = run.params.get(..len).ok_or(Rav1dError::EINVAL)?;
     let origin = at(ordinal)?;
-    let open = LfBlock::<BD>::open(scratch, origin, self.direction, self.stride, run.width, run.len)?;
+    let open = LfBlock::<BD>::open(
+      scratch,
+      origin,
+      self.direction,
+      self.stride,
+      run.width,
+      run.len,
+    )?;
 
     match open {
       Some(mut block) => {
@@ -1769,8 +2011,14 @@ impl<BD: BitDepth> ScalarFilterPath<'_, BD> {
     }
 
     let steps = match self.direction {
-      HV::H => Point { x: 1, y: self.stride },
-      HV::V => Point { x: self.stride, y: 1 },
+      HV::H => Point {
+        x: 1,
+        y: self.stride,
+      },
+      HV::V => Point {
+        x: self.stride,
+        y: 1,
+      },
     };
 
     for (delta, parameter) in (0u32..).zip(params) {
@@ -1785,7 +2033,11 @@ impl<BD: BitDepth> ScalarFilterPath<'_, BD> {
         None => {
           let &(edge, interior, variance, _) = parameter;
           let mut taps = DirectTaps { dst: one, steps };
-          let levels = FilterLevels { edge, interior, variance };
+          let levels = FilterLevels {
+            edge,
+            interior,
+            variance,
+          };
           let Ok(()) = loop_filter::<BD, _>(&mut taps, levels, run.width, self.depth);
         }
       }
@@ -1806,9 +2058,21 @@ fn loop_filter_sb128_rust<BD: BitDepth>(
   direction: HV,
 ) -> Rav1dResult {
   let groups = scalar_filter_groups(masks, cache, step_in_blocks, lut, plane, direction)?;
-  let Ok(pixel_stride) = ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() { ::core::result::Result::Ok(pixel_stride) => pixel_stride });
-  let Ok(stride) = console_core_number_conversion::fixed_offset(match ::console_core_number_conversion::wrapped_offset(pixel_stride) { ::core::result::Result::Ok(native_position) => native_position });
-  let path = ScalarFilterPath { plane: dst, direction, stride, depth };
+  let Ok(pixel_stride) =
+    ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+      ::core::result::Result::Ok(pixel_stride) => pixel_stride,
+    });
+  let Ok(stride) = console_core_number_conversion::fixed_offset(
+    match ::console_core_number_conversion::wrapped_offset(pixel_stride) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+  );
+  let path = ScalarFilterPath {
+    plane: dst,
+    direction,
+    stride,
+    depth,
+  };
   let Ok(mut scratch) = LfScratch::new();
   let mut first_unfiltered = 0u32;
 
@@ -1939,7 +2203,10 @@ mod run_reach {
     }
 
     let [_, _, reach2, reach3, reach4, _, _, reach7] = covered;
-    assert!(reach2 && reach3 && reach4 && reach7, "reaches exercised: {covered:?}");
+    assert!(
+      reach2 && reach3 && reach4 && reach7,
+      "reaches exercised: {covered:?}"
+    );
 
     Ok(())
   }
@@ -1948,7 +2215,10 @@ mod run_reach {
   fn run_reach_fits_the_transform_that_selected_it() {
     for (width, rows_below) in [(4, 4u8), (6, 4), (8, 8), (16, 16)] {
       let Ok(reach) = lf_reach(width);
-      assert!(reach <= rows_below, "width {width} reaches {reach} into {rows_below} rows");
+      assert!(
+        reach <= rows_below,
+        "width {width} reaches {reach} into {rows_below} rows"
+      );
     }
   }
 }
@@ -1981,12 +2251,26 @@ mod compact_window {
     ] {
       let stride = STRIDE;
       let offset = 64_u64.wrapping_mul(stride).wrapping_add(64);
-      let CompactFilterWindow { width, height, origin, base } =
-        CompactFilterWindow::for_run(HV::H, plane, &vmask, 1, (offset, stride))?;
+      let CompactFilterWindow {
+        width,
+        height,
+        origin,
+        base,
+      } = CompactFilterWindow::for_run(HV::H, plane, &vmask, 1, (offset, stride))?;
       assert_eq!(height, 4, "{label}: one group is 4 rows");
-      assert_eq!(origin.wrapping_add(base), offset, "{label}: the edge sits at base");
-      assert!(base <= cols_right, "{label}: reads {base} columns before the edge");
-      assert!(width.wrapping_sub(base) <= cols_right, "{label}: reads {width} - {base} columns after the edge");
+      assert_eq!(
+        origin.wrapping_add(base),
+        offset,
+        "{label}: the edge sits at base"
+      );
+      assert!(
+        base <= cols_right,
+        "{label}: reads {base} columns before the edge"
+      );
+      assert!(
+        width.wrapping_sub(base) <= cols_right,
+        "{label}: reads {width} - {base} columns after the edge"
+      );
     }
 
     Ok(())
@@ -1998,9 +2282,16 @@ mod compact_window {
     let offset = ROW0.wrapping_mul(STRIDE).wrapping_add(COL);
 
     for vmask in CHROMA_MASKS {
-      let CompactFilterWindow { width, height, origin, .. } =
-        CompactFilterWindow::for_run(HV::H, YUV::UV, &vmask, MAX_ITER, (offset, stride))?;
-      assert_eq!(height, ::core::primitive::u64::wrapping_mul(u64::from(MAX_ITER), 4));
+      let CompactFilterWindow {
+        width,
+        height,
+        origin,
+        ..
+      } = CompactFilterWindow::for_run(HV::H, YUV::UV, &vmask, MAX_ITER, (offset, stride))?;
+      assert_eq!(
+        height,
+        ::core::primitive::u64::wrapping_mul(u64::from(MAX_ITER), 4)
+      );
 
       for row in 0..height {
         let row_start = origin.wrapping_add(row.wrapping_mul(STRIDE));
@@ -2034,8 +2325,12 @@ mod compact_window {
       let pic = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut px, picture_stride);
       let stride = STRIDE;
       let offset = ROW0.wrapping_mul(STRIDE).wrapping_add(COL);
-      let CompactFilterWindow { width, height, origin, .. } =
-        CompactFilterWindow::for_run(HV::H, YUV::UV, &vmask, MAX_ITER, (offset, stride))?;
+      let CompactFilterWindow {
+        width,
+        height,
+        origin,
+        ..
+      } = CompactFilterWindow::for_run(HV::H, YUV::UV, &vmask, MAX_ITER, (offset, stride))?;
       let Ok(w) = console_core_number_conversion::index(width);
       let Ok(h) = console_core_number_conversion::index(height);
       let Ok(start) = console_core_number_conversion::index(origin);
@@ -2278,8 +2573,8 @@ mod neon_parity {
       }
 
       let mut simd = buf;
-      use zerocopy::IntoBytes as _;
       use crate::src::safe_simd::loopfilter_arm::{CompactRun, lf_compact_run_neon};
+      use zerocopy::IntoBytes as _;
       let Ok(run_base) = fixed_index(base);
       let parameters = params.get(..groups).ok_or(Rav1dError::EINVAL)?;
       let request = CompactRun {
@@ -2292,7 +2587,11 @@ mod neon_parity {
         depth_shift: bd.bitdepth().wrapping_sub(8),
         maximum: bd_max,
       };
-      assert_eq!(lf_compact_run_neon(request), Ok(()), "kernel refused wd={wd} direction={direction:?} groups={groups}");
+      assert_eq!(
+        lf_compact_run_neon(request),
+        Ok(()),
+        "kernel refused wd={wd} direction={direction:?} groups={groups}"
+      );
 
       let mut reference = buf;
       let Ok(origin) = fixed_index(base);
@@ -2301,9 +2600,19 @@ mod neon_parity {
       let entries = params.get(..groups).ok_or(Rav1dError::EINVAL)?;
       for (group, &(edge, interior, variance, _)) in (0u32..).zip(entries) {
         let displacement = i64::from(group).wrapping_mul(4).wrapping_mul(along);
-        let base = origin.checked_add_signed(displacement).ok_or(Rav1dError::ERANGE)?;
-        let window = FilterWindow { base, along, across };
-        let levels = FilterLevels { edge, interior, variance };
+        let base = origin
+          .checked_add_signed(displacement)
+          .ok_or(Rav1dError::ERANGE)?;
+        let window = FilterWindow {
+          base,
+          along,
+          tap_stride: across,
+        };
+        let levels = FilterLevels {
+          edge,
+          interior,
+          variance,
+        };
         let mut taps = SliceTaps::new(&mut reference, window, i64::from(radius))?;
         let Ok(()) = loop_filter::<BD, _>(&mut taps, levels, wd, bd);
       }
@@ -2401,7 +2710,12 @@ mod neon_parity {
         let Ok(final_changed) = fixed_index(last);
         first..final_changed.wrapping_add(1)
       });
-      assert_eq!(lf_diff_span(request), Ok(expected), "bd={} row={row} w={w}", bd.bitdepth());
+      assert_eq!(
+        lf_diff_span(request),
+        Ok(expected),
+        "bd={} row={row} w={w}",
+        bd.bitdepth()
+      );
       match want.is_some() {
         true => {
           fired += 1;
@@ -2457,8 +2771,10 @@ struct FixtureTaps<'a> {
 #[cfg(all(test, target_arch = "x86_64", feature = "bitdepth_8"))]
 impl FixtureTaps<'_> {
   fn offset(&self, point: Point<i64>) -> Result<Option<u64>, Never> {
-    let displacement = point.y.wrapping_mul(self.window.along)
-      .wrapping_add(point.x.wrapping_mul(self.window.across));
+    let displacement = point
+      .y
+      .wrapping_mul(self.window.along)
+      .wrapping_add(point.x.wrapping_mul(self.window.tap_stride));
     Ok(self.window.base.checked_add_signed(displacement))
   }
 }
@@ -2506,15 +2822,34 @@ pub(crate) fn loop_filter_scalar_for_test(
 
   for lane in (0..fixture.lanes).step_by(4) {
     let displacement = i64::from(lane).wrapping_mul(fixture.window.along);
-    let base = fixture.window.base.checked_add_signed(displacement).ok_or(Rav1dError::EINVAL)?;
-    let window = FilterWindow { base, ..fixture.window };
+    let base = fixture
+      .window
+      .base
+      .checked_add_signed(displacement)
+      .ok_or(Rav1dError::EINVAL)?;
+    let window = FilterWindow {
+      base,
+      ..fixture.window
+    };
     let mut taps = FixtureTaps { pixels, window };
 
     for point in [
-      Point { x: reach.wrapping_neg(), y: 0 },
-      Point { x: reach.wrapping_sub(1), y: 0 },
-      Point { x: reach.wrapping_neg(), y: 3 },
-      Point { x: reach.wrapping_sub(1), y: 3 },
+      Point {
+        x: reach.wrapping_neg(),
+        y: 0,
+      },
+      Point {
+        x: reach.wrapping_sub(1),
+        y: 0,
+      },
+      Point {
+        x: reach.wrapping_neg(),
+        y: 3,
+      },
+      Point {
+        x: reach.wrapping_sub(1),
+        y: 3,
+      },
     ] {
       let Ok(offset) = taps.offset(point);
 

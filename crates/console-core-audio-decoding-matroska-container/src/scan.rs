@@ -20,7 +20,7 @@ use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
 
 use crate::ebml::{ElementHeader, Walker};
-use crate::fault::{Fault, Invalid, Missing, Unsupported};
+use crate::fault::{DecodeError, Invalid, MissingElement, Unsupported};
 use crate::ids;
 use crate::segment::{
   InfoElement, SeekElement, TrackElement, read_cues, read_doc_type, read_info, read_seek_head,
@@ -80,7 +80,7 @@ impl Scan {
     })
   }
 
-  fn absorb(&mut self, id: u32, data: &[u8], segment_pos: u64) -> Result<(), Fault> {
+  fn absorb(&mut self, id: u32, data: &[u8], segment_pos: u64) -> Result<(), DecodeError> {
     match id {
       ids::SEEK_HEAD => {
         let seeks = read_seek_head(data)?;
@@ -134,7 +134,7 @@ fn visit_of(seek: &SeekElement, segment_pos: u64) -> Result<Option<Visit>, Never
   })
 }
 
-pub(crate) fn open(mut reader: MediaSourceStream) -> Result<Opened, Fault> {
+pub(crate) fn open(mut reader: MediaSourceStream) -> Result<Opened, DecodeError> {
   let total_len = stream_length(&mut reader)?;
   let Ok(mut walker) = Walker::new(reader, total_len);
 
@@ -148,23 +148,23 @@ pub(crate) fn open(mut reader: MediaSourceStream) -> Result<Opened, Fault> {
     None => {}
   }
 
-  let tracks = scan.tracks.take().ok_or(Fault::Missing(Missing::Tracks))?;
+  let tracks = scan.tracks.take().ok_or(DecodeError::Absent(MissingElement::Tracks))?;
   let walker_2 = match total_len {
     Some(_) => walker.rewind(segment_pos)?,
     None => walker,
   };
-  let info = scan.info.take().ok_or(Fault::Missing(Missing::Info))?;
+  let info = scan.info.take().ok_or(DecodeError::Absent(MissingElement::Info))?;
 
   finish(walker_2, scan, tracks, &info)
 }
 
-fn stream_length(reader: &mut MediaSourceStream) -> Result<Option<u64>, Fault> {
+fn stream_length(reader: &mut MediaSourceStream) -> Result<Option<u64>, DecodeError> {
   match reader.seeking() {
     Seeking::Anywhere => {
       let at = reader.pos();
       let len = reader
         .byte_len()
-        .ok_or(Fault::Seek(SeekErrorKind::Unseekable))?;
+        .ok_or(DecodeError::Seek(SeekErrorKind::Unseekable))?;
 
       reader.seek(SeekFrom::Start(at))?;
 
@@ -174,9 +174,9 @@ fn stream_length(reader: &mut MediaSourceStream) -> Result<Option<u64>, Fault> {
   }
 }
 
-fn check_header(walker: &mut Walker) -> Result<(), Fault> {
+fn check_header(walker: &mut Walker) -> Result<(), DecodeError> {
   let header = walker.read_header()?;
-  let header_2 = header.ok_or(Fault::EndOfStream)?;
+  let header_2 = header.ok_or(DecodeError::EndOfStream)?;
 
   match header_2.id {
     ids::EBML => {
@@ -185,14 +185,14 @@ fn check_header(walker: &mut Walker) -> Result<(), Fault> {
 
       match doc_type.as_str() {
         "matroska" | "webm" => Ok(()),
-        _ => Err(Fault::Unsupported(Unsupported::NotMatroska)),
+        _ => Err(DecodeError::Unsupported(Unsupported::NotMatroska)),
       }
     }
-    _ => Err(Fault::Invalid(Invalid::UnexpectedElement)),
+    _ => Err(DecodeError::Invalid(Invalid::UnexpectedElement)),
   }
 }
 
-fn find_segment(walker: &mut Walker) -> Result<u64, Fault> {
+fn find_segment(walker: &mut Walker) -> Result<u64, DecodeError> {
   let first = walker.read_header()?;
 
   match first {
@@ -201,8 +201,8 @@ fn find_segment(walker: &mut Walker) -> Result<u64, Fault> {
       data_pos,
       ..
     }) => Ok(data_pos),
-    Some(_not_a_segment) => Err(Fault::Unsupported(Unsupported::MissingSegment)),
-    None => Err(Fault::Unsupported(Unsupported::MissingSegment)),
+    Some(_not_a_segment) => Err(DecodeError::Unsupported(Unsupported::MissingSegment)),
+    None => Err(DecodeError::Unsupported(Unsupported::MissingSegment)),
   }
 }
 
@@ -211,7 +211,7 @@ fn absorb_header(
   scan: &mut Scan,
   header: ElementHeader,
   segment_pos: u64,
-) -> Result<Flow, Fault> {
+) -> Result<Flow, DecodeError> {
   match header.id {
     ids::SEEK_HEAD | ids::TRACKS | ids::INFO | ids::CUES | ids::TAGS => {
       let data = walker.read_payload(&header)?;
@@ -236,7 +236,7 @@ fn absorb_header(
   }
 }
 
-fn scan_front(walker: &mut Walker, segment_pos: u64) -> Result<Scan, Fault> {
+fn scan_front(walker: &mut Walker, segment_pos: u64) -> Result<Scan, DecodeError> {
   let Ok(scan) = Scan::new();
   iterate((walker, scan), |(walker_2, mut scan_2)| {
     let outcome = match walker_2.read_header() {
@@ -251,7 +251,7 @@ fn scan_front(walker: &mut Walker, segment_pos: u64) -> Result<Scan, Fault> {
       Err(fault) => Step::Halt(Err(fault)),
     })
   })
-  .map_err(Fault::from)
+  .map_err(DecodeError::from)
   .and_then(std::convert::identity)
 }
 
@@ -260,11 +260,11 @@ fn follow(
   scan: &mut Scan,
   visit: &Visit,
   segment_pos: u64,
-) -> Result<(), Fault> {
+) -> Result<(), DecodeError> {
   walker.seek(visit.position)?;
 
   let header = walker.read_header()?;
-  let header_2 = header.ok_or(Fault::EndOfStream)?;
+  let header_2 = header.ok_or(DecodeError::EndOfStream)?;
 
   match header_2.id.cmp(&visit.id) {
     Ordering::Equal => {
@@ -272,11 +272,11 @@ fn follow(
 
       scan.absorb(header_2.id, &data, segment_pos)
     }
-    Ordering::Less | Ordering::Greater => Err(Fault::Invalid(Invalid::UnexpectedElement)),
+    Ordering::Less | Ordering::Greater => Err(DecodeError::Invalid(Invalid::UnexpectedElement)),
   }
 }
 
-fn follow_visits(walker: &mut Walker, scan: &mut Scan, segment_pos: u64) -> Result<(), Fault> {
+fn follow_visits(walker: &mut Walker, scan: &mut Scan, segment_pos: u64) -> Result<(), DecodeError> {
   let mut visits = std::mem::take(&mut scan.visits);
 
   visits.sort_by_key(|visit| visit.position);
@@ -285,7 +285,7 @@ fn follow_visits(walker: &mut Walker, scan: &mut Scan, segment_pos: u64) -> Resu
     .try_fold((walker, scan), |(walker_2, scan_2), visit| {
       follow(walker_2, scan_2, visit, segment_pos)?;
 
-      Ok::<_, Fault>((walker_2, scan_2))
+      Ok::<_, DecodeError>((walker_2, scan_2))
     })?;
 
   Ok(())
@@ -296,7 +296,7 @@ fn finish(
   scan: Scan,
   tracks: Vec<TrackElement>,
   info: &InfoElement,
-) -> Result<Opened, Fault> {
+) -> Result<Opened, DecodeError> {
   let time_base = time_base(info)?;
   let default_durations = default_durations(&tracks, info)?;
   let built = build_tracks(tracks, info, time_base)?;

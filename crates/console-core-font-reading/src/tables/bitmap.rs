@@ -11,7 +11,10 @@ impl BitmapSize {
     let Ok(start_glyph_index) = self.start_glyph_index();
     let Ok(end_glyph_index) = self.end_glyph_index();
 
-    match ::core::primitive::bool::then_some((start_glyph_index..=end_glyph_index).contains(&glyph_id), ()) {
+    match ::core::primitive::bool::then_some(
+      (start_glyph_index..=end_glyph_index).contains(&glyph_id),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Err(ReadError::OutOfBounds),
     }
@@ -31,7 +34,10 @@ impl BitmapSize {
       let Ok(first_glyph_index) = record.first_glyph_index();
       let Ok(last_glyph_index) = record.last_glyph_index();
 
-      match ::core::primitive::bool::then_some((first_glyph_index..=last_glyph_index).contains(&glyph_id), ()) {
+      match ::core::primitive::bool::then_some(
+        (first_glyph_index..=last_glyph_index).contains(&glyph_id),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => continue,
       }
@@ -199,10 +205,11 @@ impl BitmapSize {
             }) {
               Ok(index) => index,
               Err(_missing_glyph) => return Err(ReadError::InvalidCollectionIndex(number)),
-            }
+            },
           );
           let Ok(start_position) = console_core_number_conversion::index(array_index);
-          let Ok(end_position) = console_core_number_conversion::index(array_index.wrapping_add(1));
+          let Ok(end_position) =
+            console_core_number_conversion::index(array_index.wrapping_add(1));
           let first = records.get(start_position).ok_or(ReadError::OutOfBounds)?;
           let last = records.get(end_position).ok_or(ReadError::OutOfBounds)?;
           let Ok(start) = first.sbit_offset();
@@ -315,11 +322,17 @@ impl BitmapLocation {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `BitmapLocation::is_empty` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `BitmapLocation::is_empty` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `BitmapLocation::is_empty` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `BitmapLocation::is_empty` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_empty(&self) -> bool {
     self.data_size == 0
@@ -615,10 +628,13 @@ fn read_big_metrics(cursor: &mut Cursor) -> Result<BigGlyphMetrics, ReadError> {
 #[cfg(feature = "experimental_traverse")]
 impl SbitLineMetrics {
   #[must_use]
-  pub(crate) fn traversal_type<'a>(&self, data: FontData<'a>) -> core::result::Result<FieldType<'a>, console_core_never::Never> {
-      let Ok(traverse) = self.traverse(data);
+  pub(crate) fn traversal_type<'a>(
+    &self,
+    data: FontData<'a>,
+  ) -> core::result::Result<FieldType<'a>, console_core_never::Never> {
+    let Ok(traverse) = self.traverse(data);
 
-      Ok(FieldType::Record(traverse))
+    Ok(FieldType::Record(traverse))
   }
 }
 
@@ -635,7 +651,10 @@ impl<'a> IndexSubtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `IndexSubtable::offset_data` method returns `FontData` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `IndexSubtable::offset_data` method returns `FontData` directly in the existing parser interface"
+    )
   )]
   pub fn offset_data(&self) -> FontData<'a> {
     match self {
@@ -670,7 +689,10 @@ impl<'a> IndexSubtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `IndexSubtable::index_format` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `IndexSubtable::index_format` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn index_format(&self) -> u16 {
     match self {
@@ -705,7 +727,10 @@ impl<'a> IndexSubtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `IndexSubtable::image_format` method returns `u16` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `IndexSubtable::image_format` method returns `u16` directly in the existing parser interface"
+    )
   )]
   pub fn image_format(&self) -> u16 {
     match self {
@@ -740,7 +765,10 @@ impl<'a> IndexSubtable<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `IndexSubtable::image_data_offset` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `IndexSubtable::image_data_offset` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn image_data_offset(&self) -> u32 {
     match self {
@@ -774,11 +802,11 @@ impl<'a> IndexSubtable<'a> {
 }
 
 impl ReadArgs for IndexSubtable<'_> {
-  type Args = (GlyphId16, GlyphId16);
+  type Arguments = (GlyphId16, GlyphId16);
 }
 
 impl<'a> FontReadWithArgs<'a> for IndexSubtable<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let format: u16 = data.read_at(0u64)?;
 
     match format {
@@ -819,14 +847,16 @@ impl<'a> MinByteRange<'a> for IndexSubtable<'a> {
 #[cfg(feature = "experimental_traverse")]
 impl<'a> IndexSubtable<'a> {
   #[must_use]
-  fn dyn_inner<'b>(&'b self) -> core::result::Result<&'b dyn SomeTable<'a>, console_core_never::Never> {
-      Ok(match self {
-        Self::Format1(table) => table,
-        Self::Format2(table) => table,
-        Self::Format3(table) => table,
-        Self::Format4(table) => table,
-        Self::Format5(table) => table,
-      })
+  fn dyn_inner<'b>(
+    &'b self,
+  ) -> core::result::Result<&'b dyn SomeTable<'a>, console_core_never::Never> {
+    Ok(match self {
+      Self::Format1(table) => table,
+      Self::Format2(table) => table,
+      Self::Format3(table) => table,
+      Self::Format4(table) => table,
+      Self::Format5(table) => table,
+    })
   }
 }
 

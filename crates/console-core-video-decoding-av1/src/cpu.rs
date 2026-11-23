@@ -295,8 +295,8 @@ pub(crate) fn summon_avx512x() -> Result<Option<archmage::X64V4xToken>, console_
 
 #[cfg(all(target_arch = "aarch64", rav1d_arm_dotprod))]
 #[inline(always)]
-pub(crate) fn summon_arm64v2()
--> Result<Option<archmage::Arm64V2Token>, console_core_never::Never> {
+pub(crate) fn summon_arm64v2() -> Result<Option<archmage::Arm64V2Token>, console_core_never::Never>
+{
   use archmage::SimdToken as _;
   let Ok(availability) = simd_availability(CpuFlags::DOTPROD);
 
@@ -308,8 +308,8 @@ pub(crate) fn summon_arm64v2()
 
 #[cfg(all(target_arch = "aarch64", rav1d_arm_i8mm))]
 #[inline(always)]
-pub(crate) fn summon_arm64v3()
--> Result<Option<archmage::Arm64V3Token>, console_core_never::Never> {
+pub(crate) fn summon_arm64v3() -> Result<Option<archmage::Arm64V3Token>, console_core_never::Never>
+{
   use archmage::SimdToken as _;
   let Ok(availability) = simd_availability(CpuFlags::I8MM);
 

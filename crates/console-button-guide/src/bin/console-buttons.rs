@@ -114,10 +114,12 @@ impl std::fmt::Display for Unidentified {
 }
 
 fn ink() -> Result<console_button_guide::printed::Ansi, Never> {
-  Ok(match ::core::primitive::bool::then_some(std::io::stdout().is_terminal(), ()) {
-    ::core::option::Option::Some(()) => COLORED,
-    ::core::option::Option::None => PLAIN,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(std::io::stdout().is_terminal(), ()) {
+      ::core::option::Option::Some(()) => COLORED,
+      ::core::option::Option::None => PLAIN,
+    },
+  )
 }
 
 fn identify() -> Result<(), Unidentified> {

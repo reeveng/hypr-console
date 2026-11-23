@@ -49,8 +49,12 @@ mod tests {
     let Ok(glyph) = GlyphId::new(1);
 
     for (coordinate, expected) in [
-      (-1.0, -113.0), (-0.75, -85.0), (-0.5, -56.0),
-      (0.0, 0.0), (0.5, 30.0), (1.0, 59.0),
+      (-1.0, -113.0),
+      (-0.75, -85.0),
+      (-0.5, -56.0),
+      (0.0, 0.0),
+      (0.5, 30.0),
+      (1.0, 59.0),
     ] {
       let Ok(normalized) = F2Dot14::from_f32(coordinate);
       let Ok(expected_delta) = Fixed::from_f64(expected);
@@ -72,13 +76,17 @@ mod tests {
     let Ok(num_glyphs) = maxp.num_glyphs();
     let hvar = crate::test_support::fixture_value(font.hvar(), "fixture value")?;
 
-    let fixture_value = crate::test_support::fixture_value(hvar.advance_width_mapping(), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(hvar.advance_width_mapping(), "fixture value")?;
 
-    let advance_mapping = crate::test_support::fixture_value(fixture_value, "advance width mapping")?;
+    let advance_mapping =
+      crate::test_support::fixture_value(fixture_value, "advance width mapping")?;
     let adv_index_map = match advance_mapping {
       DeltaSetIndexMap::Format0(mapping) => mapping,
       DeltaSetIndexMap::Format1(_wrong_format) => {
-        return Err(crate::test_support::Failure::from("expected advance width mapping format 0"));
+        return Err(crate::test_support::Failure::from(
+          "expected advance width mapping format 0",
+        ));
       }
     };
 
@@ -96,15 +104,15 @@ mod tests {
       assert_eq!(
         {
           let advance_delta = crate::test_support::fixture_value(
-          hvar.advance_width_delta(
-            gid,
-            &[({
-              let Ok(explicit_value) = F2Dot14::from_f32(1.0);
-              explicit_value
-            })]
-          ),
-          "fixture value"
-        )?;
+            hvar.advance_width_delta(
+              gid,
+              &[({
+                let Ok(explicit_value) = F2Dot14::from_f32(1.0);
+                explicit_value
+              })],
+            ),
+            "fixture value",
+          )?;
           advance_delta
         },
         ({

@@ -68,7 +68,10 @@ fn dc_only(block: LargeNeonBlock<'_>, normalization: RectNormalization) -> Rav1d
     RectNormalization::Equal => dc,
     RectNormalization::Scale => dc.wrapping_mul(181).wrapping_add(128).wrapping_shr(8),
   };
-  let intermediate = normalized.wrapping_mul(181).wrapping_add(128).wrapping_shr(8);
+  let intermediate = normalized
+    .wrapping_mul(181)
+    .wrapping_add(128)
+    .wrapping_shr(8);
   let first = intermediate.wrapping_add(rounding).wrapping_shr(shift);
   let residual = first.wrapping_mul(181).wrapping_add(2176).wrapping_shr(12);
   let Ok(value) = wrapped::<_, i16>(residual);
@@ -91,8 +94,11 @@ fn dct32(input: [int16x8_t; 32]) -> Result<[int16x8_t; 32], Never> {
   let mut low = even_result;
   let mut high = even_result;
 
-  for (((front, back), &even_lane), &odd_lane) in low.iter_mut().zip(high.iter_mut().rev())
-    .zip(&even_result).zip(odd_result.iter().rev())
+  for (((front, back), &even_lane), &odd_lane) in low
+    .iter_mut()
+    .zip(high.iter_mut().rev())
+    .zip(&even_result)
+    .zip(odd_result.iter().rev())
   {
     *front = vqaddq_s16(even_lane, odd_lane);
     *back = vqsubq_s16(even_lane, odd_lane);
@@ -100,7 +106,10 @@ fn dct32(input: [int16x8_t; 32]) -> Result<[int16x8_t; 32], Never> {
 
   let [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p] = low;
   let [q, r, s, t, u, v, w, x, y, z, aa, ab, ac, ad, ae, af] = high;
-  Ok([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, aa, ab, ac, ad, ae, af])
+  Ok([
+    a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, aa, ab, ac, ad,
+    ae, af,
+  ])
 }
 
 #[rite(neon)]
@@ -149,9 +158,14 @@ fn horizontal(
   let mut columns = [vdupq_n_s16(0); 32];
 
   for (column, target) in (0_u64..).zip(columns.iter_mut().take(active)) {
-    let from = column.wrapping_mul(stripe.row_pitch).wrapping_add(stripe.start);
+    let from = column
+      .wrapping_mul(stripe.row_pitch)
+      .wrapping_add(stripe.start);
     let Ok(start) = index(from);
-    let group = coefficients.get_mut(start..).and_then(<[_]>::first_chunk_mut).ok_or(EINVAL)?;
+    let group = coefficients
+      .get_mut(start..)
+      .and_then(<[_]>::first_chunk_mut)
+      .ok_or(EINVAL)?;
     let loaded = safe_simd::vld1q_s16(group);
     *target = match plan.normalization {
       RectNormalization::Equal => loaded,
@@ -164,7 +178,10 @@ fn horizontal(
   let (column_groups, _tail) = transformed.as_chunks::<8>();
   let Ok(tile_columns) = index(width.wrapping_div(8));
   let Ok(row_start) = index(stripe.start);
-  let rows = scratch.get_mut(row_start..).and_then(<[_]>::first_chunk_mut::<8>).ok_or(EINVAL)?;
+  let rows = scratch
+    .get_mut(row_start..)
+    .and_then(<[_]>::first_chunk_mut::<8>)
+    .ok_or(EINVAL)?;
 
   for (group, values) in (0..tile_columns).zip(column_groups) {
     let [a, b, c, d, e, f, g, h] = values.map(|lane| match plan.normalization {
@@ -204,7 +221,10 @@ fn vertical(
     let Ok(residuals) = transform_lanes(lanes, plan.vertical);
 
     for (y, residual) in (0..height).zip(residuals) {
-      let point = Point { x: group.wrapping_mul(8), y };
+      let point = Point {
+        x: group.wrapping_mul(8),
+        y,
+      };
       let target = output.lane(point)?;
       let Ok(()) = add_pixel_lane(target, vrshrq_n_s16::<4>(residual));
     }
@@ -218,10 +238,30 @@ pub(crate) fn dct_large_rect_neon(_token: Arm64, block: LargeNeonBlock<'_>) -> R
   const ALL_ROWS: [i32; 4] = [i32::MIN; 4];
   let Ok(size) = block.output.size();
   let plan = match (size.width, size.height) {
-    (8, 32) => RectPlan { horizontal: Axis::Eight, vertical: Axis::ThirtyTwo, normalization: RectNormalization::Equal, row_thresholds: ALL_ROWS },
-    (32, 8) => RectPlan { horizontal: Axis::ThirtyTwo, vertical: Axis::Eight, normalization: RectNormalization::Equal, row_thresholds: ALL_ROWS },
-    (16, 32) => RectPlan { horizontal: Axis::Sixteen, vertical: Axis::ThirtyTwo, normalization: RectNormalization::Scale, row_thresholds: [i32::MIN, 36, 151, 279] },
-    (32, 16) => RectPlan { horizontal: Axis::ThirtyTwo, vertical: Axis::Sixteen, normalization: RectNormalization::Scale, row_thresholds: ALL_ROWS },
+    (8, 32) => RectPlan {
+      horizontal: Axis::Eight,
+      vertical: Axis::ThirtyTwo,
+      normalization: RectNormalization::Equal,
+      row_thresholds: ALL_ROWS,
+    },
+    (32, 8) => RectPlan {
+      horizontal: Axis::ThirtyTwo,
+      vertical: Axis::Eight,
+      normalization: RectNormalization::Equal,
+      row_thresholds: ALL_ROWS,
+    },
+    (16, 32) => RectPlan {
+      horizontal: Axis::Sixteen,
+      vertical: Axis::ThirtyTwo,
+      normalization: RectNormalization::Scale,
+      row_thresholds: [i32::MIN, 36, 151, 279],
+    },
+    (32, 16) => RectPlan {
+      horizontal: Axis::ThirtyTwo,
+      vertical: Axis::Sixteen,
+      normalization: RectNormalization::Scale,
+      row_thresholds: ALL_ROWS,
+    },
     _invalid => return Err(EINVAL),
   };
 
@@ -230,15 +270,26 @@ pub(crate) fn dct_large_rect_neon(_token: Arm64, block: LargeNeonBlock<'_>) -> R
     _non_dc => {
       let mut scratch = [[[0_i16; 8]; 4]; 32];
       let row_groups = size.height.wrapping_div(8);
-      let active_rows = plan.row_thresholds.into_iter().zip(0..row_groups)
+      let active_rows = plan
+        .row_thresholds
+        .into_iter()
+        .zip(0..row_groups)
         .take_while(|&(threshold, _group)| block.eob >= threshold);
-      let Ok(group_count) = console_core_number_conversion::fixed_index(active_rows.clone().count());
-      let required = size.width.wrapping_sub(1).wrapping_mul(size.height).wrapping_add(group_count.wrapping_mul(8));
+      let Ok(group_count) =
+        console_core_number_conversion::fixed_index(active_rows.clone().count());
+      let required = size
+        .width
+        .wrapping_sub(1)
+        .wrapping_mul(size.height)
+        .wrapping_add(group_count.wrapping_mul(8));
       let Ok(count) = index(required);
       block.coefficients.get(..count).ok_or(EINVAL)?;
 
       for (_threshold, group) in active_rows {
-        let stripe = RectStripe { start: group.wrapping_mul(8), row_pitch: size.height };
+        let stripe = RectStripe {
+          start: group.wrapping_mul(8),
+          row_pitch: size.height,
+        };
         horizontal(block.coefficients, &mut scratch, stripe, &plan)?;
       }
 

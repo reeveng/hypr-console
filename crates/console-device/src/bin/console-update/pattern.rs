@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use console_login_window::stored_pattern::{self, Hash, Matched, StoredPattern};
 
-use super::{Fault, desktop_account, optional, version, write};
+use super::{UpdateError, desktop_account, optional, version, write};
 
 const ENROLLED: &str = "update-pattern";
 const ATTEMPT: &str = "update-pattern-attempt";
@@ -17,7 +17,7 @@ pub(super) struct Order {
 }
 
 impl Order {
-  pub(super) fn read() -> Result<Self, Fault> {
+  pub(super) fn read() -> Result<Self, UpdateError> {
     let mut request = String::new();
     io::stdin().take(65).read_to_string(&mut request)?;
     Self::parse(request).ok_or_else(|| "invalid update pattern request".into())
@@ -47,11 +47,11 @@ impl Order {
   }
 }
 
-pub(super) fn enrolled(releases: &Path) -> Result<bool, Fault> {
+pub(super) fn enrolled(releases: &Path) -> Result<bool, UpdateError> {
   Ok(hash(releases)?.is_some())
 }
 
-pub(super) fn enroll(releases: &Path) -> Result<(), Fault> {
+pub(super) fn enroll(releases: &Path) -> Result<(), UpdateError> {
   let account = desktop_account()?;
   let home = account
     .split(':')
@@ -68,7 +68,7 @@ pub(super) fn enroll(releases: &Path) -> Result<(), Fault> {
   Ok(())
 }
 
-pub(super) fn forget(releases: &Path) -> Result<(), Fault> {
+pub(super) fn forget(releases: &Path) -> Result<(), UpdateError> {
   match fs::remove_file(releases.join(ENROLLED)) {
     Ok(()) => Ok(()),
     Err(fault) if fault.kind() == ErrorKind::NotFound => Ok(()),
@@ -76,7 +76,7 @@ pub(super) fn forget(releases: &Path) -> Result<(), Fault> {
   }
 }
 
-pub(super) fn verify(releases: &Path, order: &Order) -> Result<(), Fault> {
+pub(super) fn verify(releases: &Path, order: &Order) -> Result<(), UpdateError> {
   let hash = hash(releases)?.ok_or("no pattern is enrolled for Console updates")?;
   let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
   let attempt = releases.join(ATTEMPT);
@@ -93,7 +93,7 @@ pub(super) fn verify(releases: &Path, order: &Order) -> Result<(), Fault> {
   }
 }
 
-fn hash(releases: &Path) -> Result<Option<Hash>, Fault> {
+fn hash(releases: &Path) -> Result<Option<Hash>, UpdateError> {
   optional(&releases.join(ENROLLED))?
     .map(|hash| {
       validate(&hash)?;
@@ -102,7 +102,7 @@ fn hash(releases: &Path) -> Result<Option<Hash>, Fault> {
     .transpose()
 }
 
-fn validate(hash: &str) -> Result<(), Fault> {
+fn validate(hash: &str) -> Result<(), UpdateError> {
   let parts: Vec<_> = hash.split('$').collect();
   if let ["", "y", settings, salt, checksum] = parts.as_slice() {
     if (1..=8).contains(&settings.len())
@@ -139,7 +139,7 @@ mod tests {
   }
 
   #[test]
-  fn enrollment_accepts_the_login_windows_hash_format() -> Result<(), Fault> {
+  fn enrollment_accepts_the_login_windows_hash_format() -> Result<(), UpdateError> {
     let hash = stored_pattern::hashed("abcd")?;
     validate(&hash.0)
   }

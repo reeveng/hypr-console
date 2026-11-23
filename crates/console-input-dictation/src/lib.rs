@@ -348,20 +348,22 @@ fn data(wav: &[u8]) -> Result<Option<&[u8]>, Never> {
 
     let Ok(long) = index(size);
 
-    Ok(match ::core::primitive::bool::then_some(kind == b"data", ()) {
-      ::core::option::Option::Some(()) => Step::Halt(Some(match body.get(..long) {
-        Some(chunk) => chunk,
-        None => body,
-      })),
-      ::core::option::Option::None => {
-        let Ok(padded) = index(size.saturating_add(size & 1));
+    Ok(
+      match ::core::primitive::bool::then_some(kind == b"data", ()) {
+        ::core::option::Option::Some(()) => Step::Halt(Some(match body.get(..long) {
+          Some(chunk) => chunk,
+          None => body,
+        })),
+        ::core::option::Option::None => {
+          let Ok(padded) = index(size.saturating_add(size & 1));
 
-        match body.get(padded..) {
-          Some(rest_4) => Step::Again(rest_4),
-          None => Step::Halt(None),
+          match body.get(padded..) {
+            Some(rest_4) => Step::Again(rest_4),
+            None => Step::Halt(None),
+          }
         }
-      }
-    })
+      },
+    )
   });
 
   Ok(match found {
@@ -428,7 +430,10 @@ fn is_a_noise(line: &str) -> Result<Line, Never> {
   let bracketed = |open: char, close: char| line.starts_with(open) && line.ends_with(close);
 
   Ok(
-    match ::core::primitive::bool::then_some(bracketed('[', ']') || bracketed('(', ')') || bracketed('*', '*'), ()) {
+    match ::core::primitive::bool::then_some(
+      bracketed('[', ']') || bracketed('(', ')') || bracketed('*', '*'),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Line::TheRoom,
       ::core::option::Option::None => Line::Spoken,
     },
@@ -466,7 +471,10 @@ pub fn plainly(said: &str) -> Result<String, Never> {
 fn is_a_word(one: char, said: &[char], at: u32) -> Result<Letter, Never> {
   let Ok(upon) = is_upon_a_letter(one);
 
-  match ::core::primitive::bool::then_some(one.is_alphanumeric() || one.is_whitespace() || upon == Letter::OfAWord, ()) {
+  match ::core::primitive::bool::then_some(
+    one.is_alphanumeric() || one.is_whitespace() || upon == Letter::OfAWord,
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Ok(Letter::OfAWord),
     ::core::option::Option::None => {}
   }
@@ -544,10 +552,12 @@ enum Script {
 }
 
 fn unspaced(one: &char) -> Result<Script, Never> {
-  Ok(match ::core::primitive::bool::then_some(('\u{0e00}'..='\u{0e7f}').contains(one), ()) {
-    ::core::option::Option::Some(()) => Script::Unspaced,
-    ::core::option::Option::None => Script::Spaced,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(('\u{0e00}'..='\u{0e7f}').contains(one), ()) {
+      ::core::option::Option::Some(()) => Script::Unspaced,
+      ::core::option::Option::None => Script::Spaced,
+    },
+  )
 }
 
 #[cfg(test)]

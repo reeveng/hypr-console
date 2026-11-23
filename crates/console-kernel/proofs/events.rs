@@ -152,7 +152,7 @@ fn a_completion_settles_only_its_matching_slot_and_refunds_exactly_once() {
   if matching == claimed && sending == source {
     assert_eq!(
       result,
-      Settlement::Settled {
+      Settlement::Complete {
         value,
         refund: reserved
       }
@@ -174,7 +174,7 @@ fn a_completion_settles_only_its_matching_slot_and_refunds_exactly_once() {
     let Ok(cancellation) = slot.cancel(matching);
     assert_eq!(
       cancellation,
-      Settlement::Settled {
+      Settlement::Complete {
         value: (),
         refund: reserved
       }
@@ -217,7 +217,7 @@ fn cancellation_and_reuse_reject_old_completions_and_generation_never_wraps() {
   let Ok(cancelled) = slot.cancel(old);
   assert_eq!(
     cancelled,
-    Settlement::Settled {
+    Settlement::Complete {
       value: (),
       refund: reserved
     }
@@ -247,7 +247,7 @@ fn cancellation_and_reuse_reject_old_completions_and_generation_never_wraps() {
       let Ok(settled) = slot.complete(correct);
       assert_eq!(
         settled,
-        Settlement::Settled {
+        Settlement::Complete {
           value: (),
           refund: reserved
         }

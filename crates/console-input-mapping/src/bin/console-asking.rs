@@ -212,10 +212,12 @@ impl Reading {
     let Ok(trigger) = trigger_spoken(named);
 
     match (trigger, held) {
-      (Some(word), true) => match ::core::primitive::bool::then_some(self.held.iter().any(|down| down == word), ()) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => self.held.push(word.to_string()),
-      },
+      (Some(word), true) => {
+        match ::core::primitive::bool::then_some(self.held.iter().any(|down| down == word), ()) {
+          ::core::option::Option::Some(()) => {}
+          ::core::option::Option::None => self.held.push(word.to_string()),
+        }
+      }
       (Some(word), false) => self.held.retain(|down| down != word),
       (None, _) => {}
     }
@@ -260,10 +262,12 @@ impl Card {
     }
 
     let heard = match &mut self.effect {
-      Action::Replied(when, over) => match ::core::primitive::bool::then_some(when.elapsed() > *over, ()) {
-        ::core::option::Option::Some(()) => return Ok(Turned::Over),
-        ::core::option::Option::None => return Ok(Turned::Again),
-      },
+      Action::Replied(when, over) => {
+        match ::core::primitive::bool::then_some(when.elapsed() > *over, ()) {
+          ::core::option::Option::Some(()) => return Ok(Turned::Over),
+          ::core::option::Option::None => return Ok(Turned::Again),
+        }
+      }
       Action::Settling => {
         let Ok(opened) = Reading::open(self.part.on, &mut self.complained);
 

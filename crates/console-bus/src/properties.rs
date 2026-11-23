@@ -134,16 +134,18 @@ impl Properties {
   ) -> Result<Option<(&str, &Property)>, Never> {
     let (interface_2, name_2) = (interface.0, name.0);
 
-    Ok(match ::core::primitive::bool::then_some(interface_2.is_empty(), ()) {
-      ::core::option::Option::Some(()) => self
-        .held
-        .iter()
-        .find_map(|(on, named)| named.get(name_2).map(|property| (on.as_str(), property))),
-      ::core::option::Option::None => self
-        .held
-        .get_key_value(interface_2)
-        .and_then(|(on, named)| named.get(name_2).map(|property| (on.as_str(), property))),
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(interface_2.is_empty(), ()) {
+        ::core::option::Option::Some(()) => self
+          .held
+          .iter()
+          .find_map(|(on, named)| named.get(name_2).map(|property| (on.as_str(), property))),
+        ::core::option::Option::None => self
+          .held
+          .get_key_value(interface_2)
+          .and_then(|(on, named)| named.get(name_2).map(|property| (on.as_str(), property))),
+      },
+    )
   }
 }
 

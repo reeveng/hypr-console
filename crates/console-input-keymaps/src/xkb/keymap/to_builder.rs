@@ -50,10 +50,12 @@ fn key_builder(key: &Key) -> Result<BuilderKey, Never> {
   let mut groups: Vec<_> = key
     .groups
     .iter()
-    .map(|slot| slot.as_ref().map(|group| {
-      let Ok(builder) = group_builder(group);
-      builder
-    }))
+    .map(|slot| {
+      slot.as_ref().map(|group| {
+        let Ok(builder) = group_builder(group);
+        builder
+      })
+    })
     .collect();
   let Ok(()) = trim_vacant_tail(&mut groups);
 
@@ -64,12 +66,14 @@ fn group_builder(group: &KeyGroup) -> Result<BuilderGroup, Never> {
   let mut levels: Vec<_> = group
     .levels
     .iter()
-    .map(|level| match (level.actions.is_empty(), level.symbols.is_empty()) {
-      (true, true) => None,
-      (true, false) | (false, true | false) => Some(BuilderLevel {
-        keysyms: level.symbols.clone(),
-      }),
-    })
+    .map(
+      |level| match (level.actions.is_empty(), level.symbols.is_empty()) {
+        (true, true) => None,
+        (true, false) | (false, true | false) => Some(BuilderLevel {
+          keysyms: level.symbols.clone(),
+        }),
+      },
+    )
     .collect();
   let Ok(()) = trim_vacant_tail(&mut levels);
 

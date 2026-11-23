@@ -123,7 +123,9 @@ fn main() -> ExitCode {
 
   let said = match chosen.try_recv() {
     Ok(said) => said,
-    Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => return ExitCode::SUCCESS,
+    Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => {
+      return ExitCode::SUCCESS;
+    }
   };
 
   match console_onscreen::send_to_home(said) {
@@ -146,7 +148,10 @@ mod tests {
   fn the_first_action_is_the_one_sent_after_the_card_closes() {
     let (selection, chosen) = mpsc::sync_channel(1);
 
-    assert_eq!(choose(&selection, PadInput::Payload), Ok(ActionOutcome::Close));
+    assert_eq!(
+      choose(&selection, PadInput::Payload),
+      Ok(ActionOutcome::Close)
+    );
     assert_eq!(choose(&selection, PadInput::Off), Ok(ActionOutcome::Close));
     assert_eq!(chosen.try_recv(), Ok(PadInput::Payload));
   }

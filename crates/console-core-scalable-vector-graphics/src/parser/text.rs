@@ -128,7 +128,7 @@ pub(crate) fn convert(
     ::core::option::Option::None => String::new(),
   };
 
-  let Ok(rect) = Rect::from_xywh(0.0, 0.0, 0.0, 0.0);
+  let Ok(rect) = FloatRectangle::from_xywh(0.0, 0.0, 0.0, 0.0);
   let dummy = match rect {
     Some(rect_2) => rect_2,
     None => return Ok(()),
@@ -249,7 +249,10 @@ fn collect_text_chunks_impl(
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "The text conversion guard remains active while the leaf's paint attributes resolve")
+  expect(
+    explicit049_no_recursion,
+    reason = "The text conversion guard remains active while the leaf's paint attributes resolve"
+  )
 )]
 fn append_text_leaf(
   parent: SvgNode,
@@ -363,8 +366,11 @@ fn resolve_authored_span(
   let Ok(dominant_baseline) = resolve_dominant_baseline(node);
   let Ok(apply_kerning) = resolve_kerning(node, state);
   let Ok(optical_sizing) = node.find_attribute::<&str>(AId::FontOpticalSizing);
-  let Ok(declared_length) = node.try_convert_length(AId::TextLength, Units::UserSpaceOnUse, state);
-  let text_length = declared_length.filter(|value| !matches!(value.partial_cmp(&0.0), Some(core::cmp::Ordering::Less))).map(crate::UserLength);
+  let Ok(declared_length) =
+    node.try_convert_length(AId::TextLength, Units::UserSpaceOnUse, state);
+  let text_length = declared_length
+    .filter(|value| !matches!(value.partial_cmp(&0.0), Some(core::cmp::Ordering::Less)))
+    .map(crate::UserLength);
   let Ok(visibility) = node.find_attribute(AId::Visibility);
   let Ok(fill) = style::resolve_fill(node, style::ObjectBounds::Available, state, cache);
   let Ok(stroke) = style::resolve_stroke(node, style::ObjectBounds::Available, state, cache);
@@ -466,7 +472,8 @@ fn append_span_characters(
       Some(position) => *position,
       None => CharacterPosition::default(),
     };
-    let new_chunk = position.x.is_some() || position.y.is_some() || iter.split_chunk || iter.chunks.is_empty();
+    let new_chunk =
+      position.x.is_some() || position.y.is_some() || iter.split_chunk || iter.chunks.is_empty();
     iter.split_chunk = false;
 
     match ::core::primitive::bool::then_some(new_chunk, ()) {
@@ -483,14 +490,12 @@ fn append_span_characters(
           text: character.to_string(),
         });
       }
-      ::core::option::Option::None => {
-        match iter.chunks.last_mut() {
-          Some(chunk) => {
-            let Ok(()) = extend_text_chunk(chunk, span, character, position_in_span);
-          }
-          None => {}
+      ::core::option::Option::None => match iter.chunks.last_mut() {
+        Some(chunk) => {
+          let Ok(()) = extend_text_chunk(chunk, span, character, position_in_span);
         }
-      }
+        None => {}
+      },
     }
 
     position_in_span = SpanCharacter::Continued;
@@ -573,25 +578,27 @@ fn resolve_text_flow(node: SvgNode, state: &converter::State) -> Result<Option<T
       zero
     }
   };
-  let start_offset_2 = match ::core::primitive::bool::then_some(start_offset.unit == LengthUnit::Percent, ()) {
-    ::core::option::Option::Some(()) => {
-      let path_len = {
-        let Ok(length) = path_length(&positioned_path);
-        length.0
-      };
+  let start_offset_2 =
+    match ::core::primitive::bool::then_some(start_offset.unit == LengthUnit::Percent, ()) {
+      ::core::option::Option::Some(()) => {
+        let path_len = {
+          let Ok(length) = path_length(&positioned_path);
+          length.0
+        };
 
-      match ::console_core_number_conversion::nearest_f32_from_f64(
-        path_len * (start_offset.number / 100.0),
-      ) {
-        ::core::result::Result::Ok(_converted_number) => _converted_number,
+        match ::console_core_number_conversion::nearest_f32_from_f64(
+          path_len * (start_offset.number / 100.0),
+        ) {
+          ::core::result::Result::Ok(_converted_number) => _converted_number,
+        }
       }
-    }
-    ::core::option::Option::None => {
-      let Ok(resolve_length) = node.resolve_length(AId::StartOffset, state, crate::UserLength(0.0));
+      ::core::option::Option::None => {
+        let Ok(resolve_length) =
+          node.resolve_length(AId::StartOffset, state, crate::UserLength(0.0));
 
-      resolve_length
-    }
-  };
+        resolve_length
+      }
+    };
 
   let Ok(element_id) = linked_node.element_id();
   let Ok(non_empty_string) = NonEmptyString::new(element_id.to_string());
@@ -633,7 +640,10 @@ fn convert_font(node: SvgNode, state: &converter::State) -> Result<Font, Never> 
     (*b"ital", (style == FontStyle::Italic).then_some(1.0)),
     (*b"slnt", (style == FontStyle::Oblique).then_some(-12.0)),
   ] {
-    match (default, variations.iter().any(|variation| variation.tag == tag)) {
+    match (
+      default,
+      variations.iter().any(|variation| variation.tag == tag),
+    ) {
       (Some(value), false) => {
         let Ok(axis) = FontVariation::new(tag, value);
         variations.push(axis);
@@ -644,7 +654,13 @@ fn convert_font(node: SvgNode, state: &converter::State) -> Result<Font, Never> 
 
   let Ok(families) = resolve_font_families(node, state);
 
-  Ok(Font { families, style, stretch, weight, variations })
+  Ok(Font {
+    families,
+    style,
+    stretch,
+    weight,
+    variations,
+  })
 }
 
 fn resolve_font_families(
@@ -669,19 +685,19 @@ fn resolve_font_families(
   };
 
   match ::core::primitive::bool::then_some(families.is_empty(), ()) {
-    ::core::option::Option::Some(()) => families.push(FontFamily::Named(state.opt.font_family.clone())),
+    ::core::option::Option::Some(()) => {
+      families.push(FontFamily::Named(state.opt.font_family.clone()))
+    }
     ::core::option::Option::None => {}
   }
 
   Ok(families)
 }
 
-fn authored_ancestor_text<'a>(
-  node: SvgNode<'a, '_>,
-  id: AId,
-) -> Result<Option<&'a str>, Never> {
+fn authored_ancestor_text<'a>(node: SvgNode<'a, '_>, id: AId) -> Result<Option<&'a str>, Never> {
   let Ok(mut ancestors) = node.ancestors();
-  let authored = ancestors.find(|ancestor| ancestor.has_attribute(id) == Ok(crate::Presence::Present));
+  let authored =
+    ancestors.find(|ancestor| ancestor.has_attribute(id) == Ok(crate::Presence::Present));
 
   match authored {
     Some(ancestor) => ancestor.attribute(id),
@@ -697,7 +713,10 @@ fn parse_font_variation_settings(node: SvgNode) -> Result<Vec<FontVariation>, Ne
   };
   console_core_logging::debug!("Found font-variation-settings: {settings:?}");
 
-  match ::core::primitive::bool::then_some(settings.eq_ignore_ascii_case("normal") || settings.is_empty(), ()) {
+  match ::core::primitive::bool::then_some(
+    settings.eq_ignore_ascii_case("normal") || settings.is_empty(),
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Ok(Vec::new()),
     ::core::option::Option::None => {}
   }
@@ -725,7 +744,9 @@ fn parse_variation_setting(declaration: &str) -> Result<Option<FontVariation>, N
   let tag = match tag_name.as_bytes() {
     [first, second, third, fourth] => [*first, *second, *third, *fourth],
     _ => {
-      console_core_logging::warn!("Invalid font-variation-settings tag {tag_name:?}, expected four bytes");
+      console_core_logging::warn!(
+        "Invalid font-variation-settings tag {tag_name:?}, expected four bytes"
+      );
       return Ok(None);
     }
   };
@@ -775,11 +796,17 @@ fn resolve_font_weight(node: SvgNode) -> Result<u16, Never> {
       Some("800") => 800,
       Some("900") => 900,
       Some("bolder") => {
-        let step = match weight { 400 => 300, _ => 100 };
+        let step = match weight {
+          400 => 300,
+          _ => 100,
+        };
         weight.saturating_add(step).min(900)
       }
       Some("lighter") => {
-        let step = match weight { 400 => 200, _ => 100 };
+        let step = match weight {
+          400 => 200,
+          _ => 100,
+        };
         weight.saturating_sub(step).max(100)
       }
       Some(_) | None => weight,
@@ -791,7 +818,10 @@ fn resolve_font_weight(node: SvgNode) -> Result<u16, Never> {
 
 #[cfg_attr(
   dylint_lib = "explicit088_no_arriving_length",
-  expect(explicit088_no_arriving_length, reason = "The parser measures actual decoded Unicode scalars before reserving and initializing exactly that many entries")
+  expect(
+    explicit088_no_arriving_length,
+    reason = "The parser measures actual decoded Unicode scalars before reserving and initializing exactly that many entries"
+  )
 )]
 fn character_storage<T: Clone>(text_node: SvgNode, initial: T) -> Result<Vec<T>, Never> {
   let Ok(count) = count_chars(text_node);
@@ -933,7 +963,11 @@ fn resolve_decoration(
   let Ok(overline) = decoration_style(tspan, "overline", state, cache);
   let Ok(line_through) = decoration_style(tspan, "line-through", state, cache);
 
-  Ok(TextDecoration { underline, overline, line_through })
+  Ok(TextDecoration {
+    underline,
+    overline,
+    line_through,
+  })
 }
 
 #[cfg_attr(
@@ -963,7 +997,8 @@ fn decoration_style(
           None => node,
         };
         let Ok(fill) = style::resolve_fill(painter, style::ObjectBounds::Available, state, cache);
-        let Ok(stroke) = style::resolve_stroke(painter, style::ObjectBounds::Available, state, cache);
+        let Ok(stroke) =
+          style::resolve_stroke(painter, style::ObjectBounds::Available, state, cache);
 
         return Ok(Some(TextDecorationStyle { fill, stroke }));
       }
@@ -981,7 +1016,10 @@ fn decoration_style(
   Ok(None)
 }
 
-fn convert_baseline_shift(node: SvgNode, state: &converter::State) -> Result<Vec<BaselineShift>, Never> {
+fn convert_baseline_shift(
+  node: SvgNode,
+  state: &converter::State,
+) -> Result<Vec<BaselineShift>, Never> {
   let mut shifts = Vec::new();
   let Ok(ancestors) = node.ancestors();
 
@@ -1001,16 +1039,25 @@ fn convert_baseline_shift(node: SvgNode, state: &converter::State) -> Result<Vec
     }
   }
 
-  match shifts.iter().find(|shift| !matches!(shift, BaselineShift::Baseline)) {
+  match shifts
+    .iter()
+    .find(|shift| !matches!(shift, BaselineShift::Baseline))
+  {
     Some(_) => Ok(shifts),
     None => Ok(Vec::new()),
   }
 }
 
-fn baseline_shift_for(node: SvgNode, state: &converter::State) -> Result<Option<BaselineShift>, Never> {
+fn baseline_shift_for(
+  node: SvgNode,
+  state: &converter::State,
+) -> Result<Option<BaselineShift>, Never> {
   let Ok(length) = node.try_attribute::<Length>(AId::BaselineShift);
   let shift = match length {
-    Some(Length { number, unit: LengthUnit::Percent }) => {
+    Some(Length {
+      number,
+      unit: LengthUnit::Percent,
+    }) => {
       let Ok(size) = super::units::resolve_font_size(node, state);
       let Ok(percentage) = console_core_number_conversion::nearest_f32_from_f64(number);
       BaselineShift::Number(size * (percentage / 100.0))
@@ -1043,37 +1090,41 @@ fn baseline_shift_for(node: SvgNode, state: &converter::State) -> Result<Option<
 fn count_chars(node: SvgNode) -> Result<u64, Never> {
   let Ok(descendants) = node.descendants();
 
-  Ok(descendants.fold(0u64, |count, current| match current.is_text() {
-    Ok(crate::NodeMatch::Matches) => {
-      let Ok(text) = current.text();
-      let Ok(length) = console_core_number_conversion::fixed_index(text.chars().count());
+  Ok(
+    descendants.fold(0u64, |count, current| match current.is_text() {
+      Ok(crate::NodeMatch::Matches) => {
+        let Ok(text) = current.text();
+        let Ok(length) = console_core_number_conversion::fixed_index(text.chars().count());
 
-      count.saturating_add(length)
-    }
-    Ok(crate::NodeMatch::Different) => count,
-  }))
+        count.saturating_add(length)
+      }
+      Ok(crate::NodeMatch::Different) => count,
+    }),
+  )
 }
 
 fn convert_writing_mode(text_node: SvgNode) -> Result<WritingMode, Never> {
   let Ok(mut ancestors) = text_node.ancestors();
 
-  Ok(match ancestors.find(|n| {
-    let Ok(explicit_value) = n.has_attribute(AId::WritingMode);
-    explicit_value == crate::Presence::Present
-  }) {
-    Some(n) => {
-      let Ok(attribute) = n.attribute(AId::WritingMode);
+  Ok(
+    match ancestors.find(|n| {
+      let Ok(explicit_value) = n.has_attribute(AId::WritingMode);
+      explicit_value == crate::Presence::Present
+    }) {
+      Some(n) => {
+        let Ok(attribute) = n.attribute(AId::WritingMode);
 
-      match match attribute {
-        ::core::option::Option::Some(option_value) => option_value,
-        ::core::option::Option::None => "lr-tb",
-      } {
-        "tb" | "tb-rl" | "vertical-rl" | "vertical-lr" => WritingMode::TopToBottom,
-        _ => WritingMode::LeftToRight,
+        match match attribute {
+          ::core::option::Option::Some(option_value) => option_value,
+          ::core::option::Option::None => "lr-tb",
+        } {
+          "tb" | "tb-rl" | "vertical-rl" | "vertical-lr" => WritingMode::TopToBottom,
+          _ => WritingMode::LeftToRight,
+        }
       }
-    }
-    None => WritingMode::LeftToRight,
-  })
+      None => WritingMode::LeftToRight,
+    },
+  )
 }
 
 #[cfg_attr(

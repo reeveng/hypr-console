@@ -400,7 +400,7 @@ pub(crate) fn handle_gs_single<'a>(
 
           Ok(Some(()))
         }
-        Transfer::Unreadable => Ok(None),
+        Transfer::Invalid => Ok(None),
       }
     }
     "BM" => {
@@ -433,7 +433,7 @@ fn set_number(dict: &Dict<'_>, key: &Name<'_>, number: &mut f32) -> Result<Optio
 enum Transfer {
   Function(ActiveTransferFunction),
   Identity,
-  Unreadable,
+  Invalid,
 }
 
 fn read_transfer_function(dict: &Dict<'_>) -> Result<Transfer, Never> {
@@ -441,7 +441,7 @@ fn read_transfer_function(dict: &Dict<'_>) -> Result<Transfer, Never> {
   let Ok(first) = dict.get::<Object<'_>>(TR);
   let object = match second.or(first) {
     Some(object) => object,
-    None => return Ok(Transfer::Unreadable),
+    None => return Ok(Transfer::Invalid),
   };
 
   Ok(match object {
@@ -458,8 +458,8 @@ fn read_transfer_function(dict: &Dict<'_>) -> Result<Transfer, Never> {
 
       match functions_2.map(<[Function; 4]>::try_from) {
         Some(Ok(four)) => Transfer::Function(ActiveTransferFunction::Four(four)),
-        Some(Err(_wrong_function_count)) => Transfer::Unreadable,
-        None => Transfer::Unreadable,
+        Some(Err(_wrong_function_count)) => Transfer::Invalid,
+        None => Transfer::Invalid,
       }
     }
     Object::Name(_) => Transfer::Identity,
@@ -473,7 +473,7 @@ fn read_transfer_function(dict: &Dict<'_>) -> Result<Transfer, Never> {
 
       match function {
         Some(function_2) => Transfer::Function(ActiveTransferFunction::Single(function_2)),
-        None => Transfer::Unreadable,
+        None => Transfer::Invalid,
       }
     }
   })

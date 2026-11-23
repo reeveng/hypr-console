@@ -21,16 +21,19 @@ impl Engine<'_> {
     };
     self.graphics.loop_counter = 1;
 
-    match ::core::primitive::bool::then_some(matches!(
-      self.graphics.backward_compatibility,
-      crate::BackwardCompatibility::Enabled
-    ) && matches!(
-      self.graphics.did_iup_x,
-      crate::InterpolationProgress::Applied
-    ) && matches!(
-      self.graphics.did_iup_y,
-      crate::InterpolationProgress::Applied
-    ), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(
+        self.graphics.backward_compatibility,
+        crate::BackwardCompatibility::Enabled
+      ) && matches!(
+        self.graphics.did_iup_x,
+        crate::InterpolationProgress::Applied
+      ) && matches!(
+        self.graphics.did_iup_y,
+        crate::InterpolationProgress::Applied
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         for _ in 0..count {
           self.value_stack.pop()?;
@@ -79,7 +82,7 @@ impl Engine<'_> {
         dy,
         match ::core::primitive::bool::then_some(true, ()) {
           ::core::option::Option::Some(()) => crate::truetype::graphics::Touch::Mark,
-          ::core::option::Option::None => crate::truetype::graphics::Touch::Keep,
+          ::core::option::Option::None => crate::truetype::graphics::Touch::Retain,
         },
       )?;
     }
@@ -91,19 +94,22 @@ impl Engine<'_> {
     let gs = &mut self.graphics;
     let contour_ix = self.value_stack.pop_index()?;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && contour_ix
-        >= ({
-          let Ok(value) = console_core_number_conversion::fitted::<_, u64>(
-            {
-              let Ok(value) = gs.zp2();
-              value
-            }
-            .contours
-            .len(),
-          );
-          value
-        }), ()) {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && contour_ix
+          >= ({
+            let Ok(value) = console_core_number_conversion::fitted::<_, u64>(
+              {
+                let Ok(value) = gs.zp2();
+                value
+              }
+              .contours
+              .len(),
+            );
+            value
+          }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -128,39 +134,40 @@ impl Engine<'_> {
       ),
       ::core::option::Option::None => 0,
     };
-    let Ok(end) = console_core_number_conversion::fitted::<_, u64>(
-      match gs.zp2 {
-        ZonePointer::Twilight => {
-          let Ok(value) = gs.zp2();
-          value
-        }
-        .points
-        .len(),
-        ZonePointer::Glyph => {
-          let Ok(value) = console_core_number_conversion::index(u64::wrapping_add(
-            {
-              let Ok(value) = console_core_number_conversion::wrapped::<_, u64>({
-                let answer = {
-                  let Ok(value) = gs.zp2();
-                  value
-                }
-                .contour(contour_ix)?;
-                answer
-              });
-              value
-            },
-            1,
-          ));
-          value
-        }
-      },
-    );
+    let Ok(end) = console_core_number_conversion::fitted::<_, u64>(match gs.zp2 {
+      ZonePointer::Twilight => {
+        let Ok(value) = gs.zp2();
+        value
+      }
+      .points
+      .len(),
+      ZonePointer::Glyph => {
+        let Ok(value) = console_core_number_conversion::index(u64::wrapping_add(
+          {
+            let Ok(value) = console_core_number_conversion::wrapped::<_, u64>({
+              let answer = {
+                let Ok(value) = gs.zp2();
+                value
+              }
+              .contour(contour_ix)?;
+              answer
+            });
+            value
+          },
+          1,
+        ));
+        value
+      }
+    });
 
     for i in start..({
       let Ok(value) = console_core_number_conversion::fitted::<_, u64>(end);
       value
     }) {
-      match ::core::primitive::bool::then_some(point_disp.zone != gs.zp2 || point_disp.point_ix != i, ()) {
+      match ::core::primitive::bool::then_some(
+        point_disp.zone != gs.zp2 || point_disp.point_ix != i,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           gs.move_zp2_point(
             i,
@@ -168,7 +175,7 @@ impl Engine<'_> {
             point_disp.dy,
             match ::core::primitive::bool::then_some(true, ()) {
               ::core::option::Option::Some(()) => crate::truetype::graphics::Touch::Mark,
-              ::core::option::Option::None => crate::truetype::graphics::Touch::Keep,
+              ::core::option::Option::None => crate::truetype::graphics::Touch::Retain,
             },
           )?;
         }
@@ -197,16 +204,19 @@ impl Engine<'_> {
     };
 
     for i in 0..end {
-      match ::core::primitive::bool::then_some(point_disp.zone != gs.zp2
-        || i
-          != ({
-            let Ok(value) = console_core_number_conversion::index(point_disp.point_ix);
+      match ::core::primitive::bool::then_some(
+        point_disp.zone != gs.zp2
+          || i
+            != ({
+              let Ok(value) = console_core_number_conversion::index(point_disp.point_ix);
 
-            {
-              let Ok(value_2) = console_core_number_conversion::fitted::<_, u64>(value);
-              value_2
-            }
-          }), ()) {
+              {
+                let Ok(value_2) = console_core_number_conversion::fitted::<_, u64>(value);
+                value_2
+              }
+            }),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           gs.move_zp2_point(
             {
@@ -217,7 +227,7 @@ impl Engine<'_> {
             point_disp.dy,
             match ::core::primitive::bool::then_some(false, ()) {
               ::core::option::Option::Some(()) => crate::truetype::graphics::Touch::Mark,
-              ::core::option::Option::None => crate::truetype::graphics::Touch::Keep,
+              ::core::option::Option::None => crate::truetype::graphics::Touch::Retain,
             },
           )?;
         }
@@ -258,7 +268,12 @@ impl Engine<'_> {
 
     for _ in 0..count {
       let point = self.value_stack.pop_index()?;
-      let should_move = match (gs.backward_compatibility, in_twilight, did_iup, composite_vertical) {
+      let should_move = match (
+        gs.backward_compatibility,
+        in_twilight,
+        did_iup,
+        composite_vertical,
+      ) {
         (crate::BackwardCompatibility::Disabled, _, _, _) => true,
         (crate::BackwardCompatibility::Enabled, true, _, _) => true,
         (crate::BackwardCompatibility::Enabled, false, true, _) => false,
@@ -285,10 +300,12 @@ impl Engine<'_> {
     let distance = self.value_stack.pop_f26dot6()?;
     let point_ix = self.value_stack.pop_index()?;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && !(gs.point_bounds([(gs.zp1, point_ix), (gs.zp0, gs.rp0)])
-        == Ok(crate::PointBounds::Within)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && !(gs.point_bounds([(gs.zp1, point_ix), (gs.zp0, gs.rp0)])
+          == Ok(crate::PointBounds::Within)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -371,9 +388,11 @@ impl Engine<'_> {
     let gs = &mut self.graphics;
     let p = self.value_stack.pop_index()?;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && !(gs.point_bounds([(gs.zp0, p)]) == Ok(crate::PointBounds::Within)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && !(gs.point_bounds([(gs.zp0, p)]) == Ok(crate::PointBounds::Within)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         gs.rp0 = p;
         gs.rp1 = p;
@@ -475,11 +494,13 @@ impl Engine<'_> {
         }
         .abs();
 
-        match ::core::primitive::bool::then_some({
-          let Ok(value) = delta;
-          value
-        } > gs.control_value_cutin, ())
-        {
+        match ::core::primitive::bool::then_some(
+          {
+            let Ok(value) = delta;
+            value
+          } > gs.control_value_cutin,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             distance = original_distance;
           }
@@ -505,9 +526,11 @@ impl Engine<'_> {
     let gs = &mut self.graphics;
     let p = self.value_stack.pop_index()?;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && !(gs.point_bounds([(gs.zp1, p), (gs.zp0, gs.rp0)]) == Ok(crate::PointBounds::Within)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && !(gs.point_bounds([(gs.zp1, p), (gs.zp0, gs.rp0)]) == Ok(crate::PointBounds::Within)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         gs.rp1 = gs.rp0;
         gs.rp2 = p;
@@ -524,71 +547,75 @@ impl Engine<'_> {
       ::core::option::Option::None => {}
     }
 
-    let mut original_distance =
-      match ::core::primitive::bool::then_some(matches!(gs.zp0, crate::truetype::zone::ZonePointer::Twilight)
-        || matches!(gs.zp1, crate::truetype::zone::ZonePointer::Twilight), ())
-      {
-        ::core::option::Option::Some(()) => {
-          let Ok(value) = gs.dual_project(
-            {
-              let answer = {
-                let Ok(value) = gs.zp1();
-                value
-              }
-              .original(p)?;
-              answer
-            },
-            {
-              let answer = {
-                let Ok(value) = gs.zp0();
-                value
-              }
-              .original(gs.rp0)?;
-              answer
-            },
-          );
+    let mut original_distance = match ::core::primitive::bool::then_some(
+      matches!(gs.zp0, crate::truetype::zone::ZonePointer::Twilight)
+        || matches!(gs.zp1, crate::truetype::zone::ZonePointer::Twilight),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let Ok(value) = gs.dual_project(
+          {
+            let answer = {
+              let Ok(value) = gs.zp1();
+              value
+            }
+            .original(p)?;
+            answer
+          },
+          {
+            let answer = {
+              let Ok(value) = gs.zp0();
+              value
+            }
+            .original(gs.rp0)?;
+            answer
+          },
+        );
+        value
+      }
+      ::core::option::Option::None => {
+        let Ok(v1) = {
+          let Ok(value) = gs.zp1();
           value
         }
-        ::core::option::Option::None => {
-          let Ok(v1) = {
-            let Ok(value) = gs.zp1();
-            value
-          }
-          .unscaled(p);
-          let Ok(v2) = {
-            let Ok(value) = gs.zp0();
-            value
-          }
-          .unscaled(gs.rp0);
-          let Ok(dist) = gs.dual_project_unscaled(v1, v2);
-
-          {
-            let Ok(value) = F26Dot6::from_bits({
-              let Ok(math_result_5) = math::mul(math::Product {
-                left: dist,
-                right: {
-                  let Ok(value) = gs.unscaled_to_pixels();
-                  value
-                },
-              });
-              math_result_5
-            });
-            value
-          }
+        .unscaled(p);
+        let Ok(v2) = {
+          let Ok(value) = gs.zp0();
+          value
         }
-      };
+        .unscaled(gs.rp0);
+        let Ok(dist) = gs.dual_project_unscaled(v1, v2);
+
+        {
+          let Ok(value) = F26Dot6::from_bits({
+            let Ok(math_result_5) = math::mul(math::Product {
+              left: dist,
+              right: {
+                let Ok(value) = gs.unscaled_to_pixels();
+                value
+              },
+            });
+            math_result_5
+          });
+          value
+        }
+      }
+    };
     let cutin = gs.single_width_cutin;
     let value = gs.single_width;
 
-    match ::core::primitive::bool::then_some(cutin > F26Dot6::ZERO
-      && original_distance < value + cutin
-      && original_distance > value - cutin, ())
-    {
+    match ::core::primitive::bool::then_some(
+      cutin > F26Dot6::ZERO
+        && original_distance < value + cutin
+        && original_distance > value - cutin,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
-        original_distance = match ::core::primitive::bool::then_some(original_distance >= F26Dot6::ZERO, ()) {
-          ::core::option::Option::Some(()) => value,
-          ::core::option::Option::None => -value,
-        };
+        original_distance =
+          match ::core::primitive::bool::then_some(original_distance >= F26Dot6::ZERO, ()) {
+            ::core::option::Option::Some(()) => value,
+            ::core::option::Option::None => -value,
+          };
       }
       ::core::option::Option::None => {}
     }
@@ -604,18 +631,22 @@ impl Engine<'_> {
         let min_distance = gs.min_distance;
 
         match ::core::primitive::bool::then_some(original_distance >= F26Dot6::ZERO, ()) {
-          ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(distance < min_distance, ()) {
-            ::core::option::Option::Some(()) => {
-              distance = min_distance;
+          ::core::option::Option::Some(()) => {
+            match ::core::primitive::bool::then_some(distance < min_distance, ()) {
+              ::core::option::Option::Some(()) => {
+                distance = min_distance;
+              }
+              ::core::option::Option::None => {}
             }
-            ::core::option::Option::None => {}
-          },
-          ::core::option::Option::None => match ::core::primitive::bool::then_some(distance > -min_distance, ()) {
-            ::core::option::Option::Some(()) => {
-              distance = -min_distance;
+          }
+          ::core::option::Option::None => {
+            match ::core::primitive::bool::then_some(distance > -min_distance, ()) {
+              ::core::option::Option::Some(()) => {
+                distance = -min_distance;
+              }
+              ::core::option::Option::None => {}
             }
-            ::core::option::Option::None => {}
-          },
+          }
         }
       }
       ::core::option::Option::None => {}
@@ -667,10 +698,13 @@ impl Engine<'_> {
 
     let Ok(cvt_len) = self.cvt.len();
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && (!(gs.point_bounds([(gs.zp1, p), (gs.zp0, gs.rp0)]) == Ok(crate::PointBounds::Within))
-        || (n > cvt_len)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && (!(gs.point_bounds([(gs.zp1, p), (gs.zp0, gs.rp0)])
+          == Ok(crate::PointBounds::Within))
+          || (n > cvt_len)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         gs.rp1 = gs.rp0;
 
@@ -896,7 +930,10 @@ impl Engine<'_> {
       },
     );
 
-    match ::core::primitive::bool::then_some(discriminant.wrapping_abs().wrapping_mul(19) > dotproduct.abs(), ()) {
+    match ::core::primitive::bool::then_some(
+      discriminant.wrapping_abs().wrapping_mul(19) > dotproduct.abs(),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let v = i32::wrapping_add(
           {
@@ -1019,10 +1056,12 @@ impl Engine<'_> {
     let count = gs.loop_counter;
     gs.loop_counter = 1;
 
-    match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-      && !(gs.point_bounds([(gs.zp0, gs.rp1), (gs.zp1, gs.rp2)])
-        == Ok(crate::PointBounds::Within)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+        && !(gs.point_bounds([(gs.zp0, gs.rp1), (gs.zp1, gs.rp2)])
+          == Ok(crate::PointBounds::Within)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1111,9 +1150,11 @@ impl Engine<'_> {
     for _ in 0..count {
       let point = self.value_stack.pop_index()?;
 
-      match ::core::primitive::bool::then_some(!matches!(gs.is_pedantic, crate::Pedantry::Strict)
-        && !(gs.point_bounds([(gs.zp2, point)]) == Ok(crate::PointBounds::Within)), ())
-      {
+      match ::core::primitive::bool::then_some(
+        !matches!(gs.is_pedantic, crate::Pedantry::Strict)
+          && !(gs.point_bounds([(gs.zp2, point)]) == Ok(crate::PointBounds::Within)),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -1136,14 +1177,21 @@ impl Engine<'_> {
       let Ok(original_distance) = gs.dual_project(original_point, orus_base);
       let Ok(cur_distance) = gs.project(current_point, cur_base);
 
-      let new_distance = match (original_distance == F26Dot6::ZERO, old_range == F26Dot6::ZERO) {
+      let new_distance = match (
+        original_distance == F26Dot6::ZERO,
+        old_range == F26Dot6::ZERO,
+      ) {
         (true, _) => F26Dot6::ZERO,
         (false, true) => original_distance,
         (false, false) => {
           let Ok(value) = original_distance.to_bits();
           let Ok(multiplier) = cur_range.to_bits();
           let Ok(divisor) = old_range.to_bits();
-          let Ok(bits) = math::mul_div(math::ProductRatio { value, multiplier, divisor });
+          let Ok(bits) = math::mul_div(math::ProductRatio {
+            value,
+            multiplier,
+            divisor,
+          });
           let Ok(distance) = F26Dot6::from_bits(bits);
           distance
         }
@@ -1167,9 +1215,11 @@ impl Engine<'_> {
 
     match gs.backward_compatibility {
       crate::BackwardCompatibility::Enabled => {
-        match ::core::primitive::bool::then_some(matches!(gs.did_iup_x, crate::InterpolationProgress::Applied)
-          && matches!(gs.did_iup_y, crate::InterpolationProgress::Applied), ())
-        {
+        match ::core::primitive::bool::then_some(
+          matches!(gs.did_iup_x, crate::InterpolationProgress::Applied)
+            && matches!(gs.did_iup_y, crate::InterpolationProgress::Applied),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             run = false;
           }
@@ -1236,16 +1286,19 @@ impl Engine<'_> {
       .checked_add(1)
       .ok_or(HintErrorKind::InvalidPointIndex(high_point))?;
 
-    match ::core::primitive::bool::then_some(matches!(
-      self.graphics.backward_compatibility,
-      crate::BackwardCompatibility::Enabled
-    ) && matches!(
-      self.graphics.did_iup_x,
-      crate::InterpolationProgress::Applied
-    ) && matches!(
-      self.graphics.did_iup_y,
-      crate::InterpolationProgress::Applied
-    ), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(
+        self.graphics.backward_compatibility,
+        crate::BackwardCompatibility::Enabled
+      ) && matches!(
+        self.graphics.did_iup_x,
+        crate::InterpolationProgress::Applied
+      ) && matches!(
+        self.graphics.did_iup_y,
+        crate::InterpolationProgress::Applied
+      ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1298,8 +1351,20 @@ mod tests {
     })
     .flags;
 
-    for (i, flag) in { let checked_value = flags.get(..10).required()?; checked_value }.iter().enumerate() {
-      assert_eq!(matches!(flag.curve_membership(), raw::tables::glyf::CurveMembership::OnCurve), i & 1 != 0);
+    for (i, flag) in {
+      let checked_value = flags.get(..10).required()?;
+      checked_value
+    }
+    .iter()
+    .enumerate()
+    {
+      assert_eq!(
+        matches!(
+          flag.curve_membership(),
+          raw::tables::glyf::CurveMembership::OnCurve
+        ),
+        i & 1 != 0
+      );
     }
 
     Ok(())
@@ -1342,7 +1407,10 @@ mod tests {
     let visible_flags = flags.get(..10).required()?;
 
     for flag in visible_flags {
-      assert!(!matches!(flag.curve_membership(), raw::tables::glyf::CurveMembership::OnCurve));
+      assert!(!matches!(
+        flag.curve_membership(),
+        raw::tables::glyf::CurveMembership::OnCurve
+      ));
     }
 
     Ok(())
@@ -1366,7 +1434,13 @@ mod tests {
     .iter()
     .enumerate()
     {
-      assert_eq!(matches!(flag.curve_membership(), raw::tables::glyf::CurveMembership::OnCurve), (10..=20).contains(&i));
+      assert_eq!(
+        matches!(
+          flag.curve_membership(),
+          raw::tables::glyf::CurveMembership::OnCurve
+        ),
+        (10..=20).contains(&i)
+      );
     }
 
     engine.value_stack.push(12).required()?;
@@ -1381,7 +1455,10 @@ mod tests {
     .enumerate()
     {
       assert_eq!(
-        matches!(flag.curve_membership(), raw::tables::glyf::CurveMembership::OnCurve),
+        matches!(
+          flag.curve_membership(),
+          raw::tables::glyf::CurveMembership::OnCurve
+        ),
         (10..=11).contains(&i) || (16..=20).contains(&i)
       );
     }
@@ -1410,7 +1487,10 @@ mod tests {
     .flags
     .iter()
     {
-      assert!(!matches!(flag.curve_membership(), raw::tables::glyf::CurveMembership::OnCurve));
+      assert!(!matches!(
+        flag.curve_membership(),
+        raw::tables::glyf::CurveMembership::OnCurve
+      ));
     }
 
     for flag in (*match &mut engine.graphics.zones {
@@ -1432,7 +1512,10 @@ mod tests {
     .flags
     .iter()
     {
-      assert!(matches!(flag.curve_membership(), raw::tables::glyf::CurveMembership::OnCurve));
+      assert!(matches!(
+        flag.curve_membership(),
+        raw::tables::glyf::CurveMembership::OnCurve
+      ));
     }
 
     Ok(())
@@ -1471,8 +1554,8 @@ mod tests {
       let Ok(updated_zone) = interpreter.graphics.zp0();
       let flag_after = updated_zone.flags.get(point_index).required()?;
       assert_eq!(flag_after.marker_presence(marker), raw::Presence::Absent);
-        Ok(())
-      };
+      Ok(())
+    };
 
     untouch(&mut engine, 0, 1, 0, PointMarker::TOUCHED_X)?;
 

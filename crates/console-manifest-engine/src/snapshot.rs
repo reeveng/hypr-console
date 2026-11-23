@@ -156,16 +156,18 @@ fn create(configuration: &str, kind: &[&str], what: Description<'_>) -> Result<S
     }
   }
 
-  Ok(match ::core::primitive::bool::then_some(answered.out.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => Snapshot::Not {
-      configuration: configuration.to_string(),
-      why: "snapper took it and would not say which one".to_string(),
+  Ok(
+    match ::core::primitive::bool::then_some(answered.out.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => Snapshot::Not {
+        configuration: configuration.to_string(),
+        why: "snapper took it and would not say which one".to_string(),
+      },
+      ::core::option::Option::None => Snapshot::Made {
+        configuration: configuration.to_string(),
+        number: answered.out.trim().to_string(),
+      },
     },
-    ::core::option::Option::None => Snapshot::Made {
-      configuration: configuration.to_string(),
-      number: answered.out.trim().to_string(),
-    },
-  })
+  )
 }
 
 pub const MOUNTS: &str = "/proc/self/mountinfo";

@@ -202,7 +202,9 @@ fn decide(
 
       match ::core::primitive::bool::then_some(typed == *word, ()) {
         ::core::option::Option::Some(()) => Transition::without_effects(state.clone()),
-        ::core::option::Option::None => Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(0))]),
+        ::core::option::Option::None => {
+          Transition::new(with, vec![Effect::Custom(FilesEffect::Replace(0))])
+        }
       }
     }
 
@@ -398,10 +400,12 @@ fn with_typed(state: &Standing, tab: u32, word: &str) -> Result<Standing, Never>
     .typed
     .iter()
     .enumerate()
-    .map(|(at, was)| match ::core::primitive::bool::then_some(at == slot, ()) {
-      ::core::option::Option::Some(()) => word.to_string(),
-      ::core::option::Option::None => was.clone(),
-    })
+    .map(
+      |(at, was)| match ::core::primitive::bool::then_some(at == slot, ()) {
+        ::core::option::Option::Some(()) => word.to_string(),
+        ::core::option::Option::None => was.clone(),
+      },
+    )
     .collect();
 
   Ok(Standing {
@@ -417,10 +421,12 @@ fn with_onto(state: &Standing, tab: u32, onto: Destination) -> Result<Standing, 
     .onto
     .iter()
     .enumerate()
-    .map(|(at, was)| match ::core::primitive::bool::then_some(at == slot, ()) {
-      ::core::option::Option::Some(()) => onto.clone(),
-      ::core::option::Option::None => was.clone(),
-    })
+    .map(
+      |(at, was)| match ::core::primitive::bool::then_some(at == slot, ()) {
+        ::core::option::Option::Some(()) => onto.clone(),
+        ::core::option::Option::None => was.clone(),
+      },
+    )
     .collect();
 
   Ok(Standing {

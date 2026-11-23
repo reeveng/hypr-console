@@ -139,7 +139,7 @@ impl TopLevelTable for Hmtx<'_> {
 }
 
 impl ReadArgs for Hmtx<'_> {
-  type Args = u16;
+  type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for Hmtx<'a> {

@@ -228,7 +228,13 @@ impl Floor0 {
       let Ok(skipped) = index(filled);
       let Ok(taken) = index(count);
 
-      for (coeff, scalar) in self.coeffs.iter_mut().skip(skipped).take(taken).zip(vector.iter()) {
+      for (coeff, scalar) in self
+        .coeffs
+        .iter_mut()
+        .skip(skipped)
+        .take(taken)
+        .zip(vector.iter())
+      {
         *coeff = last + *scalar;
       }
 

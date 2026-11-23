@@ -266,13 +266,19 @@ impl Screen {
     self.board.up = Some(Up { surface, layer });
 
     let shown = console_core_iteration::iterate(self, |this| {
-      Ok(match ::core::primitive::bool::then_some(this.board.size.is_none() && !this.board.closed, ()) {
-        ::core::option::Option::Some(()) => match this.queue.blocking_dispatch(&mut this.board) {
-          Ok(_dispatched) => Step::Again(this),
-          Err(fault) => Step::Halt(Err(SurfaceError::Closed(fault))),
+      Ok(
+        match ::core::primitive::bool::then_some(
+          this.board.size.is_none() && !this.board.closed,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => match this.queue.blocking_dispatch(&mut this.board)
+          {
+            Ok(_dispatched) => Step::Again(this),
+            Err(fault) => Step::Halt(Err(SurfaceError::Closed(fault))),
+          },
+          ::core::option::Option::None => Step::Halt(Ok(())),
         },
-        ::core::option::Option::None => Step::Halt(Ok(())),
-      })
+      )
     });
 
     match shown {
@@ -329,10 +335,12 @@ impl Screen {
   }
 
   pub fn closed(&self) -> Result<Closed, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.board.closed, ()) {
-      ::core::option::Option::Some(()) => Closed::Yes,
-      ::core::option::Option::None => Closed::No,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.board.closed, ()) {
+        ::core::option::Option::Some(()) => Closed::Yes,
+        ::core::option::Option::None => Closed::No,
+      },
+    )
   }
 
   pub fn draw(
@@ -480,10 +488,12 @@ impl Screen {
       .dispatch_pending(&mut self.board)
       .map_err(SurfaceError::Closed)?;
 
-    match ::core::primitive::bool::then_some(answer
-      .revents()
-      .intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL), ())
-    {
+    match ::core::primitive::bool::then_some(
+      answer
+        .revents()
+        .intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL),
+      (),
+    ) {
       ::core::option::Option::Some(()) => return Err(SurfaceError::Hung),
       ::core::option::Option::None => {}
     }
@@ -775,18 +785,22 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Board {
         );
         board.pointer_down = down;
         let (x, y) = board.pointer_at;
-        board.pointer_events.push(match ::core::primitive::bool::then_some(down, ()) {
-          ::core::option::Option::Some(()) => PointerEvent::Down { x, y },
-          ::core::option::Option::None => PointerEvent::Up,
-        });
+        board
+          .pointer_events
+          .push(match ::core::primitive::bool::then_some(down, ()) {
+            ::core::option::Option::Some(()) => PointerEvent::Down { x, y },
+            ::core::option::Option::None => PointerEvent::Up,
+          });
       }
-      wl_pointer::Event::Leave { .. } => match ::core::primitive::bool::then_some(board.pointer_down, ()) {
-        ::core::option::Option::Some(()) => {
-          board.pointer_down = false;
-          board.pointer_events.push(PointerEvent::Up);
+      wl_pointer::Event::Leave { .. } => {
+        match ::core::primitive::bool::then_some(board.pointer_down, ()) {
+          ::core::option::Option::Some(()) => {
+            board.pointer_down = false;
+            board.pointer_events.push(PointerEvent::Up);
+          }
+          ::core::option::Option::None => {}
         }
-        ::core::option::Option::None => {}
-      },
+      }
       _ => {}
     }
   }

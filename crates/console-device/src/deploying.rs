@@ -32,9 +32,7 @@
 //!
 //! The tree is still asked again at the last moment it could change anything,
 //! and its commit compared with the one placed. Nobody works in it, so what is
-//! asked now is whether the gate wrote into the tree it was passing -- which it
-//! did, once, when the picture of the map was redrawn by a newer graphviz and
-//! nothing had been committed to say so.
+//! asked now is whether the gate wrote into the tree it was passing.
 //!
 //! ## What is asked before anything is spent
 //!
@@ -340,22 +338,23 @@ type Effects = Queue<Effect<DeployingEffect>>;
 fn initial(
   deployment: &Deployment,
 ) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
-  let Ok(opening) = match ::core::primitive::bool::then_some(deployment.host.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => Transition::without_effects(Deploying::Nowhere),
-    ::core::option::Option::None => Transition::without_effects(Deploying::At(
-      Step::Rooting,
-      Going {
-        host: deployment.host.clone(),
-        how: deployment.how,
-        lock: PathBuf::new(),
-        tree: PathBuf::new(),
-        was: String::new(),
-        whom: String::new(),
-        toolchain: String::new(),
-        tests: deployment.tests,
-      },
-    )),
-  };
+  let Ok(opening) =
+    match ::core::primitive::bool::then_some(deployment.host.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => Transition::without_effects(Deploying::Nowhere),
+      ::core::option::Option::None => Transition::without_effects(Deploying::At(
+        Step::Rooting,
+        Going {
+          host: deployment.host.clone(),
+          how: deployment.how,
+          lock: PathBuf::new(),
+          tree: PathBuf::new(),
+          was: String::new(),
+          whom: String::new(),
+          toolchain: String::new(),
+          tests: deployment.tests,
+        },
+      )),
+    };
 
   Ok(opening)
 }
@@ -445,13 +444,14 @@ fn at(
     (Step::Still, Event::Replied(answer)) => {
       let Ok(marking) = Command::external(ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-      let mut effects = match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
-        ::core::option::Option::Some(()) => Vec::new(),
-        ::core::option::Option::None => vec![Effect::Print(format!(
-          "not committed here, so not sent -- what is sent is the history:\n{}",
-          answer.output.trim_end()
-        ))],
-      };
+      let mut effects =
+        match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
+          ::core::option::Option::Some(()) => Vec::new(),
+          ::core::option::Option::None => vec![Effect::Print(format!(
+            "not committed here, so not sent -- what is sent is the history:\n{}",
+            answer.output.trim_end()
+          ))],
+        };
 
       effects.push(Effect::Run(marking));
 
@@ -627,27 +627,29 @@ fn at(
       }
     },
 
-    (Step::Behind, Event::Replied(answer)) => match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(runs) = git_log(&going.tree, "FETCH_HEAD..HEAD");
+    (Step::Behind, Event::Replied(answer)) => {
+      match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(runs) = git_log(&going.tree, "FETCH_HEAD..HEAD");
 
-        Transition::new(
-          Deploying::At(Step::Ahead, going.clone()),
+          Transition::new(
+            Deploying::At(Step::Ahead, going.clone()),
+            vec![
+              Effect::Print("  nothing".to_string()),
+              Effect::Print("\n== what this has that the device does not".to_string()),
+              Effect::Run(runs),
+            ],
+          )
+        }
+        ::core::option::Option::None => Transition::new(
+          Deploying::At(step, going.clone()),
           vec![
-            Effect::Print("  nothing".to_string()),
-            Effect::Print("\n== what this has that the device does not".to_string()),
-            Effect::Run(runs),
+            Effect::Print(answer.output.trim_end().to_string()),
+            Effect::Stop(Exit::Failure("pull those first: just pull".to_string())),
           ],
-        )
+        ),
       }
-      ::core::option::Option::None => Transition::new(
-        Deploying::At(step, going.clone()),
-        vec![
-          Effect::Print(answer.output.trim_end().to_string()),
-          Effect::Stop(Exit::Failure("pull those first: just pull".to_string())),
-        ],
-      ),
-    },
+    }
 
     (Step::Ahead, Event::Replied(answer)) => {
       let Ok(spread) = within(
@@ -753,52 +755,56 @@ fn at(
 
     (Step::Wondering(which), Event::Chosen(chose)) => on_choice(which, *chose, going),
 
-    (Step::Settling, Event::Replied(answer)) => match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(moved) = within(&going.tree, ExternalProgram::Git, &["rev-parse", "HEAD"]);
+    (Step::Settling, Event::Replied(answer)) => {
+      match ::core::primitive::bool::then_some(answer.output.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(moved) = within(&going.tree, ExternalProgram::Git, &["rev-parse", "HEAD"]);
 
-        Transition::new(
-          Deploying::At(Step::Moved, going.clone()),
-          vec![Effect::Run(moved)],
-        )
-      }
-      ::core::option::Option::None => Transition::new(
-        Deploying::At(step, going.clone()),
-        vec![
-          Effect::Print(format!(
-            "\nthe tree `just ready` was asked of was written to while it ran:\n{}",
-            answer.output.trim_end()
-          )),
-          Effect::Stop(Exit::Failure(
-            "nothing sent. What passed is not what is committed: commit what the gate \
+          Transition::new(
+            Deploying::At(Step::Moved, going.clone()),
+            vec![Effect::Run(moved)],
+          )
+        }
+        ::core::option::Option::None => Transition::new(
+          Deploying::At(step, going.clone()),
+          vec![
+            Effect::Print(format!(
+              "\nthe tree `just ready` was asked of was written to while it ran:\n{}",
+              answer.output.trim_end()
+            )),
+            Effect::Stop(Exit::Failure(
+              "nothing sent. What passed is not what is committed: commit what the gate \
                          wrote, or find out why it writes"
-              .to_string(),
-          )),
-        ],
-      ),
-    },
-
-    (Step::Moved, Event::Replied(answer)) => match ::core::primitive::bool::then_some(answer.output.trim() == going.was, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(runs) = on(
-          going,
-          &format!("git -C {TREE} config receive.denyCurrentBranch updateInstead"),
-        );
-
-        Transition::new(
-          Deploying::At(Step::Allowing, going.clone()),
-          vec![Effect::Run(runs)],
-        )
+                .to_string(),
+            )),
+          ],
+        ),
       }
-      ::core::option::Option::None => {
-        let Ok(runs) = git_log(&going.tree, &format!("{}..HEAD", going.was));
+    }
 
-        Transition::new(
-          Deploying::At(Step::Moving, going.clone()),
-          vec![Effect::Run(runs)],
-        )
+    (Step::Moved, Event::Replied(answer)) => {
+      match ::core::primitive::bool::then_some(answer.output.trim() == going.was, ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(runs) = on(
+            going,
+            &format!("git -C {TREE} config receive.denyCurrentBranch updateInstead"),
+          );
+
+          Transition::new(
+            Deploying::At(Step::Allowing, going.clone()),
+            vec![Effect::Run(runs)],
+          )
+        }
+        ::core::option::Option::None => {
+          let Ok(runs) = git_log(&going.tree, &format!("{}..HEAD", going.was));
+
+          Transition::new(
+            Deploying::At(Step::Moving, going.clone()),
+            vec![Effect::Run(runs)],
+          )
+        }
       }
-    },
+    }
 
     (Step::Moving, Event::Replied(answer)) => Transition::new(
       Deploying::At(step, going.clone()),
@@ -2050,10 +2056,7 @@ mod tests {
 
   #[test]
   fn a_gate_that_wrote_into_the_tree_it_passed_sends_nothing() {
-    let Ok(said) = as_far_as(
-      &["--yes"],
-      vec![Step::Success(" M docs/architecture/map.svg\n")],
-    );
+    let Ok(said) = as_far_as(&["--yes"], vec![Step::Success(" M desktop.conf\n")]);
 
     assert_eq!(said.pushes, 0);
     assert!(
@@ -2252,12 +2255,12 @@ mod tests {
     let asked = said.asks;
     let cards: Vec<u32> = (0..)
       .zip(&asked)
-      .filter_map(
-        |(at, runs)| match ::core::primitive::bool::then_some(runs.arguments.join(" ").contains(named), ()) {
+      .filter_map(|(at, runs)| {
+        match ::core::primitive::bool::then_some(runs.arguments.join(" ").contains(named), ()) {
           ::core::option::Option::Some(()) => Some(at),
           ::core::option::Option::None => None,
-        },
-      )
+        }
+      })
       .collect();
     let Ok(applied) = position(&asked, |runs| {
       runs.arguments.last().map(String::as_str) == Some("console apply")

@@ -123,12 +123,14 @@ impl Subscriber {
   fn path(&self, relative: &str) -> Result<PathBuf, Failure> {
     let path = Path::new(relative);
 
-    match ::core::primitive::bool::then_some(!relative.is_empty()
-      && !relative.contains('\0')
-      && path
-        .components()
-        .all(|part| matches!(part, Component::Normal(_))), ())
-    {
+    match ::core::primitive::bool::then_some(
+      !relative.is_empty()
+        && !relative.contains('\0')
+        && path
+          .components()
+          .all(|part| matches!(part, Component::Normal(_))),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(self.here.join(FixturePath(path))),
       ::core::option::Option::None => Err(Failure::from(format!(
         "invalid relative fixture path {relative:?}"
@@ -263,10 +265,12 @@ fn assert_missing(at: &Path) -> Result<(), Failure> {
       "unexpected fixture {}",
       at.display()
     ))),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Ok(()),
-      ::core::option::Option::None => Err(Failure::from(fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => Err(Failure::from(fault)),
+      }
+    }
   }
 }
 

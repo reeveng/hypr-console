@@ -56,8 +56,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
-use console_core_never::Never;
 use console_core_iteration::{Step, iterate};
+use console_core_never::Never;
 use console_core_reconnect::{Round, keep};
 use console_program_contract::{Change, EventGroup};
 
@@ -145,16 +145,19 @@ impl Subscriptions {
   pub fn desired(&self) -> Result<Desired, Never> {
     let Ok(wanted) = lock(&self.desired);
 
-    Ok(match ::core::primitive::bool::then_some(wanted.event_groups.is_empty(), ()) {
-      ::core::option::Option::Some(()) => Desired::None,
-      ::core::option::Option::None => Desired::Some,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(wanted.event_groups.is_empty(), ()) {
+        ::core::option::Option::Some(()) => Desired::None,
+        ::core::option::Option::None => Desired::Some,
+      },
+    )
   }
 
   pub fn subscribe(&self, event_group: &EventGroup) -> Result<(), Never> {
     let Ok(mut wanted) = lock(&self.desired);
 
-    match ::core::primitive::bool::then_some(wanted.event_groups.insert(event_group.clone()), ()) {
+    match ::core::primitive::bool::then_some(wanted.event_groups.insert(event_group.clone()), ())
+    {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Ok(()),
     }
@@ -294,12 +297,16 @@ fn interest(desired: &Reconnect) -> Result<Interest, Never> {
 
   Ok(match wanted.connection {
     Connection::Closed => Interest::Gone,
-    Connection::Dormant(_) | Connection::Reconnecting | Connection::Established(_) => Interest::Active,
+    Connection::Dormant(_) | Connection::Reconnecting | Connection::Established(_) => {
+      Interest::Active
+    }
   })
 }
 
 fn open_connection(socket: &Path) -> std::io::Result<UnixStream> {
-  use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with};
+  use rustix::net::{
+    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with,
+  };
 
   let address = SocketAddrUnix::new(socket)?;
   let descriptor = socket_with(
@@ -333,7 +340,10 @@ fn round(
   let stream = match open_connection(socket) {
     Ok(stream) => stream,
     Err(fault) => {
-      console_core_logging::trace!("console-events: connecting to {}: {fault}", socket.display());
+      console_core_logging::trace!(
+        "console-events: connecting to {}: {fault}",
+        socket.display()
+      );
 
       return Ok(Round::Another);
     }
@@ -528,7 +538,9 @@ fn close_connection(connection: Connection) -> Result<(), Never> {
   match connection {
     Connection::Established(stream) => match stream.shutdown(Shutdown::Both) {
       Ok(()) => {}
-      Err(fault) => console_core_logging::trace!("console-events: closing a subscription: {fault}"),
+      Err(fault) => {
+        console_core_logging::trace!("console-events: closing a subscription: {fault}")
+      }
     },
     Connection::Dormant(_) | Connection::Reconnecting | Connection::Closed => {}
   }

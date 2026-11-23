@@ -14,8 +14,8 @@ use console_core_number_conversion::{index, narrow_f32};
 use core::f32::consts::FRAC_1_SQRT_2;
 use core::f64::consts::PI;
 
-use crate::{BufferLength, Fault, TransformSize};
 use crate::complex::Complex;
+use crate::{BufferLength, TransformError, TransformSize};
 
 pub(crate) struct Fft {
   permutation: Box<[u16]>,
@@ -68,10 +68,10 @@ impl Fft {
     Ok(vec![Complex::default(); self.permutation.len()].into_boxed_slice())
   }
 
-  pub(crate) fn new(size: u32) -> Result<Fft, Fault> {
+  pub(crate) fn new(size: u32) -> Result<Fft, TransformError> {
     let count = match u16::try_from(size) {
       Ok(count) => count,
-      Err(_too_large) => return Err(Fault::Size),
+      Err(_too_large) => return Err(TransformError::Size),
     };
 
     match TransformSize::from(size.is_power_of_two() && size >= 2) {
@@ -93,20 +93,20 @@ impl Fft {
           stages,
         })
       }
-      TransformSize::Unsupported => Err(Fault::Size),
+      TransformSize::Unsupported => Err(TransformError::Size),
     }
   }
 
-  pub(crate) fn fft(&self, x: &[Complex], y: &mut [Complex]) -> Result<(), Fault> {
+  pub(crate) fn fft(&self, x: &[Complex], y: &mut [Complex]) -> Result<(), TransformError> {
     match (
       BufferLength::from(x.len() == self.permutation.len()),
       BufferLength::from(y.len() == self.permutation.len()),
     ) {
       (BufferLength::Exact, BufferLength::Exact) => {}
       (BufferLength::Mismatched, BufferLength::Exact | BufferLength::Mismatched) => {
-        return Err(Fault::Spectrum);
+        return Err(TransformError::Spectrum);
       }
-      (BufferLength::Exact, BufferLength::Mismatched) => return Err(Fault::Output),
+      (BufferLength::Exact, BufferLength::Mismatched) => return Err(TransformError::Output),
     }
 
     for (slot, source) in y.iter_mut().zip(self.permutation.iter()) {
@@ -114,7 +114,7 @@ impl Fft {
 
       match x.get(at) {
         Some(value) => *slot = *value,
-        None => return Err(Fault::Spectrum),
+        None => return Err(TransformError::Spectrum),
       }
     }
 

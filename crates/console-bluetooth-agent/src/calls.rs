@@ -99,16 +99,18 @@ fn every_radio(objects: &Objects, power: Power) -> Result<Result<Calls, Error>, 
     })
     .collect();
 
-  Ok(match ::core::primitive::bool::then_some(messages.is_empty(), ()) {
-    ::core::option::Option::Some(()) => Err(Error::Power {
-      power,
-      reason: Reason::NoRadio,
-    }),
-    ::core::option::Option::None => Ok(Calls::Needed {
-      name: "Bluetooth".to_string(),
-      messages,
-    }),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(messages.is_empty(), ()) {
+      ::core::option::Option::Some(()) => Err(Error::Power {
+        power,
+        reason: Reason::NoRadio,
+      }),
+      ::core::option::Option::None => Ok(Calls::Needed {
+        name: "Bluetooth".to_string(),
+        messages,
+      }),
+    },
+  )
 }
 
 pub fn answered(

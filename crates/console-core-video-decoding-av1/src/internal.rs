@@ -77,8 +77,8 @@ use crate::src::recon::rav1d_filter_sbrow_deblock_rows;
 use crate::src::recon::rav1d_filter_sbrow_lr;
 use crate::src::recon::rav1d_filter_sbrow_resize;
 use crate::src::recon::rav1d_read_coef_blocks;
-use crate::src::recon::rav1d_read_pal_y;
 use crate::src::recon::rav1d_read_pal_uv;
+use crate::src::recon::rav1d_read_pal_y;
 use crate::src::recon::rav1d_recon_b_inter;
 use crate::src::recon::rav1d_recon_b_intra;
 use crate::src::refmvs::Rav1dRefmvsDSPContext;
@@ -98,13 +98,13 @@ use std::ffi::c_uint;
 use std::mem;
 use std::ops::Deref;
 use std::ops::Range;
-use std::sync::{Arc, Condvar};
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI32;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Condvar};
 use strum::FromRepr;
 use zerocopy::FromBytes;
 use zerocopy::FromZeros;
@@ -335,7 +335,7 @@ pub(crate) struct Rav1dTileGroup {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum TaskType {
   #[default]
-  Init = 0b00000,
+  Initial = 0b00000,
   InitCdf = 0b00011,
   TileEntropy = 0b00101,
   EntropyProgress = 0b00110,
@@ -607,7 +607,7 @@ impl Rav1dTask {
   pub fn init(frame_idx: c_uint) -> core::result::Result<Self, console_core_never::Never> {
     Ok({
       Self {
-        type_0: TaskType::Init,
+        type_0: TaskType::Initial,
         frame_idx,
         sby: 0,
         deblock_progress: 0,
@@ -661,12 +661,17 @@ pub(crate) struct Rav1dFrameContextBdFn {
   pub stitch_recon_band: fn(&Rav1dFrameData, &mut Rav1dTaskContext) -> Rav1dResult,
   pub recon_b_intra: ReconBIntraFn,
   pub recon_b_inter: ReconBInterFn,
-  pub filter_sbrow: fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
+  pub filter_sbrow:
+    fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
   pub filter_sbrow_deblock_cols: FilterSbrowFn,
-  pub filter_sbrow_deblock_rows: fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
-  pub filter_sbrow_cdef: fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
-  pub filter_sbrow_resize: fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
-  pub filter_sbrow_lr: fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
+  pub filter_sbrow_deblock_rows:
+    fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
+  pub filter_sbrow_cdef:
+    fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
+  pub filter_sbrow_resize:
+    fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
+  pub filter_sbrow_lr:
+    fn(&Rav1dContext, &Rav1dFrameData, &mut Rav1dTaskContext, c_int) -> Rav1dResult,
   pub backup_ipred_edge: BackupIpredEdgeFn,
   pub read_coef_blocks: ReadCoefBlocksFn,
   pub copy_pal_block: CopyPalBlockFn,
@@ -775,8 +780,11 @@ impl Pal {
 
   fn checked_position<BD: BitDepth>(&self, record: u64) -> Rav1dResult<u64> {
     let Ok(storage_bytes) = console_core_number_conversion::fixed_index(self.data.len());
-    let Ok(record_bytes) = console_core_number_conversion::fixed_index(mem::size_of::<PalArray<BD>>());
-    let records = storage_bytes.checked_div(record_bytes).ok_or(Rav1dError::EINVAL)?;
+    let Ok(record_bytes) =
+      console_core_number_conversion::fixed_index(mem::size_of::<PalArray<BD>>());
+    let records = storage_bytes
+      .checked_div(record_bytes)
+      .ok_or(Rav1dError::EINVAL)?;
 
     match record.cmp(&records) {
       core::cmp::Ordering::Less => Ok(record),
@@ -841,7 +849,10 @@ impl TxLpfRightEdge {
     let bytes = capacity.checked_mul(64).ok_or(Rav1dError::ENOMEM)?;
     let length = console_core_number_conversion::checked_index(bytes)
       .map_err(|_outside_allocation| Rav1dError::ENOMEM)?;
-    self.inner.try_resize(length, 0).map_err(|_allocation| Rav1dError::ENOMEM)
+    self
+      .inner
+      .try_resize(length, 0)
+      .map_err(|_allocation| Rav1dError::ENOMEM)
   }
 
   fn buffer_ranges(
@@ -851,8 +862,11 @@ impl TxLpfRightEdge {
     let Ok(length) = console_core_number_conversion::fixed_index(self.inner.len());
     let half = length.wrapping_shr(1);
 
-    match (rows.luma.end <= half && rows.chroma.end <= half
-      && rows.luma.start <= rows.luma.end && rows.chroma.start <= rows.chroma.end).then_some(())
+    match (rows.luma.end <= half
+      && rows.chroma.end <= half
+      && rows.luma.start <= rows.luma.end
+      && rows.chroma.start <= rows.chroma.end)
+      .then_some(())
     {
       Some(()) => Ok(RightEdgeRows {
         luma: rows.luma,
@@ -876,16 +890,20 @@ impl TxLpfRightEdge {
   }
 
   pub(crate) fn store(&self, pixels: RightEdgeRows<RightEdgePixels<'_>>) -> Rav1dResult {
-    let range = |RightEdgePixels { start, values }: &RightEdgePixels<'_>| -> Rav1dResult<Range<u64>> {
-      let Ok(length) = console_core_number_conversion::fixed_index(values.len());
-      let end = start.checked_add(length).ok_or(Rav1dError::EINVAL)?;
-      Ok(*start..end)
-    };
+    let range =
+      |RightEdgePixels { start, values }: &RightEdgePixels<'_>| -> Rav1dResult<Range<u64>> {
+        let Ok(length) = console_core_number_conversion::fixed_index(values.len());
+        let end = start.checked_add(length).ok_or(Rav1dError::EINVAL)?;
+        Ok(*start..end)
+      };
     let luma = range(&pixels.luma)?;
     let chroma = range(&pixels.chroma)?;
     let ranges = self.buffer_ranges(RightEdgeRows { luma, chroma })?;
 
-    for (range_2, values) in [(ranges.luma, pixels.luma.values), (ranges.chroma, pixels.chroma.values)] {
+    for (range_2, values) in [
+      (ranges.luma, pixels.luma.values),
+      (ranges.chroma, pixels.chroma.values),
+    ] {
       let Ok(native_range) = console_core_number_conversion::indices(range_2);
       let mut destination = self.inner.index_mut(native_range);
 
@@ -994,7 +1012,6 @@ impl Rav1dFrameContext {
   pub fn in_cdf(&self) -> Rav1dResult<RwLockReadGuard<'_, CdfThreadContext>> {
     self.in_cdf.try_read().ok_or(Rav1dError::EINVAL)
   }
-
 }
 
 #[derive(Default)]
@@ -1087,25 +1104,61 @@ impl Rav1dFrameData {
       match required {
         true => {
           let ring_row = row.wrapping_add(neighbor.y.wrapping_sub(position.y));
-          let block = read_spatial_block(&self.rf.r, &task.rt.r, Point { x: neighbor.x, y: ring_row })?;
+          let block = read_spatial_block(
+            &self.rf.r,
+            &task.rt.r,
+            Point {
+              x: neighbor.x,
+              y: ring_row,
+            },
+          )?;
           let [first_reference, _] = block.r#ref.r#ref;
           let [vector, _] = block.mv.mv;
-          Ok(u8::try_from(i16::from(first_reference).wrapping_sub(1)).ok()
-            .map(|reference| ChromaNeighborPrediction { position: neighbor, vector, reference }))
+          Ok(
+            u8::try_from(i16::from(first_reference).wrapping_sub(1))
+              .ok()
+              .map(|reference| ChromaNeighborPrediction {
+                position: neighbor,
+                vector,
+                reference,
+              }),
+          )
         }
         false => Ok(None),
       }
     };
     let previous_x = position.x.wrapping_sub(1);
     let previous_y = position.y.wrapping_sub(1);
-    let left = read(needs_left, Bxy { x: previous_x, y: position.y })?;
-    let above = read(needs_above, Bxy { x: position.x, y: previous_y })?;
-    let diagonal = read(needs_left && needs_above, Bxy { x: previous_x, y: previous_y })?;
+    let left = read(
+      needs_left,
+      Bxy {
+        x: previous_x,
+        y: position.y,
+      },
+    )?;
+    let above = read(
+      needs_above,
+      Bxy {
+        x: position.x,
+        y: previous_y,
+      },
+    )?;
+    let diagonal = read(
+      needs_left && needs_above,
+      Bxy {
+        x: previous_x,
+        y: previous_y,
+      },
+    )?;
     let uses_neighbors = (needs_left || needs_above)
       && (!needs_left || left.is_some())
       && (!needs_above || above.is_some())
       && (!(needs_left && needs_above) || diagonal.is_some());
-    Ok(uses_neighbors.then_some(ChromaMotionNeighbors { left, above, diagonal }))
+    Ok(uses_neighbors.then_some(ChromaMotionNeighbors {
+      left,
+      above,
+      diagonal,
+    }))
   }
   #[must_use]
   pub(crate) fn tile(&self, position: u32) -> Option<&Rav1dTileState> {
@@ -1119,9 +1172,16 @@ impl Rav1dFrameData {
     self.a.get(index)
   }
 
-  pub(crate) fn lowest_pixel_position(&self, tile: &Rav1dTileState, row: i32) -> Rav1dResult<u64> {
+  pub(crate) fn lowest_pixel_position(
+    &self,
+    tile: &Rav1dTileState,
+    row: i32,
+  ) -> Rav1dResult<u64> {
     let relative = u64::try_from(row).map_err(|_outside_tile| Rav1dError::EINVAL)?;
-    let offset = tile.lowest_pixel.checked_add(relative).ok_or(Rav1dError::EINVAL)?;
+    let offset = tile
+      .lowest_pixel
+      .checked_add(relative)
+      .ok_or(Rav1dError::EINVAL)?;
     let Ok(length) = console_core_number_conversion::fixed_index(self.lowest_pixel_mem.len());
 
     match offset.cmp(&length) {
@@ -1171,8 +1231,13 @@ impl Rav1dFrameData {
 
       self.rf.r.configure_parallelism(threads, tile_count);
       self.rf.rp_proj.configure_parallelism(threads, tile_count);
-      self.frame_thread.b.configure_parallelism(threads, tile_count);
-      self.lowest_pixel_mem.configure_parallelism(threads, tile_count);
+      self
+        .frame_thread
+        .b
+        .configure_parallelism(threads, tile_count);
+      self
+        .lowest_pixel_mem
+        .configure_parallelism(threads, tile_count);
       self
         .lf
         .tx_lpf_right_edge
@@ -1290,12 +1355,16 @@ impl Atom for TileStateRef {
 }
 
 fn scratch_prefix<T: FromBytes + KnownLayout + Immutable>(bytes: &[u8]) -> Rav1dResult<&T> {
-  let (view, _remaining) = T::ref_from_prefix(bytes).map_err(|_invalid_scratch| Rav1dError::EINVAL)?;
+  let (view, _remaining) =
+    T::ref_from_prefix(bytes).map_err(|_invalid_scratch| Rav1dError::EINVAL)?;
   Ok(view)
 }
 
-fn scratch_prefix_mut<T: FromBytes + KnownLayout + IntoBytes>(bytes: &mut [u8]) -> Rav1dResult<&mut T> {
-  let (view, _remaining) = T::mut_from_prefix(bytes).map_err(|_invalid_scratch| Rav1dError::EINVAL)?;
+fn scratch_prefix_mut<T: FromBytes + KnownLayout + IntoBytes>(
+  bytes: &mut [u8],
+) -> Rav1dResult<&mut T> {
+  let (view, _remaining) =
+    T::mut_from_prefix(bytes).map_err(|_invalid_scratch| Rav1dError::EINVAL)?;
   Ok(view)
 }
 
@@ -1306,9 +1375,7 @@ pub const CF_LEN: usize = 32 * 32;
 pub struct Cf([i32; CF_LEN]);
 
 impl Cf {
-  pub fn select<BD: BitDepth>(
-    &self,
-  ) -> core::result::Result<&[BD::Coef; CF_LEN], Rav1dError> {
+  pub fn select<BD: BitDepth>(&self) -> core::result::Result<&[BD::Coef; CF_LEN], Rav1dError> {
     scratch_prefix(IntoBytes::as_bytes(&self.0))
   }
 
@@ -1353,9 +1420,7 @@ impl ScratchLapInter {
     scratch_prefix_mut(&mut self.0)
   }
 
-  pub fn inter_mut(
-    &mut self,
-  ) -> core::result::Result<&mut ScratchCompinter, Rav1dError> {
+  pub fn inter_mut(&mut self) -> core::result::Result<&mut ScratchCompinter, Rav1dError> {
     scratch_prefix_mut(&mut self.0)
   }
 }
@@ -1402,10 +1467,7 @@ pub struct ScratchInterIntraBuf([u16; SCRATCH_INTER_INTRA_BUF_LEN * 2]);
 impl ScratchInterIntraBuf {
   pub fn buf_mut<BD: BitDepth>(
     &mut self,
-  ) -> core::result::Result<
-    &mut [BD::Pixel; SCRATCH_INTER_INTRA_BUF_LEN],
-    Rav1dError,
-  > {
+  ) -> core::result::Result<&mut [BD::Pixel; SCRATCH_INTER_INTRA_BUF_LEN], Rav1dError> {
     scratch_prefix_mut(IntoBytes::as_mut_bytes(&mut self.0))
   }
 }
@@ -1429,9 +1491,7 @@ impl ScratchEdgeBuf {
 pub struct ScratchPalBuf([u8; 8 * 3 * 2]);
 
 impl ScratchPalBuf {
-  pub fn buf<BD: BitDepth>(
-    &self,
-  ) -> core::result::Result<&[[BD::Pixel; 8]; 3], Rav1dError> {
+  pub fn buf<BD: BitDepth>(&self) -> core::result::Result<&[[BD::Pixel; 8]; 3], Rav1dError> {
     scratch_prefix(&self.0)
   }
 
@@ -1459,15 +1519,11 @@ pub const SCRATCH_AC_TXTP_LEN: usize = 32 * 32;
 pub struct ScratchAcTxtpMap([u8; SCRATCH_AC_TXTP_LEN * 2]);
 
 impl ScratchAcTxtpMap {
-  pub fn ac_mut(
-    &mut self,
-  ) -> core::result::Result<&mut [i16; SCRATCH_AC_TXTP_LEN], Rav1dError> {
+  pub fn ac_mut(&mut self) -> core::result::Result<&mut [i16; SCRATCH_AC_TXTP_LEN], Rav1dError> {
     scratch_prefix_mut(&mut self.0)
   }
 
-  pub fn txtp_map(
-    &self,
-  ) -> core::result::Result<&[TxfmType; SCRATCH_AC_TXTP_LEN], Rav1dError> {
+  pub fn txtp_map(&self) -> core::result::Result<&[TxfmType; SCRATCH_AC_TXTP_LEN], Rav1dError> {
     scratch_prefix(&self.0)
   }
 
@@ -1513,21 +1569,15 @@ impl TaskContextScratch {
     Self::new_box_zeroed().map_err(|_allocation| Rav1dError::ENOMEM)
   }
 
-  pub fn inter_mut(
-    &mut self,
-  ) -> core::result::Result<&mut ScratchInter, Rav1dError> {
+  pub fn inter_mut(&mut self) -> core::result::Result<&mut ScratchInter, Rav1dError> {
     scratch_prefix_mut(&mut self.0)
   }
 
-  pub fn inter_intra(
-    &self,
-  ) -> core::result::Result<&ScratchInterIntra, Rav1dError> {
+  pub fn inter_intra(&self) -> core::result::Result<&ScratchInterIntra, Rav1dError> {
     scratch_prefix(&self.0)
   }
 
-  pub fn inter_intra_mut(
-    &mut self,
-  ) -> core::result::Result<&mut ScratchInterIntra, Rav1dError> {
+  pub fn inter_intra_mut(&mut self) -> core::result::Result<&mut ScratchInterIntra, Rav1dError> {
     scratch_prefix_mut(&mut self.0)
   }
 }

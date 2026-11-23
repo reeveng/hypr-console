@@ -215,7 +215,9 @@ fn headers_step(mut state: Headers<'_>) -> Stepped<Headers<'_>, Identified> {
       let Ok(peeked) = stream.peek_packet();
 
       match peeked {
-        ::core::option::Option::Some(_) => return Ok(Step::Halt(Ok((state.streams, state.byte_range_start)))),
+        ::core::option::Option::Some(_) => {
+          return Ok(Step::Halt(Ok((state.streams, state.byte_range_start))));
+        }
         ::core::option::Option::None => {}
       }
     }

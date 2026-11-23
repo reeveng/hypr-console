@@ -185,7 +185,8 @@ impl Atom for EsdsAtom {
     let Ok(limit) = descriptors_at_most(scoped.bytes_available());
 
     for _ in 0..limit {
-      match ::core::primitive::bool::then_some(scoped.bytes_available() > MIN_DESCRIPTOR_SIZE, ()) {
+      match ::core::primitive::bool::then_some(scoped.bytes_available() > MIN_DESCRIPTOR_SIZE, ())
+      {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => break,
       }

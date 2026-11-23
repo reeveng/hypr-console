@@ -12,7 +12,7 @@ use console_core_portable_document_functions::{
 use console_core_portable_document_syntax::bit_reader::BitReader;
 use console_core_portable_document_syntax::object::Array;
 use console_core_portable_document_syntax::object::Dict;
-use console_core_portable_document_syntax::object::Rect;
+use console_core_portable_document_syntax::object::Rectangle;
 use console_core_portable_document_syntax::object::Stream;
 use console_core_portable_document_syntax::object::dict::keys::{
   BACKGROUND, BBOX, BITS_PER_COMPONENT, BITS_PER_COORDINATE, BITS_PER_FLAG, COLORSPACE, COORDS,
@@ -213,7 +213,7 @@ impl Shading {
       ::core::option::Option::None => return Ok(None),
     };
 
-    let Ok(bbox) = dict.get::<Rect>(BBOX);
+    let Ok(bbox) = dict.get::<Rectangle>(BBOX);
     let Ok(background_colors) = dict.get::<Array<'_>>(BACKGROUND);
 
     Ok(Some(Self {

@@ -817,7 +817,7 @@ impl XRef {
           match object {
             StandaloneObject::Found(object_2) => return Ok(Some(object_2)),
             StandaloneObject::WrongType => return Ok(None),
-            StandaloneObject::Unreadable => {}
+            StandaloneObject::Invalid => {}
           }
         }
       }
@@ -902,7 +902,7 @@ enum LookupAttempt {
 enum StandaloneObject<T> {
   Found(T),
   WrongType,
-  Unreadable,
+  Invalid,
 }
 
 struct OrderedObject {
@@ -1134,12 +1134,12 @@ impl SomeRepr {
               let Ok(parsed) = object.get();
               StandaloneObject::Found(parsed)
             }
-            None => StandaloneObject::Unreadable,
+            None => StandaloneObject::Invalid,
           }
         }
         None => match reader.skip::<IndirectObject<Object<'_>>>(ObjectReadMode::Document) {
           Some(_) => StandaloneObject::WrongType,
-          None => StandaloneObject::Unreadable,
+          None => StandaloneObject::Invalid,
         },
       },
     )

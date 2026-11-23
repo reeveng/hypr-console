@@ -8,7 +8,10 @@ impl<'a> Name<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Name::string_data` method returns `FontData` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Name::string_data` method returns `FontData` directly in the existing parser interface"
+    )
   )]
   pub fn string_data(&self) -> FontData<'a> {
     let Ok(base) = self.offset_data();
@@ -58,11 +61,17 @@ impl NameRecord {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `NameRecord::is_unicode` method returns `bool` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `NameRecord::is_unicode` method returns `bool` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit007_no_bool_return",
-    expect(explicit007_no_bool_return, reason = "the published `NameRecord::is_unicode` method retains the Boolean result used by existing predicate callers and implementations")
+    expect(
+      explicit007_no_bool_return,
+      reason = "the published `NameRecord::is_unicode` method retains the Boolean result used by existing predicate callers and implementations"
+    )
   )]
   pub fn is_unicode(&self) -> bool {
     let Ok(platform_id) = self.platform_id();
@@ -111,7 +120,10 @@ impl<'a> NameString<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `NameString::chars` method returns `CharIter` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `NameString::chars` method returns `CharIter` directly in the existing parser interface"
+    )
   )]
   pub fn chars(&self) -> CharIter<'a> {
     CharIter {
@@ -132,30 +144,36 @@ impl<'a> traversal::SomeString<'a> for NameString<'a> {
 #[cfg(feature = "experimental_traverse")]
 impl NameRecord {
   #[must_use]
-  fn traverse_string<'a>(&self, data: FontData<'a>) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
-      Ok(FieldType::StringOffset(traversal::StringOffset {
-        offset: <crate::traversal::OffsetType as ::core::convert::From<
-          ::core::result::Result<::font_types::Offset16, ::console_core_never::Never>,
-        >>::from(self.string_offset()),
-        target: self.string(data).map(|text| -> Box<dyn traversal::SomeString<'a> + 'a> {
-          Box::new(text)
-        }),
-      }))
+  fn traverse_string<'a>(
+    &self,
+    data: FontData<'a>,
+  ) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
+    Ok(FieldType::StringOffset(traversal::StringOffset {
+      offset: <crate::traversal::OffsetType as ::core::convert::From<
+        ::core::result::Result<::font_types::Offset16, ::console_core_never::Never>,
+      >>::from(self.string_offset()),
+      target: self
+        .string(data)
+        .map(|text| -> Box<dyn traversal::SomeString<'a> + 'a> { Box::new(text) }),
+    }))
   }
 }
 
 #[cfg(feature = "experimental_traverse")]
 impl LangTagRecord {
   #[must_use]
-  fn traverse_lang_tag<'a>(&self, data: FontData<'a>) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
-      Ok(FieldType::StringOffset(traversal::StringOffset {
-        offset: <crate::traversal::OffsetType as ::core::convert::From<
-          ::core::result::Result<::font_types::Offset16, ::console_core_never::Never>,
-        >>::from(self.lang_tag_offset()),
-        target: self.lang_tag(data).map(|text| -> Box<dyn traversal::SomeString<'a> + 'a> {
-          Box::new(text)
-        }),
-      }))
+  fn traverse_lang_tag<'a>(
+    &self,
+    data: FontData<'a>,
+  ) -> core::result::Result<traversal::FieldType<'a>, console_core_never::Never> {
+    Ok(FieldType::StringOffset(traversal::StringOffset {
+      offset: <crate::traversal::OffsetType as ::core::convert::From<
+        ::core::result::Result<::font_types::Offset16, ::console_core_never::Never>,
+      >>::from(self.lang_tag_offset()),
+      target: self
+        .lang_tag(data)
+        .map(|text| -> Box<dyn traversal::SomeString<'a> + 'a> { Box::new(text) }),
+    }))
   }
 }
 
@@ -193,24 +211,39 @@ pub struct CharIter<'a> {
 
 impl CharIter<'_> {
   fn bump_u16(&mut self) -> core::result::Result<Option<u16>, console_core_never::Never> {
-      let next = match self.pos.checked_add(2) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let Ok(range) = console_core_number_conversion::indices(self.pos..next);
-      let bytes = match self.data.get(range) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      let pair = match bytes.first_chunk() { Some(explicit_value) => explicit_value, None => return Ok(None) };
+    let next = match self.pos.checked_add(2) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let Ok(range) = console_core_number_conversion::indices(self.pos..next);
+    let bytes = match self.data.get(range) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    let pair = match bytes.first_chunk() {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
 
-      self.pos = next;
+    self.pos = next;
 
-      Ok(Some(u16::from_be_bytes(*pair)))
+    Ok(Some(u16::from_be_bytes(*pair)))
   }
 
   fn bump_u8(&mut self) -> core::result::Result<Option<u8>, console_core_never::Never> {
-      let Ok(at) = console_core_number_conversion::index(self.pos);
-      let byte = match self.data.get(at) { Some(explicit_value) => explicit_value, None => return Ok(None) };
+    let Ok(at) = console_core_number_conversion::index(self.pos);
+    let byte = match self.data.get(at) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
 
-      let checked_value = match self.pos.checked_add(1) { Some(explicit_value) => explicit_value, None => return Ok(None) };
-      self.pos = checked_value;
+    let checked_value = match self.pos.checked_add(1) {
+      Some(explicit_value) => explicit_value,
+      None => return Ok(None),
+    };
+    self.pos = checked_value;
 
-      Ok(Some(*byte))
+    Ok(Some(*byte))
   }
 }
 
@@ -250,7 +283,9 @@ impl CharIter<'_> {
           Ok(None) => return Ok(Some(replacement)),
         };
         let high_bits = u32::from(first & 0x3FF).wrapping_shl(10);
-        high_bits.wrapping_add(u32::from(low & 0x3FF)).wrapping_add(0x10000)
+        high_bits
+          .wrapping_add(u32::from(low & 0x3FF))
+          .wrapping_add(0x10000)
       }
       _single_unit => u32::from(first),
     };
@@ -272,11 +307,17 @@ impl Encoding {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Encoding::new` method returns `Encoding` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Encoding::new` method returns `Encoding` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
-    expect(explicit024_no_swappable_params, reason = "the published `Encoding::new` method retains the positional argument order for `platform_id`, `encoding_id`")
+    expect(
+      explicit024_no_swappable_params,
+      reason = "the published `Encoding::new` method retains the positional argument order for `platform_id`, `encoding_id`"
+    )
   )]
   pub fn new(platform_id: u16, encoding_id: u16) -> Encoding {
     match (platform_id, encoding_id) {
@@ -297,14 +338,21 @@ impl MacRomanMapping {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the public Mac Roman codec maps each byte directly to a Unicode scalar")
+    expect(
+      explicit002_infallible_result,
+      reason = "the public Mac Roman codec maps each byte directly to a Unicode scalar"
+    )
   )]
   #[must_use]
   pub fn decode(self, raw: u8) -> char {
     let upper_half = raw.checked_sub(Self::START_REMAP);
 
     match upper_half {
-      Some(index) => match MAC_ROMAN_DECODE.get(match ::console_core_number_conversion::index::<::core::primitive::u8>(index) { ::core::result::Result::Ok(converted_position) => converted_position }) {
+      Some(index) => match MAC_ROMAN_DECODE.get(
+        match ::console_core_number_conversion::index::<::core::primitive::u8>(index) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        },
+      ) {
         Some(&character) => character,
         None => char::REPLACEMENT_CHARACTER,
       },
@@ -315,7 +363,10 @@ impl MacRomanMapping {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `MacRomanMapping::encode` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `MacRomanMapping::encode` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn encode(self, c: char) -> Option<u8> {
     let raw_c = <u32 as ::core::convert::From<::core::primitive::char>>::from(c);
@@ -324,20 +375,25 @@ impl MacRomanMapping {
       ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
     }?;
 
-    match ::core::primitive::bool::then_some(raw_c_2
-      < ({
-        let Ok(migrated_value) =
-          console_core_number_conversion::wrapped::<_, u16>(Self::START_REMAP);
-        migrated_value
-      }), ()) {
+    match ::core::primitive::bool::then_some(
+      raw_c_2
+        < ({
+          let Ok(migrated_value) =
+            console_core_number_conversion::wrapped::<_, u16>(Self::START_REMAP);
+          migrated_value
+        }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Some({
         let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u8>(raw_c_2);
         migrated_value
       }),
-      ::core::option::Option::None => match MAC_ROMAN_ENCODE.binary_search_by_key(&raw_c_2, |(unic, _)| *unic) {
-        Ok(idx) => <[_]>::get(&MAC_ROMAN_ENCODE, idx).map(|searched_entry| searched_entry.1),
-        Err(_insertion_position) => None,
-      },
+      ::core::option::Option::None => {
+        match MAC_ROMAN_ENCODE.binary_search_by_key(&raw_c_2, |(unic, _)| *unic) {
+          Ok(idx) => <[_]>::get(&MAC_ROMAN_ENCODE, idx).map(|searched_entry| searched_entry.1),
+          Err(_insertion_position) => None,
+        }
+      }
     }
   }
 }
@@ -410,7 +466,6 @@ mod tests {
       let enc = crate::test_support::fixture_value(MacRomanMapping.encode(c), "fixture value")?;
       assert_eq!(MacRomanMapping.decode(enc), c);
     }
-  ;
 
     Ok(())
   }

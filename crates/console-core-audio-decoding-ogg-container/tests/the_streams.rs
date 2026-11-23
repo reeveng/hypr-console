@@ -26,11 +26,11 @@ use std::fmt::{Display, Write};
 use std::io::Cursor;
 
 #[derive(Debug)]
-struct Fault(String);
+struct Error(String);
 
-impl<Cause: Display> From<Cause> for Fault {
+impl<Cause: Display> From<Cause> for Error {
   fn from(cause: Cause) -> Self {
-    Fault(cause.to_string())
+    Error(cause.to_string())
   }
 }
 
@@ -46,7 +46,7 @@ enum Source {
   Forward,
 }
 
-fn open(file: &[u8], source: Source, gapless: GaplessPlayback) -> Result<OggReader, Fault> {
+fn open(file: &[u8], source: Source, gapless: GaplessPlayback) -> Result<OggReader, Error> {
   let options = FormatOptions {
     gapless,
     ..FormatOptions::default()
@@ -68,7 +68,7 @@ fn open(file: &[u8], source: Source, gapless: GaplessPlayback) -> Result<OggRead
   Ok(reader)
 }
 
-fn describe(track: &Track, into: &mut String) -> Result<(), Fault> {
+fn describe(track: &Track, into: &mut String) -> Result<(), Error> {
   let mut parameters = track.codec_params.clone();
   let extra = parameters.extra_data.take();
 
@@ -151,7 +151,7 @@ fn tags_step((mut reader, mut lines): Tagging) -> Result<Step<Tagging, Tagging>,
   }
 }
 
-fn transcript(file: &[u8], source: Source, gapless: GaplessPlayback) -> Result<String, Fault> {
+fn transcript(file: &[u8], source: Source, gapless: GaplessPlayback) -> Result<String, Error> {
   let mut text = String::new();
   let reader = open(file, source, gapless)?;
 
@@ -184,7 +184,7 @@ fn transcript(file: &[u8], source: Source, gapless: GaplessPlayback) -> Result<S
   Ok(text)
 }
 
-fn seeks(file: &[u8], gapless: GaplessPlayback) -> Result<String, Fault> {
+fn seeks(file: &[u8], gapless: GaplessPlayback) -> Result<String, Error> {
   let mut text = String::new();
   let mut reader = open(file, Source::Seekable, gapless)?;
   let Ok(value_11) = reader.tracks();
@@ -240,7 +240,7 @@ fn seeks(file: &[u8], gapless: GaplessPlayback) -> Result<String, Fault> {
   Ok(text)
 }
 
-fn everything(name: &str, file: &[u8]) -> Result<String, Fault> {
+fn everything(name: &str, file: &[u8]) -> Result<String, Error> {
   let mut all = format!("== {name}\n");
 
   for gapless in [GaplessPlayback::Disabled, GaplessPlayback::Enabled] {
@@ -260,17 +260,17 @@ fn everything(name: &str, file: &[u8]) -> Result<String, Fault> {
   Ok(all)
 }
 
-fn held(case: Case) -> Result<(), Fault> {
+fn held(case: Case) -> Result<(), Error> {
   let found = everything(case.name, case.file)?;
 
   match found.as_str().cmp(case.golden) {
     Ordering::Equal => Ok(()),
-    Ordering::Less | Ordering::Greater => Err(Fault(format!("{} changed:\n{found}", case.name))),
+    Ordering::Less | Ordering::Greater => Err(Error(format!("{} changed:\n{found}", case.name))),
   }
 }
 
 #[test]
-fn a_vorbis_stream_is_demuxed() -> Result<(), Fault> {
+fn a_vorbis_stream_is_demuxed() -> Result<(), Error> {
   held(Case {
     name: "vorbis",
     file: include_bytes!("fixtures/vorbis-stereo.ogg"),
@@ -279,7 +279,7 @@ fn a_vorbis_stream_is_demuxed() -> Result<(), Fault> {
 }
 
 #[test]
-fn an_opus_stream_is_demuxed() -> Result<(), Fault> {
+fn an_opus_stream_is_demuxed() -> Result<(), Error> {
   held(Case {
     name: "opus",
     file: include_bytes!("fixtures/opus-mono.opus"),
@@ -288,7 +288,7 @@ fn an_opus_stream_is_demuxed() -> Result<(), Fault> {
 }
 
 #[test]
-fn an_ogg_flac_stream_is_demuxed() -> Result<(), Fault> {
+fn an_ogg_flac_stream_is_demuxed() -> Result<(), Error> {
   held(Case {
     name: "flac",
     file: include_bytes!("fixtures/flac-mono.oga"),
@@ -297,7 +297,7 @@ fn an_ogg_flac_stream_is_demuxed() -> Result<(), Fault> {
 }
 
 #[test]
-fn two_multiplexed_streams_are_demuxed() -> Result<(), Fault> {
+fn two_multiplexed_streams_are_demuxed() -> Result<(), Error> {
   held(Case {
     name: "muxed",
     file: include_bytes!("fixtures/muxed.ogg"),
@@ -306,7 +306,7 @@ fn two_multiplexed_streams_are_demuxed() -> Result<(), Fault> {
 }
 
 #[test]
-fn two_chained_streams_are_demuxed() -> Result<(), Fault> {
+fn two_chained_streams_are_demuxed() -> Result<(), Error> {
   held(Case {
     name: "chained",
     file: include_bytes!("fixtures/chained.ogg"),
@@ -315,7 +315,7 @@ fn two_chained_streams_are_demuxed() -> Result<(), Fault> {
 }
 
 #[test]
-fn a_long_stream_is_sought_by_bisection() -> Result<(), Fault> {
+fn a_long_stream_is_sought_by_bisection() -> Result<(), Error> {
   held(Case {
     name: "long",
     file: include_bytes!("fixtures/long-vorbis.ogg"),
@@ -324,7 +324,7 @@ fn a_long_stream_is_sought_by_bisection() -> Result<(), Fault> {
 }
 
 #[test]
-fn a_damaged_page_is_skipped() -> Result<(), Fault> {
+fn a_damaged_page_is_skipped() -> Result<(), Error> {
   held(Case {
     name: "damaged",
     file: include_bytes!("fixtures/damaged.ogg"),
@@ -333,7 +333,7 @@ fn a_damaged_page_is_skipped() -> Result<(), Fault> {
 }
 
 #[test]
-fn a_bad_checksum_loses_only_the_last_page() -> Result<(), Fault> {
+fn a_bad_checksum_loses_only_the_last_page() -> Result<(), Error> {
   let clean = include_bytes!("fixtures/vorbis-stereo.ogg");
   let before_last_page = clean
     .windows(4)
@@ -371,13 +371,13 @@ fn a_bad_checksum_loses_only_the_last_page() -> Result<(), Fault> {
 }
 
 #[test]
-fn a_file_that_is_not_ogg_is_refused() -> Result<(), Fault> {
+fn a_file_that_is_not_ogg_is_refused() -> Result<(), Error> {
   match open(
     b"RIFF....WAVEfmt ",
     Source::Seekable,
     GaplessPlayback::Disabled,
   ) {
-    Ok(_reader) => Err(Fault(String::from("a wave file was taken for ogg"))),
+    Ok(_reader) => Err(Error(String::from("a wave file was taken for ogg"))),
     Err(_refused) => Ok(()),
   }
 }
@@ -392,7 +392,7 @@ fn counting_step(
 }
 
 #[test]
-fn a_stream_cut_short_is_refused_or_ends() -> Result<(), Fault> {
+fn a_stream_cut_short_is_refused_or_ends() -> Result<(), Error> {
   let file = include_bytes!("fixtures/vorbis-stereo.ogg");
   let mut found = String::new();
 
@@ -400,7 +400,7 @@ fn a_stream_cut_short_is_refused_or_ends() -> Result<(), Fault> {
     let Ok(end) = index(length);
     let cut = match file.get(..end) {
       Some(cut) => cut,
-      None => return Err(Fault(String::from("a cut past the end"))),
+      None => return Err(Error(String::from("a cut past the end"))),
     };
 
     match open(cut, Source::Seekable, GaplessPlayback::Disabled) {
@@ -415,6 +415,6 @@ fn a_stream_cut_short_is_refused_or_ends() -> Result<(), Fault> {
 
   match found.as_str().cmp(include_str!("goldens/cut.txt")) {
     Ordering::Equal => Ok(()),
-    Ordering::Less | Ordering::Greater => Err(Fault(format!("cuts changed:\n{found}"))),
+    Ordering::Less | Ordering::Greater => Err(Error(format!("cuts changed:\n{found}"))),
   }
 }

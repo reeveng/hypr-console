@@ -21,7 +21,7 @@ pub enum PrefixMatch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Consumption {
   Consumed,
-  Missing,
+  Absent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

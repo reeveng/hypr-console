@@ -9,7 +9,10 @@ use core::any::Any;
 #[must_use]
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "console-core-text-shaping downcasts the borrowed cache value returned by this cross-crate interop function")
+  expect(
+    explicit002_infallible_result,
+    reason = "console-core-text-shaping downcasts the borrowed cache value returned by this cross-crate interop function"
+  )
 )]
 pub fn _get_or_init_shaping_data(
   font: &Font,

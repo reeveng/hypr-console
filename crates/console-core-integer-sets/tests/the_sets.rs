@@ -135,7 +135,10 @@ fn ranges_of<I: Iterator<Item = u32>>(values: I) -> Result<Vec<RangeInclusive<u3
   let mut out: Vec<RangeInclusive<u32>> = Vec::new();
 
   for value in values {
-    match out.last_mut().filter(|last| last.end().checked_add(1) == Some(value)) {
+    match out
+      .last_mut()
+      .filter(|last| last.end().checked_add(1) == Some(value))
+    {
       Some(adjacent) => *adjacent = *adjacent.start()..=value,
       None => out.push(value..=value),
     }
@@ -993,7 +996,10 @@ fn even_ranges(model: &BTreeSet<u16>) -> Result<Vec<RangeInclusive<Even>>, Never
   let mut out: Vec<RangeInclusive<Even>> = Vec::new();
 
   for value in model {
-    match out.last_mut().filter(|last| last.end().0.checked_add(2) == Some(*value)) {
+    match out
+      .last_mut()
+      .filter(|last| last.end().0.checked_add(2) == Some(*value))
+    {
       Some(adjacent) => *adjacent = *adjacent.start()..=Even(*value),
       None => out.push(Even(*value)..=Even(*value)),
     }

@@ -294,7 +294,7 @@ impl Tab {
         redraw: Redraw::Requested,
         reader: Reader::Hidden,
       },
-      loading: PageLoad::Settled,
+      loading: PageLoad::Ready,
       reader_id: 0,
       reader_text_size: crate::reader::DEFAULT_TEXT_SIZE,
     }
@@ -390,7 +390,7 @@ impl Tab {
   fn stopped(&mut self, fault: io::Error) {
     console_core_logging::debug!("{} tab {} stopped: {fault}", self.renderer, self.id);
     self.worker = None;
-    self.loading = PageLoad::Settled;
+    self.loading = PageLoad::Ready;
     match self.page.reader {
       Reader::Pending { mode, .. } => self.show_article(mode, String::new()),
       Reader::Hidden | Reader::Open { .. } => {}
@@ -440,7 +440,7 @@ impl Tab {
           changed = true;
         }
         (Some(Event::Finished), None) => {
-          self.loading = PageLoad::Settled;
+          self.loading = PageLoad::Ready;
           changed = true;
         }
         (Some(Event::Reader(id, text)), None) => match self.page.reader {
@@ -854,7 +854,7 @@ impl Browser {
 
   fn hover_toolbar(&mut self, at: Option<Point<i32>>) -> Result<(), Never> {
     match self.toolbar.hover(at) {
-      ToolbarChange::Changed => self.dirty_toolbar(),
+      ToolbarChange::Different => self.dirty_toolbar(),
       ToolbarChange::Unchanged => Ok(()),
     }
   }
@@ -1292,7 +1292,7 @@ impl SmokeCheck {
     let Ok(first_pixel) = browser.first_pixel();
     let rendered = matches!(
       (browser.active.loading, first_pixel),
-      (PageLoad::Settled, Some([12, 34, 56, 255]))
+      (PageLoad::Ready, Some([12, 34, 56, 255]))
     );
 
     match rendered.then_some(()) {

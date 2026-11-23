@@ -6,7 +6,10 @@ impl<'a> Ltag<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Ltag::tag_indices` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Ltag::tag_indices` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn tag_indices(&self) -> impl Iterator<Item = (u32, &'a str)> + use<'a> {
     let Ok(value_1) = self.offset_data();
@@ -49,7 +52,10 @@ impl<'a> Ltag<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Ltag::index_for_tag` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Ltag::index_for_tag` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn index_for_tag(&self, tag: &str) -> Option<u32> {
     self.tag_indices().find(|x| x.1 == tag).map(|x| x.0)

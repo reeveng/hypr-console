@@ -74,8 +74,8 @@ use crate::src::internal::Rav1dTileGroupHeader;
 use crate::src::levels::ObuMetaType;
 use crate::src::log::Rav1dLog as _;
 use crate::src::mem::try_arc;
-use crate::src::picture::{PictureFlags, Rav1dThreadPicture};
 use crate::src::picture::rav1d_picture_copy_props;
+use crate::src::picture::{PictureFlags, Rav1dThreadPicture};
 use crate::src::thread_task::{FrameReservation, reserve_delayed_frame};
 use std::array;
 use std::cmp;
@@ -233,11 +233,7 @@ impl Debug {
   ) -> core::result::Result<Self, console_core_never::Never> {
     let Ok(start) = gb.pos();
 
-    Ok(Self {
-      trace,
-      name,
-      start,
-    })
+    Ok(Self { trace, name, start })
   }
 
   const fn named(
@@ -250,11 +246,7 @@ impl Debug {
         name: _,
         start,
       } = self;
-      Self {
-        trace,
-        name,
-        start,
-      }
+      Self { trace, name, start }
     })
   }
 
@@ -264,11 +256,7 @@ impl Debug {
     msg: fmt::Arguments,
   ) -> core::result::Result<(), console_core_never::Never> {
     {
-      let &Self {
-        trace,
-        name,
-        start,
-      } = self;
+      let &Self { trace, name, start } = self;
 
       match trace {
         HeaderTrace::Disabled => return Ok(()),
@@ -307,7 +295,10 @@ fn check_trailing_bits(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1dR
       let Ok(remaining) = gb.remaining_bytes();
       let Ok(()) = gb.bytealign();
 
-      match ::core::primitive::bool::then_some(trailing_bit == HeaderBit::One && pending == 0 && remaining.iter().all(|&byte| byte == 0), ()) {
+      match ::core::primitive::bool::then_some(
+        trailing_bit == HeaderBit::One && pending == 0 && remaining.iter().all(|&byte| byte == 0),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Ok(()),
         ::core::option::Option::None => Err(EINVAL),
       }
@@ -371,7 +362,12 @@ fn read_sequence_sampling(
     (_, _) => (Rav1dPixelLayout::I444, Rav1dChromaSamplePosition::Unknown),
   };
 
-  Ok(SequenceChromaSampling { layout, horizontal, vertical, position })
+  Ok(SequenceChromaSampling {
+    layout,
+    horizontal,
+    vertical,
+    position,
+  })
 }
 
 fn parse_sequence_color_config(
@@ -381,21 +377,34 @@ fn parse_sequence_color_config(
   debug: &Debug,
 ) -> Rav1dResult<SequenceColorConfig> {
   let high_bit_depth = u8::from(matches!(gb.get_bit(), Ok(HeaderBit::One)));
-  let twelve_bit = u8::from(profile == Rav1dProfile::Professional
-    && high_bit_depth != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let twelve_bit = u8::from(
+    profile == Rav1dProfile::Professional
+      && high_bit_depth != 0
+      && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
   let hbd = high_bit_depth.wrapping_add(twelve_bit);
-  let monochrome = u8::from(profile != Rav1dProfile::High && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let monochrome =
+    u8::from(profile != Rav1dProfile::High && matches!(gb.get_bit(), Ok(HeaderBit::One)));
   let color_description_present = u8::from(matches!(gb.get_bit(), Ok(HeaderBit::One)));
   let (pri, trc, mtrx) = match color_description_present {
-    0 => (Rav1dColorPrimaries::UNKNOWN, Rav1dTransferCharacteristics::UNKNOWN, Rav1dMatrixCoefficients::UNKNOWN),
+    0 => (
+      Rav1dColorPrimaries::UNKNOWN,
+      Rav1dTransferCharacteristics::UNKNOWN,
+      Rav1dMatrixCoefficients::UNKNOWN,
+    ),
     1.. => {
       let Ok(pri) = read_header_byte(gb, 8);
       let Ok(trc) = read_header_byte(gb, 8);
       let Ok(mtrx) = read_header_byte(gb, 8);
-      (Rav1dColorPrimaries(pri), Rav1dTransferCharacteristics(trc), Rav1dMatrixCoefficients(mtrx))
+      (
+        Rav1dColorPrimaries(pri),
+        Rav1dTransferCharacteristics(trc),
+        Rav1dMatrixCoefficients(mtrx),
+      )
     }
   };
-  let rgb = pri == Rav1dColorPrimaries::BT709 && trc == Rav1dTransferCharacteristics::SRGB
+  let rgb = pri == Rav1dColorPrimaries::BT709
+    && trc == Rav1dTransferCharacteristics::SRGB
     && mtrx == Rav1dMatrixCoefficients::IDENTITY;
   let (color_range, sampling) = match (monochrome, rgb.then_some(())) {
     (1.., _) => (
@@ -408,17 +417,22 @@ fn parse_sequence_color_config(
       },
     ),
     (0, Some(())) => {
-      match (profile == Rav1dProfile::High || (profile == Rav1dProfile::Professional && hbd == 2)).then_some(()) {
+      match (profile == Rav1dProfile::High || (profile == Rav1dProfile::Professional && hbd == 2))
+        .then_some(())
+      {
         Some(()) => {}
         None => return Err(EINVAL),
       }
 
-      (1, SequenceChromaSampling {
-        layout: Rav1dPixelLayout::I444,
-        horizontal: 0,
-        vertical: 0,
-        position: Rav1dChromaSamplePosition::Unknown,
-      })
+      (
+        1,
+        SequenceChromaSampling {
+          layout: Rav1dPixelLayout::I444,
+          horizontal: 0,
+          vertical: 0,
+          position: Rav1dChromaSamplePosition::Unknown,
+        },
+      )
     }
     (0, None) => {
       let range = u8::from(matches!(gb.get_bit(), Ok(HeaderBit::One)));
@@ -427,13 +441,17 @@ fn parse_sequence_color_config(
     }
   };
 
-  match (compliance == HeaderCompliance::Strict && mtrx == Rav1dMatrixCoefficients::IDENTITY
-    && sampling.layout != Rav1dPixelLayout::I444).then_some(()) {
+  match (compliance == HeaderCompliance::Strict
+    && mtrx == Rav1dMatrixCoefficients::IDENTITY
+    && sampling.layout != Rav1dPixelLayout::I444)
+    .then_some(())
+  {
     Some(()) => return Err(EINVAL),
     None => {}
   }
 
-  let separate_uv_delta_q = u8::from(monochrome == 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let separate_uv_delta_q =
+    u8::from(monochrome == 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)));
   let Ok(()) = debug.post(gb, "colorinfo");
   Ok(SequenceColorConfig {
     layout: sampling.layout,
@@ -499,7 +517,10 @@ fn read_decoder_timing(
   }))
 }
 
-fn read_sequence_timing(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1dResult<Option<SequenceTiming>> {
+fn read_sequence_timing(
+  gb: &mut GetBits,
+  compliance: HeaderCompliance,
+) -> Rav1dResult<Option<SequenceTiming>> {
   match gb.get_bit() {
     Ok(HeaderBit::Zero) => return Ok(None),
     Ok(HeaderBit::One) => {}
@@ -508,7 +529,9 @@ fn read_sequence_timing(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1d
   let Ok(units_in_tick) = gb.get_bits(32);
   let Ok(time_scale) = gb.get_bits(32);
 
-  match (compliance == HeaderCompliance::Strict && (units_in_tick == 0 || time_scale == 0)).then_some(()) {
+  match (compliance == HeaderCompliance::Strict && (units_in_tick == 0 || time_scale == 0))
+    .then_some(())
+  {
     Some(()) => return Err(EINVAL),
     None => {}
   }
@@ -521,7 +544,12 @@ fn read_sequence_timing(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1d
     }
   };
   let decoder = read_decoder_timing(gb, compliance)?;
-  Ok(Some(SequenceTiming { units_in_tick, time_scale, interval, decoder }))
+  Ok(Some(SequenceTiming {
+    units_in_tick,
+    time_scale,
+    interval,
+    decoder,
+  }))
 }
 
 struct SequenceOperatingPoints {
@@ -536,7 +564,10 @@ fn read_sequence_operating_point(
   gb: &mut GetBits,
   decoder: Option<SequenceDecoderTiming>,
   display_model: HeaderBit,
-) -> Rav1dResult<(Rav1dSequenceHeaderOperatingPoint, Rav1dSequenceHeaderOperatingParameterInfo)> {
+) -> Rav1dResult<(
+  Rav1dSequenceHeaderOperatingPoint,
+  Rav1dSequenceHeaderOperatingParameterInfo,
+)> {
   let Ok(mask) = gb.get_bits(12);
   let Ok(idc) = fitted::<_, u16>(mask);
 
@@ -561,12 +592,16 @@ fn read_sequence_operating_point(
       let Ok(decoder_buffer_delay) = gb.get_bits(i32::from(timing.buffer_delay_bits));
       let Ok(encoder_buffer_delay) = gb.get_bits(i32::from(timing.buffer_delay_bits));
       let Ok(low_delay_mode) = read_header_byte(gb, 1);
-      Rav1dSequenceHeaderOperatingParameterInfo { decoder_buffer_delay, encoder_buffer_delay, low_delay_mode }
+      Rav1dSequenceHeaderOperatingParameterInfo {
+        decoder_buffer_delay,
+        encoder_buffer_delay,
+        low_delay_mode,
+      }
     }
     None => Rav1dSequenceHeaderOperatingParameterInfo::default(),
   };
-  let display_model_param_present = u8::from(display_model == HeaderBit::One
-    && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let display_model_param_present =
+    u8::from(display_model == HeaderBit::One && matches!(gb.get_bit(), Ok(HeaderBit::One)));
   let initial_display_delay = match display_model_param_present {
     0 => 10,
     1.. => {
@@ -576,7 +611,12 @@ fn read_sequence_operating_point(
   };
 
   let point = Rav1dSequenceHeaderOperatingPoint {
-    major_level, minor_level, idc, tier, initial_display_delay, display_model_param_present,
+    major_level,
+    minor_level,
+    idc,
+    tier,
+    initial_display_delay,
+    display_model_param_present,
     decoder_model_param_present: u8::from(model.is_some()),
   };
   Ok((point, parameters))
@@ -589,14 +629,18 @@ fn read_sequence_operating_points(
   debug: &Debug,
 ) -> Rav1dResult<SequenceOperatingPoints> {
   let mut points = [Rav1dSequenceHeaderOperatingPoint::default(); RAV1D_MAX_OPERATING_POINTS];
-  let mut parameters = [Rav1dSequenceHeaderOperatingParameterInfo::default(); RAV1D_MAX_OPERATING_POINTS];
+  let mut parameters =
+    [Rav1dSequenceHeaderOperatingParameterInfo::default(); RAV1D_MAX_OPERATING_POINTS];
   let (timing, count, display_model) = match form {
     SequenceHeaderForm::Reduced => {
       let [point, ..] = &mut points;
       let Ok(major_level) = read_header_byte(gb, 3);
       let Ok(minor_level) = read_header_byte(gb, 2);
       *point = Rav1dSequenceHeaderOperatingPoint {
-        major_level, minor_level, initial_display_delay: 10, ..Default::default()
+        major_level,
+        minor_level,
+        initial_display_delay: 10,
+        ..Default::default()
       };
       (None, 1, 0)
     }
@@ -619,7 +663,13 @@ fn read_sequence_operating_points(
     }
   };
 
-  Ok(SequenceOperatingPoints { timing, count, display_model, points, parameters })
+  Ok(SequenceOperatingPoints {
+    timing,
+    count,
+    display_model,
+    points,
+    parameters,
+  })
 }
 
 #[derive(Default)]
@@ -637,7 +687,11 @@ struct SequenceExtent {
   frame_id: SequenceFrameId,
 }
 
-fn read_sequence_extent(gb: &mut GetBits, form: SequenceHeaderForm, debug: &Debug) -> Result<SequenceExtent, console_core_never::Never> {
+fn read_sequence_extent(
+  gb: &mut GetBits,
+  form: SequenceHeaderForm,
+  debug: &Debug,
+) -> Result<SequenceExtent, console_core_never::Never> {
   let Ok(width_minus_one) = read_header_byte(gb, 4);
   let Ok(height_minus_one) = read_header_byte(gb, 4);
   let width_bits = width_minus_one.wrapping_add(1);
@@ -645,19 +699,32 @@ fn read_sequence_extent(gb: &mut GetBits, form: SequenceHeaderForm, debug: &Debu
   let Ok(max_width) = read_dimension(gb, width_bits);
   let Ok(max_height) = read_dimension(gb, height_bits);
   let Ok(()) = debug.post(gb, "size");
-  let frame_id = match (matches!(form, SequenceHeaderForm::Full) && matches!(gb.get_bit(), Ok(HeaderBit::One))).then_some(()) {
+  let frame_id = match (matches!(form, SequenceHeaderForm::Full)
+    && matches!(gb.get_bit(), Ok(HeaderBit::One)))
+  .then_some(())
+  {
     Some(()) => {
       let Ok(delta) = read_header_byte(gb, 4);
       let delta_bits = delta.wrapping_add(2);
       let Ok(added) = read_header_byte(gb, 3);
       let total_bits = added.wrapping_add(delta_bits).wrapping_add(1);
-      SequenceFrameId { present: 1, delta_bits, total_bits }
+      SequenceFrameId {
+        present: 1,
+        delta_bits,
+        total_bits,
+      }
     }
     None => SequenceFrameId::default(),
   };
   let Ok(()) = debug.post(gb, "frame-id-numbers-present");
 
-  Ok(SequenceExtent { width_bits, height_bits, max_width, max_height, frame_id })
+  Ok(SequenceExtent {
+    width_bits,
+    height_bits,
+    max_width,
+    max_height,
+    frame_id,
+  })
 }
 
 struct SequenceMotionFeatures {
@@ -673,7 +740,9 @@ struct SequenceMotionFeatures {
   order_hint_bits: u8,
 }
 
-fn read_adaptive_sequence_flag(gb: &mut GetBits) -> Result<Rav1dAdaptiveBoolean, console_core_never::Never> {
+fn read_adaptive_sequence_flag(
+  gb: &mut GetBits,
+) -> Result<Rav1dAdaptiveBoolean, console_core_never::Never> {
   let Ok(adaptive) = gb.get_bit();
   Ok(match adaptive {
     HeaderBit::One => Rav1dAdaptiveBoolean::Adaptive,
@@ -684,13 +753,26 @@ fn read_adaptive_sequence_flag(gb: &mut GetBits) -> Result<Rav1dAdaptiveBoolean,
   })
 }
 
-fn read_sequence_motion_features(gb: &mut GetBits, form: SequenceHeaderForm, debug: &Debug) -> Result<SequenceMotionFeatures, console_core_never::Never> {
+fn read_sequence_motion_features(
+  gb: &mut GetBits,
+  form: SequenceHeaderForm,
+  debug: &Debug,
+) -> Result<SequenceMotionFeatures, console_core_never::Never> {
   match form {
-    SequenceHeaderForm::Reduced => return Ok(SequenceMotionFeatures {
-      inter_intra: 0, masked_compound: 0, warped_motion: 0, dual_filter: 0, order_hint: 0,
-      jnt_comp: 0, ref_frame_mvs: 0, order_hint_bits: 0,
-      screen_tools: Rav1dAdaptiveBoolean::Adaptive, integer_mv: Rav1dAdaptiveBoolean::Adaptive,
-    }),
+    SequenceHeaderForm::Reduced => {
+      return Ok(SequenceMotionFeatures {
+        inter_intra: 0,
+        masked_compound: 0,
+        warped_motion: 0,
+        dual_filter: 0,
+        order_hint: 0,
+        jnt_comp: 0,
+        ref_frame_mvs: 0,
+        order_hint_bits: 0,
+        screen_tools: Rav1dAdaptiveBoolean::Adaptive,
+        integer_mv: Rav1dAdaptiveBoolean::Adaptive,
+      });
+    }
     SequenceHeaderForm::Full => {}
   }
 
@@ -725,8 +807,16 @@ fn read_sequence_motion_features(gb: &mut GetBits, form: SequenceHeaderForm, deb
   };
 
   Ok(SequenceMotionFeatures {
-    inter_intra, masked_compound, warped_motion, dual_filter, order_hint, jnt_comp,
-    ref_frame_mvs, screen_tools, integer_mv, order_hint_bits,
+    inter_intra,
+    masked_compound,
+    warped_motion,
+    dual_filter,
+    order_hint,
+    jnt_comp,
+    ref_frame_mvs,
+    screen_tools,
+    integer_mv,
+    order_hint_bits,
   })
 }
 
@@ -740,7 +830,11 @@ struct SequenceFeatures {
   restoration: u8,
 }
 
-fn read_sequence_features(gb: &mut GetBits, form: SequenceHeaderForm, debug: &Debug) -> Result<SequenceFeatures, console_core_never::Never> {
+fn read_sequence_features(
+  gb: &mut GetBits,
+  form: SequenceHeaderForm,
+  debug: &Debug,
+) -> Result<SequenceFeatures, console_core_never::Never> {
   let Ok(sb128) = read_header_byte(gb, 1);
   let Ok(filter_intra) = read_header_byte(gb, 1);
   let Ok(intra_edge_filter) = read_header_byte(gb, 1);
@@ -749,7 +843,15 @@ fn read_sequence_features(gb: &mut GetBits, form: SequenceHeaderForm, debug: &De
   let Ok(cdef) = read_header_byte(gb, 1);
   let Ok(restoration) = read_header_byte(gb, 1);
   let Ok(()) = debug.post(gb, "featurebits");
-  Ok(SequenceFeatures { sb128, filter_intra, intra_edge_filter, motion, super_res, cdef, restoration })
+  Ok(SequenceFeatures {
+    sb128,
+    filter_intra,
+    intra_edge_filter,
+    motion,
+    super_res,
+    cdef,
+    restoration,
+  })
 }
 
 struct SequenceIdentity {
@@ -790,8 +892,8 @@ fn assemble_sequence_header(
     time_scale: timing.map_or(0, |record| record.time_scale),
     equal_picture_interval: u8::from(interval.is_some()),
     num_ticks_per_picture: match interval {
-        ::core::option::Option::Some(explicit_present) => explicit_present,
-        ::core::option::Option::None => 0,
+      ::core::option::Option::Some(explicit_present) => explicit_present,
+      ::core::option::Option::None => 0,
     },
     decoder_model_info_present: u8::from(decoder.is_some()),
     encoder_decoder_buffer_delay_length: decoder.map_or(0, |record| record.buffer_delay_bits),
@@ -831,7 +933,10 @@ fn assemble_sequence_header(
 }
 
 #[inline(never)]
-fn parse_seq_hdr(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1dResult<Rav1dSequenceHeader> {
+fn parse_seq_hdr(
+  gb: &mut GetBits,
+  compliance: HeaderCompliance,
+) -> Rav1dResult<Rav1dSequenceHeader> {
   let Ok(debug) = Debug::new(HeaderTrace::Disabled, "SEQHDR", gb);
   let Ok(profile_code) = read_header_byte(gb, 3);
   let Ok(profile_position) = index(profile_code);
@@ -853,8 +958,19 @@ fn parse_seq_hdr(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1dResult<
   let Ok(()) = debug.post(gb, "filmgrain");
   check_trailing_bits(gb, compliance)?;
 
-  let frame = SequenceIdentity { profile, still_picture, form };
-  let Ok(header) = assemble_sequence_header(frame, operating, extent, features, color, film_grain_present);
+  let frame = SequenceIdentity {
+    profile,
+    still_picture,
+    form,
+  };
+  let Ok(header) = assemble_sequence_header(
+    frame,
+    operating,
+    extent,
+    features,
+    color,
+    film_grain_present,
+  );
   Ok(header)
 }
 
@@ -979,7 +1095,10 @@ fn read_resolution(
       (scaled.max(width.min(16)), denominator)
     }
   };
-  let interpolation = Rav1dFrameHeaderSuperRes { enabled, width_scale_denominator: denominator };
+  let interpolation = Rav1dFrameHeaderSuperRes {
+    enabled,
+    width_scale_denominator: denominator,
+  };
   Ok(([coded_width, width], interpolation))
 }
 
@@ -1073,23 +1192,22 @@ enum ReferenceSearch {
 struct ReferenceCandidates([Option<ReferenceCandidate>; 8]);
 
 impl ReferenceCandidates {
-  fn take(
-    &mut self,
-    search: ReferenceSearch,
-  ) -> Result<Option<i8>, console_core_never::Never> {
+  fn take(&mut self, search: ReferenceSearch) -> Result<Option<i8>, console_core_never::Never> {
     let matching = self.0.iter_mut().filter(|entry| {
       entry.is_some_and(|candidate| match search {
-        ReferenceSearch::LatestFuture | ReferenceSearch::EarliestFuture => candidate.distance >= 0,
+        ReferenceSearch::LatestFuture | ReferenceSearch::EarliestFuture => {
+          candidate.distance >= 0
+        }
         ReferenceSearch::LatestPast => candidate.distance < 0,
       })
     });
     let best = match search {
-      ReferenceSearch::LatestFuture | ReferenceSearch::LatestPast => matching.max_by_key(|entry| {
-        entry.map(|candidate| (candidate.distance, candidate.slot))
-      }),
-      ReferenceSearch::EarliestFuture => matching.min_by_key(|entry| {
-        entry.map(|candidate| (candidate.distance, candidate.slot))
-      }),
+      ReferenceSearch::LatestFuture | ReferenceSearch::LatestPast => {
+        matching.max_by_key(|entry| entry.map(|candidate| (candidate.distance, candidate.slot)))
+      }
+      ReferenceSearch::EarliestFuture => {
+        matching.min_by_key(|entry| entry.map(|candidate| (candidate.distance, candidate.slot)))
+      }
     };
     Ok(best.and_then(Option::take).map(|candidate| candidate.slot))
   }
@@ -1102,7 +1220,10 @@ fn read_reference_slot(gb: &mut GetBits) -> Result<i8, console_core_never::Never
 
 fn reference_distances(
   state: &Rav1dState,
-  ReferenceDistancesArguments { order_hint_bits, current_offset }: ReferenceDistancesArguments,
+  ReferenceDistancesArguments {
+    order_hint_bits,
+    current_offset,
+  }: ReferenceDistancesArguments,
 ) -> Rav1dResult<[ReferenceCandidate; 8]> {
   match order_hint_bits {
     1..=8 => {}
@@ -1115,7 +1236,10 @@ fn reference_distances(
     let header = reference.p.p.frame_hdr.as_ref().ok_or(EINVAL)?;
     let Ok(distance) = get_poc_diff(
       order_hint_bits,
-      OrderHintComparison { target: i32::from(header.frame_offset), origin: i32::from(current_offset) },
+      OrderHintComparison {
+        target: i32::from(header.frame_offset),
+        origin: i32::from(current_offset),
+      },
     );
     *candidate = ReferenceCandidate { slot, distance };
   }
@@ -1132,7 +1256,10 @@ fn choose_short_references(
   candidates: [ReferenceCandidate; 8],
   anchors: ReferenceAnchors,
 ) -> Rav1dResult<[i8; RAV1D_REFS_PER_FRAME]> {
-  let checked_value = candidates.iter().min_by_key(|candidate| (candidate.distance, candidate.slot)).ok_or(EINVAL)?;
+  let checked_value = candidates
+    .iter()
+    .min_by_key(|candidate| (candidate.distance, candidate.slot))
+    .ok_or(EINVAL)?;
   let fallback = checked_value.slot;
   let mut available = ReferenceCandidates(candidates.map(Some));
 
@@ -1145,7 +1272,15 @@ fn choose_short_references(
   let Ok(alternate) = available.take(ReferenceSearch::LatestFuture);
   let Ok(backward) = available.take(ReferenceSearch::EarliestFuture);
   let Ok(alternate2) = available.take(ReferenceSearch::EarliestFuture);
-  let mut chosen = [Some(anchors.last), None, None, Some(anchors.golden), backward, alternate2, alternate];
+  let mut chosen = [
+    Some(anchors.last),
+    None,
+    None,
+    Some(anchors.golden),
+    backward,
+    alternate2,
+    alternate,
+  ];
 
   for slot in chosen.iter_mut().filter(|slot| slot.is_none()) {
     let Ok(latest) = available.take(ReferenceSearch::LatestPast);
@@ -1153,8 +1288,8 @@ fn choose_short_references(
   }
 
   Ok(chosen.map(|slot| match slot {
-      ::core::option::Option::Some(option_value) => option_value,
-      ::core::option::Option::None => fallback,
+    ::core::option::Option::Some(option_value) => option_value,
+    ::core::option::Option::None => fallback,
   }))
 }
 
@@ -1167,7 +1302,9 @@ fn verify_reference_id(
 ) -> Rav1dResult {
   let Ok(delta_bits) = gb.get_bits(i32::from(seqhdr.delta_frame_id_n_bits));
   let delta = delta_bits.wrapping_add(1);
-  let mask = 1u32.wrapping_shl(u32::from(seqhdr.frame_id_n_bits)).wrapping_sub(1);
+  let mask = 1u32
+    .wrapping_shl(u32::from(seqhdr.frame_id_n_bits))
+    .wrapping_sub(1);
   let expected = frame_id.wrapping_sub(delta) & mask;
   let header = reference_header(state, slot)?;
 
@@ -1180,7 +1317,10 @@ fn verify_reference_id(
 fn parse_refidx(
   state: &Rav1dState,
   seqhdr: &Rav1dSequenceHeader,
-  ParseRefidxArguments { frame_ref_short_signaling, frame_offset }: ParseRefidxArguments,
+  ParseRefidxArguments {
+    frame_ref_short_signaling,
+    frame_offset,
+  }: ParseRefidxArguments,
   frame_id: u32,
   gb: &mut GetBits,
 ) -> Rav1dResult<[i8; RAV1D_REFS_PER_FRAME]> {
@@ -1189,7 +1329,13 @@ fn parse_refidx(
     _ => {
       let Ok(last) = read_reference_slot(gb);
       let Ok(golden) = read_reference_slot(gb);
-      let candidates = reference_distances(state, self::ReferenceDistancesArguments { order_hint_bits: seqhdr.order_hint_n_bits, current_offset: frame_offset })?;
+      let candidates = reference_distances(
+        state,
+        self::ReferenceDistancesArguments {
+          order_hint_bits: seqhdr.order_hint_n_bits,
+          current_offset: frame_offset,
+        },
+      )?;
       choose_short_references(candidates, ReferenceAnchors { last, golden })?
     }
   };
@@ -1240,12 +1386,21 @@ impl TileGrid {
     let width = u16::try_from(columns).map_err(|_wide_grid| EINVAL)?;
     let height = u16::try_from(rows).map_err(|_tall_grid| EINVAL)?;
     let maximum_width = NonZeroU32::new(4096u32.wrapping_shr(exponent)).ok_or(EINVAL)?;
-    let maximum_area = NonZeroU32::new(4096u32.wrapping_mul(2304).wrapping_shr(exponent.wrapping_mul(2)))
-      .ok_or(EINVAL)?;
+    let maximum_area = NonZeroU32::new(
+      4096u32
+        .wrapping_mul(2304)
+        .wrapping_shr(exponent.wrapping_mul(2)),
+    )
+    .ok_or(EINVAL)?;
 
     match (width, height) {
       (0, _) | (_, 0) => Err(EINVAL),
-      (_, _) => Ok(Self { width, height, maximum_width, maximum_area }),
+      (_, _) => Ok(Self {
+        width,
+        height,
+        maximum_width,
+        maximum_area,
+      }),
     }
   }
 
@@ -1312,7 +1467,11 @@ impl<const N: usize> TileAxis<N> {
     let Ok(index) = console_core_number_conversion::index(count);
     let sentinel = boundaries.get_mut(index).ok_or(EINVAL)?;
     *sentinel = extent;
-    Ok(Self { boundaries, count, largest })
+    Ok(Self {
+      boundaries,
+      count,
+      largest,
+    })
   }
 }
 
@@ -1351,19 +1510,44 @@ struct TileAxes {
 
 impl TileAxes {
   fn uniform(gb: &mut GetBits, grid: &TileGrid, limits: TileLimits) -> Rav1dResult<Self> {
-    let Ok(log2_columns) = uniform_tiling_log2(gb, limits.minimum_columns..limits.maximum_columns);
+    let Ok(log2_columns) =
+      uniform_tiling_log2(gb, limits.minimum_columns..limits.maximum_columns);
     let column_count = 1u16.wrapping_shl(u32::from(log2_columns));
-    let columns = TileAxis::read(gb, grid.width, TileSpacing::Uniform { length: grid.width.div_ceil(column_count) })?;
+    let columns = TileAxis::read(
+      gb,
+      grid.width,
+      TileSpacing::Uniform {
+        length: grid.width.div_ceil(column_count),
+      },
+    )?;
     let min_rows = limits.minimum_total.saturating_sub(log2_columns);
     let Ok(log2_rows) = uniform_tiling_log2(gb, min_rows..limits.maximum_rows);
     let row_count = 1u16.wrapping_shl(u32::from(log2_rows));
-    let rows = TileAxis::read(gb, grid.height, TileSpacing::Uniform { length: grid.height.div_ceil(row_count) })?;
-    Ok(Self { columns, rows, log2_columns, log2_rows })
+    let rows = TileAxis::read(
+      gb,
+      grid.height,
+      TileSpacing::Uniform {
+        length: grid.height.div_ceil(row_count),
+      },
+    )?;
+    Ok(Self {
+      columns,
+      rows,
+      log2_columns,
+      log2_rows,
+    })
   }
 
   fn variable(gb: &mut GetBits, grid: &TileGrid, limits: TileLimits) -> Rav1dResult<Self> {
-    let Ok(maximum_width) = console_core_number_conversion::wrapped::<_, u16>(grid.maximum_width.get());
-    let columns = TileAxis::read(gb, grid.width, TileSpacing::Variable { maximum: maximum_width })?;
+    let Ok(maximum_width) =
+      console_core_number_conversion::wrapped::<_, u16>(grid.maximum_width.get());
+    let columns = TileAxis::read(
+      gb,
+      grid.width,
+      TileSpacing::Variable {
+        maximum: maximum_width,
+      },
+    )?;
     let Ok(log2_columns) = tile_log2(NonZeroU32::MIN, u32::from(columns.count));
     let Ok(area) = grid.area();
     let area_shift = match limits.minimum_total {
@@ -1371,12 +1555,26 @@ impl TileAxes {
       tiles => u32::from(tiles).wrapping_add(1),
     };
     let area_limit = area.wrapping_shr(area_shift);
-    let checked_value = area_limit.checked_div(u32::from(columns.largest)).ok_or(EINVAL)?;
+    let checked_value = area_limit
+      .checked_div(u32::from(columns.largest))
+      .ok_or(EINVAL)?;
     let maximum = checked_value.max(1);
-    let Ok(maximum_height) = console_core_number_conversion::wrapped::<_, u16>(maximum.min(u32::from(grid.height)));
-    let rows = TileAxis::read(gb, grid.height, TileSpacing::Variable { maximum: maximum_height })?;
+    let Ok(maximum_height) =
+      console_core_number_conversion::wrapped::<_, u16>(maximum.min(u32::from(grid.height)));
+    let rows = TileAxis::read(
+      gb,
+      grid.height,
+      TileSpacing::Variable {
+        maximum: maximum_height,
+      },
+    )?;
     let Ok(log2_rows) = tile_log2(NonZeroU32::MIN, u32::from(rows.count));
-    Ok(Self { columns, rows, log2_columns, log2_rows })
+    Ok(Self {
+      columns,
+      rows,
+      log2_columns,
+      log2_rows,
+    })
   }
 
   fn update(&self, gb: &mut GetBits) -> Rav1dResult<(u16, u8)> {
@@ -1471,7 +1669,8 @@ fn parse_quant(
   let Ok(ydc_delta) = read_quant_delta(gb);
   let (udc_delta, uac_delta, vdc_delta, vac_delta) = match seqhdr.monochrome {
     0 => {
-      let separate = seqhdr.separate_uv_delta_q != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One));
+      let separate =
+        seqhdr.separate_uv_delta_q != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One));
       let Ok(udc) = read_quant_delta(gb);
       let Ok(uac) = read_quant_delta(gb);
 
@@ -1507,12 +1706,23 @@ fn parse_quant(
 
   let Ok(()) = debug.post(gb, "qm");
   Ok(Rav1dFrameHeaderQuant {
-    yac, ydc_delta, udc_delta, uac_delta, vdc_delta, vac_delta,
-    qm: u8::from(matrix == HeaderBit::One), qm_y, qm_u, qm_v,
+    yac,
+    ydc_delta,
+    udc_delta,
+    uac_delta,
+    vdc_delta,
+    vac_delta,
+    qm: u8::from(matrix == HeaderBit::One),
+    qm_y,
+    qm_u,
+    qm_v,
   })
 }
 
-fn read_segment_delta(gb: &mut GetBits, bits: i32) -> Result<Option<i32>, console_core_never::Never> {
+fn read_segment_delta(
+  gb: &mut GetBits,
+  bits: i32,
+) -> Result<Option<i32>, console_core_never::Never> {
   match gb.get_bit() {
     Ok(HeaderBit::Zero) => Ok(None),
     Ok(HeaderBit::One) => {
@@ -1522,7 +1732,9 @@ fn read_segment_delta(gb: &mut GetBits, bits: i32) -> Result<Option<i32>, consol
   }
 }
 
-fn parse_seg_data(gb: &mut GetBits) -> Result<Rav1dSegmentationDataSet, console_core_never::Never> {
+fn parse_seg_data(
+  gb: &mut GetBits,
+) -> Result<Rav1dSegmentationDataSet, console_core_never::Never> {
   let mut preskip = 0;
   let mut last_active = None;
   let mut d = array::from_fn(|_| Rav1dSegmentationData::default());
@@ -1530,8 +1742,8 @@ fn parse_seg_data(gb: &mut GetBits) -> Result<Rav1dSegmentationDataSet, console_
   for (index, segment) in (0i8..).zip(&mut d) {
     let Ok(quantizer) = read_segment_delta(gb, 9);
     let Ok(delta_q) = fitted::<_, i16>(match quantizer {
-        ::core::option::Option::Some(explicit_present) => explicit_present,
-        ::core::option::Option::None => 0,
+      ::core::option::Option::Some(explicit_present) => explicit_present,
+      ::core::option::Option::None => 0,
     });
     let mut active = quantizer.is_some();
     let mut filter_deltas = [0; 4];
@@ -1540,8 +1752,8 @@ fn parse_seg_data(gb: &mut GetBits) -> Result<Rav1dSegmentationDataSet, console_
       let Ok(filtered) = read_segment_delta(gb, 7);
       active |= filtered.is_some();
       let Ok(delta_value) = fitted::<_, i8>(match filtered {
-          ::core::option::Option::Some(explicit_present) => explicit_present,
-          ::core::option::Option::None => 0,
+        ::core::option::Option::Some(explicit_present) => explicit_present,
+        ::core::option::Option::None => 0,
       });
       *delta = delta_value;
     }
@@ -1571,21 +1783,28 @@ fn parse_seg_data(gb: &mut GetBits) -> Result<Rav1dSegmentationDataSet, console_
       delta_lf_u,
       delta_lf_v,
       r#ref: match reference {
-          ::core::option::Option::Some(explicit_present) => explicit_present,
-          ::core::option::Option::None => -1,
+        ::core::option::Option::Some(explicit_present) => explicit_present,
+        ::core::option::Option::None => -1,
       },
       skip,
       globalmv,
     };
   }
 
-  Ok(Rav1dSegmentationDataSet { d, preskip, last_active_segid: match last_active {
+  Ok(Rav1dSegmentationDataSet {
+    d,
+    preskip,
+    last_active_segid: match last_active {
       ::core::option::Option::Some(explicit_present) => explicit_present,
       ::core::option::Option::None => -1,
-  } })
+    },
+  })
 }
 
-fn read_segmentation_flags(gb: &mut GetBits, primary: u8) -> Result<[u8; 3], console_core_never::Never> {
+fn read_segmentation_flags(
+  gb: &mut GetBits,
+  primary: u8,
+) -> Result<[u8; 3], console_core_never::Never> {
   Ok(match primary {
     RAV1D_PRIMARY_REF_NONE => [1, 0, 1],
     _ => {
@@ -1634,14 +1853,25 @@ fn parse_segmentation(
   };
   let Ok(()) = debug.post(gb, "segmentation");
 
-  let delta_lossless = quant.ydc_delta == 0 && quant.udc_delta == 0
-    && quant.uac_delta == 0 && quant.vdc_delta == 0 && quant.vac_delta == 0;
+  let delta_lossless = quant.ydc_delta == 0
+    && quant.udc_delta == 0
+    && quant.uac_delta == 0
+    && quant.vdc_delta == 0
+    && quant.vac_delta == 0;
   let qidx = seg_data.d.each_ref().map(|segment| match enabled {
     0 => quant.yac,
     1.. => clip_u8(i32::from(quant.yac).wrapping_add(i32::from(segment.delta_q))),
   });
   let lossless = qidx.map(|index| index == 0 && delta_lossless);
-  Ok(Rav1dFrameHeaderSegmentation { enabled, update_map, temporal, update_data, seg_data, lossless, qidx })
+  Ok(Rav1dFrameHeaderSegmentation {
+    enabled,
+    update_map,
+    temporal,
+    update_data,
+    seg_data,
+    lossless,
+    qidx,
+  })
 }
 
 fn parse_delta(
@@ -1668,7 +1898,11 @@ fn parse_delta(
       Rav1dFrameHeaderDeltaQ { present, res_log2 }
     };
     let lf = {
-      let present = u8::from(q.present != 0 && intrabc == IntraBlockCopy::Forbidden && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+      let present = u8::from(
+        q.present != 0
+          && intrabc == IntraBlockCopy::Forbidden
+          && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+      );
       let res_log2 = match ::core::primitive::bool::then_some(present != 0, ()) {
         ::core::option::Option::Some(()) => {
           let Ok(bits) = gb.get_bits(2);
@@ -1730,7 +1964,8 @@ fn parse_loopfilter(
   gb: &mut GetBits,
 ) -> Rav1dResult<Rav1dFrameHeaderLoopFilter> {
   let filter = match (quantization == FrameQuantization::Lossless
-    || intrabc == IntraBlockCopy::Allowed).then_some(())
+    || intrabc == IntraBlockCopy::Allowed)
+    .then_some(())
   {
     Some(()) => Rav1dFrameHeaderLoopFilter {
       level_y: [0; 2],
@@ -1744,16 +1979,15 @@ fn parse_loopfilter(
     None => {
       let Ok(y_vertical) = read_header_byte(gb, 6);
       let Ok(y_horizontal) = read_header_byte(gb, 6);
-      let [level_u, level_v] = match (seqhdr.monochrome == 0
-        && (y_vertical != 0 || y_horizontal != 0)).then_some(())
-      {
-        Some(()) => {
-          let Ok(cb) = read_header_byte(gb, 6);
-          let Ok(cr) = read_header_byte(gb, 6);
-          [cb, cr]
-        }
-        None => [0; 2],
-      };
+      let [level_u, level_v] =
+        match (seqhdr.monochrome == 0 && (y_vertical != 0 || y_horizontal != 0)).then_some(()) {
+          Some(()) => {
+            let Ok(cb) = read_header_byte(gb, 6);
+            let Ok(cr) = read_header_byte(gb, 6);
+            [cb, cr]
+          }
+          None => [0; 2],
+        };
       let Ok(sharpness) = read_header_byte(gb, 3);
       let mut mode_ref_deltas = match primary_ref_frame {
         RAV1D_PRIMARY_REF_NONE => default_mode_ref_deltas.clone(),
@@ -1790,7 +2024,12 @@ fn parse_cdef(
 ) -> Rav1dResult<Rav1dFrameHeaderCdef> {
   let mut y_strength = [0; RAV1D_MAX_CDEF_STRENGTHS];
   let mut uv_strength = [0; RAV1D_MAX_CDEF_STRENGTHS];
-  let (damping, n_bits) = match ::core::primitive::bool::then_some(quantization == FrameQuantization::Lossy && seqhdr.cdef != 0 && intrabc == IntraBlockCopy::Forbidden, ()) {
+  let (damping, n_bits) = match ::core::primitive::bool::then_some(
+    quantization == FrameQuantization::Lossy
+      && seqhdr.cdef != 0
+      && intrabc == IntraBlockCopy::Forbidden,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(damping_bits) = gb.get_bits(2);
       let Ok(strength_bits) = gb.get_bits(2);
@@ -1850,12 +2089,19 @@ fn read_restoration_units(
   }
 
   let larger_unit = u8::from(matches!(gb.get_bit(), Ok(HeaderBit::One)));
-  let largest_unit = u8::from(larger_unit != 0 && sequence.sb128 == 0
-    && matches!(gb.get_bit(), Ok(HeaderBit::One)));
-  let luma_size = 6u8.wrapping_add(sequence.sb128).wrapping_add(larger_unit).wrapping_add(largest_unit);
-  let smaller_chroma = u8::from((u != none || v != none)
-    && sequence.ss_hor == 1 && sequence.ss_ver == 1
-    && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let largest_unit = u8::from(
+    larger_unit != 0 && sequence.sb128 == 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
+  let luma_size = 6u8
+    .wrapping_add(sequence.sb128)
+    .wrapping_add(larger_unit)
+    .wrapping_add(largest_unit);
+  let smaller_chroma = u8::from(
+    (u != none || v != none)
+      && sequence.ss_hor == 1
+      && sequence.ss_ver == 1
+      && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
   let chroma_size = luma_size.wrapping_sub(smaller_chroma);
   Ok([luma_size, chroma_size])
 }
@@ -1868,8 +2114,10 @@ fn parse_restoration(
   debug: &Debug,
   gb: &mut GetBits,
 ) -> Rav1dResult<Rav1dFrameHeaderRestoration> {
-  let allowed = (quantization == FrameQuantization::Lossy || super_resolution == SuperResolution::Enabled)
-    && seqhdr.restoration != 0 && intrabc == IntraBlockCopy::Forbidden;
+  let allowed = (quantization == FrameQuantization::Lossy
+    || super_resolution == SuperResolution::Enabled)
+    && seqhdr.restoration != 0
+    && intrabc == IntraBlockCopy::Forbidden;
   let header = match allowed.then_some(()) {
     Some(()) => {
       let luma = read_restoration_type(gb)?;
@@ -1937,14 +2185,25 @@ impl SkipOrderHints {
     origin: u8,
     direction: HintDirection,
   ) -> Result<Option<SkipReference>, console_core_never::Never> {
-    let nearest = self.hints.iter().zip(0i8..).filter_map(|(&hint, index)| {
-      let Ok(distance) = get_poc_diff(self.width, OrderHintComparison { target: i32::from(hint), origin: i32::from(origin) });
-      let wanted = match direction {
-        HintDirection::Before => distance < 0,
-        HintDirection::After => distance > 0,
-      };
-      wanted.then_some((distance.unsigned_abs(), SkipReference { index, hint }))
-    }).min_by_key(|(distance, reference)| (*distance, reference.index));
+    let nearest = self
+      .hints
+      .iter()
+      .zip(0i8..)
+      .filter_map(|(&hint, index)| {
+        let Ok(distance) = get_poc_diff(
+          self.width,
+          OrderHintComparison {
+            target: i32::from(hint),
+            origin: i32::from(origin),
+          },
+        );
+        let wanted = match direction {
+          HintDirection::Before => distance < 0,
+          HintDirection::After => distance > 0,
+        };
+        wanted.then_some((distance.unsigned_abs(), SkipReference { index, hint }))
+      })
+      .min_by_key(|(distance, reference)| (*distance, reference.index));
     Ok(nearest.map(|(_, reference)| reference))
   }
 
@@ -1977,7 +2236,11 @@ fn parse_skip_mode(
   debug: &Debug,
   gb: &mut GetBits,
 ) -> Rav1dResult<Rav1dFrameSkipMode> {
-  let pair = match (references.switchable, references.frame_type.is_inter_or_switch(), seqhdr.order_hint) {
+  let pair = match (
+    references.switchable,
+    references.frame_type.is_inter_or_switch(),
+    seqhdr.order_hint,
+  ) {
     (0, _, _) | (_, false, _) | (_, _, 0) => None,
     (_, true, _) => {
       let hints = SkipOrderHints::read(state, seqhdr.order_hint_n_bits, references.slots)?;
@@ -1988,7 +2251,11 @@ fn parse_skip_mode(
   let mode = match pair {
     Some(refs) => {
       let Ok(enabled) = gb.get_bit();
-      Rav1dFrameSkipMode { allowed: 1, enabled: u8::from(enabled), refs }
+      Rav1dFrameSkipMode {
+        allowed: 1,
+        enabled: u8::from(enabled),
+        refs,
+      }
     }
     None => Rav1dFrameSkipMode::default(),
   };
@@ -2020,11 +2287,21 @@ fn read_warp_matrix(
     Rav1dWarpedMotionType::RotZoom | Rav1dWarpedMotionType::Affine => {
       let Ok(ac) = gb.get_bits_subexp(ref_a.wrapping_sub(UNIT).wrapping_shr(1), 12);
       let Ok(bc) = gb.get_bits_subexp(ref_b.wrapping_shr(1), 12);
-      (UNIT.wrapping_add(ac.wrapping_mul(2)), bc.wrapping_mul(2), 12, 10)
+      (
+        UNIT.wrapping_add(ac.wrapping_mul(2)),
+        bc.wrapping_mul(2),
+        12,
+        10,
+      )
     }
     Rav1dWarpedMotionType::Identity | Rav1dWarpedMotionType::Translation => {
       let quarter_pel = u32::from(precision == GlobalMvPrecision::QuarterPel);
-      (UNIT, 0, 9_u32.wrapping_sub(quarter_pel), 13_u32.wrapping_add(quarter_pel))
+      (
+        UNIT,
+        0,
+        9_u32.wrapping_sub(quarter_pel),
+        13_u32.wrapping_add(quarter_pel),
+      )
     }
   };
   let (c, d) = match mode {
@@ -2033,9 +2310,9 @@ fn read_warp_matrix(
       let Ok(dc) = gb.get_bits_subexp(ref_d.wrapping_sub(UNIT).wrapping_shr(1), 12);
       (cc.wrapping_mul(2), UNIT.wrapping_add(dc.wrapping_mul(2)))
     }
-    Rav1dWarpedMotionType::Identity | Rav1dWarpedMotionType::Translation | Rav1dWarpedMotionType::RotZoom => {
-      (b.wrapping_neg(), a)
-    }
+    Rav1dWarpedMotionType::Identity
+    | Rav1dWarpedMotionType::Translation
+    | Rav1dWarpedMotionType::RotZoom => (b.wrapping_neg(), a),
   };
   let Ok(x) = gb.get_bits_subexp(tx.wrapping_shr(shift), bits);
   let Ok(y) = gb.get_bits_subexp(ty.wrapping_shr(shift), bits);
@@ -2110,35 +2387,41 @@ struct GrainScales {
   chroma_from_luma: bool,
 }
 
-fn read_grain_scales(gb: &mut GetBits, sequence: &Rav1dSequenceHeader) -> Rav1dResult<GrainScales> {
+fn read_grain_scales(
+  gb: &mut GetBits,
+  sequence: &Rav1dSequenceHeader,
+) -> Rav1dResult<GrainScales> {
   let (y_count, y) = read_grain_points(gb)?;
   let chroma_from_luma = sequence.monochrome == 0 && matches!(gb.get_bit(), Ok(HeaderBit::One));
   let subsampled = sequence.ss_ver == 1 && sequence.ss_hor == 1;
-  let (uv_counts, uv) = match (sequence.monochrome != 0 || chroma_from_luma
-    || (subsampled && y_count == 0)).then_some(())
-  {
-    Some(()) => ([0; 2], [[[0; 2]; 10]; 2]),
-    None => {
-      let (cb_count, cb) = read_grain_points(gb)?;
-      let (cr_count, cr) = read_grain_points(gb)?;
+  let (uv_counts, uv) =
+    match (sequence.monochrome != 0 || chroma_from_luma || (subsampled && y_count == 0))
+      .then_some(())
+    {
+      Some(()) => ([0; 2], [[[0; 2]; 10]; 2]),
+      None => {
+        let (cb_count, cb) = read_grain_points(gb)?;
+        let (cr_count, cr) = read_grain_points(gb)?;
 
-      match (subsampled && ((cb_count == 0) != (cr_count == 0))).then_some(()) {
-        Some(()) => return Err(EINVAL),
-        None => {}
+        match (subsampled && ((cb_count == 0) != (cr_count == 0))).then_some(()) {
+          Some(()) => return Err(EINVAL),
+          None => {}
+        }
+
+        ([cb_count, cr_count], [cb, cr])
       }
+    };
 
-      ([cb_count, cr_count], [cb, cr])
-    }
-  };
-
-  Ok(GrainScales { y, y_count, uv, uv_counts, chroma_from_luma })
+  Ok(GrainScales {
+    y,
+    y_count,
+    uv,
+    uv_counts,
+    chroma_from_luma,
+  })
 }
 
-fn read_grain_coefficients(
-  gb: &mut GetBits,
-  coefficients: &mut [i8],
-  count: u8,
-) -> Rav1dResult {
+fn read_grain_coefficients(gb: &mut GetBits, coefficients: &mut [i8], count: u8) -> Rav1dResult {
   let Ok(length) = index(count);
   let prefix = coefficients.get_mut(..length).ok_or(EINVAL)?;
 
@@ -2257,7 +2540,10 @@ fn read_inherited_grain(
   }
 
   let header = reference_header(state, slot)?;
-  Ok(Rav1dFilmGrainData { seed, ..header.film_grain.data.clone() })
+  Ok(Rav1dFilmGrainData {
+    seed,
+    ..header.film_grain.data.clone()
+  })
 }
 
 fn parse_film_grain(
@@ -2272,15 +2558,18 @@ fn parse_film_grain(
   debug: &Debug,
   gb: &mut GetBits,
 ) -> Rav1dResult<Rav1dFrameHeaderFilmGrain> {
-  let present = u8::from(seqhdr.film_grain_present != 0
-    && (show_frame != 0 || showable_frame != 0)
-    && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let present = u8::from(
+    seqhdr.film_grain_present != 0
+      && (show_frame != 0 || showable_frame != 0)
+      && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
   let (update, data) = match present {
     0 => (0, Rav1dFilmGrainData::default()),
     1.. => {
       let Ok(seed) = gb.get_bits(16);
-      let update = u8::from(frame_type != Rav1dFrameType::Inter
-        || matches!(gb.get_bit(), Ok(HeaderBit::One)));
+      let update = u8::from(
+        frame_type != Rav1dFrameType::Inter || matches!(gb.get_bit(), Ok(HeaderBit::One)),
+      );
       let data = match update {
         0 => read_inherited_grain(state, ref_indices, seed, gb)?,
         1.. => parse_film_grain_data(seqhdr, seed, gb)?,
@@ -2290,7 +2579,11 @@ fn parse_film_grain(
   };
 
   let Ok(()) = debug.post(gb, "filmgrain");
-  Ok(Rav1dFrameHeaderFilmGrain { data, present, update })
+  Ok(Rav1dFrameHeaderFilmGrain {
+    data,
+    present,
+    update,
+  })
 }
 
 struct ParseFilmGrainArguments {
@@ -2307,7 +2600,8 @@ fn parse_existing_frame_header(
   let Ok(slot) = read_reference_slot(gb);
   let Ok(existing_frame_idx) = fitted::<_, u8>(slot);
   let frame_presentation_delay = match (sequence.decoder_model_info_present != 0
-    && sequence.equal_picture_interval == 0).then_some(())
+    && sequence.equal_picture_interval == 0)
+    .then_some(())
   {
     Some(()) => {
       let Ok(delay) = gb.get_bits(i32::from(sequence.frame_presentation_delay_length));
@@ -2366,21 +2660,27 @@ fn parse_new_frame_prefix(
   gb: &mut GetBits,
 ) -> Rav1dResult<NewFramePrefix> {
   let mut frame_presentation_delay = 0;
-  let frame_type = match ::core::primitive::bool::then_some(seqhdr.reduced_still_picture_header != 0, ()) {
-    ::core::option::Option::Some(()) => Rav1dFrameType::Key,
-    ::core::option::Option::None => {
-      let Ok(bits) = gb.get_bits(2);
-      let Ok(gb_bits) = console_core_number_conversion::wrapped_index(bits);
+  let frame_type =
+    match ::core::primitive::bool::then_some(seqhdr.reduced_still_picture_header != 0, ()) {
+      ::core::option::Option::Some(()) => Rav1dFrameType::Key,
+      ::core::option::Option::None => {
+        let Ok(bits) = gb.get_bits(2);
+        let Ok(gb_bits) = console_core_number_conversion::wrapped_index(bits);
 
-      Rav1dFrameType::from_repr(gb_bits).ok_or(EINVAL)?
-    }
-  };
-  let show_frame = u8::from(seqhdr.reduced_still_picture_header != 0 || matches!(gb.get_bit(), Ok(HeaderBit::One)));
+        Rav1dFrameType::from_repr(gb_bits).ok_or(EINVAL)?
+      }
+    };
+  let show_frame = u8::from(
+    seqhdr.reduced_still_picture_header != 0 || matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
   let showable_frame;
 
   match ::core::primitive::bool::then_some(show_frame != 0, ()) {
     ::core::option::Option::Some(()) => {
-      match ::core::primitive::bool::then_some(seqhdr.decoder_model_info_present != 0 && seqhdr.equal_picture_interval == 0, ()) {
+      match ::core::primitive::bool::then_some(
+        seqhdr.decoder_model_info_present != 0 && seqhdr.equal_picture_interval == 0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(bits) = gb.get_bits(<::core::primitive::i32 as ::core::convert::From<
             ::core::primitive::u8,
@@ -2411,14 +2711,15 @@ fn parse_new_frame_prefix(
     Rav1dAdaptiveBoolean::On => true,
     Rav1dAdaptiveBoolean::Off => false,
   };
-  let mut force_integer_mv = match ::core::primitive::bool::then_some(allow_screen_content_tools, ()) {
-    ::core::option::Option::Some(()) => match seqhdr.force_integer_mv {
-      Rav1dAdaptiveBoolean::Adaptive => matches!(gb.get_bit(), Ok(HeaderBit::One)),
-      Rav1dAdaptiveBoolean::On => true,
-      Rav1dAdaptiveBoolean::Off => false,
-    },
-    ::core::option::Option::None => false,
-  };
+  let mut force_integer_mv =
+    match ::core::primitive::bool::then_some(allow_screen_content_tools, ()) {
+      ::core::option::Option::Some(()) => match seqhdr.force_integer_mv {
+        Rav1dAdaptiveBoolean::Adaptive => matches!(gb.get_bit(), Ok(HeaderBit::One)),
+        Rav1dAdaptiveBoolean::On => true,
+        Rav1dAdaptiveBoolean::Off => false,
+      },
+      ::core::option::Option::None => false,
+    };
 
   match ::core::primitive::bool::then_some(frame_type.is_key_or_intra(), ()) {
     ::core::option::Option::Some(()) => {
@@ -2444,10 +2745,12 @@ fn parse_new_frame_prefix(
 
   let dimensions = match (seqhdr.reduced_still_picture_header, frame_type) {
     (0, Rav1dFrameType::Switch) => FrameDimensions::Override,
-    (0, Rav1dFrameType::Key | Rav1dFrameType::Inter | Rav1dFrameType::Intra) => match gb.get_bit() {
-      Ok(HeaderBit::Zero) => FrameDimensions::SequenceMaximum,
-      Ok(HeaderBit::One) => FrameDimensions::Override,
-    },
+    (0, Rav1dFrameType::Key | Rav1dFrameType::Inter | Rav1dFrameType::Intra) => {
+      match gb.get_bit() {
+        Ok(HeaderBit::Zero) => FrameDimensions::SequenceMaximum,
+        Ok(HeaderBit::One) => FrameDimensions::Override,
+      }
+    }
     (_, _) => FrameDimensions::SequenceMaximum,
   };
   let Ok(()) = debug.post(gb, "frame_size_override_flag");
@@ -2462,7 +2765,10 @@ fn parse_new_frame_prefix(
     }
     ::core::option::Option::None => 0,
   };
-  let primary_ref_frame = match ::core::primitive::bool::then_some(error_resilient_mode == 0 && frame_type.is_inter_or_switch(), ()) {
+  let primary_ref_frame = match ::core::primitive::bool::then_some(
+    error_resilient_mode == 0 && frame_type.is_inter_or_switch(),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       let Ok(bits) = gb.get_bits(3);
       let Ok(gb_bits) = console_core_number_conversion::wrapped::<_, u8>(bits);
@@ -2477,10 +2783,18 @@ fn parse_new_frame_prefix(
     None => ScreenContentTools::Disabled,
   };
   Ok(NewFramePrefix {
-    frame_presentation_delay, frame_type, show_frame,
-    showable_frame, error_resilient_mode, disable_cdf_update,
-    screen_tools, force_integer_mv, frame_id,
-    dimensions, frame_offset, primary_ref_frame,
+    frame_presentation_delay,
+    frame_type,
+    show_frame,
+    showable_frame,
+    error_resilient_mode,
+    disable_cdf_update,
+    screen_tools,
+    force_integer_mv,
+    frame_id,
+    dimensions,
+    frame_offset,
+    primary_ref_frame,
   })
 }
 
@@ -2495,7 +2809,9 @@ fn parse_buffer_removal_times(
   gb: &mut GetBits,
 ) -> Rav1dResult<BufferRemovalTimes> {
   let mut points = [Rav1dFrameHeaderOperatingPoint::default(); RAV1D_MAX_OPERATING_POINTS];
-  let present = u8::from(sequence.decoder_model_info_present != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let present = u8::from(
+    sequence.decoder_model_info_present != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
 
   match present {
     0 => {}
@@ -2507,7 +2823,8 @@ fn parse_buffer_removal_times(
       for (point, time) in selected.iter().zip(times) {
         let temporal_mask = 1_u16.wrapping_shl(u32::from(layer.temporal_id));
         let spatial_mask = 1_u16.wrapping_shl(u32::from(layer.spatial_id.wrapping_add(8)));
-        let active = point.idc == 0 || point.idc & temporal_mask != 0 && point.idc & spatial_mask != 0;
+        let active =
+          point.idc == 0 || point.idc & temporal_mask != 0 && point.idc & spatial_mask != 0;
 
         match (point.decoder_model_param_present != 0 && active).then_some(()) {
           Some(()) => {
@@ -2532,14 +2849,24 @@ fn parse_frame_filters(
   gb: &mut GetBits,
 ) -> Rav1dResult<FrameQuantization> {
   let refresh_context = u8::from(
-    seqhdr.reduced_still_picture_header == 0 && header.disable_cdf_update == 0 && !matches!(gb.get_bit(), Ok(HeaderBit::One)),
+    seqhdr.reduced_still_picture_header == 0
+      && header.disable_cdf_update == 0
+      && !matches!(gb.get_bit(), Ok(HeaderBit::One)),
   );
   let Ok(()) = debug.post(gb, "refresh_context");
 
   let tiling = parse_tiling(seqhdr, &header.size, debug, gb)?;
   let Ok(quant) = parse_quant(seqhdr, debug, gb);
-  let segmentation = parse_segmentation(state, header.primary_ref_frame, &header.refidx, &quant, debug, gb)?;
-  let quantization = FrameQuantization::from(segmentation.lossless.iter().all(|&segment| segment));
+  let segmentation = parse_segmentation(
+    state,
+    header.primary_ref_frame,
+    &header.refidx,
+    &quant,
+    debug,
+    gb,
+  )?;
+  let quantization =
+    FrameQuantization::from(segmentation.lossless.iter().all(|&segment| segment));
   let Ok(delta) = parse_delta(&quant, intrabc, debug, gb);
   let loopfilter = parse_loopfilter(
     state,
@@ -2583,8 +2910,14 @@ fn parse_frame_features(
   gb: &mut GetBits,
 ) -> Rav1dResult {
   let Rav1dFrameHeader {
-    frame_type, primary_ref_frame, refidx, frame_offset,
-    show_frame, showable_frame, error_resilient_mode, ..
+    frame_type,
+    primary_ref_frame,
+    refidx,
+    frame_offset,
+    show_frame,
+    showable_frame,
+    error_resilient_mode,
+    ..
   } = *header;
   let txfm_mode = match quantization {
     FrameQuantization::Lossless => Rav1dTxfmMode::Only4x4,
@@ -2594,10 +2927,11 @@ fn parse_frame_features(
     },
   };
   let Ok(()) = debug.post(gb, "txfmmode");
-  let switchable_comp_refs = match ::core::primitive::bool::then_some(frame_type.is_inter_or_switch(), ()) {
-    ::core::option::Option::Some(()) => u8::from(matches!(gb.get_bit(), Ok(HeaderBit::One))),
-    ::core::option::Option::None => 0,
-  };
+  let switchable_comp_refs =
+    match ::core::primitive::bool::then_some(frame_type.is_inter_or_switch(), ()) {
+      ::core::option::Option::Some(()) => u8::from(matches!(gb.get_bit(), Ok(HeaderBit::One))),
+      ::core::option::Option::None => 0,
+    };
   let Ok(()) = debug.post(gb, "refmode");
   let skip_mode = parse_skip_mode(
     state,
@@ -2662,8 +2996,9 @@ fn parse_frame_hdr(
 ) -> Rav1dResult<Rav1dFrameHeader> {
   let Ok(debug) = Debug::new(HeaderTrace::Disabled, "HDR", gb);
   let Ok(()) = debug.post(gb, "show_existing_frame");
-  let show_existing_frame = u8::from(seqhdr.reduced_still_picture_header == 0
-    && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+  let show_existing_frame = u8::from(
+    seqhdr.reduced_still_picture_header == 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+  );
 
   match show_existing_frame {
     0 => {}
@@ -2671,15 +3006,27 @@ fn parse_frame_hdr(
   }
 
   let NewFramePrefix {
-    frame_presentation_delay, frame_type, show_frame,
-    showable_frame, error_resilient_mode, disable_cdf_update,
-    screen_tools, force_integer_mv, frame_id,
-    dimensions, frame_offset, primary_ref_frame,
+    frame_presentation_delay,
+    frame_type,
+    show_frame,
+    showable_frame,
+    error_resilient_mode,
+    disable_cdf_update,
+    screen_tools,
+    force_integer_mv,
+    frame_id,
+    dimensions,
+    frame_offset,
+    primary_ref_frame,
   } = parse_new_frame_prefix(seqhdr, &debug, gb)?;
   let BufferRemovalTimes {
-    present: buffer_removal_time_present, points: operating_points,
+    present: buffer_removal_time_present,
+    points: operating_points,
   } = parse_buffer_removal_times(seqhdr, &layer, gb)?;
-  let ParseFrameHdrArguments { temporal_id, spatial_id } = layer;
+  let ParseFrameHdrArguments {
+    temporal_id,
+    spatial_id,
+  } = layer;
   let allow_screen_content_tools = matches!(screen_tools, ScreenContentTools::Enabled);
 
   let refresh_frame_flags;
@@ -2694,7 +3041,10 @@ fn parse_frame_hdr(
 
   match ::core::primitive::bool::then_some(frame_type.is_key_or_intra(), ()) {
     ::core::option::Option::Some(()) => {
-      refresh_frame_flags = match ::core::primitive::bool::then_some(frame_type == Rav1dFrameType::Key && show_frame != 0, ()) {
+      refresh_frame_flags = match ::core::primitive::bool::then_some(
+        frame_type == Rav1dFrameType::Key && show_frame != 0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => 0xff,
         ::core::option::Option::None => {
           let Ok(bits) = gb.get_bits(8);
@@ -2704,7 +3054,10 @@ fn parse_frame_hdr(
         }
       };
 
-      match ::core::primitive::bool::then_some(refresh_frame_flags != 0xff && error_resilient_mode != 0 && seqhdr.order_hint != 0, ()) {
+      match ::core::primitive::bool::then_some(
+        refresh_frame_flags != 0xff && error_resilient_mode != 0 && seqhdr.order_hint != 0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           for _ in 0..8 {
             let Ok(_) = gb.get_bits(<::core::primitive::i32 as ::core::convert::From<
@@ -2715,10 +3068,12 @@ fn parse_frame_hdr(
         ::core::option::Option::None => {}
       }
 
-      match ::core::primitive::bool::then_some(c.strict_std_compliance
-        && frame_type == Rav1dFrameType::Intra
-        && refresh_frame_flags == 0xff, ())
-      {
+      match ::core::primitive::bool::then_some(
+        c.strict_std_compliance
+          && frame_type == Rav1dFrameType::Intra
+          && refresh_frame_flags == 0xff,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Err(EINVAL);
         }
@@ -2728,7 +3083,9 @@ fn parse_frame_hdr(
       let frame_size = parse_frame_size(state, seqhdr, None, dimensions, gb)?;
       size = frame_size;
       intrabc = IntraBlockCopy::from(
-        allow_screen_content_tools && !size.super_res.enabled && matches!(gb.get_bit(), Ok(HeaderBit::One)),
+        allow_screen_content_tools
+          && !size.super_res.enabled
+          && matches!(gb.get_bit(), Ok(HeaderBit::One)),
       );
       use_ref_frame_mvs = 0;
 
@@ -2740,17 +3097,21 @@ fn parse_frame_hdr(
     }
     ::core::option::Option::None => {
       intrabc = IntraBlockCopy::Forbidden;
-      refresh_frame_flags = match ::core::primitive::bool::then_some(frame_type == Rav1dFrameType::Switch, ()) {
-        ::core::option::Option::Some(()) => 0xff,
-        ::core::option::Option::None => {
-          let Ok(bits) = gb.get_bits(8);
-          let Ok(gb_bits) = console_core_number_conversion::wrapped::<_, u8>(bits);
+      refresh_frame_flags =
+        match ::core::primitive::bool::then_some(frame_type == Rav1dFrameType::Switch, ()) {
+          ::core::option::Option::Some(()) => 0xff,
+          ::core::option::Option::None => {
+            let Ok(bits) = gb.get_bits(8);
+            let Ok(gb_bits) = console_core_number_conversion::wrapped::<_, u8>(bits);
 
-          gb_bits
-        }
-      };
+            gb_bits
+          }
+        };
 
-      match ::core::primitive::bool::then_some(error_resilient_mode != 0 && seqhdr.order_hint != 0, ()) {
+      match ::core::primitive::bool::then_some(
+        error_resilient_mode != 0 && seqhdr.order_hint != 0,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           for _ in 0..8 {
             let Ok(_) = gb.get_bits(<::core::primitive::i32 as ::core::convert::From<
@@ -2761,7 +3122,8 @@ fn parse_frame_hdr(
         ::core::option::Option::None => {}
       }
 
-      frame_ref_short_signaling = u8::from(seqhdr.order_hint != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+      frame_ref_short_signaling =
+        u8::from(seqhdr.order_hint != 0 && matches!(gb.get_bit(), Ok(HeaderBit::One)));
       let checked_value = parse_refidx(
         state,
         seqhdr,
@@ -2774,15 +3136,11 @@ fn parse_frame_hdr(
       )?;
       refidx = checked_value;
       let use_ref = error_resilient_mode == 0 && dimensions == FrameDimensions::Override;
-      let frame_size = parse_frame_size(
-        state,
-        seqhdr,
-        use_ref.then_some(&refidx),
-        dimensions,
-        gb,
-      )?;
+      let frame_size =
+        parse_frame_size(state, seqhdr, use_ref.then_some(&refidx), dimensions, gb)?;
       size = frame_size;
-      precision = GlobalMvPrecision::from(!force_integer_mv && matches!(gb.get_bit(), Ok(HeaderBit::One)));
+      precision =
+        GlobalMvPrecision::from(!force_integer_mv && matches!(gb.get_bit(), Ok(HeaderBit::One)));
       subpel_filter_mode = match gb.get_bit() {
         Ok(HeaderBit::One) => Rav1dFilterMode::Switchable,
         Ok(HeaderBit::Zero) => {
@@ -2836,7 +3194,15 @@ fn parse_frame_hdr(
     ..Default::default()
   };
   let quantization = parse_frame_filters(state, seqhdr, &mut header, intrabc, &debug, gb)?;
-  parse_frame_features(state, seqhdr, &mut header, precision, quantization, &debug, gb)?;
+  parse_frame_features(
+    state,
+    seqhdr,
+    &mut header,
+    precision,
+    quantization,
+    &debug,
+    gb,
+  )?;
   Ok(header)
 }
 
@@ -2941,25 +3307,33 @@ enum ObuAdmission {
 }
 
 impl ParsedObuHeader {
-  fn for_operating_point(&self, layer_mask: u32) -> Result<ObuAdmission, console_core_never::Never> {
+  fn for_operating_point(
+    &self,
+    layer_mask: u32,
+  ) -> Result<ObuAdmission, console_core_never::Never> {
     match (self.kind, self.layer, layer_mask) {
-      (Some(Rav1dObuType::SeqHdr | Rav1dObuType::Td), _, _) | (_, ObuLayer::Base, _) | (_, _, 0) => {
-        Ok(ObuAdmission::Selected)
-      }
+      (Some(Rav1dObuType::SeqHdr | Rav1dObuType::Td), _, _)
+      | (_, ObuLayer::Base, _)
+      | (_, _, 0) => Ok(ObuAdmission::Selected),
       (_, ObuLayer::Extended { temporal, spatial }, _) => {
         let temporal_bit = 1u32.wrapping_shl(u32::from(temporal));
         let spatial_bit = 1u32.wrapping_shl(u32::from(spatial.wrapping_add(8)));
         let required = temporal_bit | spatial_bit;
-        Ok(match ::core::primitive::bool::then_some(layer_mask & required == required, ()) {
-          ::core::option::Option::Some(()) => ObuAdmission::Selected,
-          ::core::option::Option::None => ObuAdmission::Filtered,
-        })
+        Ok(
+          match ::core::primitive::bool::then_some(layer_mask & required == required, ()) {
+            ::core::option::Option::Some(()) => ObuAdmission::Selected,
+            ::core::option::Option::None => ObuAdmission::Filtered,
+          },
+        )
       }
     }
   }
 }
 
-fn read_obu_header(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1dResult<ParsedObuHeader> {
+fn read_obu_header(
+  gb: &mut GetBits,
+  compliance: HeaderCompliance,
+) -> Rav1dResult<ParsedObuHeader> {
   let Ok(forbidden) = gb.get_bit();
 
   match (compliance, forbidden) {
@@ -2996,7 +3370,11 @@ fn read_obu_header(gb: &mut GetBits, compliance: HeaderCompliance) -> Rav1dResul
   }
 
   gb.check_alignment()?;
-  Ok(ParsedObuHeader { raw_type, kind, layer })
+  Ok(ParsedObuHeader {
+    raw_type,
+    kind,
+    layer,
+  })
 }
 
 fn skip_frame(state: &mut Rav1dState) -> Rav1dResult {
@@ -3042,7 +3420,8 @@ fn existing_picture(
 
 fn refresh_existing_key(state: &mut Rav1dState, slot: u8) -> Rav1dResult {
   let Ok(position) = console_core_number_conversion::index(slot);
-  let (earlier_references, references) = state.refs.split_at_mut_checked(position).ok_or(EINVAL)?;
+  let (earlier_references, references) =
+    state.refs.split_at_mut_checked(position).ok_or(EINVAL)?;
   let (original, later_references) = references.split_first_mut().ok_or(EINVAL)?;
   let (earlier_cdf, cdfs) = state.cdf.split_at_mut_checked(position).ok_or(EINVAL)?;
   let (original_cdf, later_cdf) = cdfs.split_first_mut().ok_or(EINVAL)?;
@@ -3083,23 +3462,36 @@ fn present_existing_frame(
     FrameDecoding::Decode => {}
   }
 
-  match ::core::primitive::bool::then_some(reference.p.p.data.is_none() || (decoder.strict_std_compliance && !reference.p.showable), ()) {
+  match ::core::primitive::bool::then_some(
+    reference.p.p.data.is_none() || (decoder.strict_std_compliance && !reference.p.showable),
+    (),
+  ) {
     ::core::option::Option::Some(()) => return Err(EINVAL),
     ::core::option::Option::None => {}
   }
 
   match decoder.fc.len() {
     1 => {
-      state.out = { let checked_value_2 = existing_picture(state, slot, props)?; checked_value_2 };
+      state.out = {
+        let checked_value_2 = existing_picture(state, slot, props)?;
+        checked_value_2
+      };
       state.event_flags |= Rav1dEventFlags::from(state.out.flags);
     }
     _ => {
-      let FrameReservation { frame: _frame, index, scheduler: _scheduler } =
-        reserve_delayed_frame(decoder, state)?;
+      let FrameReservation {
+        frame: _frame,
+        index,
+        scheduler: _scheduler,
+      } = reserve_delayed_frame(decoder, state)?;
       let Ok(delayed_index) = console_core_number_conversion::index(index);
       let mut picture = existing_picture(state, slot, props)?;
       picture.visible = true;
-      let delayed = state.frame_thread.out_delayed.get_mut(delayed_index).ok_or(EINVAL)?;
+      let delayed = state
+        .frame_thread
+        .out_delayed
+        .get_mut(delayed_index)
+        .ok_or(EINVAL)?;
       *delayed = picture;
     }
   }
@@ -3142,7 +3534,9 @@ fn complete_obu_frame(
   let Ok(decoding) = frame_decoding(
     frame.frame_type,
     decoder.decode_frame_type,
-    FrameSource::New { refresh_flags: frame.refresh_frame_flags },
+    FrameSource::New {
+      refresh_flags: frame.refresh_frame_flags,
+    },
   );
 
   match decoding {
@@ -3167,14 +3561,22 @@ fn complete_obu_frame(
   }
 }
 
-fn install_sequence_header(c: &Rav1dContext, state: &mut Rav1dState, gb: &mut GetBits) -> Rav1dResult {
-  let seq_hdr = parse_seq_hdr(gb, HeaderCompliance::from(c.strict_std_compliance)).inspect_err(|_| {
-    writeln!(c.logger, "Error parsing sequence header");
-  })?;
+fn install_sequence_header(
+  c: &Rav1dContext,
+  state: &mut Rav1dState,
+  gb: &mut GetBits,
+) -> Rav1dResult {
+  let seq_hdr =
+    parse_seq_hdr(gb, HeaderCompliance::from(c.strict_std_compliance)).inspect_err(|_| {
+      writeln!(c.logger, "Error parsing sequence header");
+    })?;
 
   gb.check()?;
 
-  let op_idx = match ::core::primitive::bool::then_some(c.operating_point < seq_hdr.num_operating_points, ()) {
+  let op_idx = match ::core::primitive::bool::then_some(
+    c.operating_point < seq_hdr.num_operating_points,
+    (),
+  ) {
     ::core::option::Option::Some(()) => c.operating_point,
     ::core::option::Option::None => 0,
   };
@@ -3208,7 +3610,10 @@ fn install_sequence_header(c: &Rav1dContext, state: &mut Rav1dState, gb: &mut Ge
       let same_operating_parameters =
         seq_hdr.operating_parameter_info == previous.operating_parameter_info;
 
-      match (same_header.then_some(()), same_operating_parameters.then_some(())) {
+      match (
+        same_header.then_some(()),
+        same_operating_parameters.then_some(()),
+      ) {
         (None, _) => SequenceUpdate::Replaced,
         (Some(()), None) => SequenceUpdate::OperatingParameters,
         (Some(()), Some(())) => SequenceUpdate::Unchanged,
@@ -3258,7 +3663,10 @@ fn check_frame_size_limit(c: &Rav1dContext, frame: &Rav1dFrameHeader) -> Rav1dRe
 
   match (limit != 0 && pixels > i64::from(limit)).then_some(()) {
     Some(()) => {
-      writeln!(c.logger, "Frame size {width}x{height} exceeds limit {limit}");
+      writeln!(
+        c.logger,
+        "Frame size {width}x{height} exceeds limit {limit}"
+      );
       Err(ERANGE)
     }
     None => Ok(()),
@@ -3289,7 +3697,10 @@ fn parse_tile_grp(
   let Ok(rows) = console_core_number_conversion::wrapped::<_, i32>(frame_hdr.tiling.rows);
   let max_tiles = i32::wrapping_mul(cols, rows);
 
-  match ::core::primitive::bool::then_some(hdr.start > hdr.end || hdr.start != state.n_tiles || hdr.end >= max_tiles, ()) {
+  match ::core::primitive::bool::then_some(
+    hdr.start > hdr.end || hdr.start != state.n_tiles || hdr.end >= max_tiles,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       state.tiles.clear();
       state.n_tiles = 0;
@@ -3331,7 +3742,12 @@ struct FrameObuInput<'a> {
 fn parse_frame_obu(
   c: &Rav1dContext,
   state: &mut Rav1dState,
-  FrameObuInput { kind, layer, packet, props }: FrameObuInput<'_>,
+  FrameObuInput {
+    kind,
+    layer,
+    packet,
+    props,
+  }: FrameObuInput<'_>,
   gb: &mut GetBits,
 ) -> Rav1dResult {
   match (kind, state.frame_hdr.as_ref()) {
@@ -3372,7 +3788,11 @@ fn parse_frame_obu(
   Ok(())
 }
 
-fn parse_metadata_obu(c: &Rav1dContext, state: &mut Rav1dState, gb: &mut GetBits) -> Rav1dResult<()> {
+fn parse_metadata_obu(
+  c: &Rav1dContext,
+  state: &mut Rav1dState,
+  gb: &mut GetBits,
+) -> Rav1dResult<()> {
   let Ok(debug) = Debug::new(HeaderTrace::Disabled, "OBU", &gb);
 
   let meta_type = gb.get_uleb128()?;
@@ -3384,8 +3804,7 @@ fn parse_metadata_obu(c: &Rav1dContext, state: &mut Rav1dState, gb: &mut GetBits
     Some(ObuMetaType::HdrCll) => {
       let Ok(debug_2) = debug.named("CLLOBU");
       let Ok(bits) = gb.get_bits(16);
-      let Ok(max_content_light_level) =
-        console_core_number_conversion::wrapped::<_, u16>(bits);
+      let Ok(max_content_light_level) = console_core_number_conversion::wrapped::<_, u16>(bits);
       let Ok(()) = debug_2.log(
         &gb,
         format_args!("max-content-light-level: {max_content_light_level}"),
@@ -3495,16 +3914,32 @@ fn parse_obus(
     ObuAdmission::Filtered => return Ok(()),
   }
 
-  let ParsedObuHeader { raw_type, kind: r#type, layer } = header;
+  let ParsedObuHeader {
+    raw_type,
+    kind: r#type,
+    layer,
+  } = header;
   let Ok((temporal_id, spatial_id)) = layer.ids();
-
 
   match r#type {
     Some(Rav1dObuType::SeqHdr) => install_sequence_header(c, state, gb)?,
-    Some(kind @ (Rav1dObuType::RedundantFrameHdr | Rav1dObuType::Frame | Rav1dObuType::FrameHdr)) => {
-      parse_frame_obu(c, state, FrameObuInput {
-        kind, layer: ParseFrameHdrArguments { temporal_id, spatial_id }, packet: r#in, props,
-      }, gb)?;
+    Some(
+      kind @ (Rav1dObuType::RedundantFrameHdr | Rav1dObuType::Frame | Rav1dObuType::FrameHdr),
+    ) => {
+      parse_frame_obu(
+        c,
+        state,
+        FrameObuInput {
+          kind,
+          layer: ParseFrameHdrArguments {
+            temporal_id,
+            spatial_id,
+          },
+          packet: r#in,
+          props,
+        },
+        gb,
+      )?;
     }
     Some(Rav1dObuType::TileGrp) => {
       parse_tile_grp(state, r#in, props, gb)?;
@@ -3569,13 +4004,31 @@ mod metadata_tests {
     assert_eq!(header.layer.ids(), Ok((2, 1)));
     assert_eq!(bits.pos(), Ok(24));
     assert_eq!(bits.remaining_len(), Ok(2));
-    assert!(matches!(header.for_operating_point(::core::primitive::u32::wrapping_shl(1, 2_u32) | ::core::primitive::u32::wrapping_shl(1, 9_u32)), Ok(ObuAdmission::Selected)));
-    assert!(matches!(header.for_operating_point(::core::primitive::u32::wrapping_shl(1, 2_u32)), Ok(ObuAdmission::Filtered)));
-    assert!(matches!(header.for_operating_point(::core::primitive::u32::wrapping_shl(1, 9_u32)), Ok(ObuAdmission::Filtered)));
-    assert!(matches!(header.for_operating_point(0), Ok(ObuAdmission::Selected)));
+    assert!(matches!(
+      header.for_operating_point(
+        ::core::primitive::u32::wrapping_shl(1, 2_u32)
+          | ::core::primitive::u32::wrapping_shl(1, 9_u32)
+      ),
+      Ok(ObuAdmission::Selected)
+    ));
+    assert!(matches!(
+      header.for_operating_point(::core::primitive::u32::wrapping_shl(1, 2_u32)),
+      Ok(ObuAdmission::Filtered)
+    ));
+    assert!(matches!(
+      header.for_operating_point(::core::primitive::u32::wrapping_shl(1, 9_u32)),
+      Ok(ObuAdmission::Filtered)
+    ));
+    assert!(matches!(
+      header.for_operating_point(0),
+      Ok(ObuAdmission::Selected)
+    ));
 
     let Ok(mut prohibited) = GetBits::new(&[0xb6, 0x48, 0]);
-    assert!(matches!(read_obu_header(&mut prohibited, HeaderCompliance::Strict), Err(EINVAL)));
+    assert!(matches!(
+      read_obu_header(&mut prohibited, HeaderCompliance::Strict),
+      Err(EINVAL)
+    ));
     assert_eq!(prohibited.pos(), Ok(1));
     Ok(())
   }
@@ -3610,9 +4063,18 @@ mod metadata_tests {
 
   #[test]
   fn skip_mode_pairs_use_wrapped_order_hints_and_stable_ties() {
-    let across_wrap = SkipOrderHints { width: 3, hints: [7, 7, 2, 4, 6, 6, 0] };
-    let past_only = SkipOrderHints { width: 3, hints: [7, 7, 6, 6, 5, 5, 0] };
-    let no_distinct_hint = SkipOrderHints { width: 3, hints: [0; RAV1D_REFS_PER_FRAME] };
+    let across_wrap = SkipOrderHints {
+      width: 3,
+      hints: [7, 7, 2, 4, 6, 6, 0],
+    };
+    let past_only = SkipOrderHints {
+      width: 3,
+      hints: [7, 7, 6, 6, 5, 5, 0],
+    };
+    let no_distinct_hint = SkipOrderHints {
+      width: 3,
+      hints: [0; RAV1D_REFS_PER_FRAME],
+    };
     assert_eq!(across_wrap.pair(0), Ok(Some([0, 2])));
     assert_eq!(past_only.pair(0), Ok(Some([0, 2])));
     assert_eq!(no_distinct_hint.pair(0), Ok(None));
@@ -3621,16 +4083,31 @@ mod metadata_tests {
   #[test]
   fn short_signaling_preserves_ties_and_the_earliest_fallback() -> Rav1dResult {
     for (distances, anchors, expected) in [
-      ([-3, -3, 2, 2, 0, 1, -2, -3], ReferenceAnchors { last: 0, golden: 1 }, [0, 6, 7, 1, 4, 5, 3]),
-      ([2, 2, 4, 4, 6, 1, 1, 1], ReferenceAnchors { last: 0, golden: 1 }, [0, 5, 5, 1, 5, 6, 4]),
-      ([-2; 8], ReferenceAnchors { last: 0, golden: 0 }, [0, 7, 6, 0, 5, 4, 3]),
+      (
+        [-3, -3, 2, 2, 0, 1, -2, -3],
+        ReferenceAnchors { last: 0, golden: 1 },
+        [0, 6, 7, 1, 4, 5, 3],
+      ),
+      (
+        [2, 2, 4, 4, 6, 1, 1, 1],
+        ReferenceAnchors { last: 0, golden: 1 },
+        [0, 5, 5, 1, 5, 6, 4],
+      ),
+      (
+        [-2; 8],
+        ReferenceAnchors { last: 0, golden: 0 },
+        [0, 7, 6, 0, 5, 4, 3],
+      ),
     ] {
       let candidates = array::from_fn(|index| {
         let Ok(slot) = console_core_number_conversion::wrapped::<_, i8>(index);
-        ReferenceCandidate { slot, distance: match distances.get(index).copied() {
+        ReferenceCandidate {
+          slot,
+          distance: match distances.get(index).copied() {
             ::core::option::Option::Some(option_value) => option_value,
             ::core::option::Option::None => 0,
-        } }
+          },
+        }
       });
       let selected = choose_short_references(candidates, anchors)?;
       assert_eq!(selected, expected);
@@ -3643,19 +4120,41 @@ mod metadata_tests {
   fn tile_spacing_preserves_boundaries_and_update_bits() -> Rav1dResult {
     let mut sequence = sample_sequence_header()?;
     sequence.sb128 = 0;
-    let size = Rav1dFrameSize { width: [256, 256], height: 128, ..Default::default() };
+    let size = Rav1dFrameSize {
+      width: [256, 256],
+      height: 128,
+      ..Default::default()
+    };
 
     let Ok(mut uniform_bits) = GetBits::new(&[0xda]);
     let Ok(debug) = Debug::new(HeaderTrace::Disabled, "tiling", &uniform_bits);
     let uniform = parse_tiling(&sequence, &size, &debug, &mut uniform_bits)?;
-    assert_eq!((uniform.uniform, uniform.cols, uniform.rows, uniform.update, uniform.n_bytes), (1, 2, 2, 2, 3));
+    assert_eq!(
+      (
+        uniform.uniform,
+        uniform.cols,
+        uniform.rows,
+        uniform.update,
+        uniform.n_bytes
+      ),
+      (1, 2, 2, 2, 3)
+    );
     assert_eq!(uniform.col_start_sb.first_chunk::<3>(), Some(&[0, 2, 4]));
     assert_eq!(uniform.row_start_sb.first_chunk::<3>(), Some(&[0, 1, 2]));
     assert_eq!(uniform_bits.pos(), Ok(8));
 
     let Ok(mut variable_bits) = GetBits::new(&[0x1e, 0x80]);
     let variable = parse_tiling(&sequence, &size, &debug, &mut variable_bits)?;
-    assert_eq!((variable.uniform, variable.cols, variable.rows, variable.update, variable.n_bytes), (0, 2, 1, 1, 2));
+    assert_eq!(
+      (
+        variable.uniform,
+        variable.cols,
+        variable.rows,
+        variable.update,
+        variable.n_bytes
+      ),
+      (0, 2, 1, 1, 2)
+    );
     assert_eq!(variable.col_start_sb.first_chunk::<3>(), Some(&[0, 1, 4]));
     assert_eq!(variable.row_start_sb.first_chunk::<2>(), Some(&[0, 2]));
     assert_eq!(variable_bits.pos(), Ok(9));
@@ -3666,10 +4165,17 @@ mod metadata_tests {
   fn variable_tiling_rejects_a_grid_left_over_after_the_column_limit() -> Rav1dResult {
     let mut sequence = sample_sequence_header()?;
     sequence.sb128 = 0;
-    let size = Rav1dFrameSize { width: [4160, 4160], height: 64, ..Default::default() };
+    let size = Rav1dFrameSize {
+      width: [4160, 4160],
+      height: 64,
+      ..Default::default()
+    };
     let Ok(mut bits) = GetBits::new(&[0; 64]);
     let Ok(debug) = Debug::new(HeaderTrace::Disabled, "tiling", &bits);
-    assert!(matches!(parse_tiling(&sequence, &size, &debug, &mut bits), Err(EINVAL)));
+    assert!(matches!(
+      parse_tiling(&sequence, &size, &debug, &mut bits),
+      Err(EINVAL)
+    ));
     Ok(())
   }
 
@@ -3680,7 +4186,13 @@ mod metadata_tests {
     sequence.monochrome = 0;
     let Ok(mut bits) = GetBits::new(&[0x8a, 0x91]);
     let Ok(debug) = Debug::new(HeaderTrace::Disabled, "test", &bits);
-    let strengths = parse_cdef(&sequence, FrameQuantization::Lossy, IntraBlockCopy::Forbidden, &debug, &mut bits)?;
+    let strengths = parse_cdef(
+      &sequence,
+      FrameQuantization::Lossy,
+      IntraBlockCopy::Forbidden,
+      &debug,
+      &mut bits,
+    )?;
     let [luma, remaining_luma @ ..] = strengths.y_strength;
     let [chroma, remaining_chroma @ ..] = strengths.uv_strength;
     assert_eq!(
@@ -3696,7 +4208,13 @@ mod metadata_tests {
     assert_eq!(bits.pos(), Ok(16));
 
     let Ok(mut short) = GetBits::new(&[0x8a]);
-    let truncated = parse_cdef(&sequence, FrameQuantization::Lossy, IntraBlockCopy::Forbidden, &debug, &mut short);
+    let truncated = parse_cdef(
+      &sequence,
+      FrameQuantization::Lossy,
+      IntraBlockCopy::Forbidden,
+      &debug,
+      &mut short,
+    );
     assert_eq!(truncated.map(|_| ()), Err(EINVAL));
     Ok(())
   }

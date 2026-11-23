@@ -4,14 +4,14 @@ use std::fmt::{self, Debug};
 
 pub(crate) enum TestFailure {
   MissingValue,
-  Fault(Box<dyn Debug>),
+  Error(Box<dyn Debug>),
 }
 
 impl Debug for TestFailure {
   fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::MissingValue => output.write_str("an expected value was absent"),
-      Self::Fault(fault) => output.debug_tuple("unexpected fault").field(fault).finish(),
+      Self::Error(fault) => output.debug_tuple("unexpected fault").field(fault).finish(),
     }
   }
 }
@@ -39,7 +39,7 @@ impl<T, E: Debug + 'static> Required for Result<T, E> {
   fn required(self) -> Result<T, TestFailure> {
     match self {
       Ok(value) => Ok(value),
-      Err(fault) => Err(TestFailure::Fault(Box::new(fault))),
+      Err(fault) => Err(TestFailure::Error(Box::new(fault))),
     }
   }
 }

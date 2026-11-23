@@ -73,16 +73,19 @@ impl BitReservoir {
     let main_data_end = main_data_begin.saturating_add(data_len);
 
     match ::core::primitive::bool::then_some(main_data_end > capacity, ()) {
-      ::core::option::Option::Some(()) => return decode_error("mpa: invalid main_data length, will exceed resevoir buffer"),
+      ::core::option::Option::Some(()) => {
+        return decode_error("mpa: invalid main_data length, will exceed resevoir buffer");
+      }
       ::core::option::Option::None => {}
     }
 
     let unread = self.len.saturating_sub(self.consumed);
 
-    let (kept, underflow) = match ::core::primitive::bool::then_some(main_data_begin <= unread, ()) {
-      ::core::option::Option::Some(()) => (main_data_begin, 0),
-      ::core::option::Option::None => (unread, main_data_begin.saturating_sub(unread)),
-    };
+    let (kept, underflow) =
+      match ::core::primitive::bool::then_some(main_data_begin <= unread, ()) {
+        ::core::option::Option::Some(()) => (main_data_begin, 0),
+        ::core::option::Option::None => (unread, main_data_begin.saturating_sub(unread)),
+      };
 
     let Ok(()) = self.keep(kept, data);
 
@@ -227,10 +230,12 @@ fn read_channel(
 
 fn huffman_overrun(fault: Error) -> Result<u32> {
   match fault {
-    Error::IoError(io) => match ::core::primitive::bool::then_some(io.kind() == std::io::ErrorKind::Other, ()) {
-      ::core::option::Option::Some(()) => decode_error("mpa: huffman decode overrun"),
-      ::core::option::Option::None => Err(Error::IoError(io)),
-    },
+    Error::IoError(io) => {
+      match ::core::primitive::bool::then_some(io.kind() == std::io::ErrorKind::Other, ()) {
+        ::core::option::Option::Some(()) => decode_error("mpa: huffman decode overrun"),
+        ::core::option::Option::None => Err(Error::IoError(io)),
+      }
+    }
     Error::DecodeError(_)
     | Error::SeekError(_)
     | Error::Unsupported(_)
@@ -307,7 +312,9 @@ impl Layer3 {
           }
 
           match ::core::primitive::bool::then_some(position.skipped > underflow_bits, ()) {
-            ::core::option::Option::Some(()) => position.begin = position.skipped.saturating_sub(underflow_bits),
+            ::core::option::Option::Some(()) => {
+              position.begin = position.skipped.saturating_sub(underflow_bits)
+            }
             ::core::option::Option::None => {}
           }
         }

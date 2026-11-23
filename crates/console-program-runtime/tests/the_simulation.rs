@@ -11,7 +11,7 @@ use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_state_machine::{Machine, Queue, Transition};
 use console_program_contract::{
-  Answer, Command, Effect, Event, Exit, ExitStatus, FileWrite, Fork, Job, JobId, JobOwner,
+  Answer, Command, Effect, Event, Exit, ExitStatus, FileWrite, Fork, Task, JobId, JobOwner,
   Subscription, Timer, WriteAnswer, WriteFailure, WriteStage,
 };
 use console_program_lifetime::threads;
@@ -529,7 +529,9 @@ fn run_on_worker(
   })?;
   let Ok(()) = threads::let_go(worker);
 
-  finished.recv_timeout(Duration::from_secs(10)).map_err(io::Error::other)
+  finished
+    .recv_timeout(Duration::from_secs(10))
+    .map_err(io::Error::other)
 }
 
 impl TransitionExecutor<Program> for Worker<'_> {
@@ -592,7 +594,10 @@ fn seeded_placement_preserves_state_and_the_ordered_effect_loop() -> Result<(), 
 
   assert_eq!(
     on_worker,
-    [Event::Written(written.clone()), Event::Tick(EARLY, Duration::from_secs(2))],
+    [
+      Event::Written(written.clone()),
+      Event::Tick(EARLY, Duration::from_secs(2))
+    ],
   );
   assert_eq!(original, moved);
   assert_eq!(moved.state.writes, [written]);
@@ -627,7 +632,7 @@ impl TransitionExecutor<Program> for Failing {
 #[test]
 fn a_transition_failure_still_cleans_up_outstanding_jobs() -> Result<(), Box<dyn Error>> {
   let Ok(command) = Command::external(ExternalProgram::Curl, &[]);
-  let job = Job {
+  let job = Task {
     owner: JobOwner("test"),
     id: JobId(1),
   };
@@ -656,7 +661,10 @@ fn a_transition_failure_still_cleans_up_outstanding_jobs() -> Result<(), Box<dyn
   let Ok(mut schedule) = Seeded::new(0, Failing, Inline);
   let failed = execute_with::<Program, _, _>(&rules, &mut world, Limit::Turns(5), &mut schedule);
 
-  assert!(matches!(failed, Err(ExecutionError::Transition(PlacementError::First(_)))));
+  assert!(matches!(
+    failed,
+    Err(ExecutionError::Transition(PlacementError::First(_)))
+  ));
   assert_eq!(world.events, [Event::Opened]);
   world.finish()?;
 
@@ -667,7 +675,7 @@ fn a_transition_failure_still_cleans_up_outstanding_jobs() -> Result<(), Box<dyn
 fn a_duplicate_reply_cannot_settle_a_new_fork_with_the_same_job_key() -> Result<(), Box<dyn Error>>
 {
   let Ok(command) = Command::external(ExternalProgram::True, &[]);
-  let job = Job {
+  let job = Task {
     owner: JobOwner("test"),
     id: JobId(1),
   };
@@ -717,7 +725,10 @@ fn a_duplicate_reply_cannot_settle_a_new_fork_with_the_same_job_key() -> Result<
     Duration::from_secs(2),
     Wake::Event(Event::Custom(Request::Effects(vec![effect]))),
   )?;
-  world.schedule(Duration::from_secs(3), Wake::Event(Event::Replied(current.clone())))?;
+  world.schedule(
+    Duration::from_secs(3),
+    Wake::Event(Event::Replied(current.clone())),
+  )?;
   world.schedule(Duration::from_secs(5), Wake::Disconnected)?;
 
   let completed = execute::<Program, _>(&rules, &mut world, Limit::Turns(12))?;

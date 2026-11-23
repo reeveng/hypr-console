@@ -243,11 +243,13 @@ impl Building<'_> {
     }
 
     for declared in &resolved.keycodes.indicators {
-      match ::core::primitive::bool::then_some(resolved
-        .compat
-        .indicator_maps
-        .contains_key(&declared.name.val), ())
-      {
+      match ::core::primitive::bool::then_some(
+        resolved
+          .compat
+          .indicator_maps
+          .contains_key(&declared.name.val),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {}
         ::core::option::Option::None => {
           let Ok(name) = self.string(declared.name.val);
@@ -308,10 +310,12 @@ impl Building<'_> {
 
     let mod_components = match ::core::primitive::bool::then_some(modifier_mask.0 == 0, ()) {
       ::core::option::Option::Some(()) => ModComponentMask::NONE,
-      ::core::option::Option::None => match ::core::primitive::bool::then_some(asked_components == ModComponentMask::NONE, ()) {
-        ::core::option::Option::Some(()) => ModComponentMask::EFFECTIVE,
-        ::core::option::Option::None => asked_components,
-      },
+      ::core::option::Option::None => {
+        match ::core::primitive::bool::then_some(asked_components == ModComponentMask::NONE, ()) {
+          ::core::option::Option::Some(()) => ModComponentMask::EFFECTIVE,
+          ::core::option::Option::None => asked_components,
+        }
+      }
     };
 
     let group_component = match map.which_group_state.despan() {
@@ -386,14 +390,17 @@ impl Building<'_> {
     };
 
     let named = match target {
-      Some((keycode, key_sym)) => match ::core::primitive::bool::then_some(resolved.symbols.keys.contains_key(&keycode), ()) {
-        ::core::option::Option::Some(()) => resolved
-          .keycodes
-          .keycode_to_name
-          .get(&keycode)
-          .map(|name| (*name, key_sym)),
-        ::core::option::Option::None => None,
-      },
+      Some((keycode, key_sym)) => {
+        match ::core::primitive::bool::then_some(resolved.symbols.keys.contains_key(&keycode), ())
+        {
+          ::core::option::Option::Some(()) => resolved
+            .keycodes
+            .keycode_to_name
+            .get(&keycode)
+            .map(|name| (*name, key_sym)),
+          ::core::option::Option::None => None,
+        }
+      }
       None => None,
     };
 
@@ -512,10 +519,7 @@ impl Building<'_> {
           ::core::option::Option::None => {
             self.used_types.insert(key_type);
 
-            Some(KeyGroup {
-              key_type,
-              levels,
-            })
+            Some(KeyGroup { key_type, levels })
           }
         }
       }
@@ -1176,10 +1180,12 @@ fn virtual_modifier(
     None => NONE,
   };
 
-  Ok(match ::core::primitive::bool::then_some(values.0 == 0, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(values),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(values.0 == 0, ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(values),
+    },
+  )
 }
 
 fn built_in_type(kind: BuiltInKeytype, present: &Present) -> Result<KeyType, Never> {

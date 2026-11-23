@@ -15,6 +15,19 @@ use crate::serial::Serial;
 use crate::xhci::{self, DmaMode, Keyboard, Machine};
 
 pub(super) fn run(root: Option<Root>, machine: Machine) -> Result<(), xhci::Error> {
+  listen(root, machine, present, || {
+    line(format_args!(
+      "USB keyboard ready. Press keys to see events. Escape exits."
+    ))
+  })
+}
+
+pub(super) fn listen(
+  root: Option<Root>,
+  machine: Machine,
+  key: impl FnMut(u16, KeyEdge, BootReport) -> Result<Action, Never>,
+  ready: impl FnOnce() -> Result<(), Never>,
+) -> Result<(), xhci::Error> {
   let attached = xhci::open(root, machine)?;
   let mut keyboard = match attached {
     Some(keyboard) => keyboard,
@@ -29,10 +42,8 @@ pub(super) fn run(root: Option<Root>, machine: Machine) -> Result<(), xhci::Erro
     DmaMode::Direct => {}
   }
 
-  let Ok(()) = line(format_args!(
-    "USB keyboard ready. Press keys to see events. Escape exits."
-  ));
-  let input = read(&mut keyboard);
+  let Ok(()) = ready();
+  let input = read(&mut keyboard, key);
   let closed = keyboard.close();
   let () = closed?;
 
@@ -53,7 +64,10 @@ pub(super) fn run(root: Option<Root>, machine: Machine) -> Result<(), xhci::Erro
     reason = "the preview stays at the input console until Escape or a controller error"
   )
 )]
-fn read(keyboard: &mut Keyboard) -> Result<(), xhci::Error> {
+fn read(
+  keyboard: &mut Keyboard,
+  mut key: impl FnMut(u16, KeyEdge, BootReport) -> Result<Action, Never>,
+) -> Result<(), xhci::Error> {
   let mut sequence = 0_u64;
   let mut queue = InputQueue::<32>::EMPTY;
   let mut previous = BootReport::EMPTY;
@@ -92,62 +106,55 @@ fn read(keyboard: &mut Keyboard) -> Result<(), xhci::Error> {
     }
 
     previous = report;
-    let Ok(action) = present(&mut queue, report);
-
-    match action {
-      Action::Continue => {}
-      Action::Exit => return Ok(()),
+    for _pending in 0..32_u8 {
+      let Ok(pending) = queue.take();
+      match pending.map(|event| event.input) {
+        Some(Input::Key { code, edge }) => match key(code, edge, report) {
+          Ok(Action::Continue) => {}
+          Ok(Action::Exit) => return Ok(()),
+        },
+        Some(Input::Position { .. }) => {}
+        None => break,
+      }
     }
   }
 }
 
-enum Action {
+pub(super) enum Action {
   Continue,
   Exit,
 }
 
-fn present(queue: &mut InputQueue<32>, report: BootReport) -> Result<Action, Never> {
-  for _pending in 0..32_u8 {
-    let Ok(pending) = queue.take();
-    let input = match pending {
-      Some(event) => event.input,
-      None => break,
-    };
-    let (code, edge) = match input {
-      Input::Key { code, edge } => (code, edge),
-      Input::Position { .. } => continue,
-    };
+fn present(code: u16, edge: KeyEdge, report: BootReport) -> Result<Action, Never> {
+  match (edge, code) {
+    (KeyEdge::Press, 0x29) => {
+      let Ok(()) = line(format_args!("USB keyboard test ended"));
 
-    match (edge, code) {
-      (KeyEdge::Press, 0x29) => {
-        let Ok(()) = line(format_args!("USB keyboard test ended"));
+      return Ok(Action::Exit);
+    }
+    (KeyEdge::Press, _) => {
+      let Ok(shift) = report.shifted();
+      let Ok(printable) = character(code, shift);
 
-        return Ok(Action::Exit);
-      }
-      (KeyEdge::Press, _) => {
-        let Ok(shift) = report.shifted();
-        let Ok(printable) = character(code, shift);
-
-        match printable {
-          Some(letter) => {
-            let Ok(()) = line(format_args!("key pressed: {letter} (USB {code:#04x})"));
-          }
-          None => {
-            let Ok(()) = line(format_args!("key pressed: USB {code:#04x}"));
-          }
+      match printable {
+        Some(letter) => {
+          let Ok(()) = line(format_args!("key pressed: {letter} (USB {code:#04x})"));
+        }
+        None => {
+          let Ok(()) = line(format_args!("key pressed: USB {code:#04x}"));
         }
       }
-      (KeyEdge::Release, _) => {
-        let Ok(()) = line(format_args!("key released: USB {code:#04x}"));
-      }
+    }
+    (KeyEdge::Release, _) => {
+      let Ok(()) = line(format_args!("key released: USB {code:#04x}"));
     }
   }
 
   Ok(Action::Continue)
 }
 
-fn line(message: fmt::Arguments<'_>) -> Result<(), Never> {
-  let Ok(()) = display::write_without_waiting(format_args!("console-kernel: {message}\n"));
+pub(super) fn line(message: fmt::Arguments<'_>) -> Result<(), Never> {
+  let Ok(()) = display::print(message);
   let _written = write!(Serial, "console-kernel: {message}\r\n");
 
   Ok(())

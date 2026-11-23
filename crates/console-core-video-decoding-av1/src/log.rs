@@ -87,12 +87,16 @@ impl Rav1dLog for Rav1dLogger {
       #[cfg(feature = "c-ffi")]
       Self::Dav1d(dav1d) => match dav1d.clone().write_fmt(args) {
         Ok(()) => {}
-        Err(error) => console_core_logging::warn!("AV1 C logger could not deliver {args}: {error}"),
+        Err(error) => {
+          console_core_logging::warn!("AV1 C logger could not deliver {args}: {error}")
+        }
       },
       #[cfg(feature = "c-ffi")]
       Self::Stdout => match stdout().write_fmt(args) {
         Ok(()) => {}
-        Err(error) => console_core_logging::warn!("AV1 stdout logger could not deliver {args}: {error}"),
+        Err(error) => {
+          console_core_logging::warn!("AV1 stdout logger could not deliver {args}: {error}")
+        }
       },
       Self::Stderr => console_core_logging::warn!("{args}"),
     }
@@ -188,10 +192,18 @@ impl From<Dav1dLogger> for Option<Rav1dLogger> {
       (marker::STDERR, Rav1dLogger::Stderr),
     ];
 
-    Some(match streams.into_iter().find(|(address, _)| fn_addr_eq(callback_2, *address)) {
-      Some((_, stream)) => stream,
-      None => Rav1dLogger::Dav1d(Dav1dLogger { cookie, callback: Some(callback_2) }),
-    })
+    Some(
+      match streams
+        .into_iter()
+        .find(|(address, _)| fn_addr_eq(callback_2, *address))
+      {
+        Some((_, stream)) => stream,
+        None => Rav1dLogger::Dav1d(Dav1dLogger {
+          cookie,
+          callback: Some(callback_2),
+        }),
+      },
+    )
   }
 }
 

@@ -1,6 +1,6 @@
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_core_paths::{IntRect, IntSize, Rect};
+use console_core_paths::{IntRect, IntSize, FloatRectangle};
 use console_core_size::Size;
 
 pub type PixelPosition = console_core_point::Point<u32>;
@@ -77,7 +77,7 @@ impl ScreenIntRect {
     Ok(self.0)
   }
 
-  pub fn to_rect(self) -> Result<Rect, Never> {
+  pub fn to_rect(self) -> Result<FloatRectangle, Never> {
     self.0.to_rect()
   }
 }

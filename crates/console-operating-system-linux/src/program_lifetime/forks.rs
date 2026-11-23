@@ -165,7 +165,9 @@ impl Forked {
         let Ok(()) = end_the_group(self.identity.process);
       }
       Ok(Err(fault)) => console_core_logging::debug!("could not wait on the pidfd: {fault}"),
-      Err(fault) => console_core_logging::error!("the pidfd wait ended without a result: {fault}"),
+      Err(fault) => {
+        console_core_logging::error!("the pidfd wait ended without a result: {fault}")
+      }
     }
 
     self.reap()
@@ -347,7 +349,11 @@ mod tests {
     let left = first_line(&mut fork)?;
     let started = child_pid(&left)?;
 
-    assert_eq!(process_presence(started), Ok(Still::Running), "what it started never started: {left}");
+    assert_eq!(
+      process_presence(started),
+      Ok(Still::Running),
+      "what it started never started: {left}"
+    );
 
     let status = fork.wait()?;
 

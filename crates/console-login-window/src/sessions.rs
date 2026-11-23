@@ -35,10 +35,12 @@ pub fn parse_session(said: Option<&str>) -> Result<String, Never> {
 
   Ok(match named.map(str::trim) {
     Some("") | None => APPLICATION.to_string(),
-    Some(named_2) => match ::core::primitive::bool::then_some(named_2.ends_with(".desktop"), ()) {
-      ::core::option::Option::Some(()) => named_2.to_string(),
-      ::core::option::Option::None => format!("{named}.desktop", named = named_2),
-    },
+    Some(named_2) => {
+      match ::core::primitive::bool::then_some(named_2.ends_with(".desktop"), ()) {
+        ::core::option::Option::Some(()) => named_2.to_string(),
+        ::core::option::Option::None => format!("{named}.desktop", named = named_2),
+      }
+    }
   })
 }
 

@@ -1,5 +1,5 @@
 {
-  description = "The Rust Console desktop with an optional NixOS deployment backend";
+  description = "Console native generations and Linux desktop packages";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   outputs = { self, nixpkgs }:
     let
@@ -14,11 +14,17 @@
       browser = pkgs.callPackage ./nix/browser.nix { inherit webkitWorker; src = self; };
       chromiumBrowser = pkgs.callPackage ./nix/browser.nix { src = self; };
       manifest = import ./nix/manifest.nix ./desktop.conf;
+      nativeGeneration = import ./nix/native-generation.nix {
+        inherit pkgs;
+        src = self;
+        configuration = ./configuration.nix;
+      };
     in
     {
       packages.${system} = {
         default = console;
         legion-console = console;
+        native-generation = nativeGeneration;
         inherit browser wpewebkit;
       };
       checks.${system} = {

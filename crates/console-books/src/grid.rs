@@ -119,10 +119,12 @@ pub fn step_selection(
       Some(above) => above,
       None => at,
     },
-    Direction::Down => match ::core::primitive::bool::then_some(at.saturating_add(columns_2) <= last, ()) {
-      ::core::option::Option::Some(()) => at.saturating_add(columns_2),
-      ::core::option::Option::None => at,
-    },
+    Direction::Down => {
+      match ::core::primitive::bool::then_some(at.saturating_add(columns_2) <= last, ()) {
+        ::core::option::Option::Some(()) => at.saturating_add(columns_2),
+        ::core::option::Option::None => at,
+      }
+    }
   })
 }
 

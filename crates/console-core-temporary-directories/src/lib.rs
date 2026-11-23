@@ -113,8 +113,9 @@ pub fn private_under(root: &Path, named: &str) -> Result<PathBuf, Unmade> {
 
   for _ in 0..8 {
     let mut random = [0; 16];
-    getrandom::fill(&mut random)
-      .map_err(|fault| Unmade::Making(root.to_path_buf(), std::io::Error::other(fault.to_string())))?;
+    getrandom::fill(&mut random).map_err(|fault| {
+      Unmade::Making(root.to_path_buf(), std::io::Error::other(fault.to_string()))
+    })?;
     let Ok(qualified) = name.with_suffix(u128::from_be_bytes(random));
     let directory = root.join(qualified);
 

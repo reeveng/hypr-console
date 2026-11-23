@@ -210,7 +210,7 @@ impl<'a> MinByteRange<'a> for AxisInstanceArrays<'a> {
 }
 
 impl ReadArgs for AxisInstanceArrays<'_> {
-    type Args = (u16, u16, u16);
+    type Arguments = (u16, u16, u16);
 }
 
 impl<'a> FontReadWithArgs<'a> for AxisInstanceArrays<'a> {

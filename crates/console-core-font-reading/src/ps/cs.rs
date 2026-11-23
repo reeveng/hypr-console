@@ -4,7 +4,12 @@ use crate::{
   Cursor, FontData, FontRead,
   model::pen::OutlinePen,
   ps::{
-    cff::{blend::BlendState, charset::Charset, index::Index, stack::{OperandParity, Stack}},
+    cff::{
+      blend::BlendState,
+      charset::Charset,
+      index::Index,
+      stack::{OperandParity, Stack},
+    },
     error::Error,
     num,
     string::Sid,
@@ -34,7 +39,10 @@ pub trait CharstringContext {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CharstringContext::weight_vector` trait method lets external implementations supply a borrowed value using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CharstringContext::weight_vector` trait method lets external implementations supply a borrowed value using its existing signature"
+    )
   )]
   fn weight_vector(&self) -> &[Fixed] {
     &[]
@@ -125,37 +133,55 @@ pub trait CommandSink {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CommandSink::hstem` trait method lets external implementations supply unit using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CommandSink::hstem` trait method lets external implementations supply unit using its existing signature"
+    )
   )]
   fn hstem(&mut self, _y: Fixed, _dy: Fixed) {}
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CommandSink::vstem` trait method lets external implementations supply unit using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CommandSink::vstem` trait method lets external implementations supply unit using its existing signature"
+    )
   )]
   fn vstem(&mut self, _x: Fixed, _dx: Fixed) {}
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CommandSink::hint_mask` trait method lets external implementations supply unit using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CommandSink::hint_mask` trait method lets external implementations supply unit using its existing signature"
+    )
   )]
   fn hint_mask(&mut self, _mask: &[u8]) {}
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CommandSink::counter_mask` trait method lets external implementations supply unit using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CommandSink::counter_mask` trait method lets external implementations supply unit using its existing signature"
+    )
   )]
   fn counter_mask(&mut self, _mask: &[u8]) {}
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CommandSink::clear_hints` trait method lets external implementations supply unit using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CommandSink::clear_hints` trait method lets external implementations supply unit using its existing signature"
+    )
   )]
   fn clear_hints(&mut self) {}
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `CommandSink::finish` trait method lets external implementations supply unit using its existing signature")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `CommandSink::finish` trait method lets external implementations supply unit using its existing signature"
+    )
   )]
   fn finish(&mut self) {}
 }
@@ -246,23 +272,23 @@ where
     blend_state: Option<BlendState<'a>>,
     sink: &'a mut S,
   ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        context,
-        kind: context.kind(),
-        blend_state,
-        sink,
-        contour_start: ContourStart::AwaitingMove,
-        flex_state: FlexState::Inactive,
-        width_state: WidthState::AwaitingCommand,
-        stem_count: 0,
-        stack: Stack::new(),
-        x: Fixed::ZERO,
-        y: Fixed::ZERO,
-        sbx: Fixed::ZERO,
-        wx: Fixed::ZERO,
-        stack_ix: 0,
-        composition: CompositionState::SingleGlyph,
-      })
+    Ok(Self {
+      context,
+      kind: context.kind(),
+      blend_state,
+      sink,
+      contour_start: ContourStart::AwaitingMove,
+      flex_state: FlexState::Inactive,
+      width_state: WidthState::AwaitingCommand,
+      stem_count: 0,
+      stack: Stack::new(),
+      x: Fixed::ZERO,
+      y: Fixed::ZERO,
+      sbx: Fixed::ZERO,
+      wx: Fixed::ZERO,
+      stack_ix: 0,
+      composition: CompositionState::SingleGlyph,
+    })
   }
 
   fn evaluate(&mut self, charstring_data: &[u8]) -> Result<(), Error> {
@@ -276,7 +302,8 @@ where
       (CharstringKind::Type1, _) | (_, CharstringEnd::EndChar) => {}
     }
 
-    match ::core::primitive::bool::then_some(self.contour_start == ContourStart::EmittedMove, ()) {
+    match ::core::primitive::bool::then_some(self.contour_start == ContourStart::EmittedMove, ())
+    {
       ::core::option::Option::Some(()) => {
         self.sink.close();
       }
@@ -288,7 +315,10 @@ where
 
   #[cfg_attr(
     dylint_lib = "explicit049_no_recursion",
-    expect(explicit049_no_recursion, reason = "each subroutine or seac component increments the depth, and this entry checks NESTING_DEPTH_LIMIT before interpreting bytes")
+    expect(
+      explicit049_no_recursion,
+      reason = "each subroutine or seac component increments the depth, and this entry checks NESTING_DEPTH_LIMIT before interpreting bytes"
+    )
   )]
   fn evaluate_impl(
     &mut self,
@@ -356,7 +386,10 @@ where
 
   #[cfg_attr(
     dylint_lib = "explicit049_no_recursion",
-    expect(explicit049_no_recursion, reason = "subroutine operators enter evaluate_impl with one more level and seac rejects a second active composition")
+    expect(
+      explicit049_no_recursion,
+      reason = "subroutine operators enter evaluate_impl with one more level and seac rejects a second active composition"
+    )
   )]
   fn evaluate_operator(
     &mut self,
@@ -414,7 +447,14 @@ where
       EndChar => {
         let stack_len = self.stack.len();
 
-        match ::core::primitive::bool::then_some((stack_len == 1 || stack_len == 5) && matches!(self.width_state, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+        match ::core::primitive::bool::then_some(
+          (stack_len == 1 || stack_len == 5)
+            && matches!(
+              self.width_state,
+              WidthState::AwaitingCommand | WidthState::RetainedForComponent
+            ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             self.read_width()?;
           }
@@ -435,7 +475,14 @@ where
 
       HStem | VStem | HStemHm | VStemHm => {
         let mut first_operand = 0;
-        let len = match ::core::primitive::bool::then_some(matches!(self.stack.operand_parity(), OperandParity::Odd) && matches!(self.width_state, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+        let len = match ::core::primitive::bool::then_some(
+          matches!(self.stack.operand_parity(), OperandParity::Odd)
+            && matches!(
+              self.width_state,
+              WidthState::AwaitingCommand | WidthState::RetainedForComponent
+            ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             self.read_width()?;
             first_operand = 1;
@@ -473,14 +520,23 @@ where
           u = value_8;
         }
 
-        self.stem_count = self.stem_count.wrapping_add(::core::primitive::u64::wrapping_div(len, 2));
+        self.stem_count = self
+          .stem_count
+          .wrapping_add(::core::primitive::u64::wrapping_div(len, 2));
 
         let Ok(()) = self.reset_stack();
       }
 
       HintMask | CntrMask => {
         let mut first_operand = 0;
-        let len = match ::core::primitive::bool::then_some(matches!(self.stack.operand_parity(), OperandParity::Odd) && matches!(self.width_state, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+        let len = match ::core::primitive::bool::then_some(
+          matches!(self.stack.operand_parity(), OperandParity::Odd)
+            && matches!(
+              self.width_state,
+              WidthState::AwaitingCommand | WidthState::RetainedForComponent
+            ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             self.read_width()?;
             first_operand = 1;
@@ -502,7 +558,9 @@ where
           u = v;
         }
 
-        self.stem_count = self.stem_count.wrapping_add(::core::primitive::u64::wrapping_div(len, 2));
+        self.stem_count = self
+          .stem_count
+          .wrapping_add(::core::primitive::u64::wrapping_div(len, 2));
 
         let count = self.stem_count.div_ceil(8);
         let mask = cursor.read_array::<u8>(count)?;
@@ -520,7 +578,14 @@ where
       }
 
       RMoveTo => {
-        match ::core::primitive::bool::then_some(self.stack.len() > 2 && matches!(self.width_state, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+        match ::core::primitive::bool::then_some(
+          self.stack.len() > 2
+            && matches!(
+              self.width_state,
+              WidthState::AwaitingCommand | WidthState::RetainedForComponent
+            ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             self.read_width()?;
           }
@@ -770,10 +835,16 @@ where
 
   #[cfg_attr(
     dylint_lib = "explicit049_no_recursion",
-    expect(explicit049_no_recursion, reason = "seac prevents nesting another composition and visits two component charstrings through the checked nesting budget")
+    expect(
+      explicit049_no_recursion,
+      reason = "seac prevents nesting another composition and visits two component charstrings through the checked nesting budget"
+    )
   )]
   fn handle_seac(&mut self, mode: SeacMode, nesting_depth: u32) -> Result<(), Error> {
-    match ::core::primitive::bool::then_some(self.composition == CompositionState::DrawingComponents, ()) {
+    match ::core::primitive::bool::then_some(
+      self.composition == CompositionState::DrawingComponents,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(Error::CharstringNestingDepthLimitExceeded);
       }
@@ -789,7 +860,14 @@ where
     let dx = self.stack.pop_fixed()?;
     let sb = match self.kind {
       CharstringKind::Type1 => self.stack.pop_fixed()?,
-      CharstringKind::Type2 => match ::core::primitive::bool::then_some(matches!(self.stack.is_empty(), crate::Emptiness::NonEmpty) && matches!(self.width_state, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+      CharstringKind::Type2 => match ::core::primitive::bool::then_some(
+        matches!(self.stack.is_empty(), crate::Emptiness::NonEmpty)
+          && matches!(
+            self.width_state,
+            WidthState::AwaitingCommand | WidthState::RetainedForComponent
+          ),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let pop_fixed = self.stack.pop_fixed()?;
           self.wx = pop_fixed;
@@ -838,7 +916,9 @@ where
     for component in components {
       let Ok(()) = self.reset_stack();
       self.width_state = match self.width_state {
-        WidthState::Explicit | WidthState::RetainedForComponent => WidthState::RetainedForComponent,
+        WidthState::Explicit | WidthState::RetainedForComponent => {
+          WidthState::RetainedForComponent
+        }
         WidthState::AwaitingCommand | WidthState::Implicit => WidthState::AwaitingCommand,
       };
       self.sink.clear_hints();
@@ -850,7 +930,14 @@ where
         ::core::primitive::u32::wrapping_add(nesting_depth, 1),
       )?;
 
-      match ::core::primitive::bool::then_some(component.maybe_use_metrics && matches!(saved_width, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+      match ::core::primitive::bool::then_some(
+        component.maybe_use_metrics
+          && matches!(
+            saved_width,
+            WidthState::AwaitingCommand | WidthState::RetainedForComponent
+          ),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           sbx = self.sbx;
           wx = self.wx;
@@ -921,7 +1008,10 @@ where
     );
     let Ok(value_24) = console_core_number_conversion::fitted::<_, u64>(weight_vector.len());
 
-    match ::core::primitive::bool::then_some(num_args != ::core::primitive::u64::wrapping_mul(num_points, value_24), ()) {
+    match ::core::primitive::bool::then_some(
+      num_args != ::core::primitive::u64::wrapping_mul(num_points, value_24),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(Error::Read(crate::ReadError::MalformedData(
           "incorrect number of multiple masters arguments",
@@ -943,13 +1033,17 @@ where
         .get_fixed(::core::primitive::u64::wrapping_add(stack_base, i))?;
 
       for &weight in weight_vector.iter().skip(1) {
-        blended_operand += { let checked_value = self.stack.get_fixed(delta_idx)?; checked_value } * weight;
+        blended_operand += {
+          let checked_value = self.stack.get_fixed(delta_idx)?;
+          checked_value
+        } * weight;
         delta_idx = ::core::primitive::u64::wrapping_add(delta_idx, 1);
       }
 
-      self
-        .stack
-        .set(::core::primitive::u64::wrapping_add(stack_base, i), blended_operand)?;
+      self.stack.set(
+        ::core::primitive::u64::wrapping_add(stack_base, i),
+        blended_operand,
+      )?;
     }
 
     self.stack.drop(num_args.saturating_sub(num_points));
@@ -958,14 +1052,20 @@ where
 
   #[must_use]
   fn coords_remaining(&self) -> core::result::Result<u64, console_core_never::Never> {
-      Ok(self.stack.len().saturating_sub(self.stack_ix))
+    Ok(self.stack.len().saturating_sub(self.stack_ix))
   }
 
-  fn ensure_open(&mut self) -> core::result::Result<(), console_core_never::Never> { {
-    let Ok(()) = Self::open_contour(&mut self.contour_start, self.sink);
-  }; Ok(()) }
+  fn ensure_open(&mut self) -> core::result::Result<(), console_core_never::Never> {
+    {
+      let Ok(()) = Self::open_contour(&mut self.contour_start, self.sink);
+    };
+    Ok(())
+  }
 
-  fn open_contour(contour_start: &mut ContourStart, sink: &mut S) -> Result<(), console_core_never::Never> {
+  fn open_contour(
+    contour_start: &mut ContourStart,
+    sink: &mut S,
+  ) -> Result<(), console_core_never::Never> {
     match contour_start {
       ContourStart::AwaitingMove => {
         sink.move_to(Fixed::ZERO, Fixed::ZERO);
@@ -1014,7 +1114,14 @@ where
   }
 
   fn move_single_axis(&mut self, operator: Operator) -> Result<(), Error> {
-    match ::core::primitive::bool::then_some(self.stack.len() > 1 && matches!(self.width_state, WidthState::AwaitingCommand | WidthState::RetainedForComponent), ()) {
+    match ::core::primitive::bool::then_some(
+      self.stack.len() > 1
+        && matches!(
+          self.width_state,
+          WidthState::AwaitingCommand | WidthState::RetainedForComponent
+        ),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         self.read_width()?;
       }
@@ -1063,10 +1170,17 @@ where
     self.reset_stack()
   }
 
-  fn emit_line(&mut self, x: Fixed, y: Fixed) -> core::result::Result<(), console_core_never::Never> { {
-    let Ok(()) = self.ensure_open();
-    self.sink.line_to(x, y);
-  }; Ok(()) }
+  fn emit_line(
+    &mut self,
+    x: Fixed,
+    y: Fixed,
+  ) -> core::result::Result<(), console_core_never::Never> {
+    {
+      let Ok(()) = self.ensure_open();
+      self.sink.line_to(x, y);
+    };
+    Ok(())
+  }
 
   fn emit_curves<const N: usize>(&mut self, modes: [PointMode; N]) -> Result<(), Error> {
     let Ok(initial) = Point::new(self.x, self.y);
@@ -1086,7 +1200,9 @@ where
           CurveControls::Both([first, second])
         }
         CurveControls::Both([first, second]) => {
-          self.sink.curve_to(first.x, first.y, second.x, second.y, self.x, self.y);
+          self
+            .sink
+            .curve_to(first.x, first.y, second.x, second.y, self.x, self.y);
           CurveControls::Empty
         }
       };
@@ -1147,10 +1263,13 @@ where
     Ok(())
   }
 
-  fn reset_stack(&mut self) -> core::result::Result<(), console_core_never::Never> { {
-    self.stack.clear();
-    self.stack_ix = 0;
-  }; Ok(()) }
+  fn reset_stack(&mut self) -> core::result::Result<(), console_core_never::Never> {
+    {
+      self.stack.clear();
+      self.stack_ix = 0;
+    };
+    Ok(())
+  }
 }
 
 #[derive(Clone, Copy)]
@@ -1225,68 +1344,82 @@ impl Operator {
     let (opcode, operator) = match ::core::primitive::bool::then_some(b0 == ESCAPE, ()) {
       ::core::option::Option::Some(()) => {
         let b1 = cursor.read::<u8>()?;
-        (b1, ({ let Ok(explicit_value) = Self::from_two_byte_opcode(b1); explicit_value }))
+        (
+          b1,
+          ({
+            let Ok(explicit_value) = Self::from_two_byte_opcode(b1);
+            explicit_value
+          }),
+        )
       }
-      ::core::option::Option::None => (b0, ({ let Ok(explicit_value) = Self::from_opcode(b0); explicit_value })),
+      ::core::option::Option::None => (
+        b0,
+        ({
+          let Ok(explicit_value) = Self::from_opcode(b0);
+          explicit_value
+        }),
+      ),
     };
     operator.ok_or(Error::InvalidCharstringOperator(opcode))
   }
 
   #[must_use]
   fn from_opcode(opcode: u8) -> core::result::Result<Option<Self>, console_core_never::Never> {
-      use Operator::*;
+    use Operator::*;
 
-      Ok(Some(match opcode {
-        1 => HStem,
-        3 => VStem,
-        4 => VMoveTo,
-        5 => RLineTo,
-        6 => HLineTo,
-        7 => VLineTo,
-        8 => RrCurveTo,
-        10 => CallSubr,
-        11 => Return,
-        13 => Hsbw,
-        14 => EndChar,
-        15 => VariationStoreIndex,
-        16 => Blend,
-        18 => HStemHm,
-        19 => HintMask,
-        20 => CntrMask,
-        21 => RMoveTo,
-        22 => HMoveTo,
-        23 => VStemHm,
-        24 => RCurveLine,
-        25 => RLineCurve,
-        26 => VvCurveTo,
-        27 => HhCurveTo,
-        29 => CallGsubr,
-        30 => VhCurveTo,
-        31 => HvCurveTo,
-        _ => return Ok(None),
-      }))
+    Ok(Some(match opcode {
+      1 => HStem,
+      3 => VStem,
+      4 => VMoveTo,
+      5 => RLineTo,
+      6 => HLineTo,
+      7 => VLineTo,
+      8 => RrCurveTo,
+      10 => CallSubr,
+      11 => Return,
+      13 => Hsbw,
+      14 => EndChar,
+      15 => VariationStoreIndex,
+      16 => Blend,
+      18 => HStemHm,
+      19 => HintMask,
+      20 => CntrMask,
+      21 => RMoveTo,
+      22 => HMoveTo,
+      23 => VStemHm,
+      24 => RCurveLine,
+      25 => RLineCurve,
+      26 => VvCurveTo,
+      27 => HhCurveTo,
+      29 => CallGsubr,
+      30 => VhCurveTo,
+      31 => HvCurveTo,
+      _ => return Ok(None),
+    }))
   }
 
   #[must_use]
-  pub fn from_two_byte_opcode(opcode: u8) -> core::result::Result<Option<Self>, console_core_never::Never> {
-      use Operator::*;
+  pub fn from_two_byte_opcode(
+    opcode: u8,
+  ) -> core::result::Result<Option<Self>, console_core_never::Never> {
+    use Operator::*;
 
-      Ok(Some(match opcode {
-        0 => DotSection,
-        1 => VStem3,
-        2 => HStem3,
-        6 => Seac,
-        7 => Sbw,
-        12 => Div,
-        16 => CallOtherSubr,
-        17 => Pop,
-        33 => SetCurrentPoint,
-        34 => HFlex,
-        35 => Flex,
-        36 => HFlex1,
-        37 => Flex1,
-        _ => return Ok(None),
-      }))
+    Ok(Some(match opcode {
+      0 => DotSection,
+      1 => VStem3,
+      2 => HStem3,
+      6 => Seac,
+      7 => Sbw,
+      12 => Div,
+      16 => CallOtherSubr,
+      17 => Pop,
+      33 => SetCurrentPoint,
+      34 => HFlex,
+      35 => Flex,
+      36 => HFlex1,
+      37 => Flex1,
+      _ => return Ok(None),
+    }))
   }
 }
 
@@ -1304,7 +1437,10 @@ pub struct TransformSink<'a, S> {
 impl<'a, S> TransformSink<'a, S> {
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TransformSink::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TransformSink::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(sink: &'a mut S, transform: Transform) -> Self {
     Self::from_matrix_scale(sink, transform.matrix, transform.scale)
@@ -1312,7 +1448,10 @@ impl<'a, S> TransformSink<'a, S> {
 
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `TransformSink::from_matrix_scale` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `TransformSink::from_matrix_scale` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn from_matrix_scale(sink: &'a mut S, matrix: FontMatrix, scale: Option<Fixed>) -> Self {
     Self {
@@ -1323,59 +1462,63 @@ impl<'a, S> TransformSink<'a, S> {
   }
 
   #[must_use]
-  fn transform(&self, x: Fixed, y: Fixed) -> core::result::Result<(Fixed, Fixed), console_core_never::Never> {
-      let ax = x * ONE_OVER_64;
-      let ay = y * ONE_OVER_64;
+  fn transform(
+    &self,
+    x: Fixed,
+    y: Fixed,
+  ) -> core::result::Result<(Fixed, Fixed), console_core_never::Never> {
+    let ax = x * ONE_OVER_64;
+    let ay = y * ONE_OVER_64;
 
-      let Ok(value_12) = ax.to_bits();
+    let Ok(value_12) = ax.to_bits();
 
-      let Ok(value_20) = Fixed::from_bits(::core::primitive::i32::wrapping_shr(value_12, 10_u32));
+    let Ok(value_20) = Fixed::from_bits(::core::primitive::i32::wrapping_shr(value_12, 10_u32));
 
-      let bx = value_20;
-      let Ok(value_13) = ay.to_bits();
+    let bx = value_20;
+    let Ok(value_13) = ay.to_bits();
 
-      let Ok(value_21) = Fixed::from_bits(::core::primitive::i32::wrapping_shr(value_13, 10_u32));
+    let Ok(value_21) = Fixed::from_bits(::core::primitive::i32::wrapping_shr(value_13, 10_u32));
 
-      let by = value_21;
+    let by = value_21;
 
-      let (cx, cy) = match self.matrix.as_ref().map(|mat| {
-        let Ok(value_23) = mat.transform(bx, by);
+    let (cx, cy) = match self.matrix.as_ref().map(|mat| {
+      let Ok(value_23) = mat.transform(bx, by);
 
-        value_23
-      }) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => (bx, by),
-      };
+      value_23
+    }) {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => (bx, by),
+    };
 
-      Ok(match self.scale {
-        Some(scale) => {
-          let dx = cx * scale;
-          let dy = cy * scale;
+    Ok(match self.scale {
+      Some(scale) => {
+        let dx = cx * scale;
+        let dy = cy * scale;
 
-          let Ok(value_14) = Fixed::from_bits({
-            let Ok(bits) = dx.to_bits();
-            bits.wrapping_shl(10)
-          });
-          let Ok(value_15) = Fixed::from_bits({
-            let Ok(bits) = dy.to_bits();
-            bits.wrapping_shl(10)
-          });
+        let Ok(value_14) = Fixed::from_bits({
+          let Ok(bits) = dx.to_bits();
+          bits.wrapping_shl(10)
+        });
+        let Ok(value_15) = Fixed::from_bits({
+          let Ok(bits) = dy.to_bits();
+          bits.wrapping_shl(10)
+        });
 
-          (value_14, value_15)
-        }
-        None => {
-          let Ok(value_16) = Fixed::from_bits({
-            let Ok(bits) = cx.to_bits();
-            bits.wrapping_shl(16)
-          });
-          let Ok(value_17) = Fixed::from_bits({
-            let Ok(bits) = cy.to_bits();
-            bits.wrapping_shl(16)
-          });
+        (value_14, value_15)
+      }
+      None => {
+        let Ok(value_16) = Fixed::from_bits({
+          let Ok(bits) = cx.to_bits();
+          bits.wrapping_shl(16)
+        });
+        let Ok(value_17) = Fixed::from_bits({
+          let Ok(bits) = cy.to_bits();
+          bits.wrapping_shl(16)
+        });
 
-          (value_16, value_17)
-        }
-      })
+        (value_16, value_17)
+      }
+    })
   }
 }
 
@@ -1436,10 +1579,10 @@ enum PendingElement {
 impl PendingElement {
   #[must_use]
   fn target_point(&self) -> core::result::Result<[Fixed; 2], console_core_never::Never> {
-      Ok(match self {
-        Self::Move(xy) | Self::Line(xy) => *xy,
-        Self::Curve([.., x, y]) => [*x, *y],
-      })
+    Ok(match self {
+      Self::Move(xy) | Self::Line(xy) => *xy,
+      Self::Curve([.., x, y]) => [*x, *y],
+    })
   }
 }
 
@@ -1467,7 +1610,10 @@ where
 {
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `NopFilterSink::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `NopFilterSink::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(inner: &'a mut S) -> Self {
     Self {
@@ -1540,17 +1686,17 @@ where
   }
 
   fn line_to(&mut self, x: Fixed, y: Fixed) {
-    match ::core::primitive::bool::then_some(match self
-      .pending_element
-      .map(|element| {
-          let Ok(target_point) = element.target_point();
+    match ::core::primitive::bool::then_some(
+      match self.pending_element.map(|element| {
+        let Ok(target_point) = element.target_point();
 
-          target_point == [x, y]
-      })
-    {
-      ::core::option::Option::Some(option_value) => option_value,
-      ::core::option::Option::None => false,
-    }, ()) {
+        target_point == [x, y]
+      }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => false,
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return;
       }
@@ -1635,9 +1781,14 @@ pub(crate) mod test_helpers {
       Ok(match self {
         Self::Move(x, y) => Command::Move(fixed(x), fixed(y)),
         Self::Line(x, y) => Command::Line(fixed(x), fixed(y)),
-        Self::Curve(cx0, cy0, cx1, cy1, x, y) => {
-          Command::Curve(fixed(cx0), fixed(cy0), fixed(cx1), fixed(cy1), fixed(x), fixed(y))
-        }
+        Self::Curve(cx0, cy0, cx1, cy1, x, y) => Command::Curve(
+          fixed(cx0),
+          fixed(cy0),
+          fixed(cx1),
+          fixed(cy1),
+          fixed(x),
+          fixed(y),
+        ),
       })
     }
   }
@@ -1663,11 +1814,11 @@ pub(crate) mod test_helpers {
 
       for command in self.0.iter().rev() {
         match command {
-            Command::Move(x, y) => {
-              last_move = [*x, *y];
-              break;
-            },
-            Command::Line(..) | Command::Curve(..) => {},
+          Command::Move(x, y) => {
+            last_move = [*x, *y];
+            break;
+          }
+          Command::Line(..) | Command::Curve(..) => {}
         }
       }
 
@@ -1712,7 +1863,10 @@ pub(crate) mod test_helpers {
             let Ok(cy1_coord) = cy1.to_f32();
             let Ok(x_coord) = x.to_f32();
             let Ok(y_coord) = y.to_f32();
-            write!(svg, "C{cx0_coord},{cy0_coord} {cx1_coord},{cy1_coord} {x_coord},{y_coord}")?;
+            write!(
+              svg,
+              "C{cx0_coord},{cy0_coord} {cx1_coord},{cy1_coord} {x_coord},{y_coord}"
+            )?;
           }
         }
       }
@@ -1790,7 +1944,9 @@ mod tests {
     let charstring = &*match <[_]>::get(&*font_test_data::cff2::EXAMPLE, 0xc8..=0xe1) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
-        return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds));
+        return ::core::result::Result::Err(crate::test_support::Failure::from(
+          crate::read::ReadError::OutOfBounds,
+        ));
       }
     };
     let store = ItemVariationStore::read({
@@ -1798,7 +1954,9 @@ mod tests {
         FontData::new(&*match <[_]>::get(&*font_test_data::cff2::EXAMPLE, 18..) {
           ::core::option::Option::Some(indexed_value) => indexed_value,
           ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(crate::read::ReadError::OutOfBounds));
+            return ::core::result::Result::Err(crate::test_support::Failure::from(
+              crate::read::ReadError::OutOfBounds,
+            ));
           }
         });
       explicit_value
@@ -1807,14 +1965,18 @@ mod tests {
       let Ok(value) = F2Dot14::from_f32(0.0);
       value
     }];
-    let blend_state = crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
+    let blend_state =
+      crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
     let mut commands = CaptureCommandSink::default();
-    crate::test_support::fixture_value(evaluate(
-      &NullContext(CharstringKind::Type2),
-      Some(blend_state),
-      charstring,
-      &mut commands,
-    ), "fixture value")?;
+    crate::test_support::fixture_value(
+      evaluate(
+        &NullContext(CharstringKind::Type2),
+        Some(blend_state),
+        charstring,
+        &mut commands,
+      ),
+      "fixture value",
+    )?;
 
     let expected = &[
       Move(
@@ -1921,7 +2083,8 @@ mod tests {
       Command::Curve(-277, -814, -235, -834, -221, -858),
       Command::Curve(-246, -877, -260, -919, -292, -911),
       Command::Line(-203, -855),
-    ].map(|command| {
+    ]
+    .map(|command| {
       let Ok(expected_command) = command.to_fixed();
       expected_command
     });
@@ -1932,7 +2095,8 @@ mod tests {
   #[test]
   fn coords_remaining_avoid_overflow() -> ::core::result::Result<(), crate::ps::error::Error> {
     let mut commands = CaptureCommandSink::default();
-    let Ok(mut evaluator) = Evaluator::new(&NullContext(CharstringKind::Type2), None, &mut commands);
+    let Ok(mut evaluator) =
+      Evaluator::new(&NullContext(CharstringKind::Type2), None, &mut commands);
     evaluator.stack.push(0)?;
     evaluator.stack.push(0)?;
     let mut cursor = {
@@ -2161,7 +2325,8 @@ mod tests {
       Command::Move(0, 0),
       Command::Curve(2, 4, 3, 6, 4, 8),
       Command::Curve(5, 10, 6, 12, 7, 14),
-    ].map(|command| {
+    ]
+    .map(|command| {
       let Ok(expected_command) = command.to_fixed();
       expected_command
     });
@@ -2223,7 +2388,11 @@ mod tests {
 
     assert_eq!(
       commands.0,
-      [Command::Move(sx, sy), Command::Curve(cx0, cy0, cx1, cy1, x, y), Command::Line(sx, sy)]
+      [
+        Command::Move(sx, sy),
+        Command::Curve(cx0, cy0, cx1, cy1, x, y),
+        Command::Line(sx, sy)
+      ]
     );
   }
 
@@ -2263,9 +2432,9 @@ mod tests {
       }),
     );
     let transformed = input.map(|(x, y)| {
-        let Ok(transform) = sink.transform(x, y);
+      let Ok(transform) = sink.transform(x, y);
 
-        transform
+      transform
     });
     assert_eq!(transformed, expected);
   }
@@ -2299,9 +2468,9 @@ mod tests {
     let mut dummy = ();
     let sink = TransformSink::from_matrix_scale(&mut dummy, TRANSFORM, None);
     let transformed = input.map(|(x, y)| {
-        let Ok(transform) = sink.transform(x, y);
+      let Ok(transform) = sink.transform(x, y);
 
-        transform
+      transform
     });
     assert_eq!(transformed, expected);
   }
@@ -2329,17 +2498,14 @@ mod tests {
     for coord in [50.0, 50.1, 50.125, 50.5, 50.9] {
       assert_eq!(
         ({
-          let Ok(transform) = sink
-            .transform(
-              {
-                let Ok(explicit_value) = Fixed::from_f64(coord);
-                explicit_value
-              },
-              Fixed::ZERO,
-            );
-          let Ok(value) = transform
-            .0
-            .to_f32();
+          let Ok(transform) = sink.transform(
+            {
+              let Ok(explicit_value) = Fixed::from_f64(coord);
+              explicit_value
+            },
+            Fixed::ZERO,
+          );
+          let Ok(value) = transform.0.to_f32();
           value
         }),
         50.0
@@ -2379,17 +2545,14 @@ mod tests {
     for (coord, expected) in inputs {
       assert_eq!(
         ({
-          let Ok(transform) = sink
-            .transform(
-              {
-                let Ok(explicit_value) = Fixed::from_f64(coord);
-                explicit_value
-              },
-              Fixed::ZERO,
-            );
-          let Ok(value) = transform
-            .0
-            .to_f32();
+          let Ok(transform) = sink.transform(
+            {
+              let Ok(explicit_value) = Fixed::from_f64(coord);
+              explicit_value
+            },
+            Fixed::ZERO,
+          );
+          let Ok(value) = transform.0.to_f32();
           value
         }),
         expected,

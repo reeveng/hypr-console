@@ -30,10 +30,6 @@ use crate::src::strided::Strided as _;
 #[cfg(target_arch = "aarch64")]
 use console_core_video_interpolation::convolve8;
 
-
-
-
-
 use crate::src::safe_simd::mc::blend_rows::{BlendLayoutError, BlendRow, BlendSize};
 use console_core_geometry::Size;
 use console_core_number_conversion::wrapped;
@@ -65,8 +61,14 @@ fn avg_8bpc_inner(_token: Arm64, block: CompoundBlock<'_>) -> Result<(), BlendLa
     for (output, left, right) in wide {
       let [left_low, left_high]: &[[i16; 8]; 2] = zerocopy::transmute_ref!(left);
       let [right_low, right_high]: &[[i16; 8]; 2] = zerocopy::transmute_ref!(right);
-      let low = vaddq_s16(safe_simd::vld1q_s16(left_low), safe_simd::vld1q_s16(right_low));
-      let high = vaddq_s16(safe_simd::vld1q_s16(left_high), safe_simd::vld1q_s16(right_high));
+      let low = vaddq_s16(
+        safe_simd::vld1q_s16(left_low),
+        safe_simd::vld1q_s16(right_low),
+      );
+      let high = vaddq_s16(
+        safe_simd::vld1q_s16(left_high),
+        safe_simd::vld1q_s16(right_high),
+      );
       let low_bytes = vqmovun_s16(vqrdmulhq_n_s16(low, 1024));
       let high_bytes = vqmovun_s16(vqrdmulhq_n_s16(high, 1024));
       safe_simd::vst1q_u8(output, vcombine_u8(low_bytes, high_bytes));
@@ -93,11 +95,17 @@ fn avg_8bpc_inner(_token: Arm64, block: CompoundBlock<'_>) -> Result<(), BlendLa
 }
 
 #[arcane]
-fn avg_16bpc_inner(_token: Arm64, block: CompoundBlock<'_>, maximum: i32) -> Result<(), BlendLayoutError> {
+fn avg_16bpc_inner(
+  _token: Arm64,
+  block: CompoundBlock<'_>,
+  maximum: i32,
+) -> Result<(), BlendLayoutError> {
   let Ok(intermediate) = intermediate_bits_16bpc(maximum);
   let precision = intermediate.cast_unsigned();
   let shift = precision.wrapping_add(1);
-  let rounding = 1_i32.wrapping_shl(precision).wrapping_add(PREP_BIAS_16BPC.wrapping_mul(2));
+  let rounding = 1_i32
+    .wrapping_shl(precision)
+    .wrapping_add(PREP_BIAS_16BPC.wrapping_mul(2));
   let bias = vdupq_n_s32(rounding);
   let right_shift = vdupq_n_s32(shift.cast_signed().wrapping_neg());
   let zero = vdupq_n_s32(0);
@@ -114,11 +122,20 @@ fn avg_16bpc_inner(_token: Arm64, block: CompoundBlock<'_>, maximum: i32) -> Res
       let first_high = vmovl_s16(vget_high_s16(first));
       let second_low = vmovl_s16(vget_low_s16(second));
       let second_high = vmovl_s16(vget_high_s16(second));
-      let mean_low = vshlq_s32(vaddq_s32(vaddq_s32(first_low, second_low), bias), right_shift);
-      let mean_high = vshlq_s32(vaddq_s32(vaddq_s32(first_high, second_high), bias), right_shift);
+      let mean_low = vshlq_s32(
+        vaddq_s32(vaddq_s32(first_low, second_low), bias),
+        right_shift,
+      );
+      let mean_high = vshlq_s32(
+        vaddq_s32(vaddq_s32(first_high, second_high), bias),
+        right_shift,
+      );
       let low = vmaxq_s32(vminq_s32(mean_low, maximum_vector), zero);
       let high = vmaxq_s32(vminq_s32(mean_high, maximum_vector), zero);
-      let words = vcombine_u16(vmovn_u32(vreinterpretq_u32_s32(low)), vmovn_u32(vreinterpretq_u32_s32(high)));
+      let words = vcombine_u16(
+        vmovn_u32(vreinterpretq_u32_s32(low)),
+        vmovn_u32(vreinterpretq_u32_s32(high)),
+      );
       safe_simd::vst1q_u16(output, words);
     }
 
@@ -136,7 +153,11 @@ fn avg_16bpc_inner(_token: Arm64, block: CompoundBlock<'_>, maximum: i32) -> Res
 }
 
 #[arcane]
-fn w_avg_8bpc_inner(_token: Arm64, block: CompoundBlock<'_>, weight: i32) -> Result<(), BlendLayoutError> {
+fn w_avg_8bpc_inner(
+  _token: Arm64,
+  block: CompoundBlock<'_>,
+  weight: i32,
+) -> Result<(), BlendLayoutError> {
   const ROUNDING: i32 = 128;
   let scale = vdupq_n_s32(weight);
   let bias = vdupq_n_s32(ROUNDING);
@@ -154,8 +175,14 @@ fn w_avg_8bpc_inner(_token: Arm64, block: CompoundBlock<'_>, weight: i32) -> Res
       let diff_high = vmovl_s16(vget_high_s16(difference));
       let second_low = vmovl_s16(vget_low_s16(second));
       let second_high = vmovl_s16(vget_high_s16(second));
-      let sum_low = vaddq_s32(vaddq_s32(vmulq_s32(diff_low, scale), vshlq_n_s32::<4>(second_low)), bias);
-      let sum_high = vaddq_s32(vaddq_s32(vmulq_s32(diff_high, scale), vshlq_n_s32::<4>(second_high)), bias);
+      let sum_low = vaddq_s32(
+        vaddq_s32(vmulq_s32(diff_low, scale), vshlq_n_s32::<4>(second_low)),
+        bias,
+      );
+      let sum_high = vaddq_s32(
+        vaddq_s32(vmulq_s32(diff_high, scale), vshlq_n_s32::<4>(second_high)),
+        bias,
+      );
       let low = vmovn_s32(vshrq_n_s32::<8>(sum_low));
       let high = vmovn_s32(vshrq_n_s32::<8>(sum_high));
       safe_simd::vst1_u8(output, vqmovun_s16(vcombine_s16(low, high)));
@@ -166,7 +193,10 @@ fn w_avg_8bpc_inner(_token: Arm64, block: CompoundBlock<'_>, weight: i32) -> Res
     for (output, &left, &right) in pixels {
       let first = i32::from(left).wrapping_mul(weight);
       let second = i32::from(right).wrapping_mul(other_weight);
-      let rounded = first.wrapping_add(second).wrapping_add(ROUNDING).wrapping_shr(8);
+      let rounded = first
+        .wrapping_add(second)
+        .wrapping_add(ROUNDING)
+        .wrapping_shr(8);
       let Ok(sample) = wrapped(rounded.clamp(0, 255));
       *output = sample;
     }
@@ -190,7 +220,9 @@ fn w_avg_16bpc_inner(
   let Ok(intermediate) = intermediate_bits_16bpc(maximum);
   let precision = intermediate.cast_unsigned();
   let shift = precision.wrapping_add(4);
-  let rounding = 8_i32.wrapping_shl(precision).wrapping_add(PREP_BIAS_16BPC.wrapping_mul(16));
+  let rounding = 8_i32
+    .wrapping_shl(precision)
+    .wrapping_add(PREP_BIAS_16BPC.wrapping_mul(16));
   let other_weight = 16_i32.wrapping_sub(weight);
   let first_weight = vdupq_n_s32(weight);
   let second_weight = vdupq_n_s32(other_weight);
@@ -206,7 +238,13 @@ fn w_avg_16bpc_inner(
     for (output, left, right) in vectors {
       let first = vmovl_s16(safe_simd::vld1_s16(left));
       let second = vmovl_s16(safe_simd::vld1_s16(right));
-      let sum = vaddq_s32(vaddq_s32(vmulq_s32(first, first_weight), vmulq_s32(second, second_weight)), bias);
+      let sum = vaddq_s32(
+        vaddq_s32(
+          vmulq_s32(first, first_weight),
+          vmulq_s32(second, second_weight),
+        ),
+        bias,
+      );
       let weighted = vshlq_s32(sum, right_shift);
       let pixels = vmaxq_s32(vminq_s32(weighted, maximum_vector), zero);
       safe_simd::vst1_u16(output, vmovn_u32(vreinterpretq_u32_s32(pixels)));
@@ -217,7 +255,10 @@ fn w_avg_16bpc_inner(
     for (output, &left, &right) in pixels {
       let first = i32::from(left).wrapping_mul(weight);
       let second = i32::from(right).wrapping_mul(other_weight);
-      let rounded = first.wrapping_add(second).wrapping_add(rounding).wrapping_shr(shift);
+      let rounded = first
+        .wrapping_add(second)
+        .wrapping_add(rounding)
+        .wrapping_shr(shift);
       let Ok(sample) = wrapped(rounded.clamp(0, maximum));
       *output = sample;
     }
@@ -263,8 +304,20 @@ fn mask_8bpc_inner(
       let weight_high = vmovl_s16(vget_high_s16(weights_short));
       let second_low = vmovl_s16(vget_low_s16(second));
       let second_high = vmovl_s16(vget_high_s16(second));
-      let sum_low = vaddq_s32(vaddq_s32(vmulq_s32(diff_low, weight_low), vshlq_n_s32::<6>(second_low)), bias);
-      let sum_high = vaddq_s32(vaddq_s32(vmulq_s32(diff_high, weight_high), vshlq_n_s32::<6>(second_high)), bias);
+      let sum_low = vaddq_s32(
+        vaddq_s32(
+          vmulq_s32(diff_low, weight_low),
+          vshlq_n_s32::<6>(second_low),
+        ),
+        bias,
+      );
+      let sum_high = vaddq_s32(
+        vaddq_s32(
+          vmulq_s32(diff_high, weight_high),
+          vshlq_n_s32::<6>(second_high),
+        ),
+        bias,
+      );
       let low = vmovn_s32(vshrq_n_s32::<10>(sum_low));
       let high = vmovn_s32(vshrq_n_s32::<10>(sum_high));
       safe_simd::vst1_u8(output, vqmovun_s16(vcombine_s16(low, high)));
@@ -276,7 +329,10 @@ fn mask_8bpc_inner(
       let alpha = i32::from(weight);
       let first = i32::from(left).wrapping_mul(alpha);
       let second = i32::from(right).wrapping_mul(64_i32.wrapping_sub(alpha));
-      let rounded = first.wrapping_add(second).wrapping_add(ROUNDING).wrapping_shr(10);
+      let rounded = first
+        .wrapping_add(second)
+        .wrapping_add(ROUNDING)
+        .wrapping_shr(10);
       let Ok(sample) = wrapped(rounded.clamp(0, 255));
       *output = sample;
     }
@@ -295,7 +351,9 @@ fn mask_16bpc_inner(
   let Ok(intermediate) = intermediate_bits_16bpc(maximum);
   let precision = intermediate.cast_unsigned();
   let shift = precision.wrapping_add(6);
-  let rounding = 32_i32.wrapping_shl(precision).wrapping_add(PREP_BIAS_16BPC.wrapping_mul(64));
+  let rounding = 32_i32
+    .wrapping_shl(precision)
+    .wrapping_add(PREP_BIAS_16BPC.wrapping_mul(64));
   let right_shift = vdupq_n_s32(shift.cast_signed().wrapping_neg());
   let bias = vdupq_n_s32(rounding);
   let full = vdupq_n_s32(64);
@@ -316,7 +374,13 @@ fn mask_16bpc_inner(
       let weights_words = vmovl_u8(safe_simd::vld1_u8(&weights_bytes));
       let first_weight = vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(weights_words)));
       let second_weight = vsubq_s32(full, first_weight);
-      let sum = vaddq_s32(vaddq_s32(vmulq_s32(first, first_weight), vmulq_s32(second, second_weight)), bias);
+      let sum = vaddq_s32(
+        vaddq_s32(
+          vmulq_s32(first, first_weight),
+          vmulq_s32(second, second_weight),
+        ),
+        bias,
+      );
       let weighted = vshlq_s32(sum, right_shift);
       let samples = vmaxq_s32(vminq_s32(weighted, maximum_vector), zero);
       safe_simd::vst1_u16(output, vmovn_u32(vreinterpretq_u32_s32(samples)));
@@ -328,7 +392,10 @@ fn mask_16bpc_inner(
       let alpha = i32::from(weight);
       let first = i32::from(left).wrapping_mul(alpha);
       let second = i32::from(right).wrapping_mul(64_i32.wrapping_sub(alpha));
-      let rounded = first.wrapping_add(second).wrapping_add(rounding).wrapping_shr(shift);
+      let rounded = first
+        .wrapping_add(second)
+        .wrapping_add(rounding)
+        .wrapping_shr(shift);
       let Ok(sample) = wrapped(rounded.clamp(0, maximum));
       *output = sample;
     }
@@ -336,12 +403,6 @@ fn mask_16bpc_inner(
 
   Ok(())
 }
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -364,23 +425,19 @@ still be able to disable/re-enable tokens."###]
     use archmage::testing::{CompileTimePolicy, for_each_token_permutation};
     use archmage::{Arm64, SimdToken};
 
-
-
     let Ok(_guard) = crate::src::safe_simd::token_test_lock();
 
     let mut had_enabled = false;
     let mut had_disabled = false;
 
     let report = for_each_token_permutation(CompileTimePolicy::WarnStderr, |_perm| {
-      match {
-          ::core::primitive::bool::then_some(Arm64::summon().is_some(), ())
-      } {
-          ::core::option::Option::Some(()) => {
-            had_enabled = true;
-          },
-          ::core::option::Option::None => {
-            had_disabled = true;
-          },
+      match { ::core::primitive::bool::then_some(Arm64::summon().is_some(), ()) } {
+        ::core::option::Option::Some(()) => {
+          had_enabled = true;
+        }
+        ::core::option::Option::None => {
+          had_disabled = true;
+        }
       }
     });
     eprintln!("ARM permutations: {}", report.permutations_run);
@@ -399,16 +456,36 @@ If this ever fails, the `bias_corr = 128*Σfilter` term in
   fn test_dotprod_bias_correction_bit_exact() {
     #[must_use]
     fn neon_sum(f: &[i8; 8], s: &[u8; 8]) -> i32 {
-      (0..8).map(|i| ::core::primitive::i32::wrapping_mul(<i32 as ::core::convert::From<::core::primitive::i8>>::from(f[i]), <i32 as ::core::convert::From<::core::primitive::u8>>::from(s[i]))).sum()
+      (0..8)
+        .map(|i| {
+          ::core::primitive::i32::wrapping_mul(
+            <i32 as ::core::convert::From<::core::primitive::i8>>::from(f[i]),
+            <i32 as ::core::convert::From<::core::primitive::u8>>::from(s[i]),
+          )
+        })
+        .sum()
     }
 
     #[must_use]
     fn dotprod_sum(f: &[i8; 8], s: &[u8; 8]) -> i32 {
-      let dot: i32 = (0..8).map(|i| ::core::primitive::i32::wrapping_mul(<i32 as ::core::convert::From<::core::primitive::i8>>::from(f[i]), ::core::primitive::i32::wrapping_sub(<i32 as ::core::convert::From<::core::primitive::u8>>::from(s[i]), 128))).sum();
-      let corr = 128i32 * f.iter().map(|&c| <i32 as ::core::convert::From<::core::primitive::i8>>::from(c)).sum::<i32>();
+      let dot: i32 = (0..8)
+        .map(|i| {
+          ::core::primitive::i32::wrapping_mul(
+            <i32 as ::core::convert::From<::core::primitive::i8>>::from(f[i]),
+            ::core::primitive::i32::wrapping_sub(
+              <i32 as ::core::convert::From<::core::primitive::u8>>::from(s[i]),
+              128,
+            ),
+          )
+        })
+        .sum();
+      let corr = 128i32
+        * f
+          .iter()
+          .map(|&c| <i32 as ::core::convert::From<::core::primitive::i8>>::from(c))
+          .sum::<i32>();
       dot + corr
     }
-
 
     let filters: [[i8; 8]; 4] = [
       [0, 1, -3, 63, 4, -1, 0, 0],
@@ -429,7 +506,11 @@ If this ever fails, the `bias_corr = 128*Σfilter` term in
         let mut s = [0u8; 8];
 
         for x in &mut s {
-          *x = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>((next() & 0xff)) { ::core::result::Result::Ok(converted_position) => converted_position };
+          *x = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            (next() & 0xff),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
         }
 
         assert_eq!(neon_sum(f, &s), dotprod_sum(f, &s));
@@ -453,7 +534,6 @@ the host (x86) cross-compiles but cannot execute it."###]
     use super::{MID_STRIDE, h_filter_8tap_8bpc_neon};
     use archmage::{Arm64, SimdToken};
 
-
     let Ok(_lock) = crate::src::safe_simd::token_test_lock();
     let token = Arm64::summon().expect("NEON always available on aarch64");
     let filters: [[i8; 8]; 4] = [
@@ -472,8 +552,6 @@ the host (x86) cross-compiles but cannot execute it."###]
 
     for &w in &[4usize, 8, 16, 32, 64, 128] {
       for f in &filters {
-
-
         let src_len = w + 7 + 8;
         let src: Vec<u8> = (0..src_len).map(|_| next()).collect();
         let sh = 2u8;
@@ -512,22 +590,6 @@ the host (x86) cross-compiles but cannot execute it."###]
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[doc = r###"Core w_mask implementation for 8bpc
 SS_HOR and SS_VER control subsampling: 444=(false,false), 422=(true,false), 420=(true,true)"###]
 #[cfg(target_arch = "aarch64")]
@@ -550,21 +612,15 @@ fn w_mask_8bpc_inner(
   let tmp2 = tmp2.flex();
   let mut mask = mask.flex_mut();
 
-
-
-
   const SH: i32 = 4 + 6;
   const RND: i32 = (32 << 4) + 0 * 64;
   const MASK_SH: u32 = ::core::primitive::i32::cast_unsigned((8 + 4 - 4));
   const MASK_RND: u16 = 1 << (MASK_SH - 5);
 
-
   let mask_w = match ::core::primitive::bool::then_some(ss_hor, ()) {
-      ::core::option::Option::Some(()) => { w.wrapping_shr(1_u32) },
-      ::core::option::Option::None => { w },
+    ::core::option::Option::Some(()) => w.wrapping_shr(1_u32),
+    ::core::option::Option::None => w,
   };
-
-
 
   let mut mrow = [0u8; 128];
 
@@ -575,21 +631,18 @@ fn w_mask_8bpc_inner(
 
     let mut col = 0;
 
-
     while col + 8 <= w {
       let t1 = safe_simd::vld1q_s16(tmp1_row[col..][..8].try_into().unwrap());
       let t2 = safe_simd::vld1q_s16(tmp2_row[col..][..8].try_into().unwrap());
 
-
-
       let diff = vsubq_s16(t1, t2);
       let abs_diff = vabsq_s16(diff);
-
 
       let abs_32_lo = vmovl_s16(vget_low_s16(abs_diff));
       let abs_32_hi = vmovl_s16(vget_high_s16(abs_diff));
 
-      let mask_rnd_vec = vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(MASK_RND));
+      let mask_rnd_vec =
+        vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(MASK_RND));
       let m_lo = vaddq_s32(abs_32_lo, mask_rnd_vec);
       let m_hi = vaddq_s32(abs_32_hi, mask_rnd_vec);
 
@@ -599,10 +652,7 @@ fn w_mask_8bpc_inner(
       let m_lo = vminq_s32(vaddq_s32(m_shifted_lo, vdupq_n_s32(38)), vdupq_n_s32(64));
       let m_hi = vminq_s32(vaddq_s32(m_shifted_hi, vdupq_n_s32(38)), vdupq_n_s32(64));
 
-
       let m_16 = vcombine_s16(vmovn_s32(m_lo), vmovn_s32(m_hi));
-
-
 
       let inv_m = vsubq_s16(vdupq_n_s16(64), m_16);
 
@@ -614,7 +664,6 @@ fn w_mask_8bpc_inner(
       let m_hi_32 = vmovl_s16(vget_high_s16(m_16));
       let inv_m_lo_32 = vmovl_s16(vget_low_s16(inv_m));
       let inv_m_hi_32 = vmovl_s16(vget_high_s16(inv_m));
-
 
       let rnd_vec = vdupq_n_s32(RND);
       let blend_lo = vaddq_s32(
@@ -629,7 +678,6 @@ fn w_mask_8bpc_inner(
       let result_lo = vshrq_n_s32::<10>(blend_lo);
       let result_hi = vshrq_n_s32::<10>(blend_hi);
 
-
       let zero = vdupq_n_s32(0);
       let max_val = vdupq_n_s32(255);
       let result_lo = vmaxq_s32(vminq_s32(result_lo, max_val), zero);
@@ -641,7 +689,6 @@ fn w_mask_8bpc_inner(
       let dst_arr: &mut [u8; 8] = (&mut dst_row[col..col + 8]).try_into().unwrap();
       safe_simd::vst1_u8(dst_arr, result_u8);
 
-
       let m_narrow = vqmovun_s16(m_16);
       let m_arr: &mut [u8; 8] = (&mut mrow[col..col + 8]).try_into().unwrap();
       safe_simd::vst1_u8(m_arr, m_narrow);
@@ -649,30 +696,37 @@ fn w_mask_8bpc_inner(
       col += 8;
     }
 
-
     for _ in (::core::ops::Range { start: col, end: w }) {
       let t1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(tmp1_row[col]);
       let t2 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(tmp2_row[col]);
       let m = cmp_min_i32(
-        38 + ::core::primitive::u32::cast_signed((t1.abs_diff(t2).saturating_add(<u32 as ::core::convert::From<::core::primitive::u16>>::from(MASK_RND)) >> MASK_SH)),
+        38 + ::core::primitive::u32::cast_signed(
+          (t1
+            .abs_diff(t2)
+            .saturating_add(
+              <u32 as ::core::convert::From<::core::primitive::u16>>::from(MASK_RND),
+            )
+            >> MASK_SH),
+        ),
         64,
       );
 
       let blend = (t1 * m + t2 * (64 - m) + RND) >> SH;
-      dst_row[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(blend.clamp(0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position };
-      mrow[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(m) { ::core::result::Result::Ok(converted_position) => converted_position };
+      dst_row[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+        blend.clamp(0, 255),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
+      mrow[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(m) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      };
 
       col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
     }
 
-
-
-
-
-
     let mask_y = match ::core::primitive::bool::then_some(ss_ver, ()) {
-        ::core::option::Option::Some(()) => { y.wrapping_shr(1_u32) },
-        ::core::option::Option::None => { y },
+      ::core::option::Option::Some(()) => y.wrapping_shr(1_u32),
+      ::core::option::Option::None => y,
     };
     let mask_row = &mut mask[mask_y * mask_w..][..mask_w];
 
@@ -686,7 +740,19 @@ fn w_mask_8bpc_inner(
         let n = mrow[x + 1];
         let sum = m + n;
         mask_row[::core::primitive::usize::wrapping_shr(x, 1_u32)] = if ss_ver && (y & 1) != 0 {
-          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(::core::primitive::u16::wrapping_shr(::core::primitive::u16::wrapping_add(<u16 as ::core::convert::From<::core::primitive::u8>>::from((sum + 2 - sign)), <u16 as ::core::convert::From<::core::primitive::u8>>::from(mask_row[::core::primitive::usize::wrapping_shr(x, 1_u32)])), 2_u32)) { ::core::result::Result::Ok(converted_position) => converted_position }
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            ::core::primitive::u16::wrapping_shr(
+              ::core::primitive::u16::wrapping_add(
+                <u16 as ::core::convert::From<::core::primitive::u8>>::from((sum + 2 - sign)),
+                <u16 as ::core::convert::From<::core::primitive::u8>>::from(
+                  mask_row[::core::primitive::usize::wrapping_shr(x, 1_u32)],
+                ),
+              ),
+              2_u32,
+            ),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
         } else if ss_ver {
           sum
         } else {
@@ -704,17 +770,11 @@ fn w_mask_8bpc_inner(
 #[inline(always)]
 #[must_use]
 fn cmp_min_i32(a: i32, b: i32) -> i32 {
-  match {
-      ::core::primitive::bool::then_some(a < b, ())
-  } {
-      ::core::option::Option::Some(()) => { a },
-      ::core::option::Option::None => { b },
+  match { ::core::primitive::bool::then_some(a < b, ()) } {
+    ::core::option::Option::Some(()) => a,
+    ::core::option::Option::None => b,
   }
 }
-
-
-
-
 
 use crate::src::error::{Rav1dError, Rav1dResult};
 use console_core_geometry::Point;
@@ -738,12 +798,19 @@ struct BilinearWeights {
 
 impl BilinearWeights {
   fn new(fraction: i32) -> Result<Self, Never> {
-    Ok(Self { first: 16_i32.wrapping_sub(fraction), second: fraction })
+    Ok(Self {
+      first: 16_i32.wrapping_sub(fraction),
+      second: fraction,
+    })
   }
 
   #[inline]
   fn sum(self, [first, second]: [i32; 2]) -> Result<i32, Never> {
-    Ok(first.wrapping_mul(self.first).wrapping_add(second.wrapping_mul(self.second)))
+    Ok(
+      first
+        .wrapping_mul(self.first)
+        .wrapping_add(second.wrapping_mul(self.second)),
+    )
   }
 }
 
@@ -797,7 +864,14 @@ fn write_bilinear_rows<Pixel: Copy + Into<i32>, Output>(
   horizontal_precision: HorizontalPrecision,
   write: impl Fn(&mut [Output], BilinearLine<'_, Pixel>) -> Rav1dResult,
 ) -> Rav1dResult {
-  let BilinearBlock { output, source, output_pitch, source_pitch, extent, phase: Point { x, y } } = block;
+  let BilinearBlock {
+    output,
+    source,
+    output_pitch,
+    source_pitch,
+    extent,
+    phase: Point { x, y },
+  } = block;
 
   match (x, y) {
     (0..=15, 0..=15) => {}
@@ -808,10 +882,13 @@ fn write_bilinear_rows<Pixel: Copy + Into<i32>, Output>(
     width: extent.width.wrapping_add(u64::from(x != 0)),
     height: extent.height.wrapping_add(u64::from(y != 0)),
   };
-  let source_layout = RowLayout::new(source_size, 0, source_pitch).map_err(|_| Rav1dError::EINVAL)?;
+  let source_layout =
+    RowLayout::new(source_size, 0, source_pitch).map_err(|_| Rav1dError::EINVAL)?;
   let mut source_rows = source_layout.rows(source).map_err(|_| Rav1dError::EINVAL)?;
   let output_layout = RowLayout::new(extent, 0, output_pitch).map_err(|_| Rav1dError::EINVAL)?;
-  let target_rows = output_layout.rows_mut(output).map_err(|_| Rav1dError::EINVAL)?;
+  let target_rows = output_layout
+    .rows_mut(output)
+    .map_err(|_| Rav1dError::EINVAL)?;
   let Ok(horizontal) = BilinearWeights::new(x);
   let Ok(vertical) = BilinearWeights::new(y);
 
@@ -824,14 +901,26 @@ fn write_bilinear_rows<Pixel: Copy + Into<i32>, Output>(
     (_, 0) => {
       for (target, input) in target_rows.zip(source_rows) {
         let (_, next) = input.split_first().ok_or(Rav1dError::EINVAL)?;
-        write(target, BilinearLine::Single { samples: [input, next], weights: horizontal })?;
+        write(
+          target,
+          BilinearLine::Single {
+            samples: [input, next],
+            weights: horizontal,
+          },
+        )?;
       }
     }
     (0, _) => {
       let mut top = source_rows.next().ok_or(Rav1dError::EINVAL)?;
 
       for (target, bottom) in target_rows.zip(source_rows) {
-        write(target, BilinearLine::Single { samples: [top, bottom], weights: vertical })?;
+        write(
+          target,
+          BilinearLine::Single {
+            samples: [top, bottom],
+            weights: vertical,
+          },
+        )?;
         top = bottom;
       }
     }
@@ -846,7 +935,13 @@ fn write_bilinear_rows<Pixel: Copy + Into<i32>, Output>(
 
       for (target, input) in target_rows.zip(source_rows) {
         horizontal_bilinear(bottom, input, horizontal, &horizontal_precision)?;
-        write(target, BilinearLine::Filtered { samples: [top, bottom], weights: vertical })?;
+        write(
+          target,
+          BilinearLine::Filtered {
+            samples: [top, bottom],
+            weights: vertical,
+          },
+        )?;
         core::mem::swap(&mut top, &mut bottom);
       }
     }
@@ -873,14 +968,20 @@ fn write_bilinear_word<Output>(
         let Ok(()) = store(target, i32::from(sample).wrapping_shl(rounding.identity));
       }
     }
-    BilinearLine::Single { samples: [first, second], weights } => {
+    BilinearLine::Single {
+      samples: [first, second],
+      weights,
+    } => {
       for ((target, &low), &high) in output.iter_mut().zip(first).zip(second) {
         let Ok(sum) = weights.sum([i32::from(low), i32::from(high)]);
         let Ok(value) = round_bilinear(sum, rounding.single);
         let Ok(()) = store(target, value);
       }
     }
-    BilinearLine::Filtered { samples: [top, bottom], weights } => {
+    BilinearLine::Filtered {
+      samples: [top, bottom],
+      weights,
+    } => {
       for ((target, &low), &high) in output.iter_mut().zip(top).zip(bottom) {
         let Ok(sum) = weights.sum([low, high]);
         let Ok(value) = round_bilinear(sum, rounding.filtered);
@@ -904,7 +1005,10 @@ fn byte_bilinear_pair(
   let high = vreinterpretq_s16_u16(vmovl_u8(safe_simd::vld1_u8(second)));
   let Ok(left) = wrapped::<_, i16>(weights.first);
   let Ok(right) = wrapped::<_, i16>(weights.second);
-  let sum = vaddq_s16(vmulq_s16(low, vdupq_n_s16(left)), vmulq_s16(high, vdupq_n_s16(right)));
+  let sum = vaddq_s16(
+    vmulq_s16(low, vdupq_n_s16(left)),
+    vmulq_s16(high, vdupq_n_s16(right)),
+  );
   let Ok(bias) = wrapped::<_, i16>(1_i32.wrapping_shl(shift).wrapping_shr(1));
   let Ok(shift_right) = wrapped::<_, i16>(shift.cast_signed().wrapping_neg());
   let shifted = vshlq_s16(vaddq_s16(sum, vdupq_n_s16(bias)), vdupq_n_s16(shift_right));
@@ -949,7 +1053,10 @@ fn write_bilinear_byte<Output>(
         let Ok(()) = scalar(target, i32::from(sample).wrapping_shl(rounding.identity));
       }
     }
-    BilinearLine::Single { samples: [first, second], weights } => {
+    BilinearLine::Single {
+      samples: [first, second],
+      weights,
+    } => {
       let first_row = first.get(..destination.len()).ok_or(Rav1dError::EINVAL)?;
       let second_row = second.get(..destination.len()).ok_or(Rav1dError::EINVAL)?;
       let (blocks, tail) = destination.as_chunks_mut::<8>();
@@ -967,7 +1074,10 @@ fn write_bilinear_byte<Output>(
         let Ok(()) = scalar(target, value);
       }
     }
-    BilinearLine::Filtered { samples: [top, bottom], weights } => {
+    BilinearLine::Filtered {
+      samples: [top, bottom],
+      weights,
+    } => {
       let (blocks, tail) = destination.as_chunks_mut::<8>();
       let (top_vectors, top_tail) = top.as_chunks::<8>();
       let (bottom_vectors, bottom_tail) = bottom.as_chunks::<8>();
@@ -989,45 +1099,81 @@ fn write_bilinear_byte<Output>(
 }
 
 #[arcane]
-fn store_bilinear_pixels(_token: Arm64, output: &mut [u8; 8], input: int16x8_t) -> Result<(), Never> {
+fn store_bilinear_pixels(
+  _token: Arm64,
+  output: &mut [u8; 8],
+  input: int16x8_t,
+) -> Result<(), Never> {
   safe_simd::vst1_u8(output, vqmovun_s16(input));
   Ok(())
 }
 
 #[arcane]
-fn store_bilinear_predictors(_token: Arm64, output: &mut [i16; 8], input: int16x8_t) -> Result<(), Never> {
+fn store_bilinear_predictors(
+  _token: Arm64,
+  output: &mut [i16; 8],
+  input: int16x8_t,
+) -> Result<(), Never> {
   safe_simd::vst1q_s16(output, input);
   Ok(())
 }
 
 #[arcane]
 fn put_bilin_8bpc_inner(token: Arm64, block: BilinearBlock<'_, u8, u8>) -> Rav1dResult {
-  let scale = BilinearRounding { identity: 0, single: 4, filtered: 8 };
+  let scale = BilinearRounding {
+    identity: 0,
+    single: 4,
+    filtered: 8,
+  };
   write_bilinear_rows(block, HorizontalPrecision::Exact, |output, line| {
-    write_bilinear_byte(token, output, line, &scale, |target, value| {
-      let Ok(sample) = wrapped(value.clamp(0, 255));
-      *target = sample;
-      Ok(())
-    }, |available, target, lanes| store_bilinear_pixels(available, target, lanes))
+    write_bilinear_byte(
+      token,
+      output,
+      line,
+      &scale,
+      |target, value| {
+        let Ok(sample) = wrapped(value.clamp(0, 255));
+        *target = sample;
+        Ok(())
+      },
+      |available, target, lanes| store_bilinear_pixels(available, target, lanes),
+    )
   })
 }
 
 #[arcane]
 fn prep_bilin_8bpc_inner(token: Arm64, block: BilinearBlock<'_, u8, i16>) -> Rav1dResult {
-  let scale = BilinearRounding { identity: 4, single: 0, filtered: 4 };
+  let scale = BilinearRounding {
+    identity: 4,
+    single: 0,
+    filtered: 4,
+  };
   write_bilinear_rows(block, HorizontalPrecision::Exact, |output, line| {
-    write_bilinear_byte(token, output, line, &scale, |target, value| {
-      let Ok(sample) = wrapped(value);
-      *target = sample;
-      Ok(())
-    }, |available, target, lanes| store_bilinear_predictors(available, target, lanes))
+    write_bilinear_byte(
+      token,
+      output,
+      line,
+      &scale,
+      |target, value| {
+        let Ok(sample) = wrapped(value);
+        *target = sample;
+        Ok(())
+      },
+      |available, target, lanes| store_bilinear_predictors(available, target, lanes),
+    )
   })
 }
 
 fn put_bilin_16bpc_inner(block: BilinearBlock<'_, u16, u16>, maximum: i32) -> Rav1dResult {
-  let scale = BilinearRounding { identity: 0, single: 4, filtered: 8 };
-  write_bilinear_rows(block, HorizontalPrecision::Exact, |output, line| {
-    match line {
+  let scale = BilinearRounding {
+    identity: 0,
+    single: 4,
+    filtered: 8,
+  };
+  write_bilinear_rows(
+    block,
+    HorizontalPrecision::Exact,
+    |output, line| match line {
       BilinearLine::Identity(input) => {
         for (target, &sample) in output.iter_mut().zip(input) {
           *target = sample;
@@ -1042,22 +1188,30 @@ fn put_bilin_16bpc_inner(block: BilinearBlock<'_, u16, u16>, maximum: i32) -> Ra
           Ok(())
         })
       }
-    }
-  })
+    },
+  )
 }
 
 fn prep_bilin_16bpc_inner(block: BilinearBlock<'_, u16, i16>, maximum: i32) -> Rav1dResult {
   let Ok(intermediate_bits) = intermediate_bits_16bpc(maximum);
   let identity = intermediate_bits.cast_unsigned();
   let shift = 4_u32.wrapping_sub(identity);
-  let scale = BilinearRounding { identity, single: shift, filtered: 4 };
-  write_bilinear_rows(block, HorizontalPrecision::Narrowed { shift }, |output, line| {
-    write_bilinear_word(output, line, &scale, |target, value| {
-      let Ok(sample) = wrapped(value.wrapping_sub(PREP_BIAS_16BPC));
-      *target = sample;
-      Ok(())
-    })
-  })
+  let scale = BilinearRounding {
+    identity,
+    single: shift,
+    filtered: 4,
+  };
+  write_bilinear_rows(
+    block,
+    HorizontalPrecision::Narrowed { shift },
+    |output, line| {
+      write_bilinear_word(output, line, &scale, |target, value| {
+        let Ok(sample) = wrapped(value.wrapping_sub(PREP_BIAS_16BPC));
+        *target = sample;
+        Ok(())
+      })
+    },
+  )
 }
 
 const PREP_BIAS_16BPC: i32 = 8192;
@@ -1082,19 +1236,31 @@ fn h_filter_8tap_8bpc_neon(
 
   let mut col = 0;
 
-
   while col + 8 <= w {
-
-    let c0 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-
-
+    let c0 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let s0 = safe_simd::vld1_u8(src[col..][..8].try_into().unwrap());
     let s1 = safe_simd::vld1_u8(src[col + 1..][..8].try_into().unwrap());
@@ -1105,7 +1271,6 @@ fn h_filter_8tap_8bpc_neon(
     let s6 = safe_simd::vld1_u8(src[col + 6..][..8].try_into().unwrap());
     let s7 = safe_simd::vld1_u8(src[col + 7..][..8].try_into().unwrap());
 
-
     let s0_16 = vreinterpretq_s16_u16(vmovl_u8(s0));
     let s1_16 = vreinterpretq_s16_u16(vmovl_u8(s1));
     let s2_16 = vreinterpretq_s16_u16(vmovl_u8(s2));
@@ -1114,7 +1279,6 @@ fn h_filter_8tap_8bpc_neon(
     let s5_16 = vreinterpretq_s16_u16(vmovl_u8(s5));
     let s6_16 = vreinterpretq_s16_u16(vmovl_u8(s6));
     let s7_16 = vreinterpretq_s16_u16(vmovl_u8(s7));
-
 
     let mut sum = vmulq_n_s16(s0_16, c0);
     sum = vmlaq_n_s16(sum, s1_16, c1);
@@ -1125,20 +1289,21 @@ fn h_filter_8tap_8bpc_neon(
     sum = vmlaq_n_s16(sum, s6_16, c6);
     sum = vmlaq_n_s16(sum, s7_16, c7);
 
-
     let rnd_vec = vdupq_n_s16(rnd);
     let result = vshrq_n_s16::<2>(vaddq_s16(sum, rnd_vec));
-
 
     let dst_arr: &mut [i16; 8] = (&mut dst[col..col + 8]).try_into().unwrap();
     safe_simd::vst1q_s16(dst_arr, result);
     col += 8;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| i32::from(src[col.wrapping_add(tap)]));
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(((sum + <i32 as ::core::convert::From<::core::primitive::i16>>::from(rnd)) >> sh)) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+      ((sum + <i32 as ::core::convert::From<::core::primitive::i16>>::from(rnd)) >> sh),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -1161,18 +1326,31 @@ fn v_filter_8tap_8bpc_neon(
 
   let mut col = 0;
 
-
   while col + 8 <= w {
-
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let r0 = safe_simd::vld1q_s16(mid[0][col..][..8].try_into().unwrap());
     let r1 = safe_simd::vld1q_s16(mid[1][col..][..8].try_into().unwrap());
@@ -1182,7 +1360,6 @@ fn v_filter_8tap_8bpc_neon(
     let r5 = safe_simd::vld1q_s16(mid[5][col..][..8].try_into().unwrap());
     let r6 = safe_simd::vld1q_s16(mid[6][col..][..8].try_into().unwrap());
     let r7 = safe_simd::vld1q_s16(mid[7][col..][..8].try_into().unwrap());
-
 
     let r0_lo = vmovl_s16(vget_low_s16(r0));
     let r0_hi = vmovl_s16(vget_high_s16(r0));
@@ -1200,7 +1377,6 @@ fn v_filter_8tap_8bpc_neon(
     let r6_hi = vmovl_s16(vget_high_s16(r6));
     let r7_lo = vmovl_s16(vget_low_s16(r7));
     let r7_hi = vmovl_s16(vget_high_s16(r7));
-
 
     let mut sum_lo = vmulq_n_s32(r0_lo, c0);
     sum_lo = vmlaq_n_s32(sum_lo, r1_lo, c1);
@@ -1220,31 +1396,29 @@ fn v_filter_8tap_8bpc_neon(
     sum_hi = vmlaq_n_s32(sum_hi, r6_hi, c6);
     sum_hi = vmlaq_n_s32(sum_hi, r7_hi, c7);
 
-
     let rnd_vec = vdupq_n_s32(rnd);
     sum_lo = vaddq_s32(sum_lo, rnd_vec);
     sum_hi = vaddq_s32(sum_hi, rnd_vec);
 
-
     let result_lo = vshrq_n_s32::<10>(sum_lo);
     let result_hi = vshrq_n_s32::<10>(sum_hi);
 
-
     let result_16 = vcombine_s16(vqmovn_s32(result_lo), vqmovn_s32(result_hi));
 
-
     let result_8 = vqmovun_s16(result_16);
-
 
     let dst_arr: &mut [u8; 8] = (&mut dst[col..col + 8]).try_into().unwrap();
     safe_simd::vst1_u8(dst_arr, result_8);
     col += 8;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| i32::from(mid[tap][col]));
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(((sum + rnd) >> sh).clamp(0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+      ((sum + rnd) >> sh).clamp(0, 255),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -1264,14 +1438,30 @@ fn h_filter_8tap_8bpc_put_neon(
   let mut col = 0;
 
   while col + 8 <= w {
-    let c0 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let c0 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let s0 = safe_simd::vld1_u8(src[col..][..8].try_into().unwrap());
     let s1 = safe_simd::vld1_u8(src[col + 1..][..8].try_into().unwrap());
@@ -1300,9 +1490,6 @@ fn h_filter_8tap_8bpc_put_neon(
     sum = vmlaq_n_s16(sum, s6_16, c6);
     sum = vmlaq_n_s16(sum, s7_16, c7);
 
-
-
-
     let rnd_vec = vdupq_n_s16(34);
     let result = vshrq_n_s16::<6>(vaddq_s16(sum, rnd_vec));
 
@@ -1312,38 +1499,16 @@ fn h_filter_8tap_8bpc_put_neon(
     col += 8;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| i32::from(src[col.wrapping_add(tap)]));
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(::core::primitive::i32::wrapping_shr(sum + 34, 6_u32).clamp(0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+      ::core::primitive::i32::wrapping_shr(sum + 34, 6_u32).clamp(0, 255),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[doc = r###"DotProd (Arm64V2) horizontal 8-tap filter to intermediate i16 buffer.
 
@@ -1385,7 +1550,6 @@ fn h_filter_8tap_8bpc_dotprod(
   let filter_sum: i32 = filter.iter().map(|&c| c as i32).sum();
   let bias_corr = 128i32 * filter_sum;
 
-
   let f_lo: [i8; 16] = [
     filter[0], filter[1], filter[2], filter[3], filter[0], filter[1], filter[2], filter[3],
     filter[0], filter[1], filter[2], filter[3], filter[0], filter[1], filter[2], filter[3],
@@ -1402,8 +1566,6 @@ fn h_filter_8tap_8bpc_dotprod(
   let mut col = 0;
 
   while col + 4 <= w && col + 7 < src.len() {
-
-
     let mut win_lo = [0u8; 16];
     let mut win_hi = [0u8; 16];
     for l in 0..4 {
@@ -1414,10 +1576,8 @@ fn h_filter_8tap_8bpc_dotprod(
     let s_lo = vaddq_s8(vreinterpretq_s8_u8(safe_simd::vld1q_u8(&win_lo)), bias);
     let s_hi = vaddq_s8(vreinterpretq_s8_u8(safe_simd::vld1q_u8(&win_hi)), bias);
 
-
     let acc = vdotq_s32(vdupq_n_s32(0), vf_lo, s_lo);
     let acc = vdotq_s32(acc, vf_hi, s_hi);
-
 
     let sum = vaddq_s32(acc, rnd_vec);
     let res32 = vshrq_n_s32_dyn(sum, sh);
@@ -1427,7 +1587,6 @@ fn h_filter_8tap_8bpc_dotprod(
     safe_simd::vst1_s16(out_arr, res16);
     col += 4;
   }
-
 
   while col < w {
     let sum = convolve8(filter, |tap| i32::from(src[col.wrapping_add(tap)]));
@@ -1480,7 +1639,6 @@ fn h_filter_8tap_8bpc_i8mm(
     let s_lo = safe_simd::vld1q_u8(&win_lo);
     let s_hi = safe_simd::vld1q_u8(&win_hi);
 
-
     let acc = vusdotq_s32(vdupq_n_s32(0), s_lo, vf_lo);
     let acc = vusdotq_s32(acc, s_hi, vf_hi);
 
@@ -1511,11 +1669,7 @@ fn vshrq_n_s32_dyn(v: int32x4_t, sh: u8) -> int32x4_t {
     2 => vshrq_n_s32::<2>(v),
     4 => vshrq_n_s32::<4>(v),
     6 => vshrq_n_s32::<6>(v),
-    _ => {
-
-
-      vshlq_s32(v, vdupq_n_s32(-(sh as i32)))
-    }
+    _ => vshlq_s32(v, vdupq_n_s32(-(sh as i32))),
   }
 }
 
@@ -1535,15 +1689,30 @@ fn v_filter_8tap_8bpc_direct_neon(
   let mut col = 0;
 
   while col + 8 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let r0 = safe_simd::vld1_u8(src[col..][..8].try_into().unwrap());
     let r1 = safe_simd::vld1_u8(src[col + src_stride..][..8].try_into().unwrap());
@@ -1554,7 +1723,6 @@ fn v_filter_8tap_8bpc_direct_neon(
     let r6 = safe_simd::vld1_u8(src[col + 6 * src_stride..][..8].try_into().unwrap());
     let r7 = safe_simd::vld1_u8(src[col + 7 * src_stride..][..8].try_into().unwrap());
 
-
     let r0_16 = vreinterpretq_s16_u16(vmovl_u8(r0));
     let r1_16 = vreinterpretq_s16_u16(vmovl_u8(r1));
     let r2_16 = vreinterpretq_s16_u16(vmovl_u8(r2));
@@ -1564,7 +1732,6 @@ fn v_filter_8tap_8bpc_direct_neon(
     let r6_16 = vreinterpretq_s16_u16(vmovl_u8(r6));
     let r7_16 = vreinterpretq_s16_u16(vmovl_u8(r7));
 
-
     let r0_lo = vmovl_s16(vget_low_s16(r0_16));
     let r1_lo = vmovl_s16(vget_low_s16(r1_16));
     let r2_lo = vmovl_s16(vget_low_s16(r2_16));
@@ -1573,7 +1740,6 @@ fn v_filter_8tap_8bpc_direct_neon(
     let r5_lo = vmovl_s16(vget_low_s16(r5_16));
     let r6_lo = vmovl_s16(vget_low_s16(r6_16));
     let r7_lo = vmovl_s16(vget_low_s16(r7_16));
-
 
     let r0_hi = vmovl_s16(vget_high_s16(r0_16));
     let r1_hi = vmovl_s16(vget_high_s16(r1_16));
@@ -1602,7 +1768,6 @@ fn v_filter_8tap_8bpc_direct_neon(
     sum_hi = vmlaq_n_s32(sum_hi, r6_hi, c6);
     sum_hi = vmlaq_n_s32(sum_hi, r7_hi, c7);
 
-
     let rnd_vec = vdupq_n_s32(32);
     sum_lo = vshrq_n_s32::<6>(vaddq_s32(sum_lo, rnd_vec));
     sum_hi = vshrq_n_s32::<6>(vaddq_s32(sum_hi, rnd_vec));
@@ -1614,12 +1779,15 @@ fn v_filter_8tap_8bpc_direct_neon(
     col += 8;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| {
       i32::from(src[col.wrapping_add(tap.wrapping_mul(src_stride))])
     });
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(::core::primitive::i32::wrapping_shr(sum + 32, 6_u32).clamp(0, 255)) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+      ::core::primitive::i32::wrapping_shr(sum + 32, 6_u32).clamp(0, 255),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -1696,15 +1864,12 @@ fn put_8tap_8bpc_inner(
 
   match (fh, fv) {
     (Some(fh), Some(fv)) => {
-
       let tmp_h = h + 7;
       let mut mid = [[0i16; MID_STRIDE]; 135];
 
       for y in 0..tmp_h {
-
-
-
-        let src_off = src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         dispatch_h_filter_8tap_8bpc(
           token,
@@ -1718,32 +1883,36 @@ fn put_8tap_8bpc_inner(
 
       for y in 0..h {
         let dst_row = &mut dst[y * dst_stride..][..w];
-        v_filter_8tap_8bpc_neon(token, dst_row, &mid[y..], w, fv, ::core::primitive::u8::wrapping_add(6, intermediate_bits), 255);
+        v_filter_8tap_8bpc_neon(
+          token,
+          dst_row,
+          &mid[y..],
+          w,
+          fv,
+          ::core::primitive::u8::wrapping_add(6, intermediate_bits),
+          255,
+        );
       }
     }
     (Some(fh), None) => {
-
       for y in 0..h {
-
-        let src_off = src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         let dst_row = &mut dst[y * dst_stride..][..w];
         h_filter_8tap_8bpc_put_neon(token, dst_row, src_row, w, fh);
       }
     }
     (None, Some(fv)) => {
-
       for y in 0..h {
-
-
-        let src_off = src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed());
+        let src_off =
+          src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed());
         let src_row = &src[src_off..];
         let dst_row = &mut dst[y * dst_stride..][..w];
         v_filter_8tap_8bpc_direct_neon(token, dst_row, src_row, src_stride, w, fv);
       }
     }
     (None, None) => {
-
       for y in 0..h {
         let src_row = &src[src_base + y * src_stride..][..w];
         let dst_row = &mut dst[y * dst_stride..][..w];
@@ -1752,10 +1921,6 @@ fn put_8tap_8bpc_inner(
     }
   }
 }
-
-
-
-
 
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
@@ -1795,7 +1960,10 @@ fn get_v_filter_type(filter: Filter2d) -> Rav1dFilterMode {
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one 8-bit NEON put wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients")
+  expect(
+    explicit080_macro_budget,
+    reason = "one 8-bit NEON put wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
+  )
 )]
 macro_rules! define_put_8tap_8bpc {
   ($name:ident, $filter:expr) => {};
@@ -1817,10 +1985,6 @@ define_put_8tap_8bpc!(put_8tap_sharp_regular_8bpc_neon, Filter2d::SharpRegular8T
 define_put_8tap_8bpc!(put_8tap_sharp_smooth_8bpc_neon, Filter2d::SharpSmooth8Tap);
 define_put_8tap_8bpc!(put_8tap_sharp_8bpc_neon, Filter2d::Sharp8Tap);
 
-
-
-
-
 #[doc = r###"Vertical 8-tap filter from intermediate buffer to i16 output"###]
 #[cfg(target_arch = "aarch64")]
 #[arcane]
@@ -1838,15 +2002,30 @@ fn v_filter_8tap_to_i16_neon(
   let mut col = 0;
 
   while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let r0 = safe_simd::vld1_s16(mid[0][col..][..4].try_into().unwrap());
     let r1 = safe_simd::vld1_s16(mid[1][col..][..4].try_into().unwrap());
@@ -1856,7 +2035,6 @@ fn v_filter_8tap_to_i16_neon(
     let r5 = safe_simd::vld1_s16(mid[5][col..][..4].try_into().unwrap());
     let r6 = safe_simd::vld1_s16(mid[6][col..][..4].try_into().unwrap());
     let r7 = safe_simd::vld1_s16(mid[7][col..][..4].try_into().unwrap());
-
 
     let r0_32 = vmovl_s16(r0);
     let r1_32 = vmovl_s16(r1);
@@ -1878,10 +2056,12 @@ fn v_filter_8tap_to_i16_neon(
 
     let rnd_vec = vdupq_n_s32(rnd);
 
-
-
-    sum = vshlq_s32(vaddq_s32(sum, rnd_vec), vdupq_n_s32(::core::primitive::i32::wrapping_neg(<i32 as ::core::convert::From<::core::primitive::u8>>::from(sh))));
-
+    sum = vshlq_s32(
+      vaddq_s32(sum, rnd_vec),
+      vdupq_n_s32(::core::primitive::i32::wrapping_neg(
+        <i32 as ::core::convert::From<::core::primitive::u8>>::from(sh),
+      )),
+    );
 
     let result = vqmovn_s32(sum);
     let dst_arr: &mut [i16; 4] = (&mut dst[col..col + 4]).try_into().unwrap();
@@ -1889,10 +2069,13 @@ fn v_filter_8tap_to_i16_neon(
     col += 4;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| i32::from(mid[tap][col]));
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(((sum + rnd) >> sh)) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+      ((sum + rnd) >> sh),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -1922,13 +2105,12 @@ fn prep_8tap_8bpc_inner(
 
   match (fh, fv) {
     (Some(fh), Some(fv)) => {
-
       let tmp_h = h + 7;
       let mut mid = [[0i16; MID_STRIDE]; 135];
 
       for y in 0..tmp_h {
-
-        let src_off = src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         dispatch_h_filter_8tap_8bpc(
           token,
@@ -1943,37 +2125,42 @@ fn prep_8tap_8bpc_inner(
       for y in 0..h {
         let out_row = &mut tmp[y * w..][..w];
 
-
         v_filter_8tap_to_i16_neon(token, out_row, &mid[y..], w, fv, 6);
       }
     }
     (Some(fh), None) => {
-
-
-
-
       for y in 0..h {
-
-        let src_off = src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         let out_row = &mut tmp[y * w..][..w];
-        dispatch_h_filter_8tap_8bpc(token, out_row, src_row, w, fh, ::core::primitive::u8::wrapping_sub(6, intermediate_bits));
+        dispatch_h_filter_8tap_8bpc(
+          token,
+          out_row,
+          src_row,
+          w,
+          fh,
+          ::core::primitive::u8::wrapping_sub(6, intermediate_bits),
+        );
       }
     }
     (None, Some(fv)) => {
-
       for y in 0..h {
         let out_row = &mut tmp[y * w..][..w];
 
         let mut mid = [[0i16; MID_STRIDE]; 8];
 
         for i in 0..8 {
-
-          let src_off =
-            src_base.wrapping_add_signed((y.cast_signed() + ::core::primitive::usize::cast_signed(i) - 3) * src_stride.cast_signed());
+          let src_off = src_base.wrapping_add_signed(
+            (y.cast_signed() + ::core::primitive::usize::cast_signed(i) - 3)
+              * src_stride.cast_signed(),
+          );
 
           for x in 0..w {
-            mid[i][x] = ::core::primitive::i16::wrapping_shl(<i16 as ::core::convert::From<::core::primitive::u8>>::from(src[src_off + x]), ::core::primitive::u32::from(intermediate_bits));
+            mid[i][x] = ::core::primitive::i16::wrapping_shl(
+              <i16 as ::core::convert::From<::core::primitive::u8>>::from(src[src_off + x]),
+              ::core::primitive::u32::from(intermediate_bits),
+            );
           }
         }
 
@@ -1981,13 +2168,15 @@ fn prep_8tap_8bpc_inner(
       }
     }
     (None, None) => {
-
       for y in 0..h {
         let src_row = &src[src_base + y * src_stride..][..w];
         let out_row = &mut tmp[y * w..][..w];
 
         for x in 0..w {
-          out_row[x] = ::core::primitive::i16::wrapping_shl(<i16 as ::core::convert::From<::core::primitive::u8>>::from(src_row[x]), ::core::primitive::u32::from(intermediate_bits));
+          out_row[x] = ::core::primitive::i16::wrapping_shl(
+            <i16 as ::core::convert::From<::core::primitive::u8>>::from(src_row[x]),
+            ::core::primitive::u32::from(intermediate_bits),
+          );
         }
       }
     }
@@ -1996,7 +2185,10 @@ fn prep_8tap_8bpc_inner(
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one 8-bit NEON prep wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients")
+  expect(
+    explicit080_macro_budget,
+    reason = "one 8-bit NEON prep wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
+  )
 )]
 macro_rules! define_prep_8tap_8bpc {
   ($name:ident, $filter:expr) => {};
@@ -2024,10 +2216,6 @@ define_prep_8tap_8bpc!(
 define_prep_8tap_8bpc!(prep_8tap_sharp_smooth_8bpc_neon, Filter2d::SharpSmooth8Tap);
 define_prep_8tap_8bpc!(prep_8tap_sharp_8bpc_neon, Filter2d::Sharp8Tap);
 
-
-
-
-
 #[doc = r###"Horizontal 8-tap filter to intermediate buffer (i32) for 16bpc"###]
 #[cfg(target_arch = "aarch64")]
 #[arcane]
@@ -2046,15 +2234,30 @@ fn h_filter_8tap_16bpc_neon(
   let mut col = 0;
 
   while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let s0 = safe_simd::vld1_u16(src[col..][..4].try_into().unwrap());
     let s1 = safe_simd::vld1_u16(src[col + 1..][..4].try_into().unwrap());
@@ -2064,7 +2267,6 @@ fn h_filter_8tap_16bpc_neon(
     let s5 = safe_simd::vld1_u16(src[col + 5..][..4].try_into().unwrap());
     let s6 = safe_simd::vld1_u16(src[col + 6..][..4].try_into().unwrap());
     let s7 = safe_simd::vld1_u16(src[col + 7..][..4].try_into().unwrap());
-
 
     let s0_32 = vreinterpretq_s32_u32(vmovl_u16(s0));
     let s1_32 = vreinterpretq_s32_u32(vmovl_u16(s1));
@@ -2084,17 +2286,19 @@ fn h_filter_8tap_16bpc_neon(
     sum = vmlaq_n_s32(sum, s6_32, c6);
     sum = vmlaq_n_s32(sum, s7_32, c7);
 
-
     let rnd_vec = vdupq_n_s32(rnd);
 
-
-    let result = vshlq_s32(vaddq_s32(sum, rnd_vec), vdupq_n_s32(::core::primitive::i32::wrapping_neg(<i32 as ::core::convert::From<::core::primitive::u8>>::from(sh))));
+    let result = vshlq_s32(
+      vaddq_s32(sum, rnd_vec),
+      vdupq_n_s32(::core::primitive::i32::wrapping_neg(
+        <i32 as ::core::convert::From<::core::primitive::u8>>::from(sh),
+      )),
+    );
 
     let dst_arr: &mut [i32; 4] = (&mut dst[col..col + 4]).try_into().unwrap();
     safe_simd::vst1q_s32(dst_arr, result);
     col += 4;
   }
-
 
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| i32::from(src[col.wrapping_add(tap)]));
@@ -2121,14 +2325,30 @@ fn v_filter_8tap_16bpc_neon(
   let mut col = 0;
 
   while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let r0 = safe_simd::vld1q_s32(mid[0][col..][..4].try_into().unwrap());
     let r1 = safe_simd::vld1q_s32(mid[1][col..][..4].try_into().unwrap());
@@ -2148,19 +2368,19 @@ fn v_filter_8tap_16bpc_neon(
     sum = vmlaq_n_s32(sum, r6, c6);
     sum = vmlaq_n_s32(sum, r7, c7);
 
-
     let rnd_vec = vdupq_n_s32(rnd);
     sum = vaddq_s32(sum, rnd_vec);
 
-
-
-    let result = vshlq_s32(sum, vdupq_n_s32(::core::primitive::i32::wrapping_neg(<i32 as ::core::convert::From<::core::primitive::u8>>::from(sh))));
-
+    let result = vshlq_s32(
+      sum,
+      vdupq_n_s32(::core::primitive::i32::wrapping_neg(
+        <i32 as ::core::convert::From<::core::primitive::u8>>::from(sh),
+      )),
+    );
 
     let max_vec = vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(max));
     let zero = vdupq_n_s32(0);
     let clamped = vminq_s32(vmaxq_s32(result, zero), max_vec);
-
 
     let narrow = vqmovun_s32(clamped);
     let dst_arr: &mut [u16; 4] = (&mut dst[col..col + 4]).try_into().unwrap();
@@ -2168,15 +2388,29 @@ fn v_filter_8tap_16bpc_neon(
     col += 4;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let mut sum = 0i64;
 
     for (i, filter_element) in <[_]>::iter(filter).enumerate() {
-      sum += ::core::primitive::i64::wrapping_mul(<i64 as ::core::convert::From<::core::primitive::i8>>::from(*filter_element), <i64 as ::core::convert::From<::core::primitive::i32>>::from(mid[i][col]));
+      sum += ::core::primitive::i64::wrapping_mul(
+        <i64 as ::core::convert::From<::core::primitive::i8>>::from(*filter_element),
+        <i64 as ::core::convert::From<::core::primitive::i32>>::from(mid[i][col]),
+      );
     }
 
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(((sum + <i64 as ::core::convert::From<::core::primitive::i32>>::from(rnd)) >> sh)) { ::core::result::Result::Ok(converted_position) => converted_position }.clamp(0, <i32 as ::core::convert::From<::core::primitive::u16>>::from(max))) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+        ((sum + <i64 as ::core::convert::From<::core::primitive::i32>>::from(rnd)) >> sh),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }
+      .clamp(
+        0,
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(max),
+      ),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -2195,20 +2429,35 @@ fn h_filter_8tap_16bpc_put_neon(
   let mut dst = dst.flex_mut();
   let src = src.flex();
 
-
   let ib = ::core::primitive::u32::cast_signed(max.leading_zeros()) - 2;
   let irnd = 32 + ::core::primitive::i32::wrapping_shr(1i32 << (6 - ib), 1_u32);
   let mut col = 0;
 
   while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let s0 = safe_simd::vld1_u16(src[col..][..4].try_into().unwrap());
     let s1 = safe_simd::vld1_u16(src[col + 1..][..4].try_into().unwrap());
@@ -2237,10 +2486,8 @@ fn h_filter_8tap_16bpc_put_neon(
     sum = vmlaq_n_s32(sum, s6_32, c6);
     sum = vmlaq_n_s32(sum, s7_32, c7);
 
-
     let rnd_vec = vdupq_n_s32(irnd);
     let result = vshrq_n_s32::<6>(vaddq_s32(sum, rnd_vec));
-
 
     let max_vec = vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(max));
     let zero = vdupq_n_s32(0);
@@ -2252,10 +2499,16 @@ fn h_filter_8tap_16bpc_put_neon(
     col += 4;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| i32::from(src[col.wrapping_add(tap)]));
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(::core::primitive::i32::wrapping_shr(sum + irnd, 6_u32).clamp(0, <i32 as ::core::convert::From<::core::primitive::u16>>::from(max))) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+      ::core::primitive::i32::wrapping_shr(sum + irnd, 6_u32).clamp(
+        0,
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(max),
+      ),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -2277,14 +2530,30 @@ fn v_filter_8tap_16bpc_direct_neon(
   let mut col = 0;
 
   while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let r0 = safe_simd::vld1_u16(src[col..][..4].try_into().unwrap());
     let r1 = safe_simd::vld1_u16(src[col + src_stride..][..4].try_into().unwrap());
@@ -2313,10 +2582,8 @@ fn v_filter_8tap_16bpc_direct_neon(
     sum = vmlaq_n_s32(sum, r6_32, c6);
     sum = vmlaq_n_s32(sum, r7_32, c7);
 
-
     let rnd_vec = vdupq_n_s32(32);
     sum = vshrq_n_s32::<6>(vaddq_s32(sum, rnd_vec));
-
 
     let max_vec = vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(max));
     let zero = vdupq_n_s32(0);
@@ -2328,12 +2595,18 @@ fn v_filter_8tap_16bpc_direct_neon(
     col += 4;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let sum = convolve8(filter, |tap| {
       i32::from(src[col.wrapping_add(tap.wrapping_mul(src_stride))])
     });
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(::core::primitive::i32::wrapping_shr(sum + 32, 6_u32).clamp(0, <i32 as ::core::convert::From<::core::primitive::u16>>::from(max))) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+      ::core::primitive::i32::wrapping_shr(sum + 32, 6_u32).clamp(
+        0,
+        <i32 as ::core::convert::From<::core::primitive::u16>>::from(max),
+      ),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -2359,8 +2632,12 @@ fn put_8tap_16bpc_inner(
   let mut dst = dst.flex_mut();
   let src = src.flex();
 
-
-  let intermediate_bits = (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(bitdepth_max.leading_zeros()) { ::core::result::Result::Ok(converted_position) => converted_position }) - 2;
+  let intermediate_bits =
+    (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+      bitdepth_max.leading_zeros(),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    }) - 2;
 
   let Ok(fh) = get_filter_coeff(mx, w, h_filter_type);
   let Ok(fv) = get_filter_coeff(my, h, v_filter_type);
@@ -2371,8 +2648,8 @@ fn put_8tap_16bpc_inner(
       let mut mid = [[0i32; MID_STRIDE]; 135];
 
       for y in 0..tmp_h {
-
-        let src_off = src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         h_filter_8tap_16bpc_neon(
           token,
@@ -2399,8 +2676,8 @@ fn put_8tap_16bpc_inner(
     }
     (Some(fh), None) => {
       for y in 0..h {
-
-        let src_off = src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         let dst_row = &mut dst[y * dst_stride..][..w];
         h_filter_8tap_16bpc_put_neon(token, dst_row, src_row, w, fh, bitdepth_max);
@@ -2408,9 +2685,8 @@ fn put_8tap_16bpc_inner(
     }
     (None, Some(fv)) => {
       for y in 0..h {
-
-
-        let src_off = src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed());
+        let src_off =
+          src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed());
         let src_row = &src[src_off..];
         let dst_row = &mut dst[y * dst_stride..][..w];
         v_filter_8tap_16bpc_direct_neon(token, dst_row, src_row, src_stride, w, fv, bitdepth_max);
@@ -2428,7 +2704,10 @@ fn put_8tap_16bpc_inner(
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one 16-bit NEON put wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients")
+  expect(
+    explicit080_macro_budget,
+    reason = "one 16-bit NEON put wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
+  )
 )]
 macro_rules! define_put_8tap_16bpc {
   ($name:ident, $filter:expr) => {};
@@ -2456,10 +2735,6 @@ define_put_8tap_16bpc!(
 define_put_8tap_16bpc!(put_8tap_sharp_smooth_16bpc_neon, Filter2d::SharpSmooth8Tap);
 define_put_8tap_16bpc!(put_8tap_sharp_16bpc_neon, Filter2d::Sharp8Tap);
 
-
-
-
-
 #[doc = r###"Vertical 8-tap filter from i32 intermediate to i16 output for 16bpc prep"###]
 #[cfg(target_arch = "aarch64")]
 #[arcane]
@@ -2479,14 +2754,30 @@ fn v_filter_8tap_16bpc_to_i16_neon(
   let mut col = 0;
 
   while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_explicit_element, ..] => _explicit_element });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _explicit_element, ..] => _explicit_element });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _explicit_element, ..] => _explicit_element });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _explicit_element, ..] => _explicit_element });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter { &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_explicit_element, ..] => _explicit_element,
+    });
+    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _explicit_element, ..] => _explicit_element,
+    });
+    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
+    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
+      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
+    });
 
     let r0 = safe_simd::vld1q_s32(mid[0][col..][..4].try_into().unwrap());
     let r1 = safe_simd::vld1q_s32(mid[1][col..][..4].try_into().unwrap());
@@ -2508,11 +2799,12 @@ fn v_filter_8tap_16bpc_to_i16_neon(
 
     let rnd_vec = vdupq_n_s32(rnd);
 
-
-
-
-    sum = vshlq_s32(vaddq_s32(sum, rnd_vec), vdupq_n_s32(::core::primitive::i32::wrapping_neg(<i32 as ::core::convert::From<::core::primitive::u8>>::from(sh))));
-
+    sum = vshlq_s32(
+      vaddq_s32(sum, rnd_vec),
+      vdupq_n_s32(::core::primitive::i32::wrapping_neg(
+        <i32 as ::core::convert::From<::core::primitive::u8>>::from(sh),
+      )),
+    );
 
     sum = vsubq_s32(sum, bias_vec);
 
@@ -2522,15 +2814,22 @@ fn v_filter_8tap_16bpc_to_i16_neon(
     col += 4;
   }
 
-
   for _ in (::core::ops::Range { start: col, end: w }) {
     let mut sum = 0i64;
 
     for (i, filter_element) in <[_]>::iter(filter).enumerate() {
-      sum += ::core::primitive::i64::wrapping_mul(<i64 as ::core::convert::From<::core::primitive::i8>>::from(*filter_element), <i64 as ::core::convert::From<::core::primitive::i32>>::from(mid[i][col]));
+      sum += ::core::primitive::i64::wrapping_mul(
+        <i64 as ::core::convert::From<::core::primitive::i8>>::from(*filter_element),
+        <i64 as ::core::convert::From<::core::primitive::i32>>::from(mid[i][col]),
+      );
     }
 
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>((((sum + <i64 as ::core::convert::From<::core::primitive::i32>>::from(rnd)) >> sh) - <i64 as ::core::convert::From<::core::primitive::i32>>::from(bias))) { ::core::result::Result::Ok(converted_position) => converted_position };
+    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+      (((sum + <i64 as ::core::convert::From<::core::primitive::i32>>::from(rnd)) >> sh)
+        - <i64 as ::core::convert::From<::core::primitive::i32>>::from(bias)),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
   }
 }
@@ -2555,13 +2854,12 @@ fn prep_8tap_16bpc_inner(
   let mut tmp = tmp.flex_mut();
   let src = src.flex();
 
-
-
-  let intermediate_bits = (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(bitdepth_max.leading_zeros()) { ::core::result::Result::Ok(converted_position) => converted_position }) - 2;
-
-
-
-
+  let intermediate_bits =
+    (match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+      bitdepth_max.leading_zeros(),
+    ) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    }) - 2;
 
   let bias = PREP_BIAS_16BPC;
 
@@ -2576,8 +2874,8 @@ fn prep_8tap_16bpc_inner(
       let mut mid = [[0i32; MID_STRIDE]; 135];
 
       for y in 0..tmp_h {
-
-        let src_off = src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         h_filter_8tap_16bpc_neon(token, &mut mid[y][..w], src_row, w, fh, h_sh);
       }
@@ -2585,27 +2883,25 @@ fn prep_8tap_16bpc_inner(
       for y in 0..h {
         let out_row = &mut tmp[y * w..][..w];
 
-
-
         v_filter_8tap_16bpc_to_i16_neon(token, out_row, &mid[y..], w, fv, 6, bias);
       }
     }
     (Some(fh), None) => {
-
-
-
-
-
       let mut mid = [0i32; MID_STRIDE];
 
       for y in 0..h {
-        let src_off = src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
+        let src_off =
+          src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         h_filter_8tap_16bpc_neon(token, &mut mid[..w], src_row, w, fh, h_sh);
         let out_row = &mut tmp[y * w..][..w];
 
         for x in 0..w {
-          out_row[x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>((mid[x] - bias)) { ::core::result::Result::Ok(converted_position) => converted_position };
+          out_row[x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+            (mid[x] - bias),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
         }
       }
     }
@@ -2616,31 +2912,34 @@ fn prep_8tap_16bpc_inner(
         let mut mid = [[0i32; MID_STRIDE]; 8];
 
         for i in 0..8 {
-
-          let src_off =
-            src_base.wrapping_add_signed((y.cast_signed() + ::core::primitive::usize::cast_signed(i) - 3) * src_stride.cast_signed());
+          let src_off = src_base.wrapping_add_signed(
+            (y.cast_signed() + ::core::primitive::usize::cast_signed(i) - 3)
+              * src_stride.cast_signed(),
+          );
 
           for x in 0..w {
-            mid[i][x] = <i32 as ::core::convert::From<::core::primitive::u16>>::from(src[src_off + x]) << intermediate_bits;
+            mid[i][x] =
+              <i32 as ::core::convert::From<::core::primitive::u16>>::from(src[src_off + x])
+                << intermediate_bits;
           }
         }
-
-
-
 
         v_filter_8tap_16bpc_to_i16_neon(token, out_row, &mid, w, fv, 6, bias);
       }
     }
     (None, None) => {
-
-
-
       for y in 0..h {
         let src_row = &src[src_base + y * src_stride..][..w];
         let out_row = &mut tmp[y * w..][..w];
 
         for x in 0..w {
-          out_row[x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(((<i32 as ::core::convert::From<::core::primitive::u16>>::from(src_row[x]) << intermediate_bits) - bias)) { ::core::result::Result::Ok(converted_position) => converted_position };
+          out_row[x] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+            ((<i32 as ::core::convert::From<::core::primitive::u16>>::from(src_row[x])
+              << intermediate_bits)
+              - bias),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          };
         }
       }
     }
@@ -2649,7 +2948,10 @@ fn prep_8tap_16bpc_inner(
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
-  expect(explicit080_macro_budget, reason = "one 16-bit NEON prep wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients")
+  expect(
+    explicit080_macro_budget,
+    reason = "one 16-bit NEON prep wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
+  )
 )]
 macro_rules! define_prep_8tap_16bpc {
   ($name:ident, $filter:expr) => {};
@@ -2676,24 +2978,6 @@ define_prep_8tap_16bpc!(
 );
 define_prep_8tap_16bpc!(prep_8tap_sharp_smooth_16bpc_neon, Filter2d::SharpSmooth8Tap);
 define_prep_8tap_16bpc!(prep_8tap_sharp_16bpc_neon, Filter2d::Sharp8Tap);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub(crate) enum CompoundBlendFallback {
   Disabled,
@@ -2726,17 +3010,30 @@ pub(crate) fn compound_blend_dispatch<BD: BitDepth>(
   let Ok(start) = index(pixel_origin.wrapping_mul(pixel_bytes));
   let Ok(signed_pitch) = fixed_offset(block.byte_stride());
   let pitch = u64::try_from(signed_pitch).map_err(|_| CompoundBlendFallback::InvalidLayout)?;
-  let output = block.as_mut_bytes().get_mut(start..).ok_or(CompoundBlendFallback::InvalidLayout)?;
-  let view = CompoundBlock { output, predictors, extent, pitch };
+  let output = block
+    .as_mut_bytes()
+    .get_mut(start..)
+    .ok_or(CompoundBlendFallback::InvalidLayout)?;
+  let view = CompoundBlock {
+    output,
+    predictors,
+    extent,
+    pitch,
+  };
   let bound = depth.into_c();
 
   match (BD::BPC, operation) {
     (BPC::BPC8, PredictorBlend::Average) => avg_8bpc_inner(token, view),
     (BPC::BPC16, PredictorBlend::Average) => avg_16bpc_inner(token, view, bound),
     (BPC::BPC8, PredictorBlend::Weighted(weight)) => w_avg_8bpc_inner(token, view, weight),
-    (BPC::BPC16, PredictorBlend::Weighted(weight)) => {
-      w_avg_16bpc_inner(token, view, WordAverageScale { weight, maximum: bound })
-    }
+    (BPC::BPC16, PredictorBlend::Weighted(weight)) => w_avg_16bpc_inner(
+      token,
+      view,
+      WordAverageScale {
+        weight,
+        maximum: bound,
+      },
+    ),
     (BPC::BPC8, PredictorBlend::Mask(weights)) => mask_8bpc_inner(token, view, weights),
     (BPC::BPC16, PredictorBlend::Mask(weights)) => mask_16bpc_inner(token, view, weights, bound),
   }
@@ -2755,25 +3052,54 @@ pub fn w_mask_dispatch<BD: BitDepth>(
   sign: i32,
   bd: BD,
 ) -> bool {
-
   match {
-      ::core::primitive::bool::then_some(crate::src::ablate::is_off(crate::src::ablate::Family::McOther), ())
+    ::core::primitive::bool::then_some(
+      crate::src::ablate::is_off(crate::src::ablate::Family::McOther),
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        return false;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      return false;
+    }
+    ::core::option::Option::None => {}
   }
 
-  let ::core::result::Result::Ok(pixel_size) = ::console_core_number_conversion::fixed_index(std::mem::size_of::<BD::Pixel>());
+  let ::core::result::Result::Ok(pixel_size) =
+    ::console_core_number_conversion::fixed_index(std::mem::size_of::<BD::Pixel>());
 
-
-  let mut block = dst.block_mut::<BD>(match ::console_core_number_conversion::wrapped_index(w) { ::core::result::Result::Ok(converted_position) => converted_position }, match ::console_core_number_conversion::wrapped_index(h) { ::core::result::Result::Ok(converted_position) => converted_position });
-  let ::core::result::Result::Ok(dst_stride) = ::console_core_number_conversion::fixed_offset(block.byte_stride());
-  let ::core::result::Result::Ok(dst_offset) = ::console_core_number_conversion::fixed_index(block.base() * match ::console_core_number_conversion::index(pixel_size) { ::core::result::Result::Ok(native_position) => native_position });
+  let mut block = dst.block_mut::<BD>(
+    match ::console_core_number_conversion::wrapped_index(w) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+    match ::console_core_number_conversion::wrapped_index(h) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
+  let ::core::result::Result::Ok(dst_stride) =
+    ::console_core_number_conversion::fixed_offset(block.byte_stride());
+  let ::core::result::Result::Ok(dst_offset) = ::console_core_number_conversion::fixed_index(
+    block.base()
+      * match ::console_core_number_conversion::index(pixel_size) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+  );
   let dst_bytes = block.as_mut_bytes();
   w_mask_dispatch_inner::<BD>(
-    layout, dst_bytes, match ::console_core_number_conversion::index(dst_offset) { ::core::result::Result::Ok(native_position_) => native_position_ }, match ::console_core_number_conversion::wrapped_offset(dst_stride) { ::core::result::Result::Ok(native_position) => native_position }, tmp1, tmp2, w, h, mask, sign, bd,
+    layout,
+    dst_bytes,
+    match ::console_core_number_conversion::index(dst_offset) {
+      ::core::result::Result::Ok(native_position_) => native_position_,
+    },
+    match ::console_core_number_conversion::wrapped_offset(dst_stride) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+    tmp1,
+    tmp2,
+    w,
+    h,
+    mask,
+    sign,
+    bd,
   )
 }
 
@@ -2796,20 +3122,27 @@ pub(crate) fn w_mask_dispatch_inner<BD: BitDepth>(
   use crate::include::common::bitdepth::BPC;
 
   {
-
-
     let token = {
-        let optional_token = Arm64::summon();
+      let optional_token = Arm64::summon();
 
-        match optional_token {
-            Some(matched_token) => matched_token,
-            ::core::option::Option::None => return false,
-        }
+      match optional_token {
+        Some(matched_token) => matched_token,
+        ::core::option::Option::None => return false,
+      }
     };
 
-    let ::core::result::Result::Ok(w_u) = ::console_core_number_conversion::fixed_index(match ::console_core_number_conversion::wrapped_index(w) { ::core::result::Result::Ok(converted_position) => converted_position });
-    let ::core::result::Result::Ok(h_u) = ::console_core_number_conversion::fixed_index(match ::console_core_number_conversion::wrapped_index(h) { ::core::result::Result::Ok(converted_position) => converted_position });
-    let ::core::result::Result::Ok(dst_stride_u) = ::console_core_number_conversion::fixed_index(dst_stride.cast_unsigned());
+    let ::core::result::Result::Ok(w_u) = ::console_core_number_conversion::fixed_index(
+      match ::console_core_number_conversion::wrapped_index(w) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      },
+    );
+    let ::core::result::Result::Ok(h_u) = ::console_core_number_conversion::fixed_index(
+      match ::console_core_number_conversion::wrapped_index(h) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      },
+    );
+    let ::core::result::Result::Ok(dst_stride_u) =
+      ::console_core_number_conversion::fixed_index(dst_stride.cast_unsigned());
 
     match BD::BPC {
       BPC::BPC8 => {
@@ -2819,39 +3152,99 @@ pub(crate) fn w_mask_dispatch_inner<BD: BitDepth>(
           Rav1dPixelLayoutSubSampled::I420 => w_mask_8bpc_inner(
             token,
             dst_slice,
-            match ::console_core_number_conversion::index(dst_stride_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            { let _explicit_part = &*tmp1; let _explicit_slice: &[_] = _explicit_part; _explicit_slice },
-            { let _explicit_part = &*tmp2; let _explicit_slice: &[_] = _explicit_part; _explicit_slice },
-            match ::console_core_number_conversion::index(w_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            match ::console_core_number_conversion::index(h_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            { let _explicit_part = &mut *mask; let _explicit_slice: &mut [_] = _explicit_part; _explicit_slice },
-            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(sign) { ::core::result::Result::Ok(converted_position) => converted_position },
+            match ::console_core_number_conversion::index(dst_stride_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            {
+              let _explicit_part = &*tmp1;
+              let _explicit_slice: &[_] = _explicit_part;
+              _explicit_slice
+            },
+            {
+              let _explicit_part = &*tmp2;
+              let _explicit_slice: &[_] = _explicit_part;
+              _explicit_slice
+            },
+            match ::console_core_number_conversion::index(w_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            match ::console_core_number_conversion::index(h_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            {
+              let _explicit_part = &mut *mask;
+              let _explicit_slice: &mut [_] = _explicit_part;
+              _explicit_slice
+            },
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(sign) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            },
             true,
             true,
           ),
           Rav1dPixelLayoutSubSampled::I422 => w_mask_8bpc_inner(
             token,
             dst_slice,
-            match ::console_core_number_conversion::index(dst_stride_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            { let _explicit_part = &*tmp1; let _explicit_slice: &[_] = _explicit_part; _explicit_slice },
-            { let _explicit_part = &*tmp2; let _explicit_slice: &[_] = _explicit_part; _explicit_slice },
-            match ::console_core_number_conversion::index(w_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            match ::console_core_number_conversion::index(h_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            { let _explicit_part = &mut *mask; let _explicit_slice: &mut [_] = _explicit_part; _explicit_slice },
-            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(sign) { ::core::result::Result::Ok(converted_position) => converted_position },
+            match ::console_core_number_conversion::index(dst_stride_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            {
+              let _explicit_part = &*tmp1;
+              let _explicit_slice: &[_] = _explicit_part;
+              _explicit_slice
+            },
+            {
+              let _explicit_part = &*tmp2;
+              let _explicit_slice: &[_] = _explicit_part;
+              _explicit_slice
+            },
+            match ::console_core_number_conversion::index(w_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            match ::console_core_number_conversion::index(h_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            {
+              let _explicit_part = &mut *mask;
+              let _explicit_slice: &mut [_] = _explicit_part;
+              _explicit_slice
+            },
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(sign) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            },
             true,
             false,
           ),
           Rav1dPixelLayoutSubSampled::I444 => w_mask_8bpc_inner(
             token,
             dst_slice,
-            match ::console_core_number_conversion::index(dst_stride_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            { let _explicit_part = &*tmp1; let _explicit_slice: &[_] = _explicit_part; _explicit_slice },
-            { let _explicit_part = &*tmp2; let _explicit_slice: &[_] = _explicit_part; _explicit_slice },
-            match ::console_core_number_conversion::index(w_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            match ::console_core_number_conversion::index(h_u) { ::core::result::Result::Ok(native_position_) => native_position_ },
-            { let _explicit_part = &mut *mask; let _explicit_slice: &mut [_] = _explicit_part; _explicit_slice },
-            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(sign) { ::core::result::Result::Ok(converted_position) => converted_position },
+            match ::console_core_number_conversion::index(dst_stride_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            {
+              let _explicit_part = &*tmp1;
+              let _explicit_slice: &[_] = _explicit_part;
+              _explicit_slice
+            },
+            {
+              let _explicit_part = &*tmp2;
+              let _explicit_slice: &[_] = _explicit_part;
+              _explicit_slice
+            },
+            match ::console_core_number_conversion::index(w_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            match ::console_core_number_conversion::index(h_u) {
+              ::core::result::Result::Ok(native_position_) => native_position_,
+            },
+            {
+              let _explicit_part = &mut *mask;
+              let _explicit_slice: &mut [_] = _explicit_part;
+              _explicit_slice
+            },
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(sign) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            },
             false,
             false,
           ),
@@ -2870,9 +3263,23 @@ pub(crate) fn w_mask_dispatch_inner<BD: BitDepth>(
           Err(_invalid_stride) => return false,
         };
         let Ok(polarity) = console_core_number_conversion::wrapped(sign);
-        let mode = WeightedMaskMode { layout, sign: polarity, depth: bd };
+        let mode = WeightedMaskMode {
+          layout,
+          sign: polarity,
+          depth: bd,
+        };
 
-        match write_weighted_mask(bytes, pitch, [tmp1, tmp2], Size { width: w, height: h }, mask, mode) {
+        match write_weighted_mask(
+          bytes,
+          pitch,
+          [tmp1, tmp2],
+          Size {
+            width: w,
+            height: h,
+          },
+          mask,
+          mode,
+        ) {
           Ok(()) => return true,
           Err(_invalid_layout) => return false,
         }
@@ -2895,37 +3302,60 @@ pub fn mc_put_dispatch<BD: BitDepth>(
   my: i32,
   bd: BD,
 ) -> bool {
-
   match {
-      ::core::primitive::bool::then_some(crate::src::ablate::is_off(crate::src::ablate::Family::McPut), ())
+    ::core::primitive::bool::then_some(
+      crate::src::ablate::is_off(crate::src::ablate::Family::McPut),
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        return false;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      return false;
+    }
+    ::core::option::Option::None => {}
   }
 
-
-
-
-  match {
-      ::core::primitive::bool::then_some(dst.data.ref_eq(src.data), ())
-  } {
-      ::core::option::Option::Some(()) => {
-        return false;
-      },
-      ::core::option::Option::None => {},
+  match { ::core::primitive::bool::then_some(dst.data.ref_eq(src.data), ()) } {
+    ::core::option::Option::Some(()) => {
+      return false;
+    }
+    ::core::option::Option::None => {}
   }
 
-  let ::core::result::Result::Ok(pixel_size) = ::console_core_number_conversion::fixed_index(std::mem::size_of::<BD::Pixel>());
+  let ::core::result::Result::Ok(pixel_size) =
+    ::console_core_number_conversion::fixed_index(std::mem::size_of::<BD::Pixel>());
 
-
-  let mut block = dst.block_mut::<BD>(match ::console_core_number_conversion::wrapped_index(w) { ::core::result::Result::Ok(converted_position) => converted_position }, match ::console_core_number_conversion::wrapped_index(h) { ::core::result::Result::Ok(converted_position) => converted_position });
-  let ::core::result::Result::Ok(dst_stride) = ::console_core_number_conversion::fixed_offset(block.byte_stride());
-  let ::core::result::Result::Ok(dst_offset) = ::console_core_number_conversion::fixed_index(block.base() * match ::console_core_number_conversion::index(pixel_size) { ::core::result::Result::Ok(native_position) => native_position });
+  let mut block = dst.block_mut::<BD>(
+    match ::console_core_number_conversion::wrapped_index(w) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+    match ::console_core_number_conversion::wrapped_index(h) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    },
+  );
+  let ::core::result::Result::Ok(dst_stride) =
+    ::console_core_number_conversion::fixed_offset(block.byte_stride());
+  let ::core::result::Result::Ok(dst_offset) = ::console_core_number_conversion::fixed_index(
+    block.base()
+      * match ::console_core_number_conversion::index(pixel_size) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+  );
   let dst_bytes = block.as_mut_bytes();
   mc_put_dispatch_inner::<BD>(
-    filter, dst_bytes, match ::console_core_number_conversion::index(dst_offset) { ::core::result::Result::Ok(native_position_) => native_position_ }, match ::console_core_number_conversion::wrapped_offset(dst_stride) { ::core::result::Result::Ok(native_position) => native_position }, src, w, h, mx, my, bd,
+    filter,
+    dst_bytes,
+    match ::console_core_number_conversion::index(dst_offset) {
+      ::core::result::Result::Ok(native_position_) => native_position_,
+    },
+    match ::console_core_number_conversion::wrapped_offset(dst_stride) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+    src,
+    w,
+    h,
+    mx,
+    my,
+    bd,
   )
 }
 
@@ -2949,21 +3379,27 @@ pub(crate) fn mc_put_dispatch_inner<BD: BitDepth>(
   use Filter2d::*;
 
   {
-
-
     let token = {
-        let optional_token = Arm64::summon();
+      let optional_token = Arm64::summon();
 
-        match optional_token {
-            Some(matched_token) => matched_token,
-            ::core::option::Option::None => return false,
-        }
+      match optional_token {
+        Some(matched_token) => matched_token,
+        ::core::option::Option::None => return false,
+      }
     };
 
-    let w_u = match ::console_core_number_conversion::wrapped_index(w) { ::core::result::Result::Ok(converted_position) => converted_position };
-    let h_u = match ::console_core_number_conversion::wrapped_index(h) { ::core::result::Result::Ok(converted_position) => converted_position };
-    let mx_u = match ::console_core_number_conversion::wrapped_index(mx) { ::core::result::Result::Ok(converted_position) => converted_position };
-    let my_u = match ::console_core_number_conversion::wrapped_index(my) { ::core::result::Result::Ok(converted_position) => converted_position };
+    let w_u = match ::console_core_number_conversion::wrapped_index(w) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
+    let h_u = match ::console_core_number_conversion::wrapped_index(h) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
+    let mx_u = match ::console_core_number_conversion::wrapped_index(mx) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
+    let my_u = match ::console_core_number_conversion::wrapped_index(my) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     let (src_guard, src_base) = src.full_guard::<BD>();
     let src_stride_raw = src.stride();
 
@@ -2975,43 +3411,43 @@ pub(crate) fn mc_put_dispatch_inner<BD: BitDepth>(
         let dst_stride_u = dst_stride.cast_unsigned();
         let src_stride_u = src_stride_raw.cast_unsigned();
 
-        match {
-            ::core::primitive::bool::then_some(filter == Bilinear, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              let source = match src_bytes.get(src_base..) {
-                Some(source) => source,
-                None => return false,
-              };
-              let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u);
-              let Ok(output_pitch) = console_core_number_conversion::fixed_index(dst_stride_u);
-              let block = BilinearBlock {
-                output: dst_slice, source,
-                source_pitch: source_pitch.cast_signed(), output_pitch: output_pitch.cast_signed(),
-                extent: Size { width: u64::from(w.cast_unsigned()), height: u64::from(h.cast_unsigned()) },
-                phase: Point { x: mx, y: my },
-              };
-              return matches!(put_bilin_8bpc_inner(token, block), Ok(()));
-            },
-            ::core::option::Option::None => {
-
-
-
-              put_8tap_8bpc_inner(
-                token,
-                dst_slice,
-                dst_stride_u,
-                src_bytes,
-                src_base,
-                src_stride_u,
-                w_u,
-                h_u,
-                mx_u,
-                my_u,
-                get_h_filter_type(filter),
-                get_v_filter_type(filter),
-              );
-            },
+        match { ::core::primitive::bool::then_some(filter == Bilinear, ()) } {
+          ::core::option::Option::Some(()) => {
+            let source = match src_bytes.get(src_base..) {
+              Some(source) => source,
+              None => return false,
+            };
+            let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u);
+            let Ok(output_pitch) = console_core_number_conversion::fixed_index(dst_stride_u);
+            let block = BilinearBlock {
+              output: dst_slice,
+              source,
+              source_pitch: source_pitch.cast_signed(),
+              output_pitch: output_pitch.cast_signed(),
+              extent: Size {
+                width: u64::from(w.cast_unsigned()),
+                height: u64::from(h.cast_unsigned()),
+              },
+              phase: Point { x: mx, y: my },
+            };
+            return matches!(put_bilin_8bpc_inner(token, block), Ok(()));
+          }
+          ::core::option::Option::None => {
+            put_8tap_8bpc_inner(
+              token,
+              dst_slice,
+              dst_stride_u,
+              src_bytes,
+              src_base,
+              src_stride_u,
+              w_u,
+              h_u,
+              mx_u,
+              my_u,
+              get_h_filter_type(filter),
+              get_v_filter_type(filter),
+            );
+          }
         }
       }
       BPC::BPC16 => {
@@ -3021,51 +3457,56 @@ pub(crate) fn mc_put_dispatch_inner<BD: BitDepth>(
         let src_stride_u16 = src_stride_raw.cast_unsigned().wrapping_div(2);
         let dst_start = dst_offset;
 
-
-
-
         let dst_byte_len = (h_u.saturating_sub(1) * dst_stride_u16 + w_u) * 2;
         let dst_u16: &mut [u16] =
           FromBytes::mut_from_bytes(&mut dst_bytes[dst_start..dst_start + dst_byte_len]).unwrap();
 
-        match {
-            ::core::primitive::bool::then_some(filter == Bilinear, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              let source = match src_bytes.get(src_base.wrapping_mul(2)..).and_then(|bytes| FromBytes::ref_from_bytes(bytes).ok()) {
-                Some(source) => source,
-                None => return false,
-              };
-              let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u16);
-              let Ok(output_pitch) = console_core_number_conversion::fixed_index(dst_stride_u16);
-              let block = BilinearBlock {
-                output: dst_u16, source,
-                source_pitch: source_pitch.cast_signed(), output_pitch: output_pitch.cast_signed(),
-                extent: Size { width: u64::from(w.cast_unsigned()), height: u64::from(h.cast_unsigned()) },
-                phase: Point { x: mx, y: my },
-              };
-              return matches!(put_bilin_16bpc_inner(block, bd.into_c()), Ok(()));
-            },
-            ::core::option::Option::None => {
-
-
-              let src_u16: &[u16] = FromBytes::ref_from_bytes(src_bytes).unwrap();
-              put_8tap_16bpc_inner(
-                token,
-                dst_u16,
-                dst_stride_u16,
-                src_u16,
-                src_base,
-                src_stride_u16,
-                w_u,
-                h_u,
-                mx_u,
-                my_u,
-                get_h_filter_type(filter),
-                get_v_filter_type(filter),
-                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(bd.into_c()) { ::core::result::Result::Ok(converted_position) => converted_position },
-              );
-            },
+        match { ::core::primitive::bool::then_some(filter == Bilinear, ()) } {
+          ::core::option::Option::Some(()) => {
+            let source = match src_bytes
+              .get(src_base.wrapping_mul(2)..)
+              .and_then(|bytes| FromBytes::ref_from_bytes(bytes).ok())
+            {
+              Some(source) => source,
+              None => return false,
+            };
+            let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u16);
+            let Ok(output_pitch) = console_core_number_conversion::fixed_index(dst_stride_u16);
+            let block = BilinearBlock {
+              output: dst_u16,
+              source,
+              source_pitch: source_pitch.cast_signed(),
+              output_pitch: output_pitch.cast_signed(),
+              extent: Size {
+                width: u64::from(w.cast_unsigned()),
+                height: u64::from(h.cast_unsigned()),
+              },
+              phase: Point { x: mx, y: my },
+            };
+            return matches!(put_bilin_16bpc_inner(block, bd.into_c()), Ok(()));
+          }
+          ::core::option::Option::None => {
+            let src_u16: &[u16] = FromBytes::ref_from_bytes(src_bytes).unwrap();
+            put_8tap_16bpc_inner(
+              token,
+              dst_u16,
+              dst_stride_u16,
+              src_u16,
+              src_base,
+              src_stride_u16,
+              w_u,
+              h_u,
+              mx_u,
+              my_u,
+              get_h_filter_type(filter),
+              get_v_filter_type(filter),
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+                bd.into_c(),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              },
+            );
+          }
         }
       }
     }
@@ -3085,35 +3526,43 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
   my: i32,
   bd: BD,
 ) -> bool {
-
   match {
-      ::core::primitive::bool::then_some(crate::src::ablate::is_off(crate::src::ablate::Family::McPrep), ())
+    ::core::primitive::bool::then_some(
+      crate::src::ablate::is_off(crate::src::ablate::Family::McPrep),
+      (),
+    )
   } {
-      ::core::option::Option::Some(()) => {
-        return false;
-      },
-      ::core::option::Option::None => {},
+    ::core::option::Option::Some(()) => {
+      return false;
+    }
+    ::core::option::Option::None => {}
   }
 
   use crate::include::common::bitdepth::BPC;
   use Filter2d::*;
 
   {
-
-
     let token = {
-        let optional_token = Arm64::summon();
+      let optional_token = Arm64::summon();
 
-        match optional_token {
-            Some(matched_token) => matched_token,
-            ::core::option::Option::None => return false,
-        }
+      match optional_token {
+        Some(matched_token) => matched_token,
+        ::core::option::Option::None => return false,
+      }
     };
 
-    let w_u = match ::console_core_number_conversion::wrapped_index(w) { ::core::result::Result::Ok(converted_position) => converted_position };
-    let h_u = match ::console_core_number_conversion::wrapped_index(h) { ::core::result::Result::Ok(converted_position) => converted_position };
-    let mx_u = match ::console_core_number_conversion::wrapped_index(mx) { ::core::result::Result::Ok(converted_position) => converted_position };
-    let my_u = match ::console_core_number_conversion::wrapped_index(my) { ::core::result::Result::Ok(converted_position) => converted_position };
+    let w_u = match ::console_core_number_conversion::wrapped_index(w) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
+    let h_u = match ::console_core_number_conversion::wrapped_index(h) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
+    let mx_u = match ::console_core_number_conversion::wrapped_index(mx) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
+    let my_u = match ::console_core_number_conversion::wrapped_index(my) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    };
     let tmp_slice = &mut tmp[..(w_u * h_u)];
     let (src_guard, src_base) = src.full_guard::<BD>();
     let src_stride_raw = src.stride();
@@ -3124,40 +3573,41 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
         let src_bytes = src_guard.as_bytes();
         let src_stride_u = src_stride_raw.cast_unsigned();
 
-        match {
-            ::core::primitive::bool::then_some(filter == Bilinear, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              let source = match src_bytes.get(src_base..) {
-                Some(source) => source,
-                None => return false,
-              };
-              let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u);
-              let block = BilinearBlock {
-                output: tmp_slice, source, source_pitch: source_pitch.cast_signed(),
-                output_pitch: i64::from(w),
-                extent: Size { width: u64::from(w.cast_unsigned()), height: u64::from(h.cast_unsigned()) },
-                phase: Point { x: mx, y: my },
-              };
-              return matches!(prep_bilin_8bpc_inner(token, block), Ok(()));
-            },
-            ::core::option::Option::None => {
-
-
-              prep_8tap_8bpc_inner(
-                token,
-                tmp_slice,
-                src_bytes,
-                src_base,
-                src_stride_u,
-                w_u,
-                h_u,
-                mx_u,
-                my_u,
-                get_h_filter_type(filter),
-                get_v_filter_type(filter),
-              );
-            },
+        match { ::core::primitive::bool::then_some(filter == Bilinear, ()) } {
+          ::core::option::Option::Some(()) => {
+            let source = match src_bytes.get(src_base..) {
+              Some(source) => source,
+              None => return false,
+            };
+            let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u);
+            let block = BilinearBlock {
+              output: tmp_slice,
+              source,
+              source_pitch: source_pitch.cast_signed(),
+              output_pitch: i64::from(w),
+              extent: Size {
+                width: u64::from(w.cast_unsigned()),
+                height: u64::from(h.cast_unsigned()),
+              },
+              phase: Point { x: mx, y: my },
+            };
+            return matches!(prep_bilin_8bpc_inner(token, block), Ok(()));
+          }
+          ::core::option::Option::None => {
+            prep_8tap_8bpc_inner(
+              token,
+              tmp_slice,
+              src_bytes,
+              src_base,
+              src_stride_u,
+              w_u,
+              h_u,
+              mx_u,
+              my_u,
+              get_h_filter_type(filter),
+              get_v_filter_type(filter),
+            );
+          }
         }
       }
       BPC::BPC16 => {
@@ -3165,42 +3615,50 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
         let src_bytes = src_guard.as_bytes();
         let src_stride_u16 = src_stride_raw.cast_unsigned().wrapping_div(2);
 
-        match {
-            ::core::primitive::bool::then_some(filter == Bilinear, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              let source = match src_bytes.get(src_base.wrapping_mul(2)..).and_then(|bytes| FromBytes::ref_from_bytes(bytes).ok()) {
-                Some(source) => source,
-                None => return false,
-              };
-              let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u16);
-              let block = BilinearBlock {
-                output: tmp_slice, source, source_pitch: source_pitch.cast_signed(),
-                output_pitch: i64::from(w),
-                extent: Size { width: u64::from(w.cast_unsigned()), height: u64::from(h.cast_unsigned()) },
-                phase: Point { x: mx, y: my },
-              };
-              return matches!(prep_bilin_16bpc_inner(block, bd.into_c()), Ok(()));
-            },
-            ::core::option::Option::None => {
-
-
-              let src_u16: &[u16] = FromBytes::ref_from_bytes(src_bytes).unwrap();
-              prep_8tap_16bpc_inner(
-                token,
-                tmp_slice,
-                src_u16,
-                src_base,
-                src_stride_u16,
-                w_u,
-                h_u,
-                mx_u,
-                my_u,
-                get_h_filter_type(filter),
-                get_v_filter_type(filter),
-                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(bd.into_c()) { ::core::result::Result::Ok(converted_position) => converted_position },
-              );
-            },
+        match { ::core::primitive::bool::then_some(filter == Bilinear, ()) } {
+          ::core::option::Option::Some(()) => {
+            let source = match src_bytes
+              .get(src_base.wrapping_mul(2)..)
+              .and_then(|bytes| FromBytes::ref_from_bytes(bytes).ok())
+            {
+              Some(source) => source,
+              None => return false,
+            };
+            let Ok(source_pitch) = console_core_number_conversion::fixed_index(src_stride_u16);
+            let block = BilinearBlock {
+              output: tmp_slice,
+              source,
+              source_pitch: source_pitch.cast_signed(),
+              output_pitch: i64::from(w),
+              extent: Size {
+                width: u64::from(w.cast_unsigned()),
+                height: u64::from(h.cast_unsigned()),
+              },
+              phase: Point { x: mx, y: my },
+            };
+            return matches!(prep_bilin_16bpc_inner(block, bd.into_c()), Ok(()));
+          }
+          ::core::option::Option::None => {
+            let src_u16: &[u16] = FromBytes::ref_from_bytes(src_bytes).unwrap();
+            prep_8tap_16bpc_inner(
+              token,
+              tmp_slice,
+              src_u16,
+              src_base,
+              src_stride_u16,
+              w_u,
+              h_u,
+              mx_u,
+              my_u,
+              get_h_filter_type(filter),
+              get_v_filter_type(filter),
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
+                bd.into_c(),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              },
+            );
+          }
         }
       }
     }
@@ -3208,50 +3666,6 @@ pub fn mct_prep_dispatch<BD: BitDepth>(
 
   true
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[cfg(all(test, target_arch = "aarch64"))]
 mod compound_parity {
@@ -3263,10 +3677,18 @@ mod compound_parity {
   struct Rng(u64);
 
   impl Rng {
-
     fn in_range(&mut self, lo: i32, hi: i32) -> i32 {
       let Ok(seeded) = crate::src::safe_simd::next_fixture_sample(&mut self.0);
-      lo + match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>((seeded % match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>((hi - lo + 1)) { ::core::result::Result::Ok(converted_position) => converted_position })) { ::core::result::Result::Ok(converted_position) => converted_position }
+      lo + match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+        (seeded
+          % match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(
+            (hi - lo + 1),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }),
+      ) {
+        ::core::result::Result::Ok(converted_position) => converted_position,
+      }
     }
   }
 
@@ -3280,11 +3702,9 @@ mod compound_parity {
 wrong at 12 — the bug shape this module hunts."###]
   #[must_use]
   fn intermediate_bits(bitdepth: u8) -> u8 {
-    match {
-        ::core::primitive::bool::then_some(bitdepth == 8, ())
-    } {
-        ::core::option::Option::Some(()) => { 4 },
-        ::core::option::Option::None => { 14 - bitdepth },
+    match { ::core::primitive::bool::then_some(bitdepth == 8, ()) } {
+      ::core::option::Option::Some(()) => 4,
+      ::core::option::Option::None => 14 - bitdepth,
     }
   }
 
@@ -3300,22 +3720,18 @@ wrong at 12 — the bug shape this module hunts."###]
     fn record(&mut self, label: &str, ok: bool, detail: impl FnOnce() -> String) {
       self.cells += 1;
 
-      match {
-          ::core::primitive::bool::then_some(!ok, ())
-      } {
-          ::core::option::Option::Some(()) => {
-            match {
-                ::core::primitive::bool::then_some(self.first.is_none(), ())
-            } {
-                ::core::option::Option::Some(()) => {
-                  self.first = Some(format!("{label}: {}", detail()));
-                },
-                ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(!ok, ()) } {
+        ::core::option::Option::Some(()) => {
+          match { ::core::primitive::bool::then_some(self.first.is_none(), ()) } {
+            ::core::option::Option::Some(()) => {
+              self.first = Some(format!("{label}: {}", detail()));
             }
+            ::core::option::Option::None => {}
+          }
 
-            self.bad.push(label.to_string());
-          },
-          ::core::option::Option::None => {},
+          self.bad.push(label.to_string());
+        }
+        ::core::option::Option::None => {}
       }
     }
 
@@ -3344,14 +3760,13 @@ trivially true and the test permanently, uselessly green."###]
     }
   }
 
-
-
-
-
-
   #[must_use]
   fn avg8_oracle(Avg8OracleArguments { t1, t2 }: Avg8OracleArguments) -> i32 {
-    ::core::primitive::i32::wrapping_shr(t1 + t2 + ::core::primitive::i32::wrapping_shl(1, 4_u32), 5_u32).clamp(0, 255)
+    ::core::primitive::i32::wrapping_shr(
+      t1 + t2 + ::core::primitive::i32::wrapping_shl(1, 4_u32),
+      5_u32,
+    )
+    .clamp(0, 255)
   }
 
   struct Avg8OracleArguments {
@@ -3361,7 +3776,11 @@ trivially true and the test permanently, uselessly green."###]
 
   #[must_use]
   fn w_avg8_oracle(WAvg8OracleArguments { t1, t2, weight }: WAvg8OracleArguments) -> i32 {
-    ::core::primitive::i32::wrapping_shr(t1 * weight + t2 * (16 - weight) + ::core::primitive::i32::wrapping_shl(8, 4_u32), 8_u32).clamp(0, 255)
+    ::core::primitive::i32::wrapping_shr(
+      t1 * weight + t2 * (16 - weight) + ::core::primitive::i32::wrapping_shl(8, 4_u32),
+      8_u32,
+    )
+    .clamp(0, 255)
   }
 
   struct WAvg8OracleArguments {
@@ -3372,7 +3791,11 @@ trivially true and the test permanently, uselessly green."###]
 
   #[must_use]
   fn mask8_oracle(Mask8OracleArguments { t1, t2, m }: Mask8OracleArguments) -> i32 {
-    ::core::primitive::i32::wrapping_shr(t1 * m + t2 * (64 - m) + ::core::primitive::i32::wrapping_shl(32, 4_u32), 10_u32).clamp(0, 255)
+    ::core::primitive::i32::wrapping_shr(
+      t1 * m + t2 * (64 - m) + ::core::primitive::i32::wrapping_shl(32, 4_u32),
+      10_u32,
+    )
+    .clamp(0, 255)
   }
 
   struct Mask8OracleArguments {
@@ -3399,13 +3822,11 @@ wedge blocks."###]
   ) -> Vec<u8> {
     let w = mrow.len();
 
-    match {
-        ::core::primitive::bool::then_some(!ss_hor, ())
-    } {
-        ::core::option::Option::Some(()) => {
-          return mrow.to_vec();
-        },
-        ::core::option::Option::None => {},
+    match { ::core::primitive::bool::then_some(!ss_hor, ()) } {
+      ::core::option::Option::Some(()) => {
+        return mrow.to_vec();
+      }
+      ::core::option::Option::None => {}
     }
 
     let mut out = vec![0u8; w.wrapping_shr(1_u32)];
@@ -3414,7 +3835,19 @@ wedge blocks."###]
     while x + 1 < w {
       let (m, n) = (mrow[x], mrow[x + 1]);
       out[::core::primitive::usize::wrapping_shr(x, 1_u32)] = if ss_ver && (y & 1) != 0 {
-        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(::core::primitive::u16::wrapping_shr(::core::primitive::u16::wrapping_add(<u16 as ::core::convert::From<::core::primitive::u8>>::from((m + n + 2 - sign)), <u16 as ::core::convert::From<::core::primitive::u8>>::from(prev[::core::primitive::usize::wrapping_shr(x, 1_u32)])), 2_u32)) { ::core::result::Result::Ok(converted_position) => converted_position }
+        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+          ::core::primitive::u16::wrapping_shr(
+            ::core::primitive::u16::wrapping_add(
+              <u16 as ::core::convert::From<::core::primitive::u8>>::from((m + n + 2 - sign)),
+              <u16 as ::core::convert::From<::core::primitive::u8>>::from(
+                prev[::core::primitive::usize::wrapping_shr(x, 1_u32)],
+              ),
+            ),
+            2_u32,
+          ),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        }
       } else if ss_ver {
         m + n
       } else {
@@ -3429,14 +3862,19 @@ wedge blocks."###]
   #[doc = r###"`w_mask`'s per-pixel weight; identical at every bit depth except for
 `mask_sh`, and bias-invariant because it reads `|t1 - t2|`."###]
   #[must_use]
-  fn w_mask_m_oracle(WMaskMOracleArguments { t1, t2 }: WMaskMOracleArguments, bitdepth: u8) -> u8 {
+  fn w_mask_m_oracle(
+    WMaskMOracleArguments { t1, t2 }: WMaskMOracleArguments,
+    bitdepth: u8,
+  ) -> u8 {
     let mask_sh = bitdepth + intermediate_bits(bitdepth) - 4;
     let mask_rnd = 1u16 << (mask_sh - 5);
 
     match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(cmp::min(
       38 + (t1.abs_diff(t2).saturating_add(mask_rnd) >> mask_sh),
       64,
-    )) { ::core::result::Result::Ok(converted_position) => converted_position }
+    )) {
+      ::core::result::Result::Ok(converted_position) => converted_position,
+    }
   }
 
   struct WMaskMOracleArguments {
@@ -3446,7 +3884,11 @@ wedge blocks."###]
 
   #[must_use]
   fn w_mask8_px_oracle(WMask8PxOracleArguments { t1, t2, m }: WMask8PxOracleArguments) -> i32 {
-    ::core::primitive::i32::wrapping_shr(t1 * m + t2 * (64 - m) + ::core::primitive::i32::wrapping_shl(32, 4_u32), 10_u32).clamp(0, 255)
+    ::core::primitive::i32::wrapping_shr(
+      t1 * m + t2 * (64 - m) + ::core::primitive::i32::wrapping_shl(32, 4_u32),
+      10_u32,
+    )
+    .clamp(0, 255)
   }
 
   struct WMask8PxOracleArguments {
@@ -3507,42 +3949,72 @@ away at both ends."###]
     let mut rep = Report::default();
 
     for &(w, h) in SIZES {
-      match {
-          ::core::primitive::bool::then_some(w * h > COMPINTER_LEN, ())
-      } {
-          ::core::option::Option::Some(()) => {
-            continue;
-          },
-          ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(w * h > COMPINTER_LEN, ()) } {
+        ::core::option::Option::Some(()) => {
+          continue;
+        }
+        ::core::option::Option::None => {}
       }
 
-      let mut rng = Rng(0x1234_5678_9ABC_DEF0 ^ match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>((w * h)) { ::core::result::Result::Ok(converted_position) => converted_position });
+      let mut rng = Rng(
+        0x1234_5678_9ABC_DEF0
+          ^ match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>((w * h))
+          {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          },
+      );
       let t1: Vec<i16> = (0..w * h)
-        .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(rng.in_range(T8_LO, T8_HI)) { ::core::result::Result::Ok(converted_position) => converted_position })
+        .map(|_| {
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+            rng.in_range(T8_LO, T8_HI),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+        })
         .collect();
       let t2: Vec<i16> = (0..w * h)
-        .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(rng.in_range(T8_LO, T8_HI)) { ::core::result::Result::Ok(converted_position) => converted_position })
+        .map(|_| {
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+            rng.in_range(T8_LO, T8_HI),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+        })
         .collect();
 
-      let m: Vec<u8> = (0..w * h).map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(rng.in_range(0, 64)) { ::core::result::Result::Ok(converted_position) => converted_position }).collect();
+      let m: Vec<u8> = (0..w * h)
+        .map(|_| {
+          match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+            rng.in_range(0, 64),
+          ) {
+            ::core::result::Result::Ok(converted_position) => converted_position,
+          }
+        })
+        .collect();
       let stride = w + 7;
 
       let mut got = vec![0u8; h * stride];
       let Ok(view) = compound_fixture(&mut got, [&t1, &t2], FindBadArguments { stride, w, h });
       assert_eq!(avg_8bpc_inner(token, view), Ok(()));
       let bad = find_bad(&got, self::FindBadArguments { stride, w, h }, |x, y| {
-        ::core::primitive::i32::cast_unsigned(avg8_oracle(self::Avg8OracleArguments { t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]), t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]) }))
+        ::core::primitive::i32::cast_unsigned(avg8_oracle(self::Avg8OracleArguments {
+          t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
+          t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]),
+        }))
       });
       rep.record(&format!("avg8 {w}x{h}"), bad.is_none(), || fmt_bad(bad));
 
-
-
       for &weight in &[0i32, 1, 4, 8, 12, 15, 16] {
         let mut got_2 = vec![0u8; h * stride];
-        let Ok(view_2) = compound_fixture(&mut got_2, [&t1, &t2], FindBadArguments { stride, w, h });
+        let Ok(view_2) =
+          compound_fixture(&mut got_2, [&t1, &t2], FindBadArguments { stride, w, h });
         assert_eq!(w_avg_8bpc_inner(token, view_2, weight), Ok(()));
         let bad_2 = find_bad(&got_2, self::FindBadArguments { stride, w, h }, |x, y| {
-          ::core::primitive::i32::cast_unsigned(w_avg8_oracle(self::WAvg8OracleArguments { t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]), t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]), weight }))
+          ::core::primitive::i32::cast_unsigned(w_avg8_oracle(self::WAvg8OracleArguments {
+            t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
+            t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]),
+            weight,
+          }))
         });
         rep.record(
           &format!("w_avg8 wt={weight} {w}x{h}"),
@@ -3552,28 +4024,29 @@ away at both ends."###]
       }
 
       let mut got_3 = vec![0u8; h * stride];
-      let Ok(view_3) = compound_fixture(&mut got_3, [&t1, &t2], FindBadArguments { stride, w, h });
+      let Ok(view_3) =
+        compound_fixture(&mut got_3, [&t1, &t2], FindBadArguments { stride, w, h });
       assert_eq!(mask_8bpc_inner(token, view_3, &m), Ok(()));
       let bad_3 = find_bad(&got_3, self::FindBadArguments { stride, w, h }, |x, y| {
-        ::core::primitive::i32::cast_unsigned(mask8_oracle(
-          self::Mask8OracleArguments { t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
+        ::core::primitive::i32::cast_unsigned(mask8_oracle(self::Mask8OracleArguments {
+          t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
           t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]),
-          m: <i32 as ::core::convert::From<::core::primitive::u8>>::from(m[y * w + x]) },
-        ))
+          m: <i32 as ::core::convert::From<::core::primitive::u8>>::from(m[y * w + x]),
+        }))
       });
-      rep.record(&format!("mask8 {w}x{h}"), bad_3.is_none(), || fmt_bad(bad_3));
-
-
+      rep.record(&format!("mask8 {w}x{h}"), bad_3.is_none(), || {
+        fmt_bad(bad_3)
+      });
 
       for &(ss_hor, ss_ver) in &[(false, false), (true, false), (true, true)] {
         for &sign in &[0u8, 1] {
           let mask_w = match ::core::primitive::bool::then_some(ss_hor, ()) {
-              ::core::option::Option::Some(()) => { ::core::primitive::usize::wrapping_shr(w, 1_u32) },
-              ::core::option::Option::None => { w },
+            ::core::option::Option::Some(()) => ::core::primitive::usize::wrapping_shr(w, 1_u32),
+            ::core::option::Option::None => w,
           };
           let mask_h = match ::core::primitive::bool::then_some(ss_ver, ()) {
-              ::core::option::Option::Some(()) => { ::core::primitive::usize::wrapping_shr(h, 1_u32) },
-              ::core::option::Option::None => { h },
+            ::core::option::Option::Some(()) => ::core::primitive::usize::wrapping_shr(h, 1_u32),
+            ::core::option::Option::None => h,
           };
           let mut seg = vec![0u8; mask_w * mask_h];
           let mut got_4 = vec![0u8; h * stride];
@@ -3581,11 +4054,18 @@ away at both ends."###]
             token, &mut got_4, stride, &t1, &t2, w, h, &mut seg, sign, ss_hor, ss_ver,
           );
 
-
           let bad_4 = find_bad(&got_4, self::FindBadArguments { stride, w, h }, |x, y| {
             let (a, b) = (t1[y * w + x], t2[y * w + x]);
-            let mm = <i32 as ::core::convert::From<::core::primitive::u8>>::from(w_mask_m_oracle(self::WMaskMOracleArguments { t1: a, t2: b }, 8));
-            ::core::primitive::i32::cast_unsigned(w_mask8_px_oracle(self::WMask8PxOracleArguments { t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(a), t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(b), m: mm }))
+            let mm = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+              w_mask_m_oracle(self::WMaskMOracleArguments { t1: a, t2: b }, 8),
+            );
+            ::core::primitive::i32::cast_unsigned(w_mask8_px_oracle(
+              self::WMask8PxOracleArguments {
+                t1: <i32 as ::core::convert::From<::core::primitive::i16>>::from(a),
+                t2: <i32 as ::core::convert::From<::core::primitive::i16>>::from(b),
+                m: mm,
+              },
+            ))
           });
           rep.record(
             &format!("w_mask8 px sign={sign} ss=({ss_hor},{ss_ver}) {w}x{h}"),
@@ -3593,23 +4073,37 @@ away at both ends."###]
             || fmt_bad(bad_4),
           );
 
-
-
-
-
           let mut want = vec![0u8; mask_w * mask_h];
 
           for y in 0..h {
             let mrow: Vec<u8> = (0..w)
-              .map(|x| w_mask_m_oracle(self::WMaskMOracleArguments { t1: t1[y * w + x], t2: t2[y * w + x] }, 8))
+              .map(|x| {
+                w_mask_m_oracle(
+                  self::WMaskMOracleArguments {
+                    t1: t1[y * w + x],
+                    t2: t2[y * w + x],
+                  },
+                  8,
+                )
+              })
               .collect();
-            let ::core::result::Result::Ok(my) = ::console_core_number_conversion::fixed_index(match ::core::primitive::bool::then_some(ss_ver, ()) {
-                ::core::option::Option::Some(()) => { ::core::primitive::usize::wrapping_shr(y, 1_u32) },
-                ::core::option::Option::None => { y },
-            });
-            let prev = want[(match ::console_core_number_conversion::index(my) { ::core::result::Result::Ok(native_position) => native_position }) * mask_w..][..mask_w].to_vec();
+            let ::core::result::Result::Ok(my) = ::console_core_number_conversion::fixed_index(
+              match ::core::primitive::bool::then_some(ss_ver, ()) {
+                ::core::option::Option::Some(()) => {
+                  ::core::primitive::usize::wrapping_shr(y, 1_u32)
+                }
+                ::core::option::Option::None => y,
+              },
+            );
+            let prev = want[(match ::console_core_number_conversion::index(my) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            }) * mask_w..][..mask_w]
+              .to_vec();
             let row = w_mask_store_oracle(&mrow, &prev, y, sign, ss_hor, ss_ver);
-            want[(match ::console_core_number_conversion::index(my) { ::core::result::Result::Ok(native_position) => native_position }) * mask_w..][..mask_w].copy_from_slice(&row);
+            want[(match ::console_core_number_conversion::index(my) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            }) * mask_w..][..mask_w]
+              .copy_from_slice(&row);
           }
 
           let bad_seg = (0..mask_h)
@@ -3646,13 +4140,11 @@ away at both ends."###]
         let g: u32 = got[y * stride + x].into();
         let wv = want(x, y);
 
-        match {
-            ::core::primitive::bool::then_some(g != wv, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              return Some((x, y, g, wv));
-            },
-            ::core::option::Option::None => {},
+        match { ::core::primitive::bool::then_some(g != wv, ()) } {
+          ::core::option::Option::Some(()) => {
+            return Some((x, y, g, wv));
+          }
+          ::core::option::Option::None => {}
         }
       }
     }
@@ -3691,24 +4183,20 @@ Returns the modal step, which is robust to the clamped ends."###]
     for t in -30000i32..30000 {
       let cur = eval(t);
 
-      match {
-          ::core::primitive::bool::then_some(cur != prev, ())
-      } {
-          ::core::option::Option::Some(()) => {
-            transitions.push(t);
-            prev = cur;
-          },
-          ::core::option::Option::None => {},
+      match { ::core::primitive::bool::then_some(cur != prev, ()) } {
+        ::core::option::Option::Some(()) => {
+          transitions.push(t);
+          prev = cur;
+        }
+        ::core::option::Option::None => {}
       }
     }
 
-    match {
-        ::core::primitive::bool::then_some(transitions.len() < 8, ())
-    } {
-        ::core::option::Option::Some(()) => {
-          return None;
-        },
-        ::core::option::Option::None => {},
+    match { ::core::primitive::bool::then_some(transitions.len() < 8, ()) } {
+      ::core::option::Option::Some(()) => {
+        return None;
+      }
+      ::core::option::Option::None => {}
     }
 
     let mut gaps: Vec<i32> = transitions.windows(2).map(|w| w[1] - w[0]).collect();
@@ -3726,17 +4214,25 @@ Returns the modal step, which is robust to the clamped ends."###]
       let bd_max = bd_max_of(bitdepth);
       let ib = intermediate_bits(bitdepth);
 
-
-
       let want = 1i32 << (ib + 1);
       let got = measure_input_step(|t| {
         let mut dst = [0u16; 1];
         let Ok(sample) = wrapped::<_, i16>(t);
         let predictors = [[sample], [0_i16]];
         let [first, second] = &predictors;
-        let Ok(view) = compound_fixture(&mut dst, [first, second], FindBadArguments { stride: 1, w: 1, h: 1 });
+        let Ok(view) = compound_fixture(
+          &mut dst,
+          [first, second],
+          FindBadArguments {
+            stride: 1,
+            w: 1,
+            h: 1,
+          },
+        );
         assert_eq!(avg_16bpc_inner(token, view, bd_max), Ok(()));
-        <u32 as ::core::convert::From<::core::primitive::u16>>::from(match dst { [_explicit_element, ..] => _explicit_element })
+        <u32 as ::core::convert::From<::core::primitive::u16>>::from(match dst {
+          [_explicit_element, ..] => _explicit_element,
+        })
       });
       rep.record(
         &format!("avg16 bd={bitdepth} shift"),
@@ -3744,25 +4240,47 @@ Returns the modal step, which is robust to the clamped ends."###]
         || format!("input step {got:?}, expected {want} (= 2^(intermediate_bits+1))"),
       );
 
-
-
       let want_2 = 1i32 << ib;
       let got_2 = measure_input_step(|t| {
         let mut dst = [0u16; 1];
         let Ok(sample) = wrapped::<_, i16>(t);
         let predictors = [[sample], [0_i16]];
         let [first, second] = &predictors;
-        let Ok(view) = compound_fixture(&mut dst, [first, second], FindBadArguments { stride: 1, w: 1, h: 1 });
-        assert_eq!(w_avg_16bpc_inner(token, view, WordAverageScale { weight: 16, maximum: bd_max }), Ok(()));
-        <u32 as ::core::convert::From<::core::primitive::u16>>::from(match dst { [_explicit_element, ..] => _explicit_element })
+        let Ok(view) = compound_fixture(
+          &mut dst,
+          [first, second],
+          FindBadArguments {
+            stride: 1,
+            w: 1,
+            h: 1,
+          },
+        );
+        assert_eq!(
+          w_avg_16bpc_inner(
+            token,
+            view,
+            WordAverageScale {
+              weight: 16,
+              maximum: bd_max
+            }
+          ),
+          Ok(())
+        );
+        <u32 as ::core::convert::From<::core::primitive::u16>>::from(match dst {
+          [_explicit_element, ..] => _explicit_element,
+        })
       });
       rep.record(
         &format!("w_avg16 bd={bitdepth} shift"),
         got_2 == Some(want_2),
-        || format!("input step {got:?}, expected {want} (= 2^intermediate_bits)", want = want_2, got = got_2),
+        || {
+          format!(
+            "input step {got:?}, expected {want} (= 2^intermediate_bits)",
+            want = want_2,
+            got = got_2
+          )
+        },
       );
-
-
 
       let want_3 = 1i32 << ib;
       let got_3 = measure_input_step(|t| {
@@ -3770,20 +4288,35 @@ Returns the modal step, which is robust to the clamped ends."###]
         let Ok(sample) = wrapped::<_, i16>(t);
         let predictors = [[sample], [0_i16]];
         let [first, second] = &predictors;
-        let Ok(view) = compound_fixture(&mut dst, [first, second], FindBadArguments { stride: 1, w: 1, h: 1 });
+        let Ok(view) = compound_fixture(
+          &mut dst,
+          [first, second],
+          FindBadArguments {
+            stride: 1,
+            w: 1,
+            h: 1,
+          },
+        );
         assert_eq!(mask_16bpc_inner(token, view, &[64], bd_max), Ok(()));
-        <u32 as ::core::convert::From<::core::primitive::u16>>::from(match dst { [_explicit_element, ..] => _explicit_element })
+        <u32 as ::core::convert::From<::core::primitive::u16>>::from(match dst {
+          [_explicit_element, ..] => _explicit_element,
+        })
       });
       rep.record(
         &format!("mask16 bd={bitdepth} shift"),
         got_3 == Some(want_3),
-        || format!("input step {got:?}, expected {want} (= 2^intermediate_bits)", want = want_3, got = got_3),
+        || {
+          format!(
+            "input step {got:?}, expected {want} (= 2^intermediate_bits)",
+            want = want_3,
+            got = got_3
+          )
+        },
       );
     }
 
     rep.finish("aarch64 16bpc compound shift", 6);
   }
-
 
   fn word_mask_case(
     output: &mut [u16],
@@ -3791,7 +4324,9 @@ Returns the modal step, which is robust to the clamped ends."###]
     size: console_core_geometry::Size<u64>,
     stride: u64,
     mask: &mut [u8],
-    mode: crate::src::safe_simd::mc::WeightedMaskMode<crate::include::common::bitdepth::BitDepth16>,
+    mode: crate::src::safe_simd::mc::WeightedMaskMode<
+      crate::include::common::bitdepth::BitDepth16,
+    >,
   ) -> crate::src::error::Rav1dResult {
     use crate::src::error::Rav1dError;
     use console_core_geometry::Size;
@@ -3800,7 +4335,12 @@ Returns the modal step, which is robust to the clamped ends."###]
     let width = i32::try_from(size.width).map_err(|_| Rav1dError::EINVAL)?;
     let height = i32::try_from(size.height).map_err(|_| Rav1dError::EINVAL)?;
     crate::src::safe_simd::mc::write_weighted_mask(
-      output.as_mut_bytes(), stride.wrapping_mul(2), predictors, Size { width, height }, mask, mode,
+      output.as_mut_bytes(),
+      stride.wrapping_mul(2),
+      predictors,
+      Size { width, height },
+      mask,
+      mode,
     )
   }
 
@@ -3819,14 +4359,32 @@ place the 12-bit `intermediate_bits` term appears."###]
     for &bitdepth in &[10u8, 12] {
       for &sign in &[0u8, 1] {
         for &(w, h) in &[(8usize, 8usize), (16, 16), (32, 32)] {
-          let mut rng = Rng(0xC0FF_EE00_1234_5678 ^ ::core::primitive::u64::wrapping_shl(<u64 as ::core::convert::From<::core::primitive::u8>>::from(bitdepth), 40_u32) ^ <u64 as ::core::convert::From<::core::primitive::u8>>::from(sign));
-
+          let mut rng = Rng(
+            0xC0FF_EE00_1234_5678
+              ^ ::core::primitive::u64::wrapping_shl(
+                <u64 as ::core::convert::From<::core::primitive::u8>>::from(bitdepth),
+                40_u32,
+              )
+              ^ <u64 as ::core::convert::From<::core::primitive::u8>>::from(sign),
+          );
 
           let t1: Vec<i16> = (0..w * h)
-            .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(rng.in_range(-20602, ::core::primitive::i32::wrapping_sub(36983, 16384))) { ::core::result::Result::Ok(converted_position) => converted_position })
+            .map(|_| {
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+                rng.in_range(-20602, ::core::primitive::i32::wrapping_sub(36983, 16384)),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              }
+            })
             .collect();
           let t2: Vec<i16> = (0..w * h)
-            .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(rng.in_range(-20602, ::core::primitive::i32::wrapping_sub(36983, 16384))) { ::core::result::Result::Ok(converted_position) => converted_position })
+            .map(|_| {
+              match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+                rng.in_range(-20602, ::core::primitive::i32::wrapping_sub(36983, 16384)),
+              ) {
+                ::core::result::Result::Ok(converted_position) => converted_position,
+              }
+            })
             .collect();
           let stride = w + 5;
           let mut got_px = vec![0u16; h * stride];
@@ -3840,22 +4398,41 @@ place the 12-bit `intermediate_bits` term appears."###]
             sign,
             depth: crate::include::common::bitdepth::BitDepth16::new(maximum),
           };
-          assert_eq!(word_mask_case(
-            &mut got_px, [&t1, &t2], console_core_geometry::Size { width, height }, pitch, &mut seg, mode,
-          ), Ok(()));
+          assert_eq!(
+            word_mask_case(
+              &mut got_px,
+              [&t1, &t2],
+              console_core_geometry::Size { width, height },
+              pitch,
+              &mut seg,
+              mode,
+            ),
+            Ok(())
+          );
           let mut bad = None;
 
           for y in 0..h {
             for x in 0..w {
-              let want = w_mask_m_oracle(self::WMaskMOracleArguments { t1: t1[y * w + x], t2: t2[y * w + x] }, bitdepth);
+              let want = w_mask_m_oracle(
+                self::WMaskMOracleArguments {
+                  t1: t1[y * w + x],
+                  t2: t2[y * w + x],
+                },
+                bitdepth,
+              );
 
               match {
-                  ::core::primitive::bool::then_some(seg[y * w + x] != want && bad.is_none(), ())
+                ::core::primitive::bool::then_some(seg[y * w + x] != want && bad.is_none(), ())
               } {
-                  ::core::option::Option::Some(()) => {
-                    bad = Some((x, y, <u32 as ::core::convert::From<::core::primitive::u8>>::from(seg[y * w + x]), <u32 as ::core::convert::From<::core::primitive::u8>>::from(want)));
-                  },
-                  ::core::option::Option::None => {},
+                ::core::option::Option::Some(()) => {
+                  bad = Some((
+                    x,
+                    y,
+                    <u32 as ::core::convert::From<::core::primitive::u8>>::from(seg[y * w + x]),
+                    <u32 as ::core::convert::From<::core::primitive::u8>>::from(want),
+                  ));
+                }
+                ::core::option::Option::None => {}
               }
             }
           }
@@ -3888,43 +4465,76 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
     let token = Arm64::summon().expect("NEON is mandatory on aarch64");
     let mut rep = Report::default();
 
-
-
     const T16_LO: i32 = -20602 - 8192;
     const T16_HI: i32 = 36983 - 8192;
 
     for &bitdepth in &[10u8, 12] {
       let bd_max = bd_max_of(bitdepth);
-      let ib = <i32 as ::core::convert::From<::core::primitive::u8>>::from(intermediate_bits(bitdepth));
+      let ib =
+        <i32 as ::core::convert::From<::core::primitive::u8>>::from(intermediate_bits(bitdepth));
       let bias = i32::from(BitDepth16::PREP_BIAS);
 
       'inner_for_2: for &(w, h) in SIZES {
-        match {
-            ::core::primitive::bool::then_some(w * h > COMPINTER_LEN, ())
-        } {
-            ::core::option::Option::Some(()) => {
-              continue 'inner_for_2;
-            },
-            ::core::option::Option::None => {},
+        match { ::core::primitive::bool::then_some(w * h > COMPINTER_LEN, ()) } {
+          ::core::option::Option::Some(()) => {
+            continue 'inner_for_2;
+          }
+          ::core::option::Option::None => {}
         }
 
-        let mut rng = Rng(0xABCD_1234_0000_0001 ^ ::core::primitive::u64::wrapping_shl(<u64 as ::core::convert::From<::core::primitive::u8>>::from(bitdepth), 40_u32) ^ match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>((w * h)) { ::core::result::Result::Ok(converted_position) => converted_position });
+        let mut rng = Rng(
+          0xABCD_1234_0000_0001
+            ^ ::core::primitive::u64::wrapping_shl(
+              <u64 as ::core::convert::From<::core::primitive::u8>>::from(bitdepth),
+              40_u32,
+            )
+            ^ match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(
+              (w * h),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            },
+        );
         let t1: Vec<i16> = (0..w * h)
-          .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(rng.in_range(T16_LO, T16_HI)) { ::core::result::Result::Ok(converted_position) => converted_position })
+          .map(|_| {
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+              rng.in_range(T16_LO, T16_HI),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            }
+          })
           .collect();
         let t2: Vec<i16> = (0..w * h)
-          .map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(rng.in_range(T16_LO, T16_HI)) { ::core::result::Result::Ok(converted_position) => converted_position })
+          .map(|_| {
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(
+              rng.in_range(T16_LO, T16_HI),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            }
+          })
           .collect();
-        let m: Vec<u8> = (0..w * h).map(|_| match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(rng.in_range(0, 64)) { ::core::result::Result::Ok(converted_position) => converted_position }).collect();
+        let m: Vec<u8> = (0..w * h)
+          .map(|_| {
+            match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(
+              rng.in_range(0, 64),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            }
+          })
+          .collect();
         let stride = w + 5;
-
 
         let mut got = vec![0u16; h * stride];
         let Ok(view) = compound_fixture(&mut got, [&t1, &t2], FindBadArguments { stride, w, h });
         assert_eq!(avg_16bpc_inner(token, view, bd_max), Ok(()));
         let bad = find_bad(&got, self::FindBadArguments { stride, w, h }, |x, y| {
-          let (a, b) = (<i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]), <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]));
-          ::core::primitive::i32::cast_unsigned(((a + b + (1 << ib) + bias * 2) >> ::core::primitive::i32::wrapping_add(ib, 1)).clamp(0, bd_max))
+          let (a, b) = (
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]),
+          );
+          ::core::primitive::i32::cast_unsigned(
+            ((a + b + (1 << ib) + bias * 2) >> ::core::primitive::i32::wrapping_add(ib, 1))
+              .clamp(0, bd_max),
+          )
         });
         rep.record(
           &format!("avg16 bd={bitdepth} {w}x{h}"),
@@ -3934,12 +4544,29 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
 
         for &weight in &[0i32, 1, 4, 8, 12, 15, 16] {
           let mut got_2 = vec![0u16; h * stride];
-          let Ok(view_2) = compound_fixture(&mut got_2, [&t1, &t2], FindBadArguments { stride, w, h });
-          assert_eq!(w_avg_16bpc_inner(token, view_2, WordAverageScale { weight, maximum: bd_max }), Ok(()));
+          let Ok(view_2) =
+            compound_fixture(&mut got_2, [&t1, &t2], FindBadArguments { stride, w, h });
+          assert_eq!(
+            w_avg_16bpc_inner(
+              token,
+              view_2,
+              WordAverageScale {
+                weight,
+                maximum: bd_max
+              }
+            ),
+            Ok(())
+          );
           let bad_2 = find_bad(&got_2, self::FindBadArguments { stride, w, h }, |x, y| {
-            let (a, b) = (<i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]), <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]));
-            ::core::primitive::i32::cast_unsigned(((a * weight + b * (16 - weight) + (8 << ib) + bias * 16) >> ::core::primitive::i32::wrapping_add(ib, 4))
-              .clamp(0, bd_max))
+            let (a, b) = (
+              <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
+              <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]),
+            );
+            ::core::primitive::i32::cast_unsigned(
+              ((a * weight + b * (16 - weight) + (8 << ib) + bias * 16)
+                >> ::core::primitive::i32::wrapping_add(ib, 4))
+              .clamp(0, bd_max),
+            )
           });
           rep.record(
             &format!("w_avg16 bd={bitdepth} wt={weight} {w}x{h}"),
@@ -3949,12 +4576,20 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
         }
 
         let mut got_3 = vec![0u16; h * stride];
-        let Ok(view_3) = compound_fixture(&mut got_3, [&t1, &t2], FindBadArguments { stride, w, h });
+        let Ok(view_3) =
+          compound_fixture(&mut got_3, [&t1, &t2], FindBadArguments { stride, w, h });
         assert_eq!(mask_16bpc_inner(token, view_3, &m, bd_max), Ok(()));
         let bad_3 = find_bad(&got_3, self::FindBadArguments { stride, w, h }, |x, y| {
-          let (a, b) = (<i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]), <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]));
+          let (a, b) = (
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(t1[y * w + x]),
+            <i32 as ::core::convert::From<::core::primitive::i16>>::from(t2[y * w + x]),
+          );
           let mm = <i32 as ::core::convert::From<::core::primitive::u8>>::from(m[y * w + x]);
-          ::core::primitive::i32::cast_unsigned(((a * mm + b * (64 - mm) + (32 << ib) + bias * 64) >> ::core::primitive::i32::wrapping_add(ib, 6)).clamp(0, bd_max))
+          ::core::primitive::i32::cast_unsigned(
+            ((a * mm + b * (64 - mm) + (32 << ib) + bias * 64)
+              >> ::core::primitive::i32::wrapping_add(ib, 6))
+            .clamp(0, bd_max),
+          )
         });
         rep.record(
           &format!("mask16 bd={bitdepth} {w}x{h}"),
@@ -3965,12 +4600,16 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
         for &(ss_hor, ss_ver) in &[(false, false), (true, false), (true, true)] {
           for &sign in &[0u8, 1] {
             let mask_w = match ::core::primitive::bool::then_some(ss_hor, ()) {
-                ::core::option::Option::Some(()) => { ::core::primitive::usize::wrapping_shr(w, 1_u32) },
-                ::core::option::Option::None => { w },
+              ::core::option::Option::Some(()) => {
+                ::core::primitive::usize::wrapping_shr(w, 1_u32)
+              }
+              ::core::option::Option::None => w,
             };
             let mask_h = match ::core::primitive::bool::then_some(ss_ver, ()) {
-                ::core::option::Option::Some(()) => { ::core::primitive::usize::wrapping_shr(h, 1_u32) },
-                ::core::option::Option::None => { h },
+              ::core::option::Option::Some(()) => {
+                ::core::primitive::usize::wrapping_shr(h, 1_u32)
+              }
+              ::core::option::Option::None => h,
             };
             let mut seg = vec![0u8; mask_w * mask_h];
             let mut got_4 = vec![0u16; h * stride];
@@ -3988,15 +4627,31 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
               sign,
               depth: crate::include::common::bitdepth::BitDepth16::new(maximum),
             };
-            assert_eq!(word_mask_case(
-              &mut got_4, [&t1, &t2], console_core_geometry::Size { width, height }, pitch, &mut seg, mode,
-            ), Ok(()));
+            assert_eq!(
+              word_mask_case(
+                &mut got_4,
+                [&t1, &t2],
+                console_core_geometry::Size { width, height },
+                pitch,
+                &mut seg,
+                mode,
+              ),
+              Ok(())
+            );
 
             let bad_4 = find_bad(&got_4, self::FindBadArguments { stride, w, h }, |x, y| {
               let (a, b) = (t1[y * w + x], t2[y * w + x]);
-              let mm = <i32 as ::core::convert::From<::core::primitive::u8>>::from(w_mask_m_oracle(self::WMaskMOracleArguments { t1: a, t2: b }, bitdepth));
-              ::core::primitive::i32::cast_unsigned(((<i32 as ::core::convert::From<::core::primitive::i16>>::from(a) * mm + <i32 as ::core::convert::From<::core::primitive::i16>>::from(b) * (64 - mm) + (32 << ib) + bias * 64) >> ::core::primitive::i32::wrapping_add(ib, 6))
-                .clamp(0, bd_max))
+              let mm = <i32 as ::core::convert::From<::core::primitive::u8>>::from(
+                w_mask_m_oracle(self::WMaskMOracleArguments { t1: a, t2: b }, bitdepth),
+              );
+              ::core::primitive::i32::cast_unsigned(
+                ((<i32 as ::core::convert::From<::core::primitive::i16>>::from(a) * mm
+                  + <i32 as ::core::convert::From<::core::primitive::i16>>::from(b) * (64 - mm)
+                  + (32 << ib)
+                  + bias * 64)
+                  >> ::core::primitive::i32::wrapping_add(ib, 6))
+                .clamp(0, bd_max),
+              )
             });
             rep.record(
               &format!("w_mask16 px bd={bitdepth} sign={sign} ss=({ss_hor},{ss_ver}) {w}x{h}"),
@@ -4004,20 +4659,37 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
               || fmt_bad(bad_4),
             );
 
-
             let mut want = vec![0u8; mask_w * mask_h];
 
             for y in 0..h {
               let mr: Vec<u8> = (0..w)
-                .map(|x| w_mask_m_oracle(self::WMaskMOracleArguments { t1: t1[y * w + x], t2: t2[y * w + x] }, bitdepth))
+                .map(|x| {
+                  w_mask_m_oracle(
+                    self::WMaskMOracleArguments {
+                      t1: t1[y * w + x],
+                      t2: t2[y * w + x],
+                    },
+                    bitdepth,
+                  )
+                })
                 .collect();
-              let ::core::result::Result::Ok(my) = ::console_core_number_conversion::fixed_index(match ::core::primitive::bool::then_some(ss_ver, ()) {
-                  ::core::option::Option::Some(()) => { ::core::primitive::usize::wrapping_shr(y, 1_u32) },
-                  ::core::option::Option::None => { y },
-              });
-              let prev = want[(match ::console_core_number_conversion::index(my) { ::core::result::Result::Ok(native_position) => native_position }) * mask_w..][..mask_w].to_vec();
+              let ::core::result::Result::Ok(my) = ::console_core_number_conversion::fixed_index(
+                match ::core::primitive::bool::then_some(ss_ver, ()) {
+                  ::core::option::Option::Some(()) => {
+                    ::core::primitive::usize::wrapping_shr(y, 1_u32)
+                  }
+                  ::core::option::Option::None => y,
+                },
+              );
+              let prev = want[(match ::console_core_number_conversion::index(my) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              }) * mask_w..][..mask_w]
+                .to_vec();
               let row = w_mask_store_oracle(&mr, &prev, y, sign, ss_hor, ss_ver);
-              want[(match ::console_core_number_conversion::index(my) { ::core::result::Result::Ok(native_position) => native_position }) * mask_w..][..mask_w].copy_from_slice(&row);
+              want[(match ::console_core_number_conversion::index(my) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              }) * mask_w..][..mask_w]
+                .copy_from_slice(&row);
             }
 
             let bad_seg = (0..mask_h)
@@ -4027,8 +4699,12 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
                 (
                   x,
                   y,
-                  <u32 as ::core::convert::From<::core::primitive::u8>>::from(seg[y * mask_w + x]),
-                  <u32 as ::core::convert::From<::core::primitive::u8>>::from(want[y * mask_w + x]),
+                  <u32 as ::core::convert::From<::core::primitive::u8>>::from(
+                    seg[y * mask_w + x],
+                  ),
+                  <u32 as ::core::convert::From<::core::primitive::u8>>::from(
+                    want[y * mask_w + x],
+                  ),
                 )
               });
             rep.record(

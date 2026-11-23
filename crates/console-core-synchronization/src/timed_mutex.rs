@@ -14,12 +14,12 @@ pub struct TimedMutex<T> {
 }
 
 #[doc = "Returning the value wakes all waiters because each waiter has its own deadline."]
-struct Held<'a, T> {
+struct Guard<'a, T> {
   lock: &'a TimedMutex<T>,
   value: Option<T>,
 }
 
-impl<T> Drop for Held<'_, T> {
+impl<T> Drop for Guard<'_, T> {
   fn drop(&mut self) {
     *self.lock.value.lock() = self.value.take();
     self.lock.available.notify_all();
@@ -38,12 +38,20 @@ impl<T> TimedMutex<T> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the timed acquisition interface preserves the optional callback answer used by existing callers")
+    expect(
+      explicit002_infallible_result,
+      reason = "the timed acquisition interface preserves the optional callback answer used by existing callers"
+    )
   )]
-  pub fn with_until<R>(&self, deadline: Instant, work: impl FnOnce(&mut T) -> R) -> Option<R> {
-    let Ok(acquired) = self.take_until(deadline, Instant::now);
+  pub fn with_until<R>(
+    &self,
+    deadline: Instant,
+    now: impl Fn() -> Instant,
+    work: impl FnOnce(&mut T) -> R,
+  ) -> Option<R> {
+    let Ok(acquired) = self.take_until(deadline, now);
     let value = acquired?;
-    let mut held = Held {
+    let mut held = Guard {
       lock: self,
       value: Some(value),
     };

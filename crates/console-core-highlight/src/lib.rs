@@ -135,7 +135,10 @@ pub enum Resolution<A> {
 }
 
 impl<'a, A: Copy> Actions<'a, A> {
-  pub fn new(frames: &'a [Rectangle<i32>], actions: &'a [A]) -> Result<Self, ActionCountMismatch> {
+  pub fn new(
+    frames: &'a [Rectangle<i32>],
+    actions: &'a [A],
+  ) -> Result<Self, ActionCountMismatch> {
     match frames.len().cmp(&actions.len()) {
       Ordering::Equal => Ok(Self { frames, actions }),
       Ordering::Less | Ordering::Greater => Err(ActionCountMismatch),
@@ -219,15 +222,15 @@ struct Along {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Line {
-  In,
-  Out,
+  Overlap,
+  Outside,
 }
 
 impl From<bool> for Line {
   fn from(overlaps_across: bool) -> Self {
     match bool::then_some(overlaps_across, ()) {
-      Some(()) => Self::In,
-      None => Self::Out,
+      Some(()) => Self::Overlap,
+      None => Self::Outside,
     }
   }
 }

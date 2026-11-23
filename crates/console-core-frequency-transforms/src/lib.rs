@@ -50,20 +50,20 @@ impl From<bool> for BufferLength {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fault {
+pub enum TransformError {
   Size,
   Spectrum,
   Output,
 }
 
-impl fmt::Display for Fault {
+impl fmt::Display for TransformError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Fault::Size => write!(f, "there is no transform of that size"),
-      Fault::Spectrum => write!(f, "the spectrum is not as long as the transform"),
-      Fault::Output => write!(f, "the output is not twice as long as the spectrum"),
+      TransformError::Size => write!(f, "there is no transform of that size"),
+      TransformError::Spectrum => write!(f, "the spectrum is not as long as the transform"),
+      TransformError::Output => write!(f, "the output is not twice as long as the spectrum"),
     }
   }
 }
 
-impl core::error::Error for Fault {}
+impl core::error::Error for TransformError {}

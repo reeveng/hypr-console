@@ -74,21 +74,21 @@ pub fn address_of(said: &str) -> Result<String, Never> {
     None => said.trim(),
   };
 
-  Ok(match ::core::primitive::bool::then_some(first.starts_with("0x"), ()) {
-    ::core::option::Option::Some(()) => first.to_string(),
-    ::core::option::Option::None => format!("0x{first}"),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(first.starts_with("0x"), ()) {
+      ::core::option::Option::Some(()) => first.to_string(),
+      ::core::option::Option::None => format!("0x{first}"),
+    },
+  )
 }
 
 fn carrying_no_address(line: &str) -> Result<Option<CompositorEvent>, Never> {
-  Ok(
-    CARRYING_NO_ADDRESS
-      .iter()
-      .find_map(|(word, then)| match ::core::primitive::bool::then_some(line.starts_with(word), ()) {
-        ::core::option::Option::Some(()) => Some(then.clone()),
-        ::core::option::Option::None => None,
-      }),
-  )
+  Ok(CARRYING_NO_ADDRESS.iter().find_map(
+    |(word, then)| match ::core::primitive::bool::then_some(line.starts_with(word), ()) {
+      ::core::option::Option::Some(()) => Some(then.clone()),
+      ::core::option::Option::None => None,
+    },
+  ))
 }
 
 pub fn read(line: &str) -> Result<CompositorEvent, Never> {

@@ -51,7 +51,10 @@ impl std::fmt::Display for Unshared {
     match self {
       Unshared::Placeless => write!(to, "There is nowhere to draw the code."),
       Unshared::Query(fault) => write!(to, "NetworkManager did not answer: {fault}"),
-      Unshared::InvalidPasswordText(fault) => write!(to, "NetworkManager did not return a UTF-8 password: {fault}"),
+      Unshared::InvalidPasswordText(fault) => write!(
+        to,
+        "NetworkManager did not return a UTF-8 password: {fault}"
+      ),
       Unshared::Unsaved(name) => {
         write!(to, "The password for {name} is not saved on this device.")
       }
@@ -76,7 +79,10 @@ pub fn put_away() -> Result<(), Never> {
       Ok(()) => {}
       Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
         Some(()) => {}
-        None => console_core_logging::warn!("could not remove Wi-Fi code folder {}: {fault}", path.display()),
+        None => console_core_logging::warn!(
+          "could not remove Wi-Fi code folder {}: {fault}",
+          path.display()
+        ),
       },
     },
     None => {}

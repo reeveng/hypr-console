@@ -34,7 +34,10 @@ fn cfl_lane4(ac: int32x4_t, coeff: ProjectionCoefficients) -> Result<int32x4_t, 
   let correction = vsubq_s32(veorq_s32(magnitude, sign), sign);
   let predicted = vaddq_s32(coeff.dc, correction);
 
-  Ok(vminq_s32(vmaxq_s32(predicted, vdupq_n_s32(0)), coeff.maximum))
+  Ok(vminq_s32(
+    vmaxq_s32(predicted, vdupq_n_s32(0)),
+    coeff.maximum,
+  ))
 }
 
 /// AV1 CfL widths are multiples of four. The row guard and the AC iterator
@@ -114,7 +117,10 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
     Some(available) => available,
     None => return Ok(PredictionDispatch::ScalarFallback),
   };
-  let Size { width: raw_width, height: raw_height } = projection.size;
+  let Size {
+    width: raw_width,
+    height: raw_height,
+  } = projection.size;
   let (width, height) = match (u32::try_from(raw_width), u32::try_from(raw_height)) {
     (Ok(columns @ 4..), Ok(rows @ 1..)) => (columns, rows),
     (_width, _height) => return Ok(PredictionDispatch::ScalarFallback),
@@ -135,14 +141,14 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
   let Ok(rows) = index(height);
   let mut residual_rows = active.chunks_exact(columns);
   let Ok(()) = match BD::BPC {
-    BPC::BPC8 => dst.for_rows_mut::<BitDepth8, _>(columns, rows, |_row, pixels| {
-      match residual_rows.next() {
+    BPC::BPC8 => {
+      dst.for_rows_mut::<BitDepth8, _>(columns, rows, |_row, pixels| match residual_rows.next() {
         Some(residual) => {
           let Ok(()) = cfl_row_8bpc(token, pixels, residual, &projection);
         }
         None => {}
-      }
-    }),
+      })
+    }
     BPC::BPC16 => {
       let bitdepth_max = bd.bitdepth_max().as_::<c_int>();
 
@@ -209,7 +215,10 @@ mod cfl_parity {
           &mut crate::src::owned_recon::ReconDst::Pic(dst),
           ac,
           super::CflProjection {
-            size: console_core_geometry::Size { width: w as i32, height: h as i32 },
+            size: console_core_geometry::Size {
+              width: w as i32,
+              height: h as i32,
+            },
             dc,
             alpha,
           },
@@ -254,9 +263,6 @@ mod cfl_parity {
         let stride = (w + 16).next_multiple_of(16);
         let mut rng = Rng(seed ^ ((w as u64) << 32) ^ (h as u64));
         for &alpha in &[-16i32, -13, -8, -3, -1, 0, 1, 3, 8, 13, 16] {
-
-
-
           for &(dc, scale) in &[
             (pmax / 2, pmax / 4),
             (0, pmax),
@@ -320,34 +326,6 @@ mod cfl_parity {
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 struct ChromaSourceRows<'a, Sample> {
   top: &'a [Sample],
   bottom: &'a [Sample],
@@ -385,8 +363,10 @@ fn ac_row_420_8bpc(
   let bottom_pairs = bottom_tail.as_chunks::<2>().0;
 
   for (output, (&[a, b], &[c, d])) in tail.iter_mut().zip(top_pairs.iter().zip(bottom_pairs)) {
-    let sum = u16::from(a).wrapping_add(u16::from(b))
-      .wrapping_add(u16::from(c)).wrapping_add(u16::from(d));
+    let sum = u16::from(a)
+      .wrapping_add(u16::from(b))
+      .wrapping_add(u16::from(c))
+      .wrapping_add(u16::from(d));
     *output = sum.wrapping_shl(1).cast_signed();
   }
 
@@ -412,7 +392,10 @@ fn ac_row_422_8bpc(_token: Arm64, out: &mut [i16], top: &[u8]) -> Result<(), Nev
   }
 
   for (output, &[a, b]) in tail.iter_mut().zip(top_tail.as_chunks::<2>().0) {
-    *output = u16::from(a).wrapping_add(u16::from(b)).wrapping_shl(2).cast_signed();
+    *output = u16::from(a)
+      .wrapping_add(u16::from(b))
+      .wrapping_shl(2)
+      .cast_signed();
   }
 
   Ok(())
@@ -590,9 +573,12 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
   let Ok(source_width) = index(region.visible.width.wrapping_shl(horizontal));
   let Ok(destination_width) = index(width);
   let Ok(written_width) = index(region.visible.width);
-  for (ordinal, row) in (0u64..region.visible.height).zip(coefficients.chunks_exact_mut(destination_width.max(1))) {
+  for (ordinal, row) in
+    (0u64..region.visible.height).zip(coefficients.chunks_exact_mut(destination_width.max(1)))
+  {
     let Ok(row_number) = console_core_number_conversion::wrapped::<_, i64>(ordinal);
-    let Ok(displacement) = console_core_number_conversion::wrapped_offset(row_number.wrapping_mul(row_advance));
+    let Ok(displacement) =
+      console_core_number_conversion::wrapped_offset(row_number.wrapping_mul(row_advance));
     let Ok(picture) = y_src.at(displacement);
     let Ok(above) = picture.slice::<BD>(source_width);
     let below = match region.layout {
@@ -622,7 +608,10 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
               Some(pixels) => pixels,
               None => return Ok(PredictionDispatch::ScalarFallback),
             };
-            let taps = ChromaSourceRows { top: upper, bottom: lower };
+            let taps = ChromaSourceRows {
+              top: upper,
+              bottom: lower,
+            };
             let Ok(()) = ac_row_420_8bpc(token, visible, taps);
           }
           (Rav1dPixelLayoutSubSampled::I422, _) => {
@@ -631,7 +620,9 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
           (Rav1dPixelLayoutSubSampled::I444, _) => {
             let Ok(()) = ac_row_444_8bpc(token, visible, upper);
           }
-          (Rav1dPixelLayoutSubSampled::I420, None) => return Ok(PredictionDispatch::ScalarFallback),
+          (Rav1dPixelLayoutSubSampled::I420, None) => {
+            return Ok(PredictionDispatch::ScalarFallback);
+          }
         }
       }
       BPC::BPC16 => {
@@ -647,7 +638,10 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
               Some(pixels) => pixels,
               None => return Ok(PredictionDispatch::ScalarFallback),
             };
-            let taps = ChromaSourceRows { top: upper, bottom: lower };
+            let taps = ChromaSourceRows {
+              top: upper,
+              bottom: lower,
+            };
             let Ok(()) = ac_row_420_16bpc(token, visible, taps);
           }
           (Rav1dPixelLayoutSubSampled::I422, _) => {
@@ -656,7 +650,9 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
           (Rav1dPixelLayoutSubSampled::I444, _) => {
             let Ok(()) = ac_row_444_16bpc(token, visible, upper);
           }
-          (Rav1dPixelLayoutSubSampled::I420, None) => return Ok(PredictionDispatch::ScalarFallback),
+          (Rav1dPixelLayoutSubSampled::I420, None) => {
+            return Ok(PredictionDispatch::ScalarFallback);
+          }
         }
       }
     }
@@ -702,10 +698,24 @@ mod cfl_ac_parity {
   struct Rng(u64);
 
   impl Rng {
-
     fn in_range(&mut self, lo: i32, hi: i32) -> i32 {
       let Ok(seeded) = crate::src::safe_simd::next_fixture_sample(&mut self.0);
-      ::core::primitive::i32::wrapping_add(lo, match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>((seeded % match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(::core::primitive::i32::wrapping_add(::core::primitive::i32::wrapping_sub(hi, lo), 1)) { ::core::result::Result::Ok(converted_position) => converted_position })) { ::core::result::Result::Ok(converted_position) => converted_position })
+      ::core::primitive::i32::wrapping_add(
+        lo,
+        match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(
+          (seeded
+            % match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(
+              ::core::primitive::i32::wrapping_add(
+                ::core::primitive::i32::wrapping_sub(hi, lo),
+                1,
+              ),
+            ) {
+              ::core::result::Result::Ok(converted_position) => converted_position,
+            }),
+        ) {
+          ::core::result::Result::Ok(converted_position) => converted_position,
+        },
+      )
     }
   }
 
@@ -713,7 +723,13 @@ mod cfl_ac_parity {
   #[must_use]
   fn run<BD: BitDepth>(
     pixels: &[BD::Pixel],
-    RunArguments { stride, w_pad, h_pad, cw, ch }: RunArguments,
+    RunArguments {
+      stride,
+      w_pad,
+      h_pad,
+      cw,
+      ch,
+    }: RunArguments,
     ss_hor: bool,
     ss_ver: bool,
   ) -> (Vec<i16>, Vec<i16>, bool)
@@ -721,12 +737,9 @@ mod cfl_ac_parity {
     BD::Pixel: Copy + Default,
   {
     let go = |simd: bool| -> (Vec<i16>, bool) {
-
-
       let Ok(mut px) = crate::src::safe_simd::aligned_plane(pixels);
       let comp = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut px, stride);
       let dst = comp.with_offset::<BD>();
-
 
       let mut ac = [0x5A5Ai16; SCRATCH_AC_TXTP_LEN];
       let layout = match (ss_hor, ss_ver) {
@@ -741,7 +754,10 @@ mod cfl_ac_parity {
           let Ok(height) = console_core_number_conversion::wrapped::<_, i32>(ch);
           let extraction = super::CflAcExtraction {
             size: super::Size { width, height },
-            padding: super::Size { width: w_pad, height: h_pad },
+            padding: super::Size {
+              width: w_pad,
+              height: h_pad,
+            },
             layout: sampling,
           };
           let source = crate::src::owned_recon::ReconSrc::Pic(dst);
@@ -751,7 +767,8 @@ mod cfl_ac_parity {
               matches!(outcome, super::PredictionDispatch::Applied)
             }
             false => {
-              let result = crate::src::ipred::cfl_ac_scalar_for_test::<BD>(&mut ac, &source, extraction);
+              let result =
+                crate::src::ipred::cfl_ac_scalar_for_test::<BD>(&mut ac, &source, extraction);
               assert_eq!(result, Ok(()));
               true
             }
@@ -788,54 +805,128 @@ mod cfl_ac_parity {
     for &(ss_hor, ss_ver) in &[(true, true), (true, false), (false, false)] {
       for &cw in &[4usize, 8, 16, 32] {
         for &ch in &[4usize, 8, 16, 32] {
+          let ::core::result::Result::Ok(src_w) = ::console_core_number_conversion::fixed_index(
+            ::core::primitive::usize::wrapping_shl(
+              cw,
+              <::core::primitive::u32 as ::core::convert::From<::core::primitive::bool>>::from(
+                (match ::console_core_number_conversion::index::<::core::primitive::u8>(
+                  <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(
+                    ss_hor,
+                  ),
+                ) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                }) != 0,
+              ),
+            ),
+          );
+          let ::core::result::Result::Ok(src_h) = ::console_core_number_conversion::fixed_index(
+            ::core::primitive::usize::wrapping_shl(
+              ch,
+              <::core::primitive::u32 as ::core::convert::From<::core::primitive::bool>>::from(
+                (match ::console_core_number_conversion::index::<::core::primitive::u8>(
+                  <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(
+                    ss_ver,
+                  ),
+                ) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                }) != 0,
+              ),
+            ),
+          );
 
-
-
-          let ::core::result::Result::Ok(src_w) = ::console_core_number_conversion::fixed_index(::core::primitive::usize::wrapping_shl(cw, <::core::primitive::u32 as ::core::convert::From<::core::primitive::bool>>::from((match ::console_core_number_conversion::index::<::core::primitive::u8>(<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(ss_hor)) { ::core::result::Result::Ok(converted_position) => converted_position }) != 0)));
-          let ::core::result::Result::Ok(src_h) = ::console_core_number_conversion::fixed_index(::core::primitive::usize::wrapping_shl(ch, <::core::primitive::u32 as ::core::convert::From<::core::primitive::bool>>::from((match ::console_core_number_conversion::index::<::core::primitive::u8>(<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(ss_ver)) { ::core::result::Result::Ok(converted_position) => converted_position }) != 0)));
-
-
-
-          let stride = ::core::primitive::usize::wrapping_add((match ::console_core_number_conversion::index(src_w) { ::core::result::Result::Ok(native_position) => native_position }), 16).next_multiple_of(64);
-          let mut rng = Rng(seed ^ ::core::primitive::u64::wrapping_shl(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(cw) { ::core::result::Result::Ok(converted_position) => converted_position }, 32_u32) ^ ::core::primitive::u64::wrapping_shl(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(ch) { ::core::result::Result::Ok(converted_position) => converted_position }, 8_u32) ^ <u64 as ::core::convert::From<::core::primitive::bool>>::from(ss_hor));
+          let stride = ::core::primitive::usize::wrapping_add(
+            (match ::console_core_number_conversion::index(src_w) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            }),
+            16,
+          )
+          .next_multiple_of(64);
+          let mut rng = Rng(
+            seed
+              ^ ::core::primitive::u64::wrapping_shl(
+                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(cw) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                },
+                32_u32,
+              )
+              ^ ::core::primitive::u64::wrapping_shl(
+                match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u64>(ch) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                },
+                8_u32,
+              )
+              ^ <u64 as ::core::convert::From<::core::primitive::bool>>::from(ss_hor),
+          );
 
           for &fill in &[-1i32, 0, 1] {
-            let pixels: Vec<BD::Pixel> = (0..stride.wrapping_mul(::core::primitive::usize::wrapping_add((match ::console_core_number_conversion::index(src_h) { ::core::result::Result::Ok(native_position) => native_position }), 2)))
-              .map(|_| {
-                match fill {
-                  -1 => rng.in_range(0, pmax),
-                  0 => 0,
-                  _ => pmax,
-                }
-                .as_()
-              })
-              .collect();
-
-
+            let pixels: Vec<BD::Pixel> =
+              (0..stride.wrapping_mul(::core::primitive::usize::wrapping_add(
+                (match ::console_core_number_conversion::index(src_h) {
+                  ::core::result::Result::Ok(native_position) => native_position,
+                }),
+                2,
+              )))
+                .map(|_| {
+                  match fill {
+                    -1 => rng.in_range(0, pmax),
+                    0 => 0,
+                    _ => pmax,
+                  }
+                  .as_()
+                })
+                .collect();
 
             for &wp in &[0i32, 1, 2] {
               'inner_for_6: for &hp in &[0i32, 1, 2] {
                 match {
-                    ::core::primitive::bool::then_some(::core::primitive::usize::wrapping_mul((match ::console_core_number_conversion::wrapped_index(wp) { ::core::result::Result::Ok(converted_position) => converted_position }), 4) >= cw || ::core::primitive::usize::wrapping_mul((match ::console_core_number_conversion::wrapped_index(hp) { ::core::result::Result::Ok(converted_position) => converted_position }), 4) >= ch, ())
+                  ::core::primitive::bool::then_some(
+                    ::core::primitive::usize::wrapping_mul(
+                      (match ::console_core_number_conversion::wrapped_index(wp) {
+                        ::core::result::Result::Ok(converted_position) => converted_position,
+                      }),
+                      4,
+                    ) >= cw
+                      || ::core::primitive::usize::wrapping_mul(
+                        (match ::console_core_number_conversion::wrapped_index(hp) {
+                          ::core::result::Result::Ok(converted_position) => converted_position,
+                        }),
+                        4,
+                      ) >= ch,
+                    (),
+                  )
                 } {
-                    ::core::option::Option::Some(()) => {
-                      continue 'inner_for_6;
-                    },
-                    ::core::option::Option::None => {},
+                  ::core::option::Option::Some(()) => {
+                    continue 'inner_for_6;
+                  }
+                  ::core::option::Option::None => {}
                 }
 
-                let (neon, scalar, ok) =
-                  run::<BD>(&pixels, self::RunArguments { stride, w_pad: wp, h_pad: hp, cw, ch }, ss_hor, ss_ver);
-                let ::core::result::Result::Ok(()) = ::console_core_number_conversion::wrapping_add_index(1, &mut cells);
+                let (neon, scalar, ok) = run::<BD>(
+                  &pixels,
+                  self::RunArguments {
+                    stride,
+                    w_pad: wp,
+                    h_pad: hp,
+                    cw,
+                    ch,
+                  },
+                  ss_hor,
+                  ss_ver,
+                );
+                let ::core::result::Result::Ok(()) =
+                  ::console_core_number_conversion::wrapping_add_index(1, &mut cells);
 
                 match ::core::primitive::bool::then_some(ok, ()) {
-                    ::core::option::Option::Some(()) => {
-                      let ::core::result::Result::Ok(()) = ::console_core_number_conversion::wrapping_add_index(1, &mut live);
-                    },
-                    ::core::option::Option::None => {},
+                  ::core::option::Option::Some(()) => {
+                    let ::core::result::Result::Ok(()) =
+                      ::console_core_number_conversion::wrapping_add_index(1, &mut live);
+                  }
+                  ::core::option::Option::None => {}
                 }
 
-                if let Some(i) = (0..::core::primitive::usize::wrapping_mul(cw, ch)).find(|&i| neon[i] != scalar[i]) {
+                if let Some(i) = (0..::core::primitive::usize::wrapping_mul(cw, ch))
+                  .find(|&i| neon[i] != scalar[i])
+                {
                   let msg = format!(
                     "{cw}x{ch} ss=({ss_hor},{ss_ver}) pad=({wp},{hp}) \
                                          fill={fill} at {i} ({},{}) : neon={} scalar={}",
@@ -845,13 +936,11 @@ mod cfl_ac_parity {
                     scalar[i]
                   );
 
-                  match {
-                      ::core::primitive::bool::then_some(bad.len() < 4, ())
-                  } {
-                      ::core::option::Option::Some(()) => {
-                        bad.push(msg);
-                      },
-                      ::core::option::Option::None => {},
+                  match { ::core::primitive::bool::then_some(bad.len() < 4, ()) } {
+                    ::core::option::Option::Some(()) => {
+                      bad.push(msg);
+                    }
+                    ::core::option::Option::None => {}
                   }
                 }
               }

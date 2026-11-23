@@ -14,7 +14,10 @@ impl Blues {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Blues::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Blues::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(mut values: impl Iterator<Item = Fixed>) -> Self {
     let mut blues = Self::default();
@@ -38,14 +41,17 @@ impl Blues {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Blues::values` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Blues::values` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn values(&self) -> &[(Fixed, Fixed)] {
     let Ok(indices) = console_core_number_conversion::indices_to(..u64::from(self.len));
 
     match self.values.get(indices) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => &[],
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => &[],
     }
   }
 }
@@ -62,7 +68,10 @@ impl StemSnaps {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `StemSnaps::new` method supports direct construction or chaining with its existing Self return")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `StemSnaps::new` method supports direct construction or chaining with its existing Self return"
+    )
   )]
   pub fn new(values: impl Iterator<Item = Fixed>) -> Self {
     let mut snaps = Self::default();
@@ -85,14 +94,17 @@ impl StemSnaps {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `StemSnaps::values` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `StemSnaps::values` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn values(&self) -> &[Fixed] {
     let Ok(indices) = console_core_number_conversion::indices_to(..u64::from(self.len));
 
     match self.values.get(indices) {
-        ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => &[],
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => &[],
     }
   }
 }

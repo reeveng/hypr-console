@@ -242,7 +242,9 @@ impl Waiting {
 
     match ::core::primitive::bool::then_some(from.is_empty(), ()) {
       ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => notes.push(("from".to_string(), line::Value::Word(from.to_string()))),
+      ::core::option::Option::None => {
+        notes.push(("from".to_string(), line::Value::Word(from.to_string())))
+      }
     }
 
     Ok(Waiting {
@@ -603,10 +605,12 @@ pub fn waited_since(raw: &str) -> Result<Option<Duration>, Never> {
 }
 
 pub fn fresh(waited: Duration) -> Result<Option<Duration>, Never> {
-  Ok(match ::core::primitive::bool::then_some(waited > STALE, ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(waited),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(waited > STALE, ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(waited),
+    },
+  )
 }
 
 fn came_from() -> Result<Option<String>, Never> {

@@ -157,10 +157,11 @@ impl LineLexer<'_> {
 
   fn lex_name(&mut self, first: u8, start: u32) -> Result<One, Spanned<LexerError>> {
     let lo = self.span_lo.saturating_add(start);
-    let (from, token): (u32, fn(Interned) -> Token) = match ::core::primitive::bool::then_some(first == b'$', ()) {
-      ::core::option::Option::Some(()) => (start.saturating_add(1), Token::GroupName),
-      ::core::option::Option::None => (start, Token::Ident),
-    };
+    let (from, token): (u32, fn(Interned) -> Token) =
+      match ::core::primitive::bool::then_some(first == b'$', ()) {
+        ::core::option::Option::Some(()) => (start.saturating_add(1), Token::GroupName),
+        ::core::option::Option::None => (start, Token::Ident),
+      };
     let Ok(rest) = self.rest(from);
 
     let found = match rest.first() {

@@ -52,17 +52,19 @@ mod ctx {
   }
 
   impl<'a> ClosureCtx<'a> {
-    pub(super) fn new(glyphs: &'a mut IntSet<GlyphId>) -> core::result::Result<Self, console_core_never::Never> {
-        let Ok(value_1) = IntSet::empty();
+    pub(super) fn new(
+      glyphs: &'a mut IntSet<GlyphId>,
+    ) -> core::result::Result<Self, console_core_never::Never> {
+      let Ok(value_1) = IntSet::empty();
 
-        Ok(Self {
-          glyphs,
-          active_glyphs_stack: Vec::new(),
-          output: value_1,
-          lookup_count: 0,
-          nesting_level_left: MAX_NESTING_LEVEL,
-          done_lookups_glyphs: Default::default(),
-        })
+      Ok(Self {
+        glyphs,
+        active_glyphs_stack: Vec::new(),
+        output: value_1,
+        lookup_count: 0,
+        nesting_level_left: MAX_NESTING_LEVEL,
+        done_lookups_glyphs: Default::default(),
+      })
     }
 
     #[must_use]
@@ -81,13 +83,24 @@ mod ctx {
       })
     }
 
-    pub(super) fn push_cur_active_glyphs(&mut self, glyphs: IntSet<GlyphId>) -> core::result::Result<(), console_core_never::Never> { {
-      self.active_glyphs_stack.push(glyphs)
-    }; Ok(()) }
+    pub(super) fn push_cur_active_glyphs(
+      &mut self,
+      glyphs: IntSet<GlyphId>,
+    ) -> core::result::Result<(), console_core_never::Never> {
+      {
+        self.active_glyphs_stack.push(glyphs)
+      };
+      Ok(())
+    }
 
-    pub(super) fn pop_cur_done_glyphs(&mut self) -> core::result::Result<(), console_core_never::Never> { {
-      self.active_glyphs_stack.pop();
-    }; Ok(()) }
+    pub(super) fn pop_cur_done_glyphs(
+      &mut self,
+    ) -> core::result::Result<(), console_core_never::Never> {
+      {
+        self.active_glyphs_stack.pop();
+      };
+      Ok(())
+    }
 
     pub(super) fn recurse(
       &mut self,
@@ -116,7 +129,10 @@ mod ctx {
 
       let Ok(()) = self.push_cur_active_glyphs(glyphs);
 
-      match ::core::primitive::bool::then_some(matches!(self.visit_lookup(lookup_index), Ok(VisitDecision::Skip)), ()) {
+      match ::core::primitive::bool::then_some(
+        matches!(self.visit_lookup(lookup_index), Ok(VisitDecision::Skip)),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           match (1, &mut self.nesting_level_left) {
             (explicit_arithmetic_amount, explicit_arithmetic_place) => {
@@ -159,9 +175,14 @@ mod ctx {
       Ok(())
     }
 
-    pub(super) fn reset_lookup_visit_count(&mut self) -> core::result::Result<(), console_core_never::Never> { {
-      self.lookup_count = 0;
-    }; Ok(()) }
+    pub(super) fn reset_lookup_visit_count(
+      &mut self,
+    ) -> core::result::Result<(), console_core_never::Never> {
+      {
+        self.lookup_count = 0;
+      };
+      Ok(())
+    }
 
     pub(super) fn visit_lookup(&mut self, lookup_index: u16) -> Result<VisitDecision, Never> {
       match self.lookup_budget() {
@@ -200,13 +221,16 @@ mod ctx {
 
       let Ok(mut value_5) = cur_active_glyphs.iter();
 
-      match ::core::primitive::bool::then_some({
-        value_5.all(|g| {
-          let Ok(value_58) = covered.contains(g);
+      match ::core::primitive::bool::then_some(
+        {
+          value_5.all(|g| {
+            let Ok(value_58) = covered.contains(g);
 
-          value_58 == console_core_integer_sets::Presence::Present
-        })
-      }, ()) {
+            value_58 == console_core_integer_sets::Presence::Present
+          })
+        },
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           return Ok(VisitDecision::Skip);
         }
@@ -220,23 +244,40 @@ mod ctx {
     }
 
     #[must_use]
-    pub(super) fn glyphs(&self) -> core::result::Result<&IntSet<GlyphId>, console_core_never::Never> {
-        Ok(self.glyphs)
+    pub(super) fn glyphs(
+      &self,
+    ) -> core::result::Result<&IntSet<GlyphId>, console_core_never::Never> {
+      Ok(self.glyphs)
     }
 
-    pub(super) fn add(&mut self, gid: GlyphId) -> core::result::Result<(), console_core_never::Never> { {
-      let Ok(_presence_changed) = self.output.insert(gid);
-    }; Ok(()) }
+    pub(super) fn add(
+      &mut self,
+      gid: GlyphId,
+    ) -> core::result::Result<(), console_core_never::Never> {
+      {
+        let Ok(_presence_changed) = self.output.insert(gid);
+      };
+      Ok(())
+    }
 
-    pub(super) fn add_glyphs(&mut self, iter: impl IntoIterator<Item = GlyphId>) -> core::result::Result<(), console_core_never::Never> { {
-      self.output.extend(iter)
-    }; Ok(()) }
+    pub(super) fn add_glyphs(
+      &mut self,
+      iter: impl IntoIterator<Item = GlyphId>,
+    ) -> core::result::Result<(), console_core_never::Never> {
+      {
+        self.output.extend(iter)
+      };
+      Ok(())
+    }
 
-    pub(super) fn flush(&mut self) -> core::result::Result<(), console_core_never::Never> { {
-      let ::core::result::Result::Ok(()) = self.glyphs.union(&self.output);
-      let ::core::result::Result::Ok(()) = self.output.clear();
-      self.active_glyphs_stack.clear();
-    }; Ok(()) }
+    pub(super) fn flush(&mut self) -> core::result::Result<(), console_core_never::Never> {
+      {
+        let ::core::result::Result::Ok(()) = self.glyphs.union(&self.output);
+        let ::core::result::Result::Ok(()) = self.output.clear();
+        self.active_glyphs_stack.clear();
+      };
+      Ok(())
+    }
   }
 }
 
@@ -276,7 +317,9 @@ fn apply_closure_stage(
     Ok(Membership::Exclusive) => {
       let Ok(count) = lookup_list.lookup_count();
 
-      for position in (0..count).filter(|&position| matches!(lookups.contains(position), Ok(Presence::Present))) {
+      for position in
+        (0..count).filter(|&position| matches!(lookups.contains(position), Ok(Presence::Present)))
+      {
         let lookup = match offsets.get(u64::from(position)) {
           Ok(lookup) => lookup,
           Err(ReadError::NullOffset) => continue,
@@ -340,7 +383,6 @@ impl Gsub<'_> {
         }
         ::core::option::Option::None => {}
       }
-
     }
 
     Ok(())
@@ -386,15 +428,18 @@ impl Gsub<'_> {
     let Ok(value_13) = script_list_offset.nullness();
     let value_13_2 = matches!(value_13, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some({
-      value_13_2 || {
-        let Ok(feature_list_offset) = self.feature_list_offset();
-        let Ok(value_59) = feature_list_offset.nullness();
-        let value_59_2 = matches!(value_59, font_types::Nullness::Null);
+    match ::core::primitive::bool::then_some(
+      {
+        value_13_2 || {
+          let Ok(feature_list_offset) = self.feature_list_offset();
+          let Ok(value_59) = feature_list_offset.nullness();
+          let value_59_2 = matches!(value_59, font_types::Nullness::Null);
 
-        value_59_2
-      }
-    }, ()) {
+          value_59_2
+        }
+      },
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_15) = IntSet::empty();
 
@@ -439,7 +484,10 @@ impl GlyphClosure for SubstitutionLookup<'_> {
     lookup_list: &SubstitutionLookupList,
     lookup_index: u16,
   ) -> Result<(), ReadError> {
-    match ::core::primitive::bool::then_some(matches!(ctx.visit_lookup(lookup_index), Ok(VisitDecision::Skip)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(ctx.visit_lookup(lookup_index), Ok(VisitDecision::Skip)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -618,12 +666,14 @@ impl GlyphClosure for SingleSubstFormat2<'_> {
     let Ok(value_20) = coverage_offset.nullness();
     let value_20_2 = matches!(value_20, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some(value_20_2
-      || ({
-        let Ok(explicit_value) = self.glyph_count();
-        explicit_value
-      }) == 0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      value_20_2
+        || ({
+          let Ok(explicit_value) = self.glyph_count();
+          explicit_value
+        }) == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -636,14 +686,18 @@ impl GlyphClosure for SingleSubstFormat2<'_> {
 
     let Ok(value_21) = glyph_set.len();
 
-    let new_glyphs: Vec<GlyphId> = match ::core::primitive::bool::then_some(({
-      let Ok(glyph_count) = self.glyph_count();
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(glyph_count);
-      migrated_value
-    }) > ::core::primitive::u64::wrapping_mul(value_21, {
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(coverage.cost());
-      migrated_value
-    }), ()) {
+    let new_glyphs: Vec<GlyphId> = match ::core::primitive::bool::then_some(
+      ({
+        let Ok(glyph_count) = self.glyph_count();
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(glyph_count);
+        migrated_value
+      }) > ::core::primitive::u64::wrapping_mul(value_21, {
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(coverage.cost());
+        migrated_value
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_22) = glyph_set.iter();
 
@@ -694,12 +748,14 @@ impl GlyphClosure for MultipleSubstFormat1<'_> {
     let Ok(value_24) = coverage_offset.nullness();
     let value_24_2 = matches!(value_24, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some(value_24_2
-      || ({
-        let Ok(explicit_value) = self.sequence_count();
-        explicit_value
-      }) == 0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      value_24_2
+        || ({
+          let Ok(explicit_value) = self.sequence_count();
+          explicit_value
+        }) == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -712,14 +768,19 @@ impl GlyphClosure for MultipleSubstFormat1<'_> {
 
     let Ok(value_25) = glyph_set.len();
 
-    let new_glyphs: Vec<GlyphId> = match ::core::primitive::bool::then_some(({
-      let Ok(sequence_count) = self.sequence_count();
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(sequence_count);
-      migrated_value
-    }) > ::core::primitive::u64::wrapping_mul(value_25, {
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(coverage.cost());
-      migrated_value
-    }), ()) {
+    let new_glyphs: Vec<GlyphId> = match ::core::primitive::bool::then_some(
+      ({
+        let Ok(sequence_count) = self.sequence_count();
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(sequence_count);
+        migrated_value
+      }) > ::core::primitive::u64::wrapping_mul(value_25, {
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(coverage.cost());
+        migrated_value
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_26) = glyph_set.iter();
 
@@ -795,12 +856,14 @@ impl GlyphClosure for AlternateSubstFormat1<'_> {
     let Ok(value_27) = coverage_offset.nullness();
     let value_27_2 = matches!(value_27, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some(value_27_2
-      || ({
-        let Ok(explicit_value) = self.alternate_set_count();
-        explicit_value
-      }) == 0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      value_27_2
+        || ({
+          let Ok(explicit_value) = self.alternate_set_count();
+          explicit_value
+        }) == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -813,15 +876,19 @@ impl GlyphClosure for AlternateSubstFormat1<'_> {
 
     let Ok(value_28) = glyph_set.len();
 
-    let new_glyphs: Vec<GlyphId> = match ::core::primitive::bool::then_some(({
-      let Ok(alternate_set_count) = self.alternate_set_count();
-      let Ok(migrated_value) =
-        console_core_number_conversion::wrapped::<_, u64>(alternate_set_count);
-      migrated_value
-    }) > ::core::primitive::u64::wrapping_mul(value_28, {
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(coverage.cost());
-      migrated_value
-    }), ()) {
+    let new_glyphs: Vec<GlyphId> = match ::core::primitive::bool::then_some(
+      ({
+        let Ok(alternate_set_count) = self.alternate_set_count();
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(alternate_set_count);
+        migrated_value
+      }) > ::core::primitive::u64::wrapping_mul(value_28, {
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(coverage.cost());
+        migrated_value
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_29) = glyph_set.iter();
 
@@ -897,12 +964,14 @@ impl GlyphClosure for LigatureSubstFormat1<'_> {
     let Ok(value_30) = coverage_offset.nullness();
     let value_30_2 = matches!(value_30, font_types::Nullness::Null);
 
-    match ::core::primitive::bool::then_some(value_30_2
-      || ({
-        let Ok(explicit_value) = self.ligature_set_count();
-        explicit_value
-      }) == 0, ())
-    {
+    match ::core::primitive::bool::then_some(
+      value_30_2
+        || ({
+          let Ok(explicit_value) = self.ligature_set_count();
+          explicit_value
+        }) == 0,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -914,13 +983,15 @@ impl GlyphClosure for LigatureSubstFormat1<'_> {
     let Ok(parent_glyphs) = ctx.parent_active_glyphs();
     let Ok(value_31) = parent_glyphs.len();
 
-    let lig_set_idxes: Vec<u64> = match ::core::primitive::bool::then_some(({
-      let Ok(ligature_set_count) = self.ligature_set_count();
-      let Ok(migrated_value) =
-        console_core_number_conversion::wrapped::<_, u64>(ligature_set_count);
-      migrated_value
-    }) > value_31, ())
-    {
+    let lig_set_idxes: Vec<u64> = match ::core::primitive::bool::then_some(
+      ({
+        let Ok(ligature_set_count) = self.ligature_set_count();
+        let Ok(migrated_value) =
+          console_core_number_conversion::wrapped::<_, u64>(ligature_set_count);
+        migrated_value
+      }) > value_31,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_32) = parent_glyphs.iter();
 
@@ -1003,12 +1074,14 @@ impl GlyphClosure for ReverseChainSingleSubstFormat1<'_> {
     let Ok(glyph_set) = ctx.parent_active_glyphs();
     let Ok(value_34) = glyph_set.len();
 
-    let idxes: Vec<u64> = match ::core::primitive::bool::then_some(({
-      let Ok(glyph_count) = self.glyph_count();
-      let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(glyph_count);
-      migrated_value
-    }) > value_34, ())
-    {
+    let idxes: Vec<u64> = match ::core::primitive::bool::then_some(
+      ({
+        let Ok(glyph_count) = self.glyph_count();
+        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(glyph_count);
+        migrated_value
+      }) > value_34,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(value_35) = glyph_set.iter();
 
@@ -1115,7 +1188,10 @@ impl GlyphClosure for ContextFormat1<'_> {
     let cov_active_glyphs = coverage.intersect_set(parent_glyphs);
     let Ok(value_37) = cov_active_glyphs.is_empty();
 
-    match ::core::primitive::bool::then_some(value_37 == console_core_integer_sets::Emptiness::Empty, ()) {
+    match ::core::primitive::bool::then_some(
+      value_37 == console_core_integer_sets::Emptiness::Empty,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1126,7 +1202,10 @@ impl GlyphClosure for ContextFormat1<'_> {
 
     for (gid, rule_set) in coverage
       .iter()
-      .zip({ let Ok(explicit_value) = self.rule_sets(); explicit_value })
+      .zip({
+        let Ok(explicit_value) = self.rule_sets();
+        explicit_value
+      })
       .filter_map(|(g, rule_set)| {
         rule_set
           .transpose()
@@ -1171,7 +1250,8 @@ impl GlyphClosure for ContextFormat1<'_> {
         }
 
         let Ok(input_seq) = rule_3.input_sequence();
-        let Ok(input_count) = console_core_number_conversion::fitted::<_, u64>(input_seq.len().wrapping_add(1));
+        let Ok(input_count) =
+          console_core_number_conversion::fitted::<_, u64>(input_seq.len().wrapping_add(1));
 
         let Ok(mut seen_sequence_indices) = IntSet::new();
 
@@ -1181,7 +1261,9 @@ impl GlyphClosure for ContextFormat1<'_> {
           let Ok(lookup_index) = lookup_record.lookup_list_index();
           let lookup = match lookups.get(u64::from(lookup_index)) {
             Ok(lookup) => lookup,
-            Err(ReadError::NullOffset | ReadError::InvalidCollectionIndex(_)) => continue 'over_lookup_record_3,
+            Err(ReadError::NullOffset | ReadError::InvalidCollectionIndex(_)) => {
+              continue 'over_lookup_record_3;
+            }
             Err(error) => return Err(error),
           };
           let Ok(sequence_idx) = lookup_record.sequence_index();
@@ -1295,7 +1377,13 @@ fn selected_context_classes<'a>(
     }
   };
 
-  Ok(Some(ContextClasses { input_class_def, coverage: coverage_classes, input, backtrack, lookahead }))
+  Ok(Some(ContextClasses {
+    input_class_def,
+    coverage: coverage_classes,
+    input,
+    backtrack,
+    lookahead,
+  }))
 }
 
 impl GlyphClosure for ContextFormat2<'_> {
@@ -1351,7 +1439,13 @@ impl GlyphClosure for ContextFormat2<'_> {
           }
         };
 
-        match ::core::primitive::bool::then_some(matches!(rule_3.intersects(&input_glyph_classes, &backtrack_classes, &lookahead_classes), Ok(crate::Overlap::Disjoint)), ()) {
+        match ::core::primitive::bool::then_some(
+          matches!(
+            rule_3.intersects(&input_glyph_classes, &backtrack_classes, &lookahead_classes),
+            Ok(crate::Overlap::Disjoint)
+          ),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             continue 'over_rule_2;
           }
@@ -1359,7 +1453,8 @@ impl GlyphClosure for ContextFormat2<'_> {
         }
 
         let Ok(input_seq) = rule_3.input_sequence();
-        let Ok(input_count) = console_core_number_conversion::fitted::<_, u64>(input_seq.len().wrapping_add(1));
+        let Ok(input_count) =
+          console_core_number_conversion::fitted::<_, u64>(input_seq.len().wrapping_add(1));
 
         let Ok(mut seen_sequence_indices) = IntSet::new();
 
@@ -1369,7 +1464,9 @@ impl GlyphClosure for ContextFormat2<'_> {
           let Ok(lookup_index) = lookup_record.lookup_list_index();
           let lookup = match lookups.get(u64::from(lookup_index)) {
             Ok(lookup) => lookup,
-            Err(ReadError::NullOffset | ReadError::InvalidCollectionIndex(_)) => continue 'over_lookup_record_3,
+            Err(ReadError::NullOffset | ReadError::InvalidCollectionIndex(_)) => {
+              continue 'over_lookup_record_3;
+            }
             Err(error) => return Err(error),
           };
           let Ok(sequence_idx) = lookup_record.sequence_index();
@@ -1454,11 +1551,13 @@ impl GlyphClosure for ContextFormat3<'_> {
 
       let Ok(seq_idx) = record.sequence_index();
 
-      match ::core::primitive::bool::then_some(({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(seq_idx);
-        migrated_value
-      }) >= input_count, ())
-      {
+      match ::core::primitive::bool::then_some(
+        ({
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(seq_idx);
+          migrated_value
+        }) >= input_count,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -1467,29 +1566,35 @@ impl GlyphClosure for ContextFormat3<'_> {
 
       let Ok(value_102) = seen_sequence_indices.insert(seq_idx);
 
-      let active_glyphs = match ::core::primitive::bool::then_some(value_102 == console_core_integer_sets::Presence::Present, ()) {
+      let active_glyphs = match ::core::primitive::bool::then_some(
+        value_102 == console_core_integer_sets::Presence::Present,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
-            let Ok(ctx_glyphs) = ctx.glyphs();
+          let Ok(ctx_glyphs) = ctx.glyphs();
 
-            ctx_glyphs.clone()
+          ctx_glyphs.clone()
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(seq_idx == 0, ()) {
-          ::core::option::Option::Some(()) => {
-            let cov = input_coverages.get(0)?;
-            let Ok(parent_glyphs) = ctx.parent_active_glyphs();
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(seq_idx == 0, ()) {
+            ::core::option::Option::Some(()) => {
+              let cov = input_coverages.get(0)?;
+              let Ok(parent_glyphs) = ctx.parent_active_glyphs();
 
-            cov.intersect_set(parent_glyphs)
-          }
-          ::core::option::Option::None => {
-            let cov = input_coverages.get({
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(seq_idx);
-              migrated_value
-            })?;
-            let Ok(ctx_glyphs) = ctx.glyphs();
+              cov.intersect_set(parent_glyphs)
+            }
+            ::core::option::Option::None => {
+              let cov = input_coverages.get({
+                let Ok(migrated_value) =
+                  console_core_number_conversion::wrapped::<_, u64>(seq_idx);
+                migrated_value
+              })?;
+              let Ok(ctx_glyphs) = ctx.glyphs();
 
-            cov.intersect_set(ctx_glyphs)
+              cov.intersect_set(ctx_glyphs)
+            }
           }
-        },
+        }
       };
 
       let value_46 = &mut seen_sequence_indices;
@@ -1526,7 +1631,10 @@ impl SubstitutionLookupList<'_> {
     let Ok(()) = lookup_indices.remove_range(lookup_count..=u16::MAX);
     let Ok(value_47) = lookup_indices.is_empty();
 
-    match ::core::primitive::bool::then_some(value_47 == console_core_integer_sets::Emptiness::Empty, ()) {
+    match ::core::primitive::bool::then_some(
+      value_47 == console_core_integer_sets::Emptiness::Empty,
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1568,7 +1676,10 @@ impl LookupClosure for SubstitutionLookup<'_> {
     c: &mut LookupClosureCtx,
     lookup_index: u16,
   ) -> Result<(), ReadError> {
-    match ::core::primitive::bool::then_some(matches!(c.visit_lookup(lookup_index), Ok(VisitDecision::Skip)), ()) {
+    match ::core::primitive::bool::then_some(
+      matches!(c.visit_lookup(lookup_index), Ok(VisitDecision::Skip)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Ok(());
       }
@@ -1926,7 +2037,10 @@ impl Intersect for ReverseChainSingleSubstFormat1<'_> {
 mod tests {
   use std::collections::{HashMap, HashSet};
 
-  use crate::{FontRef, TableProvider, test_support::{Failure, fixture_value}};
+  use crate::{
+    FontRef, TableProvider,
+    test_support::{Failure, fixture_value},
+  };
 
   use super::*;
   use font_test_data::closure as test_data;
@@ -1982,7 +2096,12 @@ mod tests {
   ) -> Result<(), Failure> {
     let Ok(glyphs) = result.iter();
     let actual = glyphs
-      .map(|glyph| fixture_value(glyph_map.from_gid.get(&glyph).copied(), "closure output glyph"))
+      .map(|glyph| {
+        fixture_value(
+          glyph_map.from_gid.get(&glyph).copied(),
+          "closure output glyph",
+        )
+      })
       .collect::<Result<HashSet<_>, _>>()?;
     let expected = expected_names.iter().copied().collect::<HashSet<_>>();
 
@@ -1991,7 +2110,9 @@ mod tests {
       ::core::option::Option::None => {
         let missing: Vec<_> = expected.difference(&actual).collect();
         let unexpected: Vec<_> = actual.difference(&expected).collect();
-        Err(Failure::from(format!("Closure output does not match\nmissing {missing:?}\nunexpected {unexpected:?}")))
+        Err(Failure::from(format!(
+          "Closure output does not match\nmissing {missing:?}\nunexpected {unexpected:?}"
+        )))
       }
     }
   }
@@ -2005,7 +2126,7 @@ mod tests {
     check_closure(
       &glyph_map,
       &result,
-      &["a", "A", "b", "c", "d", "a_a", "a.1", "a.2", "a.3"]
+      &["a", "A", "b", "c", "d", "a_a", "a.1", "a.2", "a.3"],
     )?;
     Ok(())
   }
@@ -2042,8 +2163,8 @@ mod tests {
       &glyph_map,
       &gsub6f1,
       &[
-        "one", "two", "three", "four", "five", "six", "seven", "X", "Y"
-      ]
+        "one", "two", "three", "four", "five", "six", "seven", "X", "Y",
+      ],
     )?;
     Ok(())
   }
@@ -2126,7 +2247,7 @@ mod tests {
     check_closure(
       &glyph_map,
       &result,
-      &["a", "b", "c", "d", "e", "f", "period", "A", "B", "C"]
+      &["a", "b", "c", "d", "e", "f", "period", "A", "B", "C"],
     )?;
     Ok(())
   }

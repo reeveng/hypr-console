@@ -13,7 +13,7 @@ pub enum BufferError {
   Range,
   Permission,
   Length,
-  Fault,
+  MemoryAccess,
 }
 
 pub struct UserRange {
@@ -34,10 +34,12 @@ pub struct UserBuffer<'table> {
 
 impl<'table> UserWindow<'table> {
   pub fn new(base: u64, entries: &'table [u64; 2]) -> Result<Self, BufferError> {
-    match ::core::primitive::bool::then_some(base == 0
-      || base & PAGE.saturating_sub(1) != 0
-      || base > USER_END.saturating_sub(PAGE.saturating_mul(2)), ())
-    {
+    match ::core::primitive::bool::then_some(
+      base == 0
+        || base & PAGE.saturating_sub(1) != 0
+        || base > USER_END.saturating_sub(PAGE.saturating_mul(2)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(BufferError::Range);
       }
@@ -56,7 +58,10 @@ impl<'table> UserWindow<'table> {
     let end = start.checked_add(length).ok_or(BufferError::Range)?;
     let middle = self.base.saturating_add(PAGE);
 
-    match ::core::primitive::bool::then_some(length == 0 || start < self.base || end > middle.saturating_add(PAGE), ()) {
+    match ::core::primitive::bool::then_some(
+      length == 0 || start < self.base || end > middle.saturating_add(PAGE),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(BufferError::Range);
       }
@@ -67,7 +72,10 @@ impl<'table> UserWindow<'table> {
     let Ok(low) = user_access(first, access);
     let Ok(high) = user_access(second, access);
 
-    match ::core::primitive::bool::then_some((start < middle && low == Access::Denied) || (end > middle && high == Access::Denied), ()) {
+    match ::core::primitive::bool::then_some(
+      (start < middle && low == Access::Denied) || (end > middle && high == Access::Denied),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(BufferError::Permission);
       }
@@ -88,7 +96,10 @@ impl UserBuffer<'_> {
     mut load: impl FnMut(u64) -> Result<u8, BufferError>,
     destination: &mut [u8; N],
   ) -> Result<(), BufferError> {
-    match ::core::primitive::bool::then_some(u64::try_from(N) != Ok(self.end.saturating_sub(self.start)), ()) {
+    match ::core::primitive::bool::then_some(
+      u64::try_from(N) != Ok(self.end.saturating_sub(self.start)),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         return Err(BufferError::Length);
       }

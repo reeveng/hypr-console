@@ -292,7 +292,7 @@ impl TopLevelTable for Sbix<'_> {
 }
 
 impl ReadArgs for Sbix<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for Sbix<'a> {
@@ -448,7 +448,7 @@ impl<'a> MinByteRange<'a> for Strike<'a> {
 }
 
 impl ReadArgs for Strike<'_> {
-    type Args = u16;
+    type Arguments = u16;
 }
 
 impl<'a> FontReadWithArgs<'a> for Strike<'a> {

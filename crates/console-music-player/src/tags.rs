@@ -66,7 +66,10 @@ pub enum Tagged {
 impl Tags {
   pub fn tagged(&self) -> Result<Tagged, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self.title.is_empty() && self.artist.is_empty() && self.rest.is_empty(), ()) {
+      match ::core::primitive::bool::then_some(
+        self.title.is_empty() && self.artist.is_empty() && self.rest.is_empty(),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Tagged::None,
         ::core::option::Option::None => Tagged::Some,
       },
@@ -231,7 +234,10 @@ fn gathered(tag: &Tag, into: &mut Vec<(String, String)>) -> Result<(), Never> {
 
     let said_2 = said.split_whitespace().collect::<Vec<&str>>().join(" ");
 
-    match ::core::primitive::bool::then_some(said_2.is_empty() || !had.insert(name_3.to_string()), ()) {
+    match ::core::primitive::bool::then_some(
+      said_2.is_empty() || !had.insert(name_3.to_string()),
+      (),
+    ) {
       ::core::option::Option::Some(()) => continue,
       ::core::option::Option::None => {}
     }

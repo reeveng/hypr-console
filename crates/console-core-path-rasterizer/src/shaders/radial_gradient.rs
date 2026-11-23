@@ -183,7 +183,7 @@ impl FocalData {
 #[derive(Clone, PartialEq, Debug)]
 enum GradientType {
   Radial { radius1: f32, radius2: f32 },
-  Strip { scaled_r0: f32 },
+  Band { scaled_r0: f32 },
   Focal(FocalData),
 }
 
@@ -351,7 +351,7 @@ impl RadialGradient {
             }
           }
         }
-        GradientType::Strip { scaled_r0 } => (scaled_r0 * scaled_r0, 0.0),
+        GradientType::Band { scaled_r0 } => (scaled_r0 * scaled_r0, 0.0),
         GradientType::Focal(fd) => (1.0 / fd.r1, fd.focal_x),
       };
 
@@ -375,7 +375,7 @@ impl RadialGradient {
               ::core::option::Option::None => {}
             }
           }
-          GradientType::Strip { .. } => {
+          GradientType::Band { .. } => {
             let Ok(()) = p_2.push(pipeline::Stage::XYTo2PtConicalStrip);
             let Ok(()) = p_2.push(pipeline::Stage::Mask2PtConicalNan);
           }
@@ -448,7 +448,7 @@ impl RadialGradient {
           }
         },
         &|p_3| match self.gradient_type {
-          GradientType::Strip { .. } => {
+          GradientType::Band { .. } => {
             let Ok(push) = p_3.push(pipeline::Stage::ApplyVectorMask);
 
             push
@@ -535,7 +535,7 @@ fn create(
       };
 
       let gradient_type = match (r0 - r1).is_nearly_zero() {
-        ScalarProximity::WithinTolerance => GradientType::Strip {
+        ScalarProximity::WithinTolerance => GradientType::Band {
           scaled_r0: r0 / distance,
         },
         ScalarProximity::OutsideTolerance => {

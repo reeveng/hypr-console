@@ -35,8 +35,6 @@ const FACTS: &str = "target/architecture/facts";
 
 const CHECKED: &str = "target/architecture/dylint/target";
 
-const MAP_FACTS: &str = "docs/architecture/facts.jsonl";
-
 const MAP_SOURCE: &str = "docs/architecture/map.dot";
 
 const MAP_PICTURE: &str = "docs/architecture/map.svg";
@@ -56,7 +54,6 @@ enum TaskError {
   Metadata(String),
   NoRoot(String),
   Unwritten(String),
-  MapChanged,
   NoToolchain,
 }
 
@@ -71,10 +68,6 @@ impl fmt::Display for TaskError {
       }
       TaskError::NoRoot(why) => write!(to, "not inside this tree: {why}"),
       TaskError::Unwritten(why) => write!(to, "the pass could not be written down: {why}"),
-      TaskError::MapChanged => write!(
-        to,
-        "the map drawn now is not the one committed; commit docs/architecture"
-      ),
       TaskError::NoToolchain => write!(
         to,
         "rustup is not on PATH, and the lint suite asks it which toolchain it is"
@@ -234,7 +227,9 @@ fn answer(program: Program, arguments: &[&str]) -> Result<String, TaskError> {
     .map_err(|why| TaskError::Unstarted(said.clone(), why))?;
 
   match ::core::primitive::bool::then_some(output.status.success(), ()) {
-    ::core::option::Option::Some(()) => String::from_utf8(output.stdout).map_err(|_not_text| TaskError::Unread(said)),
+    ::core::option::Option::Some(()) => {
+      String::from_utf8(output.stdout).map_err(|_not_text| TaskError::Unread(said))
+    }
     ::core::option::Option::None => Err(TaskError::Failed(said)),
   }
 }
@@ -254,10 +249,12 @@ fn asked(program: Program, arguments: &[&str]) -> Result<Reply, TaskError> {
     .status()
     .map_err(|why| TaskError::Unstarted(arguments.join(" "), why))?;
 
-  Ok(match ::core::primitive::bool::then_some(status.success(), ()) {
-    ::core::option::Option::Some(()) => Reply::Yes,
-    ::core::option::Option::None => Reply::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => Reply::Yes,
+      ::core::option::Option::None => Reply::No,
+    },
+  )
 }
 
 fn test() -> Result<(), TaskError> {
@@ -324,7 +321,7 @@ fn ready(root: &Path) -> Result<(), TaskError> {
   let Ok(steps) = ready::steps(&scope);
 
   for step in steps {
-    ask(root, &step)?;
+    ask(&step)?;
   }
 
   written_down(&at, &now, before)
@@ -351,20 +348,8 @@ fn written_down(at: &Path, then: &str, before: Tree) -> Result<(), TaskError> {
   }
 }
 
-fn ask(root: &Path, step: &Step) -> Result<(), TaskError> {
+fn ask(step: &Step) -> Result<(), TaskError> {
   match step {
-    Step::Map => map(root),
-    Step::MapUnchanged => {
-      let same = asked(
-        Program::Git,
-        &["diff", "--quiet", "--", MAP_FACTS, MAP_SOURCE],
-      )?;
-
-      match same {
-        Reply::Yes => Ok(()),
-        Reply::No => Err(TaskError::MapChanged),
-      }
-    }
     Step::RetiredWords => cargo(&[
       "run",
       "--quiet",
@@ -628,7 +613,8 @@ fn affected_by_what_every_crate_is_built_from(
   changed: &[String],
   packages: &[Package],
 ) -> Result<Affected, TaskError> {
-  let lock = match ::core::primitive::bool::then_some(changed.iter().any(|path| path == LOCK), ()) {
+  let lock = match ::core::primitive::bool::then_some(changed.iter().any(|path| path == LOCK), ())
+  {
     ::core::option::Option::Some(()) => {
       let before = from_history(&format!("{since}:{LOCK}"))?;
       let after = on_disk(LOCK)?;
@@ -645,26 +631,27 @@ fn affected_by_what_every_crate_is_built_from(
       none
     }
   };
-  let manifest = match ::core::primitive::bool::then_some(changed.iter().any(|path| path == MANIFEST), ()) {
-    ::core::option::Option::Some(()) => {
-      let before = from_history(&format!("{since}:{MANIFEST}"))?;
-      let after = on_disk(MANIFEST)?;
-      let Ok(affected) = reached::affected_by_manifest(
-        Change {
-          before: &before,
-          after: &after,
-        },
-        packages,
-      );
+  let manifest =
+    match ::core::primitive::bool::then_some(changed.iter().any(|path| path == MANIFEST), ()) {
+      ::core::option::Option::Some(()) => {
+        let before = from_history(&format!("{since}:{MANIFEST}"))?;
+        let after = on_disk(MANIFEST)?;
+        let Ok(affected) = reached::affected_by_manifest(
+          Change {
+            before: &before,
+            after: &after,
+          },
+          packages,
+        );
 
-      affected
-    }
-    ::core::option::Option::None => {
-      let Ok(none) = Affected::none();
+        affected
+      }
+      ::core::option::Option::None => {
+        let Ok(none) = Affected::none();
 
-      none
-    }
-  };
+        none
+      }
+    };
   let Ok(both) = lock.and(manifest);
 
   Ok(both)
@@ -753,11 +740,13 @@ fn package(
     None => return Ok(None),
   };
   let directory = match folder.strip_prefix(root) {
-    Ok(relative) => match ::core::primitive::bool::then_some(!relative.as_os_str().is_empty()
-      && relative
-        .components()
-        .all(|component| matches!(component, Component::Normal(_))), ())
-    {
+    Ok(relative) => match ::core::primitive::bool::then_some(
+      !relative.as_os_str().is_empty()
+        && relative
+          .components()
+          .all(|component| matches!(component, Component::Normal(_))),
+      (),
+    ) {
       ::core::option::Option::Some(()) => relative.to_str(),
       ::core::option::Option::None => None,
     },

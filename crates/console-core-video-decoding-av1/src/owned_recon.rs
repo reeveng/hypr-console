@@ -132,14 +132,22 @@ impl BandPlane {
     let Size { width, height } = geometry.rectangle.size;
     let aligned_width = match geometry.superblock_width {
       0 => width,
-      alignment => width.checked_next_multiple_of(alignment).ok_or(Rav1dError::ERANGE)?,
+      alignment => width
+        .checked_next_multiple_of(alignment)
+        .ok_or(Rav1dError::ERANGE)?,
     };
     let sample_size = u64::from(geometry.sample_bytes);
-    let padded_bytes = aligned_width.checked_mul(sample_size).ok_or(Rav1dError::ERANGE)?;
-    let stride = padded_bytes.checked_next_multiple_of(CHUNK_BYTES).ok_or(Rav1dError::ERANGE)?;
+    let padded_bytes = aligned_width
+      .checked_mul(sample_size)
+      .ok_or(Rav1dError::ERANGE)?;
+    let stride = padded_bytes
+      .checked_next_multiple_of(CHUNK_BYTES)
+      .ok_or(Rav1dError::ERANGE)?;
     let row_bytes = width.checked_mul(sample_size).ok_or(Rav1dError::ERANGE)?;
     let chunks_per_row = stride.wrapping_div(CHUNK_BYTES);
-    let target_chunks = height.checked_mul(chunks_per_row).ok_or(Rav1dError::ERANGE)?;
+    let target_chunks = height
+      .checked_mul(chunks_per_row)
+      .ok_or(Rav1dError::ERANGE)?;
     let Ok(available_chunks) = fixed_index(self.storage.len());
 
     match target_chunks.checked_sub(available_chunks) {
@@ -153,7 +161,10 @@ impl BandPlane {
         }
 
         let Ok(additional) = index(extra);
-        self.storage.try_reserve(additional).map_err(|_allocation| Rav1dError::ENOMEM)?;
+        self
+          .storage
+          .try_reserve(additional)
+          .map_err(|_allocation| Rav1dError::ENOMEM)?;
         self.storage.resize(target, Chunk([0; 64]));
       }
       Some(0) | None => {}
@@ -168,7 +179,9 @@ impl BandPlane {
 
   fn row_bytes(&self, row: u64) -> Rav1dResult<&[u8]> {
     let start = row.checked_mul(self.stride).ok_or(Rav1dError::ERANGE)?;
-    let end = start.checked_add(self.row_bytes).ok_or(Rav1dError::ERANGE)?;
+    let end = start
+      .checked_add(self.row_bytes)
+      .ok_or(Rav1dError::ERANGE)?;
     let Ok(range) = indices(start..end);
     let bytes = zerocopy::IntoBytes::as_bytes(self.storage.as_slice());
     bytes.get(range).ok_or(Rav1dError::EINVAL)
@@ -179,14 +192,18 @@ impl BandPlane {
     let row = position.y.checked_sub(origin.y).ok_or(Rav1dError::EINVAL)?;
     let column = position.x.checked_sub(origin.x).ok_or(Rav1dError::EINVAL)?;
     let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
-    let row_pixels = self.stride.checked_div(sample_size).ok_or(Rav1dError::EINVAL)?;
+    let row_pixels = self
+      .stride
+      .checked_div(sample_size)
+      .ok_or(Rav1dError::EINVAL)?;
 
     match (row.cmp(&size.height), column.cmp(&row_pixels)) {
       (Ordering::Less, Ordering::Less) => {}
       _ => return Err(Rav1dError::EINVAL),
     }
 
-    row.checked_mul(row_pixels)
+    row
+      .checked_mul(row_pixels)
       .and_then(|start| start.checked_add(column))
       .ok_or(Rav1dError::ERANGE)
   }
@@ -199,7 +216,10 @@ pub(crate) struct ReconBand {
 
 impl Default for ReconBand {
   fn default() -> Self {
-    Self { planes: Default::default(), state: BandState::Idle }
+    Self {
+      planes: Default::default(),
+      state: BandState::Idle,
+    }
   }
 }
 
@@ -232,7 +252,11 @@ impl ReconBand {
     let storage = self.planes.get_mut(plane_index).ok_or(Rav1dError::EINVAL)?;
     let offset = storage.pixel_offset::<BD>(position)?;
     let bytes = zerocopy::IntoBytes::as_mut_bytes(storage.storage.as_mut_slice());
-    Ok(Band { bytes, offset, stride: storage.stride })
+    Ok(Band {
+      bytes,
+      offset,
+      stride: storage.stride,
+    })
   }
 }
 
@@ -345,7 +369,9 @@ impl<BD: BitDepth> DstBlock<'_, BD> {
     Ok({
       match self {
         Self::Pic(b) => b.base(),
-        Self::Own { base, .. } => match index(*base) { Ok(position) => position },
+        Self::Own { base, .. } => match index(*base) {
+          Ok(position) => position,
+        },
       }
     })
   }
@@ -355,14 +381,19 @@ impl<BD: BitDepth> DstBlock<'_, BD> {
     Ok({
       match self {
         Self::Pic(b) => b.byte_stride(),
-        Self::Own { stride, .. } => match wrapped_offset(*stride) { Ok(offset) => offset },
+        Self::Own { stride, .. } => match wrapped_offset(*stride) {
+          Ok(offset) => offset,
+        },
       }
     })
   }
 }
 
 #[inline]
-fn band_byte_range<BD: BitDepth>(offset: u64, samples: u64) -> Result<core::ops::Range<u64>, console_core_never::Never> {
+fn band_byte_range<BD: BitDepth>(
+  offset: u64,
+  samples: u64,
+) -> Result<core::ops::Range<u64>, console_core_never::Never> {
   let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
   let start = offset.wrapping_mul(sample_size);
   let end = samples.wrapping_mul(sample_size).wrapping_add(start);
@@ -377,7 +408,10 @@ fn px<BD: BitDepth>(
 ) -> Result<&[BD::Pixel], console_core_never::Never> {
   let Ok(range) = band_byte_range::<BD>(offset, len);
   let Ok(native_range) = indices(range);
-  Ok(zerocopy::FromBytes::ref_from_bytes(&bytes[native_range]).expect("band row pixel reinterpretation"))
+  Ok(
+    zerocopy::FromBytes::ref_from_bytes(&bytes[native_range])
+      .expect("band row pixel reinterpretation"),
+  )
 }
 
 #[inline]
@@ -388,15 +422,27 @@ fn px_mut<BD: BitDepth>(
 ) -> Result<&mut [BD::Pixel], console_core_never::Never> {
   let Ok(range) = band_byte_range::<BD>(offset, len);
   let Ok(native_range) = indices(range);
-  Ok(zerocopy::FromBytes::mut_from_bytes(&mut bytes[native_range]).expect("band row pixel reinterpretation"))
+  Ok(
+    zerocopy::FromBytes::mut_from_bytes(&mut bytes[native_range])
+      .expect("band row pixel reinterpretation"),
+  )
 }
 
 impl<'a> ReconDst<'a> {
   pub(crate) fn check_block_bounds<BD: BitDepth>(&self, size: Size<u64>) -> Rav1dResult {
     let rows_after_first = size.height.checked_sub(1).ok_or(Rav1dError::EINVAL)?;
-    let Ok(native_stride) = ::console_core_number_conversion::fixed_offset(match self.pixel_stride::<BD>() { ::core::result::Result::Ok(native_stride) => native_stride });
-    let Ok(stride) = fixed_offset(match ::console_core_number_conversion::wrapped_offset(native_stride) { ::core::result::Result::Ok(native_position) => native_position });
-    let span = rows_after_first.checked_mul(stride.unsigned_abs()).ok_or(Rav1dError::ERANGE)?;
+    let Ok(native_stride) =
+      ::console_core_number_conversion::fixed_offset(match self.pixel_stride::<BD>() {
+        ::core::result::Result::Ok(native_stride) => native_stride,
+      });
+    let Ok(stride) = fixed_offset(
+      match ::console_core_number_conversion::wrapped_offset(native_stride) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    );
+    let span = rows_after_first
+      .checked_mul(stride.unsigned_abs())
+      .ok_or(Rav1dError::ERANGE)?;
     let (offset, available) = match self {
       Self::Pic(picture) => {
         let Ok(start) = fixed_index(picture.offset);
@@ -406,7 +452,9 @@ impl<'a> ReconDst<'a> {
       Self::Own(band) => {
         let Ok(byte_count) = fixed_index(band.bytes.len());
         let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
-        let pixel_count = byte_count.checked_div(sample_size).ok_or(Rav1dError::EINVAL)?;
+        let pixel_count = byte_count
+          .checked_div(sample_size)
+          .ok_or(Rav1dError::EINVAL)?;
         (band.offset, pixel_count)
       }
     };
@@ -415,9 +463,13 @@ impl<'a> ReconDst<'a> {
         let _lowest_start = offset.checked_sub(span).ok_or(Rav1dError::EINVAL)?;
         offset
       }
-      Ordering::Equal | Ordering::Greater => offset.checked_add(span).ok_or(Rav1dError::ERANGE)?,
+      Ordering::Equal | Ordering::Greater => {
+        offset.checked_add(span).ok_or(Rav1dError::ERANGE)?
+      }
     };
-    let end = highest_start.checked_add(size.width).ok_or(Rav1dError::ERANGE)?;
+    let end = highest_start
+      .checked_add(size.width)
+      .ok_or(Rav1dError::ERANGE)?;
 
     match end.cmp(&available) {
       Ordering::Less | Ordering::Equal => Ok(()),
@@ -434,7 +486,7 @@ impl<'a> ReconDst<'a> {
         Self::Pic(p) => p.pixel_stride::<BD>()?,
         Self::Own(b) => match wrapped_offset(BD::pxstride(b.stride)) {
           Ok(native_stride) => native_stride,
-        }
+        },
       }
     })
   }
@@ -448,7 +500,9 @@ impl<'a> ReconDst<'a> {
       match self {
         Self::Pic(p) => ReconDst::Pic(*p + delta),
         Self::Own(b) => ReconDst::Own(Band {
-          offset: b.offset.wrapping_add_signed(match fixed_offset(delta) { Ok(amount) => amount }),
+          offset: b.offset.wrapping_add_signed(match fixed_offset(delta) {
+            Ok(amount) => amount,
+          }),
           bytes: b.bytes,
           stride: b.stride,
         }),
@@ -588,7 +642,10 @@ impl<'a> ReconDst<'a> {
     Ok({
       match self {
         Self::Pic(p) => crate::include::dav1d::picture::with_pixel_guard_mut::<BD, R>(
-          p, w, h, |bytes, offset, stride| f(bytes, offset, stride, context),
+          p,
+          w,
+          h,
+          |bytes, offset, stride| f(bytes, offset, stride, context),
         ),
         Self::Own(b) => {
           let _ = (w, h);
@@ -637,7 +694,7 @@ impl<'a> ReconSrc<'a> {
         Self::Pic(p) => p.pixel_stride::<BD>()?,
         Self::Own(b) => match wrapped_offset(BD::pxstride(b.stride)) {
           Ok(native_stride) => native_stride,
-        }
+        },
       }
     })
   }
@@ -652,7 +709,9 @@ impl<'a> ReconSrc<'a> {
         Self::Pic(p) => ReconSrc::Pic(*p + delta),
         Self::Own(b) => ReconSrc::Own(BandRef {
           bytes: b.bytes,
-          offset: b.offset.wrapping_add_signed(match fixed_offset(delta) { Ok(amount) => amount }),
+          offset: b.offset.wrapping_add_signed(match fixed_offset(delta) {
+            Ok(amount) => amount,
+          }),
           stride: b.stride,
         }),
       }
@@ -704,7 +763,9 @@ impl<'a> ReconSrc<'a> {
         let Ok(columns) = index(extent.width);
         let Ok(rows) = index(extent.height);
         let output = crate::include::dav1d::picture::with_pixel_guard_immut::<BD, _>(
-          picture, columns, rows,
+          picture,
+          columns,
+          rows,
           move |pixels, position, pitch| {
             let Ok(offset) = fixed_index(position);
             let Ok(stride) = fixed_offset(pitch);
@@ -721,7 +782,6 @@ impl<'a> ReconSrc<'a> {
       }
     }
   }
-
 }
 
 pub(crate) enum ReconPlanes<'a> {
@@ -804,16 +864,23 @@ fn picture_position<BD: BitDepth>(
   let row = i64::try_from(position.y).map_err(|_outside_picture| Rav1dError::EINVAL)?;
   let Ok(byte_stride) = fixed_offset(picture.stride());
   let stride = BD::pxstride(byte_stride);
-  let displacement = row.checked_mul(stride)
-    .and_then(|offset| offset.checked_add(column)).ok_or(Rav1dError::EINVAL)?;
+  let displacement = row
+    .checked_mul(stride)
+    .and_then(|offset| offset.checked_add(column))
+    .ok_or(Rav1dError::EINVAL)?;
   let Ok(origin) = fixed_index(picture.with_offset::<BD>().offset);
-  let address = origin.checked_add_signed(displacement).ok_or(Rav1dError::EINVAL)?;
+  let address = origin
+    .checked_add_signed(displacement)
+    .ok_or(Rav1dError::EINVAL)?;
   let Ok(length) = fixed_index(picture.pixel_len::<BD>());
 
   match address.cmp(&length) {
     Ordering::Less => {
       let Ok(offset) = index(address);
-      Ok(PicOffset { data: picture, offset })
+      Ok(PicOffset {
+        data: picture,
+        offset,
+      })
     }
     Ordering::Equal | Ordering::Greater => Err(Rav1dError::EINVAL),
   }
@@ -870,13 +937,16 @@ pub(crate) fn frame_setup(
     (None, _) | (_, None) => return Ok(()),
   };
 
-  match (header.frame_type.is_key_or_intra() && !header.allow_intrabc && c.fc.len() <= 1).then_some(()) {
+  match (header.frame_type.is_key_or_intra() && !header.allow_intrabc && c.fc.len() <= 1)
+    .then_some(())
+  {
     Some(()) => {}
     None => return Ok(()),
   }
 
   let [luma, chroma_u, chroma_v] = &picture.data;
-  let plane_is_available = |plane: &Rav1dPictureDataComponent| plane.stride() > 0 && plane.byte_len() != 0;
+  let plane_is_available =
+    |plane: &Rav1dPictureDataComponent| plane.stride() > 0 && plane.byte_len() != 0;
   let available = match f.cur.p.layout {
     Rav1dPixelLayout::I400 => plane_is_available(luma),
     Rav1dPixelLayout::I420 | Rav1dPixelLayout::I422 | Rav1dPixelLayout::I444 => {
@@ -896,7 +966,10 @@ fn band_geometry(
   tile: &Rav1dTileStateTiling,
   row: i32,
 ) -> Rav1dResult<BandGeometry> {
-  let column_count = tile.col_end.checked_sub(tile.col_start).ok_or(Rav1dError::ERANGE)?;
+  let column_count = tile
+    .col_end
+    .checked_sub(tile.col_start)
+    .ok_or(Rav1dError::ERANGE)?;
   let stride_blocks = u64::try_from(f.sb_step).map_err(|_bad_step| Rav1dError::EINVAL)?;
   let block_columns = u64::try_from(column_count).map_err(|_bad_width| Rav1dError::EINVAL)?;
   let start_column = u64::try_from(tile.col_start).map_err(|_bad_column| Rav1dError::EINVAL)?;
@@ -905,8 +978,14 @@ fn band_geometry(
 
   let luma = PlaneGeometry {
     rectangle: Rectangle {
-      origin: Point { x: start_column.wrapping_mul(4), y: start_row.wrapping_mul(4) },
-      size: Size { width: block_columns.wrapping_mul(4), height: superblock_size },
+      origin: Point {
+        x: start_column.wrapping_mul(4),
+        y: start_row.wrapping_mul(4),
+      },
+      size: Size {
+        width: block_columns.wrapping_mul(4),
+        height: superblock_size,
+      },
     },
     superblock_width: superblock_size,
     sample_bytes: match f.cur.p.bpc.cmp(&8) {
@@ -951,7 +1030,11 @@ pub(crate) fn arm_sbrow(f: &Rav1dFrameData, t: &mut Rav1dTaskContext) -> Rav1dRe
   let visible_end = row_end.min(tiling.row_end);
   let row_count = visible_end.checked_sub(t.b.y).ok_or(Rav1dError::ERANGE)?;
   let live = match row_count {
-    1.. => { let checked_value = u64::try_from(row_count).map_err(|_bad_count| Rav1dError::EINVAL)?; checked_value }.wrapping_mul(4),
+    1.. => {
+      let checked_value = u64::try_from(row_count).map_err(|_bad_count| Rav1dError::EINVAL)?;
+      checked_value
+    }
+    .wrapping_mul(4),
     _ => return Ok(()),
   };
 
@@ -986,10 +1069,23 @@ pub(crate) fn stitch_sbrow<BD: BitDepth>(
   let picture = f.cur.data.as_ref().ok_or(Rav1dError::EINVAL)?;
   let Ok(plane_count) = index(planes);
 
-  for (band, destination) in t.recon_band.planes.iter().zip(&picture.data).take(plane_count) {
+  for (band, destination) in t
+    .recon_band
+    .planes
+    .iter()
+    .zip(&picture.data)
+    .take(plane_count)
+  {
     let Rectangle { origin, size } = band.rectangle;
-    let Ok(native_stride) = ::console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() { ::core::result::Result::Ok(native_stride) => native_stride });
-    let Ok(stride) = fixed_offset(match ::console_core_number_conversion::wrapped_offset(native_stride) { ::core::result::Result::Ok(native_position) => native_position });
+    let Ok(native_stride) =
+      ::console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
+        ::core::result::Result::Ok(native_stride) => native_stride,
+      });
+    let Ok(stride) = fixed_offset(
+      match ::console_core_number_conversion::wrapped_offset(native_stride) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    );
     let pitch = u64::try_from(stride).map_err(|_negative_pitch| Rav1dError::EINVAL)?;
     let Ok(pixel_capacity) = fixed_index(destination.pixel_len::<BD>());
     let Ok(columns) = index(size.width);
@@ -997,7 +1093,8 @@ pub(crate) fn stitch_sbrow<BD: BitDepth>(
     for row in 0..band.live_rows {
       let source = band.row_bytes(row)?;
       let picture_row = origin.y.checked_add(row).ok_or(Rav1dError::ERANGE)?;
-      let start = picture_row.checked_mul(pitch)
+      let start = picture_row
+        .checked_mul(pitch)
         .and_then(|offset| offset.checked_add(origin.x))
         .ok_or(Rav1dError::ERANGE)?;
       let end = start.checked_add(size.width).ok_or(Rav1dError::ERANGE)?;
@@ -1030,7 +1127,10 @@ mod tests {
     let mut band = ReconBand::default();
     band.arm(BandGeometry {
       luma: PlaneGeometry {
-        rectangle: Rectangle { origin: Point { x: 32, y: 16 }, size },
+        rectangle: Rectangle {
+          origin: Point { x: 32, y: 16 },
+          size,
+        },
         superblock_width: 0,
         sample_bytes: 1,
       },
@@ -1045,7 +1145,10 @@ mod tests {
 
   #[test]
   fn translation_is_plane_coordinates_minus_origin() -> Rav1dResult {
-    let mut band = band_of(Size { width: 96, height: 8 })?;
+    let mut band = band_of(Size {
+      width: 96,
+      height: 8,
+    })?;
     let mut first = dst_at(&mut band, Point { x: 32, y: 16 })?;
     let Ok(()) = first.set::<BitDepth8>(7);
     let mut other = dst_at(&mut band, Point { x: 34, y: 17 })?;
@@ -1061,7 +1164,10 @@ mod tests {
 
   #[test]
   fn a_row_above_the_band_returns_invalid_data() -> Rav1dResult {
-    let mut band = band_of(Size { width: 96, height: 8 })?;
+    let mut band = band_of(Size {
+      width: 96,
+      height: 8,
+    })?;
     assert!(matches!(
       dst_at(&mut band, Point { x: 32, y: 15 }),
       Err(Rav1dError::EINVAL)
@@ -1071,7 +1177,10 @@ mod tests {
 
   #[test]
   fn a_row_below_the_band_returns_invalid_data() -> Rav1dResult {
-    let mut band = band_of(Size { width: 96, height: 8 })?;
+    let mut band = band_of(Size {
+      width: 96,
+      height: 8,
+    })?;
     assert!(matches!(
       dst_at(&mut band, Point { x: 32, y: 24 }),
       Err(Rav1dError::EINVAL)
@@ -1081,7 +1190,10 @@ mod tests {
 
   #[test]
   fn for_rows_mut_walks_the_bands_own_stride_not_the_pictures() -> Rav1dResult {
-    let mut band = band_of(Size { width: 96, height: 4 })?;
+    let mut band = band_of(Size {
+      width: 96,
+      height: 4,
+    })?;
     let [luma, ..] = &band.planes;
     assert_eq!(luma.stride, 128);
 
@@ -1095,7 +1207,10 @@ mod tests {
 
     for row in 0..4u8 {
       let pixels = updated.row_bytes(u64::from(row))?;
-      assert!(pixels.iter().all(|&value| value == row.wrapping_add(1)), "row {row}");
+      assert!(
+        pixels.iter().all(|&value| value == row.wrapping_add(1)),
+        "row {row}"
+      );
     }
 
     Ok(())

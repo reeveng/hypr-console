@@ -393,10 +393,12 @@ fn moved_to(sensor: &light::Sensor, acted: Option<Band>) -> Result<Option<Band>,
 
   let Ok(band) = learned::band(now_3);
 
-  Ok(match ::core::primitive::bool::then_some(acted == Some(band), ()) {
-    ::core::option::Option::Some(()) => None,
-    ::core::option::Option::None => Some(band),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(acted == Some(band), ()) {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some(band),
+    },
+  )
 }
 
 fn wear(panel: &Panel, home: &Path, band: Band) -> Result<(), Never> {
@@ -498,15 +500,23 @@ fn dim(panel: &Panel, now: i64) -> Result<std::process::ExitCode, Never> {
     }
   };
 
-  match console_core_atomic_writes::whole_without_overwriting(&kept, format!("{now}\n").as_bytes()) {
+  match console_core_atomic_writes::whole_without_overwriting(
+    &kept,
+    format!("{now}\n").as_bytes(),
+  ) {
     Ok(()) => {}
-    Err(console_core_atomic_writes::Unwritten::Moving(_, fault)) => match (fault.kind() == std::io::ErrorKind::AlreadyExists).then_some(()) {
-      Some(()) => return Ok(std::process::ExitCode::SUCCESS),
-      None => {
-        eprintln!("console-brightness: could not keep {}: {fault}", kept.display());
-        return Ok(std::process::ExitCode::FAILURE);
+    Err(console_core_atomic_writes::Unwritten::Moving(_, fault)) => {
+      match (fault.kind() == std::io::ErrorKind::AlreadyExists).then_some(()) {
+        Some(()) => return Ok(std::process::ExitCode::SUCCESS),
+        None => {
+          eprintln!(
+            "console-brightness: could not keep {}: {fault}",
+            kept.display()
+          );
+          return Ok(std::process::ExitCode::FAILURE);
+        }
       }
-    },
+    }
     Err(fault) => {
       eprintln!(
         "console-brightness: could not write {}: {fault}",

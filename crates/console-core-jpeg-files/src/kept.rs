@@ -67,8 +67,7 @@ pub(crate) fn kept(drawn: Size<u32>) -> Result<Retained, Never> {
           down.saturating_mul(drawn.width).saturating_add(across),
         );
       }
-      (Ordering::Equal | Ordering::Greater, _)
-      | (_, Ordering::Equal | Ordering::Greater) => {}
+      (Ordering::Equal | Ordering::Greater, _) | (_, Ordering::Equal | Ordering::Greater) => {}
     }
   }
 

@@ -155,10 +155,12 @@ impl Stored {
 pub fn read(at: &Path) -> Result<Stored, Never> {
   Ok(match read_text(at) {
     Ok(text) => Stored::Text(text),
-    Err(fault) => match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-      ::core::option::Option::Some(()) => Stored::Absent,
-      ::core::option::Option::None => Stored::Failed(fault.to_string()),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Stored::Absent,
+        ::core::option::Option::None => Stored::Failed(fault.to_string()),
+      }
+    }
   })
 }
 
@@ -313,7 +315,7 @@ pub fn whole_without_overwriting(at: &Path, bytes: &[u8]) -> Result<(), Unwritte
   let target = Location::new(at)
     .map_err(|fault| Unwritten::Making(at.to_path_buf(), io::Error::from(fault)))?;
 
-  commit(&target, at, bytes, Replacement::Refused)
+  commit(&target, at, bytes, Replacement::Rejected)
 }
 
 pub fn whole_with_folders(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
@@ -332,7 +334,7 @@ pub fn whole_with_folders_and_permissions(
 }
 
 pub fn whole_in_new_file_with_folders(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
-  whole_in_folders(at, bytes, Replacement::Refused)
+  whole_in_folders(at, bytes, Replacement::Rejected)
 }
 
 fn whole_in_folders(at: &Path, bytes: &[u8], replacement: Replacement) -> Result<(), Unwritten> {
@@ -380,7 +382,7 @@ pub fn write_and_sync(at: &Path, bytes: &[u8]) -> Result<(), Unwritten> {
 enum Replacement {
   Allowed,
   WithMode(Mode),
-  Refused,
+  Rejected,
 }
 
 fn commit(
@@ -398,7 +400,7 @@ fn commit(
 
   let flags = match replacement {
     Replacement::Allowed | Replacement::WithMode(_) => RenameFlags::empty(),
-    Replacement::Refused => RenameFlags::NOREPLACE,
+    Replacement::Rejected => RenameFlags::NOREPLACE,
   };
 
   match rustix::fs::renameat_with(
@@ -443,7 +445,7 @@ fn stage_and_sync(
     .ok_or_else(|| Unwritten::Making(at.to_path_buf(), io::Error::from(Errno::INVAL)))?;
   let mode = match replacement {
     Replacement::WithMode(_) => Mode::RUSR | Mode::WUSR,
-    Replacement::Allowed | Replacement::Refused => Mode::from_raw_mode(0o644),
+    Replacement::Allowed | Replacement::Rejected => Mode::from_raw_mode(0o644),
   };
   let descriptor = target
     .open_name(name, OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL, mode)
@@ -489,7 +491,7 @@ fn fill_staged(
 ) -> Result<(), Unwritten> {
   match replacement {
     Replacement::Allowed => copy_ownership(target, &at.with_file_name(&target.name), file)?,
-    Replacement::WithMode(_) | Replacement::Refused => {}
+    Replacement::WithMode(_) | Replacement::Rejected => {}
   }
 
   file
@@ -500,7 +502,7 @@ fn fill_staged(
     Replacement::WithMode(mode) => rustix::fs::fchmod(&*file, mode).map_err(|fault| {
       Unwritten::Keeping(at.with_file_name(&target.name), io::Error::from(fault))
     })?,
-    Replacement::Allowed | Replacement::Refused => {}
+    Replacement::Allowed | Replacement::Rejected => {}
   }
 
   rustix::fs::fsync(file)
@@ -521,7 +523,10 @@ fn copy_ownership(target: &Location, live: &Path, staged: &File) -> Result<(), U
     },
   };
 
-  match ::core::primitive::bool::then_some(FileType::from_raw_mode(was.st_mode) == FileType::Symlink, ()) {
+  match ::core::primitive::bool::then_some(
+    FileType::from_raw_mode(was.st_mode) == FileType::Symlink,
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Err(Unwritten::Keeping(
         live.to_path_buf(),
@@ -555,7 +560,8 @@ fn copy_ownership(target: &Location, live: &Path, staged: &File) -> Result<(), U
 
 pub fn sync_parent_directory(at: &Path) -> Result<(), Unwritten> {
   let holding = match at.parent() {
-    Some(holding) => match ::core::primitive::bool::then_some(holding.as_os_str().is_empty(), ()) {
+    Some(holding) => match ::core::primitive::bool::then_some(holding.as_os_str().is_empty(), ())
+    {
       ::core::option::Option::Some(()) => Path::new("."),
       ::core::option::Option::None => holding,
     },
@@ -587,7 +593,9 @@ pub fn gone(at: &Path) -> Result<(), Ungone> {
     Ok(target) => target,
     Err(fault) => match ::core::primitive::bool::then_some(fault == Errno::NOENT, ()) {
       ::core::option::Option::Some(()) => return Ok(()),
-      ::core::option::Option::None => return Err(Ungone(at.to_path_buf(), io::Error::from(fault))),
+      ::core::option::Option::None => {
+        return Err(Ungone(at.to_path_buf(), io::Error::from(fault)));
+      }
     },
   };
 

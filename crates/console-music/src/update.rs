@@ -147,7 +147,8 @@ fn decide(
   };
 
   let Ok(turn) = match heard {
-    MusicEvent::Typed(word) => match ::core::primitive::bool::then_some(state.typed == *word, ()) {
+    MusicEvent::Typed(word) => match ::core::primitive::bool::then_some(state.typed == *word, ())
+    {
       ::core::option::Option::Some(()) => Transition::without_effects(state.clone()),
       ::core::option::Option::None => Transition::new(
         Standing {
@@ -158,19 +159,21 @@ fn decide(
       ),
     },
 
-    MusicEvent::Back => match ::core::primitive::bool::then_some(state.typed.trim().is_empty(), ()) {
-      ::core::option::Option::Some(()) => Transition::without_effects(state.clone()),
-      ::core::option::Option::None => Transition::new(
-        Standing {
-          typed: String::new(),
-          ..state.clone()
-        },
-        vec![
-          Effect::Custom(MusicEffect::ForgetTyping),
-          Effect::Custom(MusicEffect::Replace(LINE)),
-        ],
-      ),
-    },
+    MusicEvent::Back => {
+      match ::core::primitive::bool::then_some(state.typed.trim().is_empty(), ()) {
+        ::core::option::Option::Some(()) => Transition::without_effects(state.clone()),
+        ::core::option::Option::None => Transition::new(
+          Standing {
+            typed: String::new(),
+            ..state.clone()
+          },
+          vec![
+            Effect::Custom(MusicEffect::ForgetTyping),
+            Effect::Custom(MusicEffect::Replace(LINE)),
+          ],
+        ),
+      }
+    }
 
     MusicEvent::Arrived { unread } => match (state.read, unread) {
       (Read::Requested, _) | (Read::NotYet, 0) => Transition::without_effects(state.clone()),
@@ -246,10 +249,12 @@ fn decide(
 }
 
 pub fn closes(state: &Standing) -> Result<Closes, Never> {
-  Ok(match ::core::primitive::bool::then_some(state.typed.trim().is_empty(), ()) {
-    ::core::option::Option::Some(()) => Closes::Yes,
-    ::core::option::Option::None => Closes::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(state.typed.trim().is_empty(), ()) {
+      ::core::option::Option::Some(()) => Closes::Yes,
+      ::core::option::Option::None => Closes::No,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -5,8 +5,8 @@ use crate::ParseError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Remaining {
-  Something,
-  Nothing,
+  Present,
+  Absent,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -21,8 +21,8 @@ impl<'a> Bytes<'a> {
 
   pub(crate) fn remaining(&self) -> Result<Remaining, Never> {
     Ok(match self.rest {
-      [] => Remaining::Nothing,
-      [_first, ..] => Remaining::Something,
+      [] => Remaining::Absent,
+      [_first, ..] => Remaining::Present,
     })
   }
 

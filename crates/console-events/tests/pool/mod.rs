@@ -48,10 +48,12 @@ pub fn up(at: &Path) -> Result<(), Failure> {
   let Ok(patience) = Schedule::asking_every(BEFORE_LONG, EVERY_SO_OFTEN);
   let Ok(came_up) = console_waiting::until(patience, || {
     Ok(match std::fs::symlink_metadata(at) {
-      Ok(details) => match ::core::primitive::bool::then_some(details.file_type().is_socket(), ()) {
-        ::core::option::Option::Some(()) => Ready::Yes,
-        ::core::option::Option::None => Ready::NotYet,
-      },
+      Ok(details) => {
+        match ::core::primitive::bool::then_some(details.file_type().is_socket(), ()) {
+          ::core::option::Option::Some(()) => Ready::Yes,
+          ::core::option::Option::None => Ready::NotYet,
+        }
+      }
       Err(_not_ready) => Ready::NotYet,
     })
   });

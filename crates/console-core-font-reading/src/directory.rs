@@ -1,7 +1,7 @@
 //! SFNT directories and TTC headers validate borrowed records before exposing them.
 
-use crate::table_ref::MinByteRange;
 use crate::font::TableOrder;
+use crate::table_ref::MinByteRange;
 use crate::{FontData, FontRead, ReadError};
 use console_core_never::Never;
 use core::ops::Range;

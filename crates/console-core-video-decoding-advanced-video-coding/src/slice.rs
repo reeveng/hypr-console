@@ -113,7 +113,7 @@ pub enum PictureRefresh {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReferenceReset {
   Reset,
-  Keep,
+  Retain,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -672,7 +672,7 @@ impl SliceHeader {
   pub fn reference_reset(&self) -> ReferenceReset {
     match self.mmcos.iter().find(|m| m.op == 5) {
       Some(_) => ReferenceReset::Reset,
-      None => ReferenceReset::Keep,
+      None => ReferenceReset::Retain,
     }
   }
 
@@ -965,7 +965,7 @@ impl PocState {
               explicit_value
             });
           }
-          ReferenceReset::Keep => {
+          ReferenceReset::Retain => {
             self.prev_ref_msb = poc.msb;
             let Ok(pic_order_cnt_lsb) =
               console_core_number_conversion::wrapped::<_, i32>(sh.pic_order_cnt_lsb);
@@ -980,7 +980,7 @@ impl PocState {
           self.prev_frame_num_offset = 0;
           self.prev_frame_num = 0;
         }
-        ReferenceReset::Keep => {
+        ReferenceReset::Retain => {
           self.prev_frame_num_offset = poc.frame_num_offset;
           self.prev_frame_num = sh.frame_num;
         }

@@ -23,6 +23,13 @@ enum Dma {
   AmdVi,
 }
 
+#[derive(Clone, Copy)]
+enum Check {
+  Keyboard(Dma),
+  Calculator,
+  Launcher,
+}
+
 struct Scratch(PathBuf);
 
 impl Drop for Scratch {
@@ -250,7 +257,63 @@ fn verify_guest(guest: &mut Guest, work: &Path, serial: &Path, dma: Dma) -> Resu
   Ok(())
 }
 
-fn run(esp: &Path, work: &Path, dma: Dma) -> Result<(), Failure> {
+fn verify_generation(guest: &mut Guest, serial: &Path, check: Check) -> Result<(), Failure> {
+  let mut monitor = Monitor::connect(guest)?;
+  monitor.execute("qmp_capabilities", json!({}))?;
+  expect_line(guest, serial, "Console keyboard ready", 1, MONITOR_TIMEOUT)?;
+  expect_line(guest, serial, "Console launcher", 1, SHUTDOWN_TIMEOUT)?;
+  monitor.send_keys(&["c"])?;
+
+  if let Check::Calculator = check {
+    expect_line(
+      guest,
+      serial,
+      "C: Calculator | Esc: Exit",
+      1,
+      SHUTDOWN_TIMEOUT,
+    )?;
+    expect_line(
+      guest,
+      serial,
+      "Calculator opened. Type 12+34 and press Enter. Esc returns.",
+      1,
+      SHUTDOWN_TIMEOUT,
+    )?;
+    for (keys, shown) in [
+      (&["1"][..], "1"),
+      (&["2"][..], "12"),
+      (&["shift", "equal"][..], "12+"),
+      (&["3"][..], "12+3"),
+      (&["4"][..], "12+34"),
+      (&["ret"][..], "12+34 = 46"),
+      (&["9"][..], "9"),
+      (&["slash"][..], "9/"),
+      (&["0"][..], "9/0"),
+      (&["ret"][..], "9/0 = Error"),
+      (&["esc"][..], "Console launcher"),
+    ] {
+      monitor.send_keys(keys)?;
+      let count = if shown == "Console launcher" { 2 } else { 1 };
+      expect_line(guest, serial, shown, count, SHUTDOWN_TIMEOUT)?;
+    }
+    thread::sleep(Duration::from_millis(50));
+  }
+
+  monitor.send_keys(&["esc"])?;
+  let status = wait_for_exit(guest)?;
+  if status.code() != Some(65) {
+    return Err(format!("the generation did not exit successfully ({status})").into());
+  }
+  if let Check::Launcher = check {
+    if fs::read_to_string(serial)?.contains("Calculator") {
+      return Err("a disabled Calculator appeared in the session".into());
+    }
+  }
+  println!("The native generation booted and honored programs.calculator.enable.");
+  Ok(())
+}
+
+fn run(esp: &Path, work: &Path, check: Check) -> Result<(), Failure> {
   let esp = esp.to_str().ok_or("the ESP path must be UTF-8")?;
   let drive = format!(
     "if=none,id=preview,format=raw,file=fat:{},readonly=on",
@@ -269,9 +332,8 @@ fn run(esp: &Path, work: &Path, dma: Dma) -> Result<(), Failure> {
     "-drive",
     &drive,
   ]);
-  match dma {
-    Dma::Direct => command.args(["-device", "qemu-xhci,id=xhci"]),
-    Dma::AmdVi => command.args([
+  match check {
+    Check::Keyboard(Dma::AmdVi) => command.args([
       "-device",
       "amd-iommu,dma-remap=on,intremap=off",
       "-device",
@@ -279,6 +341,7 @@ fn run(esp: &Path, work: &Path, dma: Dma) -> Result<(), Failure> {
       "-device",
       "qemu-xhci,id=xhci,bus=usb-root",
     ]),
+    _ => command.args(["-device", "qemu-xhci,id=xhci"]),
   };
   let mut guest = Guest(
     command
@@ -310,7 +373,10 @@ fn run(esp: &Path, work: &Path, dma: Dma) -> Result<(), Failure> {
   );
 
   let serial = work.join("serial.log");
-  let result = verify_guest(&mut guest, work, &serial, dma);
+  let result = match check {
+    Check::Keyboard(dma) => verify_guest(&mut guest, work, &serial, dma),
+    Check::Calculator | Check::Launcher => verify_generation(&mut guest, &serial, check),
+  };
   if result.is_err() {
     if let Ok(bytes) = fs::read(&serial) {
       eprint!("{}", String::from_utf8_lossy(&bytes));
@@ -324,20 +390,25 @@ fn main() -> Result<(), Failure> {
   let usage = || {
     Error::new(
       ErrorKind::InvalidInput,
-      "usage: kernel-usb ESP_DIRECTORY [amd-vi]",
+      "usage: kernel-usb ESP_DIRECTORY [amd-vi | calculator | launcher]",
     )
   };
   let esp = fs::canonicalize(args.next().ok_or_else(usage)?)?;
-  let dma = match args.next() {
-    None => Dma::Direct,
-    Some(mode) if mode == "amd-vi" && args.next().is_none() => Dma::AmdVi,
+  let check = match args.next() {
+    None => Check::Keyboard(Dma::Direct),
+    Some(mode) if mode == "amd-vi" => Check::Keyboard(Dma::AmdVi),
+    Some(mode) if mode == "calculator" => Check::Calculator,
+    Some(mode) if mode == "launcher" => Check::Launcher,
     Some(_) => return Err(usage().into()),
   };
+  if args.next().is_some() {
+    return Err(usage().into());
+  }
   let scratch_root =
     std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("target/kernel"), PathBuf::from);
   let scratch = Scratch(console_core_temporary_directories::private_under(
     &fs::canonicalize(scratch_root)?,
     "usb",
   )?);
-  run(&esp, &scratch.0, dma)
+  run(&esp, &scratch.0, check)
 }

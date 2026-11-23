@@ -128,7 +128,10 @@ impl Machine {
     let wanted = self.matches.trim().to_lowercase();
 
     Ok(
-      match ::core::primitive::bool::then_some(called.iter().any(|called_2| called_2.contains(&wanted)), ()) {
+      match ::core::primitive::bool::then_some(
+        called.iter().any(|called_2| called_2.contains(&wanted)),
+        (),
+      ) {
         ::core::option::Option::Some(()) => Fits::ThisMachine,
         ::core::option::Option::None => Fits::Another,
       },

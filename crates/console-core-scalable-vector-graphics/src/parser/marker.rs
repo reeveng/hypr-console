@@ -26,11 +26,14 @@ pub(crate) fn is_valid(
 ) -> core::result::Result<crate::IsValidAnswer, console_core_never::Never> {
   let Ok(mut ancestors) = node.ancestors();
 
-  match ::core::primitive::bool::then_some(ancestors.any(|n| {
-    let Ok(tag_name) = n.tag_name();
+  match ::core::primitive::bool::then_some(
+    ancestors.any(|n| {
+      let Ok(tag_name) = n.tag_name();
 
-    tag_name == Some(EId::ClipPath)
-  }), ()) {
+      tag_name == Some(EId::ClipPath)
+    }),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(match ::core::primitive::bool::then_some(false, ()) {
         ::core::option::Option::Some(()) => crate::IsValidAnswer::Yes,
@@ -44,10 +47,15 @@ pub(crate) fn is_valid(
   let Ok(mid) = node.find_attribute::<SvgNode>(AId::MarkerMid);
   let Ok(end) = node.find_attribute::<SvgNode>(AId::MarkerEnd);
 
-  Ok(match ::core::primitive::bool::then_some(start.is_some() || mid.is_some() || end.is_some(), ()) {
-    ::core::option::Option::Some(()) => crate::IsValidAnswer::Yes,
-    ::core::option::Option::None => crate::IsValidAnswer::No,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(
+      start.is_some() || mid.is_some() || end.is_some(),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => crate::IsValidAnswer::Yes,
+      ::core::option::Option::None => crate::IsValidAnswer::No,
+    },
+  )
 }
 
 #[cfg_attr(
@@ -254,11 +262,17 @@ fn resolve(
 
       console_core_paths::ScaleFactors { x, y }
     }
-    None => console_core_paths::ScaleFactors { x: stroke_scale, y: stroke_scale },
+    None => console_core_paths::ScaleFactors {
+      x: stroke_scale,
+      y: stroke_scale,
+    },
   };
   let Ok(reference_x) = r.x();
   let Ok(reference_y) = r.y();
-  let reference = Point { x: -reference_x, y: -reference_y };
+  let reference = Point {
+    x: -reference_x,
+    y: -reference_y,
+  };
 
   let mut marker_state = state.clone();
   marker_state.parent_markers.push(marker_node);
@@ -278,7 +292,10 @@ fn resolve(
 
 #[cfg_attr(
   dylint_lib = "explicit081_no_shared_ownership",
-  expect(explicit081_no_shared_ownership, reason = "Every instance references the same immutable marker viewport clip")
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "Every instance references the same immutable marker viewport clip"
+  )
 )]
 struct MarkerDrawing<'a, 'svg> {
   path: &'a [Segment],
@@ -293,7 +310,10 @@ struct MarkerDrawing<'a, 'svg> {
 impl MarkerDrawing<'_, '_> {
   #[cfg_attr(
     dylint_lib = "explicit049_no_recursion",
-    expect(explicit049_no_recursion, reason = "Marker children each enter the bounded element conversion")
+    expect(
+      explicit049_no_recursion,
+      reason = "Marker children each enter the bounded element conversion"
+    )
   )]
   fn draw(
     &self,
@@ -334,7 +354,8 @@ impl MarkerDrawing<'_, '_> {
       clip_path: self.clip.cloned(),
       ..empty
     };
-    let Ok(()) = converter::convert_children(self.marker_node, &self.marker_state, cache, &mut group);
+    let Ok(()) =
+      converter::convert_children(self.marker_node, &self.marker_state, cache, &mut group);
     let Ok(_) = group.calculate_bounding_boxes();
     let Ok(children) = group.has_children();
 
@@ -357,7 +378,8 @@ fn stroke_scale(
   Ok(match attribute {
     Some("userSpaceOnUse") => NonZeroPositiveF32::new(1.0),
     ::core::option::Option::None | ::core::option::Option::Some(_) => {
-      let Ok(resolve_valid_length) = path_node.resolve_valid_length(AId::StrokeWidth, state, crate::UserLength(1.0));
+      let Ok(resolve_valid_length) =
+        path_node.resolve_valid_length(AId::StrokeWidth, state, crate::UserLength(1.0));
 
       resolve_valid_length
     }
@@ -366,7 +388,10 @@ fn stroke_scale(
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "Each marker instance reenters guarded element conversion")
+  expect(
+    explicit049_no_recursion,
+    reason = "Each marker instance reenters guarded element conversion"
+  )
 )]
 fn draw_markers(
   drawing: &MarkerDrawing,
@@ -403,7 +428,9 @@ fn draw_markers(
       let index = count.saturating_sub(1);
 
       match path.last() {
-        Some(Segment::LineTo(point) | Segment::CubicTo(_, _, point)) => drawing.draw(*point, index, cache, parent),
+        Some(Segment::LineTo(point) | Segment::CubicTo(_, _, point)) => {
+          drawing.draw(*point, index, cache, parent)
+        }
         Some(Segment::Close) => {
           let Ok(point) = subpath_start(path);
 
@@ -464,7 +491,10 @@ fn last_vertex(before: &[Segment], current: Segment) -> Result<MarkerAngle, Neve
 
   match current {
     Segment::MoveTo(_) => Ok(MarkerAngle::ZERO),
-    Segment::LineTo(end) => line_angle(Tangent { start: previous, end }),
+    Segment::LineTo(end) => line_angle(Tangent {
+      start: previous,
+      end,
+    }),
     Segment::CubicTo(control1, control2, end) => {
       let Ok(start) = choose_direction(end, control2, control1);
       line_angle(Tangent { start, end })
@@ -499,19 +529,44 @@ fn middle_vertex(
       line_angle(Tangent { start, end })
     }
     (Segment::LineTo(point), Segment::LineTo(end)) => Tangents {
-      incoming: Tangent { start: previous, end: point },
+      incoming: Tangent {
+        start: previous,
+        end: point,
+      },
       outgoing: Tangent { start: point, end },
-    }.average(),
+    }
+    .average(),
     (Segment::CubicTo(_, control, point), Segment::CubicTo(outgoing, _, next_2)) => {
-      curve_join_angle(CurveJoin { previous, incoming: control, point, outgoing, next: next_2 })
+      curve_join_angle(CurveJoin {
+        previous,
+        incoming: control,
+        point,
+        outgoing,
+        next: next_2,
+      })
     }
     (Segment::LineTo(point), Segment::CubicTo(outgoing, _, next_3)) => {
-      curve_join_angle(CurveJoin { previous, incoming: previous, point, outgoing, next: next_3 })
+      curve_join_angle(CurveJoin {
+        previous,
+        incoming: previous,
+        point,
+        outgoing,
+        next: next_3,
+      })
     }
     (Segment::CubicTo(_, incoming, point), Segment::LineTo(next_4)) => {
-      curve_join_angle(CurveJoin { previous, incoming, point, outgoing: next_4, next: next_4 })
+      curve_join_angle(CurveJoin {
+        previous,
+        incoming,
+        point,
+        outgoing: next_4,
+        next: next_4,
+      })
     }
-    (Segment::LineTo(end), Segment::MoveTo(_)) => line_angle(Tangent { start: previous, end }),
+    (Segment::LineTo(end), Segment::MoveTo(_)) => line_angle(Tangent {
+      start: previous,
+      end,
+    }),
     (Segment::CubicTo(_, control, end), Segment::MoveTo(_)) => {
       let Ok(start) = choose_direction(end, control, previous);
       line_angle(Tangent { start, end })
@@ -519,23 +574,35 @@ fn middle_vertex(
     (Segment::LineTo(point), Segment::Close) => {
       let Ok(end) = subpath_start(before);
       Tangents {
-        incoming: Tangent { start: previous, end: point },
+        incoming: Tangent {
+          start: previous,
+          end: point,
+        },
         outgoing: Tangent { start: point, end },
-      }.average()
+      }
+      .average()
     }
     (_, Segment::Close) => {
       let Ok(end) = subpath_start(before);
-      line_angle(Tangent { start: previous, end })
+      line_angle(Tangent {
+        start: previous,
+        end,
+      })
     }
     (_, Segment::MoveTo(_)) | (Segment::Close, _) => Ok(MarkerAngle::ZERO),
   }
 }
 
 fn choose_direction(vertex: Point, control: Point, fallback: Point) -> Result<Point, Never> {
-  Ok(match ::core::primitive::bool::then_some(vertex.x.approx_eq_ulps(&control.x, 4) && vertex.y.approx_eq_ulps(&control.y, 4), ()) {
-    ::core::option::Option::Some(()) => fallback,
-    ::core::option::Option::None => control,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(
+      vertex.x.approx_eq_ulps(&control.x, 4) && vertex.y.approx_eq_ulps(&control.y, 4),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => fallback,
+      ::core::option::Option::None => control,
+    },
+  )
 }
 
 struct CurveJoin {
@@ -547,8 +614,17 @@ struct CurveJoin {
 }
 
 fn curve_join_angle(join: CurveJoin) -> Result<MarkerAngle, Never> {
-  let CurveJoin { previous, incoming, point, outgoing, next } = join;
-  let (start, end) = match ::core::primitive::bool::then_some(incoming.x.approx_eq_ulps(&point.x, 4) && incoming.y.approx_eq_ulps(&point.y, 4), ()) {
+  let CurveJoin {
+    previous,
+    incoming,
+    point,
+    outgoing,
+    next,
+  } = join;
+  let (start, end) = match ::core::primitive::bool::then_some(
+    incoming.x.approx_eq_ulps(&point.x, 4) && incoming.y.approx_eq_ulps(&point.y, 4),
+    (),
+  ) {
     ::core::option::Option::Some(()) => (previous, outgoing),
     ::core::option::Option::None => {
       let Ok(end) = choose_direction(point, outgoing, next);
@@ -560,7 +636,8 @@ fn curve_join_angle(join: CurveJoin) -> Result<MarkerAngle, Never> {
   Tangents {
     incoming: Tangent { start, end: point },
     outgoing: Tangent { start: point, end },
-  }.average()
+  }
+  .average()
 }
 
 #[derive(Clone, Copy)]
@@ -596,10 +673,12 @@ impl Radians {
     let turn = std::f32::consts::PI * 2.0;
     let angle = self.0 % turn;
 
-    Ok(Self(match ::core::primitive::bool::then_some(angle < 0.0, ()) {
-      ::core::option::Option::Some(()) => angle + turn,
-      ::core::option::Option::None => angle,
-    }))
+    Ok(Self(
+      match ::core::primitive::bool::then_some(angle < 0.0, ()) {
+        ::core::option::Option::Some(()) => angle + turn,
+        ::core::option::Option::None => angle,
+      },
+    ))
   }
 }
 
@@ -629,7 +708,11 @@ impl Tangents {
 }
 
 fn line_angle(tangent: Tangent) -> Result<MarkerAngle, Never> {
-  Tangents { incoming: tangent, outgoing: tangent }.average()
+  Tangents {
+    incoming: tangent,
+    outgoing: tangent,
+  }
+  .average()
 }
 
 fn subpath_start(before: &[Segment]) -> Result<Point, Never> {
@@ -645,7 +728,9 @@ fn subpath_start(before: &[Segment]) -> Result<Point, Never> {
 
 fn previous_vertex(before: &[Segment]) -> Result<Point, Never> {
   match before.last() {
-    Some(Segment::MoveTo(point) | Segment::LineTo(point) | Segment::CubicTo(_, _, point)) => Ok(*point),
+    Some(Segment::MoveTo(point) | Segment::LineTo(point) | Segment::CubicTo(_, _, point)) => {
+      Ok(*point)
+    }
     Some(Segment::Close) | None => subpath_start(before),
   }
 }

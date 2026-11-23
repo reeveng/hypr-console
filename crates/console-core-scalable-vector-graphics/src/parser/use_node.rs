@@ -26,12 +26,14 @@ pub(crate) fn convert(
     None => return Ok(()),
   };
 
-  match ::core::primitive::bool::then_some(state.paint_scope == converter::PaintScope::ClipOutline
-    && ({
-      let Ok(explicit_value) = child.tag_name();
-      explicit_value
-    }) == Some(EId::Symbol), ())
-  {
+  match ::core::primitive::bool::then_some(
+    state.paint_scope == converter::PaintScope::ClipOutline
+      && ({
+        let Ok(explicit_value) = child.tag_name();
+        explicit_value
+      }) == Some(EId::Symbol),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(());
     }
@@ -127,7 +129,16 @@ pub(crate) fn convert(
       } {
         Some(clip_rect) => {
           let Ok(()) = append_clipped_symbol(
-            node, child, clip_rect, SymbolTransforms { group: orig_ts, viewport: new_ts }, &use_state, cache, parent,
+            node,
+            child,
+            clip_rect,
+            SymbolTransforms {
+              group: orig_ts,
+              viewport: new_ts,
+            },
+            &use_state,
+            cache,
+            parent,
           );
           return Ok(());
         }
@@ -142,10 +153,23 @@ pub(crate) fn convert(
 
   match ::core::primitive::bool::then_some(linked_to_symbol, ()) {
     ::core::option::Option::Some(()) => {
-      let Ok(convert_group) =
-        converter::convert_group(node, &use_state, converter::GroupRequirement::AsNeeded, cache, parent, &|cache_3, g| {
-          let Ok(()) = convert_children(child, orig_ts, &use_state, cache_3, GroupPaintContext::ParentBounds, g);
-        });
+      let Ok(convert_group) = converter::convert_group(
+        node,
+        &use_state,
+        converter::GroupRequirement::AsNeeded,
+        cache,
+        parent,
+        &|cache_3, g| {
+          let Ok(()) = convert_children(
+            child,
+            orig_ts,
+            &use_state,
+            cache_3,
+            GroupPaintContext::ParentBounds,
+            g,
+          );
+        },
+      );
 
       match convert_group {
         Some(mut g) => {
@@ -167,7 +191,14 @@ pub(crate) fn convert(
         Ok(Some(_) | None) => {}
       }
 
-      let Ok(()) = convert_children(node, orig_ts, &use_state, cache, GroupPaintContext::OwnBounds, parent);
+      let Ok(()) = convert_children(
+        node,
+        orig_ts,
+        &use_state,
+        cache,
+        GroupPaintContext::OwnBounds,
+        parent,
+      );
     }
   }
 
@@ -189,7 +220,6 @@ fn authored_use_size(
     }
   }
 }
-
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
@@ -261,14 +291,28 @@ pub(crate) fn convert_svg(
       let Ok(mut g) = clip_element(node, clip_rect, orig_ts, state, cache);
       let Ok(pre_concat) = parent.abs_transform.pre_concat(orig_ts);
       g.abs_transform = pre_concat;
-      let Ok(()) = convert_children(node, new_ts, &new_state, cache, GroupPaintContext::ParentBounds, &mut g);
+      let Ok(()) = convert_children(
+        node,
+        new_ts,
+        &new_state,
+        cache,
+        GroupPaintContext::ParentBounds,
+        &mut g,
+      );
       let Ok(_) = g.calculate_bounding_boxes();
       parent.children.push(Node::Group(Box::new(g)));
     }
     None => {
       let Ok(pre_concat) = orig_ts.pre_concat(new_ts);
       orig_ts = pre_concat;
-      let Ok(()) = convert_children(node, orig_ts, &new_state, cache, GroupPaintContext::ParentBounds, parent);
+      let Ok(()) = convert_children(
+        node,
+        orig_ts,
+        &new_state,
+        cache,
+        GroupPaintContext::ParentBounds,
+        parent,
+      );
     }
   }
 
@@ -282,7 +326,10 @@ struct SymbolTransforms {
 
 #[cfg_attr(
   dylint_lib = "explicit049_no_recursion",
-  expect(explicit049_no_recursion, reason = "The referenced symbol's children enter guarded element conversion")
+  expect(
+    explicit049_no_recursion,
+    reason = "The referenced symbol's children enter guarded element conversion"
+  )
 )]
 fn append_clipped_symbol(
   node: SvgNode,
@@ -303,7 +350,12 @@ fn append_clipped_symbol(
     &mut group,
     &|child_cache, symbol_group| {
       let Ok(()) = convert_children(
-        child, transforms.viewport, state, child_cache, GroupPaintContext::ParentBounds, symbol_group,
+        child,
+        transforms.viewport,
+        state,
+        child_cache,
+        GroupPaintContext::ParentBounds,
+        symbol_group,
       );
     },
   );
@@ -407,7 +459,10 @@ fn convert_children(
       g.abs_transform = pre_concat;
       g.paint_context = paint_context;
 
-      match ::core::primitive::bool::then_some(state.paint_scope == converter::PaintScope::ClipOutline, ()) {
+      match ::core::primitive::bool::then_some(
+        state.paint_scope == converter::PaintScope::ClipOutline,
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           let Ok(()) = converter::convert_clip_path_elements(node, state, cache_2, g);
         }
@@ -445,18 +500,24 @@ fn get_clip_rect(
   let Ok(tag_name) = use_node.tag_name();
 
   match ::core::primitive::bool::then_some(tag_name == Some(EId::Svg), ()) {
-    ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(state.use_size.0.is_none() && state.use_size.1.is_none(), ()) {
+    ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(
+      state.use_size.0.is_none() && state.use_size.1.is_none(),
+      (),
+    ) {
       ::core::option::Option::Some(()) => {
         let Ok(has_attribute) = use_node.has_attribute(AId::Width);
 
-        match ::core::primitive::bool::then_some(!(matches!(has_attribute, crate::Presence::Present)
-          && matches!(
-            {
-              let Ok(explicit_value) = use_node.has_attribute(AId::Height);
-              explicit_value
-            },
-            crate::Presence::Present
-          )), ()) {
+        match ::core::primitive::bool::then_some(
+          !(matches!(has_attribute, crate::Presence::Present)
+            && matches!(
+              {
+                let Ok(explicit_value) = use_node.has_attribute(AId::Height);
+                explicit_value
+              },
+              crate::Presence::Present
+            )),
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             return Ok(None);
           }
@@ -493,7 +554,11 @@ fn get_clip_rect(
     ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some(!matches!(w.length_validity(), crate::LengthValidity::Valid) || !matches!(h.length_validity(), crate::LengthValidity::Valid), ()) {
+  match ::core::primitive::bool::then_some(
+    !matches!(w.length_validity(), crate::LengthValidity::Valid)
+      || !matches!(h.length_validity(), crate::LengthValidity::Valid),
+    (),
+  ) {
     ::core::option::Option::Some(()) => {
       return Ok(None);
     }

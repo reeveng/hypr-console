@@ -72,18 +72,24 @@ pub enum Zoomed {
 fn fits(pixels: Size<u32>, room: Size<u32>) -> Result<f64, Never> {
   let (wide, tall) = (f64::from(pixels.width), f64::from(pixels.height));
 
-  Ok(match ::core::primitive::bool::then_some(wide > 0.0 && tall > 0.0, ()) {
-    ::core::option::Option::Some(()) => (f64::from(room.width) / wide).min(f64::from(room.height) / tall),
-    ::core::option::Option::None => 1.0,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(wide > 0.0 && tall > 0.0, ()) {
+      ::core::option::Option::Some(()) => {
+        (f64::from(room.width) / wide).min(f64::from(room.height) / tall)
+      }
+      ::core::option::Option::None => 1.0,
+    },
+  )
 }
 
 impl Zoom {
   pub fn zoomed(self) -> Result<Zoomed, Never> {
-    Ok(match ::core::primitive::bool::then_some(self.by > 1.0, ()) {
-      ::core::option::Option::Some(()) => Zoomed::ZoomedIn,
-      ::core::option::Option::None => Zoomed::Whole,
-    })
+    Ok(
+      match ::core::primitive::bool::then_some(self.by > 1.0, ()) {
+        ::core::option::Option::Some(()) => Zoomed::ZoomedIn,
+        ::core::option::Option::None => Zoomed::Whole,
+      },
+    )
   }
 
   #[cfg_attr(

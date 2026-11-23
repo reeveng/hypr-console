@@ -25,24 +25,24 @@ mod tests {
 
   impl<'a> BitmapContent<'a> {
     #[must_use]
-    pub(crate) fn extract_data(
-      &self,
-    ) -> Result<(BitmapDataFormat, &'a [u8]), ReadError> {
+    pub(crate) fn extract_data(&self) -> Result<(BitmapDataFormat, &'a [u8]), ReadError> {
       match self {
         BitmapContent::Data(format, data) => Ok((*format, *data)),
-        BitmapContent::Composite(_) => Err(ReadError::MalformedData("expected bitmap pixel data")),
+        BitmapContent::Composite(_) => {
+          Err(ReadError::MalformedData("expected bitmap pixel data"))
+        }
       }
     }
   }
 
   impl BitmapData<'_> {
     #[must_use]
-    pub(crate) fn extract_small_metrics(
-      &self,
-    ) -> Result<&SmallGlyphMetrics, ReadError> {
+    pub(crate) fn extract_small_metrics(&self) -> Result<&SmallGlyphMetrics, ReadError> {
       match &self.metrics {
         BitmapMetrics::Small(metrics) => Ok(metrics),
-        BitmapMetrics::Big(_) => Err(ReadError::MalformedData("expected small bitmap glyph metrics")),
+        BitmapMetrics::Big(_) => Err(ReadError::MalformedData(
+          "expected small bitmap glyph metrics",
+        )),
       }
     }
   }
@@ -169,15 +169,11 @@ mod tests {
         &Some(BigGlyphMetrics {
           height: 17,
           width: 9,
-          hori_bearing_x:
-            font_types::BigEndian::from(0),
-          hori_bearing_y:
-            font_types::BigEndian::from(12),
+          hori_bearing_x: font_types::BigEndian::from(0),
+          hori_bearing_y: font_types::BigEndian::from(12),
           hori_advance: 9,
-          vert_bearing_x:
-            font_types::BigEndian::from(-4),
-          vert_bearing_y:
-            font_types::BigEndian::from(-9),
+          vert_bearing_x: font_types::BigEndian::from(-4),
+          vert_bearing_y: font_types::BigEndian::from(-9),
           vert_advance: 0,
         })
       );

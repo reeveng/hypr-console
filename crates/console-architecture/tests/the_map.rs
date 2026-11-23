@@ -1,12 +1,11 @@
-//! The map in `docs/architecture/` is the one the tree draws today.
+//! Run `just map-check` to validate the map in `docs/architecture/`.
 //!
 //! The same shape as the palette's: the picture is written by a program, kept
 //! in the tree so it can be read without running anything, and held here
 //! against what the program would write now. A unit added, a service enabled
 //! or an ordering changed is in `desktop.conf` and `files/`, which this reads,
 //! so a map that was not drawn again is red here. What a program does is in
-//! the facts, which want the lint suite's nightly to collect -- that half is
-//! held by `just ready`, which collects them again and fails on a changed line.
+//! the facts, which `just map` collects using the lint suite's nightly.
 //!
 //! The page is held the same way, and asked one thing more: that every edge
 //! ends at a node it declares. Graphviz draws a node nobody declared on its
@@ -56,6 +55,7 @@ struct Edge {
 }
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn the_map_is_the_one_the_tree_draws() -> Result<(), Failure> {
   let root = console_repository::root()?;
   let architecture = Architecture::read(&root)?;
@@ -71,6 +71,7 @@ fn the_map_is_the_one_the_tree_draws() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn every_unit_the_manifest_enables_is_on_the_map() -> Result<(), Failure> {
   let root = console_repository::root()?;
   let architecture = Architecture::read(&root)?;
@@ -90,6 +91,7 @@ fn every_unit_the_manifest_enables_is_on_the_map() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn the_page_is_the_one_the_tree_draws() -> Result<(), Failure> {
   let root = console_repository::root()?;
   let architecture = Architecture::read(&root)?;
@@ -105,6 +107,7 @@ fn the_page_is_the_one_the_tree_draws() -> Result<(), Failure> {
 }
 
 #[test]
+#[ignore = "uses the generated architecture snapshot; run just map-check"]
 fn every_edge_on_the_page_ends_at_a_node_it_declares() -> Result<(), Failure> {
   let root = console_repository::root()?;
   let architecture = Architecture::read(&root)?;

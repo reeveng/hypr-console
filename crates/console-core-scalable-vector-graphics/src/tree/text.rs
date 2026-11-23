@@ -5,7 +5,7 @@ pub use console_core_scalable_vector_graphics_values::FontFamily;
 
 #[cfg(feature = "text")]
 use crate::layout::Span;
-use crate::{Fill, Group, NonEmptyString, PaintOrder, Rect, Stroke, TextRendering, Transform};
+use crate::{Fill, Group, NonEmptyString, PaintOrder, FloatRectangle, Stroke, TextRendering, Transform};
 
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
 pub enum FontStretch {
@@ -64,14 +64,20 @@ impl From<FontStretch> for console_core_font_database::Stretch {
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "This type stores resolved SVG user-space lengths")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "This type stores resolved SVG user-space lengths"
+  )
 )]
 pub(crate) struct UserLength(pub(crate) f32);
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "OpenType variation coordinates use the units of the public axis tag")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "OpenType variation coordinates use the units of the public axis tag"
+  )
 )]
 pub struct FontVariation {
   pub tag: [u8; 4],
@@ -82,7 +88,10 @@ pub struct FontVariation {
 impl FontVariation {
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "The public constructor accepts a coordinate in the tagged OpenType axis")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "The public constructor accepts a coordinate in the tagged OpenType axis"
+    )
   )]
   pub fn new(tag: [u8; 4], value: f32) -> core::result::Result<Self, console_core_never::Never> {
     Ok(Self { tag, value })
@@ -173,8 +182,7 @@ impl Font {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum DominantBaseline {
   #[default]
   Auto,
@@ -191,9 +199,7 @@ pub enum DominantBaseline {
   TextBeforeEdge,
 }
 
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum AlignmentBaseline {
   #[default]
   Auto,
@@ -210,7 +216,6 @@ pub enum AlignmentBaseline {
   Mathematical,
 }
 
-
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum BaselineShift {
   Baseline,
@@ -226,24 +231,20 @@ impl Default for BaselineShift {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum LengthAdjust {
   #[default]
   Spacing,
   SpacingAndGlyphs,
 }
 
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum FontOpticalSizing {
   #[default]
   Auto,
 
   None,
 }
-
 
 #[derive(Clone, Debug)]
 pub struct TextDecorationStyle {
@@ -411,15 +412,13 @@ impl TextSpan {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum TextAnchor {
   #[default]
   Start,
   Middle,
   End,
 }
-
 
 #[derive(Debug)]
 #[cfg_attr(
@@ -519,10 +518,10 @@ pub struct Text {
   pub(crate) writing_mode: WritingMode,
   pub(crate) chunks: Vec<TextChunk>,
   pub(crate) abs_transform: Transform,
-  pub(crate) bounding_box: Rect,
-  pub(crate) abs_bounding_box: Rect,
-  pub(crate) stroke_bounding_box: Rect,
-  pub(crate) abs_stroke_bounding_box: Rect,
+  pub(crate) bounding_box: FloatRectangle,
+  pub(crate) abs_bounding_box: FloatRectangle,
+  pub(crate) stroke_bounding_box: FloatRectangle,
+  pub(crate) abs_stroke_bounding_box: FloatRectangle,
   pub(crate) flattened: Box<Group>,
   #[cfg(feature = "text")]
   pub(crate) layouted: Vec<Span>,
@@ -561,19 +560,19 @@ impl Text {
     Ok(self.abs_transform)
   }
 
-  pub fn bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.bounding_box)
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_bounding_box)
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.stroke_bounding_box)
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<Rect, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_stroke_bounding_box)
   }
 
@@ -585,7 +584,10 @@ impl Text {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "Existing text consumers iterate this borrowed slice through the public accessor")
+    expect(
+      explicit002_infallible_result,
+      reason = "Existing text consumers iterate this borrowed slice through the public accessor"
+    )
   )]
   pub fn layouted(&self) -> &[Span] {
     &self.layouted

@@ -188,7 +188,9 @@ fn envelope(sound: Sounding, sample: u32) -> Result<f64, Never> {
 
   Ok(match EnvelopePart::from(seconds < attack) {
     EnvelopePart::Attack => sound.gain * seconds / attack,
-    EnvelopePart::Decay => sound.gain * (QUIET / sound.gain).powf((seconds - attack) / (decay - attack)),
+    EnvelopePart::Decay => {
+      sound.gain * (QUIET / sound.gain).powf((seconds - attack) / (decay - attack))
+    }
   })
 }
 

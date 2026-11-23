@@ -159,7 +159,7 @@ fn parse_config_part(child: Node) -> Result<Option<ConfigPart>> {
     "config" => {
       let config = parsed_config(child)?;
 
-      ConfigPart::Config(config)
+      ConfigPart::Configuration(config)
     }
     "selectfont" => {
       let Ok(selected) = select_fonts(child);
@@ -240,8 +240,8 @@ fn parsed_match(node: Node) -> Result<Match> {
   Ok(rule)
 }
 
-fn parsed_config(node: Node) -> Result<Config> {
-  let mut config = Config::default();
+fn parsed_config(node: Node) -> Result<Configuration> {
+  let mut config = Configuration::default();
   let Ok(children) = node.children();
 
   for child in children {

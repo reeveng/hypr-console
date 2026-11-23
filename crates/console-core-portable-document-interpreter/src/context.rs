@@ -422,7 +422,10 @@ impl<'a> Context<'a> {
           Ok(mut table) => {
             table.insert(cache_key, font.clone());
           }
-          Err(cache_error) => warn!("font cache unavailable, using uncached face: {}", cache_error),
+          Err(cache_error) => warn!(
+            "font cache unavailable, using uncached face: {}",
+            cache_error
+          ),
         }
 
         font

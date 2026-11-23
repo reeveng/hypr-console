@@ -63,7 +63,7 @@ pub enum Effect<F> {
   Run(Command),
   Stream(Command),
   Fork(Fork),
-  Interrupt(Job),
+  Interrupt(Task),
   Prompt(Prompt),
   Spawn(Command),
   Subscribe(Subscription),
@@ -76,7 +76,7 @@ pub enum Effect<F> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Job {
+pub struct Task {
   pub owner: JobOwner,
   pub id: JobId,
 }
@@ -89,7 +89,7 @@ pub struct JobId(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fork {
-  pub job: Job,
+  pub job: Task,
   pub command: Command,
 }
 

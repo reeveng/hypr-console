@@ -195,9 +195,7 @@ fn attempt(
       return Ok(None);
     }
   };
-  let Ok(new_span) = tables
-    .map
-    .repeat(entry.span, include_span);
+  let Ok(new_span) = tables.map.repeat(entry.span, include_span);
   let delta = new_span.lo.saturating_sub(entry.span.lo);
 
   Ok(match &entry.tokens_or_item {
@@ -398,10 +396,12 @@ fn next_map(
 
   Ok(match (default, wanted.desired_map) {
     (Some(_), MapName::Default) => ControlFlow::Break(Some(at)),
-    (Some(_) | None, desired) => match ::core::primitive::bool::then_some(desired == map_name, ()) {
-      ::core::option::Option::Some(()) => ControlFlow::Break(Some(at)),
-      ::core::option::Option::None => ControlFlow::Continue(()),
-    },
+    (Some(_) | None, desired) => {
+      match ::core::primitive::bool::then_some(desired == map_name, ()) {
+        ::core::option::Option::Some(()) => ControlFlow::Break(Some(at)),
+        ::core::option::Option::None => ControlFlow::Continue(()),
+      }
+    }
   })
 }
 

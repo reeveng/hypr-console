@@ -540,12 +540,14 @@ impl Grid {
         let y = i64::from(corner.y).saturating_add(i64::from(down));
 
         match (u32::try_from(x), u32::try_from(y)) {
-          (Ok(x_2), Ok(y_2)) => match ::core::primitive::bool::then_some(x_2 < self.side && y_2 < self.side, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(()) = self.fix(Point { x: x_2, y: y_2 }, module);
+          (Ok(x_2), Ok(y_2)) => {
+            match ::core::primitive::bool::then_some(x_2 < self.side && y_2 < self.side, ()) {
+              ::core::option::Option::Some(()) => {
+                let Ok(()) = self.fix(Point { x: x_2, y: y_2 }, module);
+              }
+              ::core::option::Option::None => {}
             }
-            ::core::option::Option::None => {}
-          },
+          }
           (Err(_off_the_grid), _) | (_, Err(_off_the_grid)) => {}
         }
       }
@@ -677,7 +679,9 @@ impl Grid {
 
       for vertical in 0..self.side {
         let down = match ::core::primitive::bool::then_some(upward, ()) {
-          ::core::option::Option::Some(()) => self.side.saturating_sub(1).saturating_sub(vertical),
+          ::core::option::Option::Some(()) => {
+            self.side.saturating_sub(1).saturating_sub(vertical)
+          }
           ::core::option::Option::None => vertical,
         };
 
@@ -904,23 +908,30 @@ fn run(held: &mut (Module, u32), module: Module, at: u32) -> Result<u32, Never> 
 
 fn square_at(grid: &Grid, Point { x: across, y: down }: Point<u32>) -> Result<u32, Never> {
   match (across.checked_add(1), down.checked_add(1)) {
-    (Some(right), Some(below)) => match ::core::primitive::bool::then_some(right < grid.side && below < grid.side, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(one) = grid.module(Point { x: across, y: down });
-        let Ok(two) = grid.module(Point { x: right, y: down });
-        let Ok(three) = grid.module(Point {
-          x: across,
-          y: below,
-        });
-        let Ok(four) = grid.module(Point { x: right, y: below });
+    (Some(right), Some(below)) => {
+      match ::core::primitive::bool::then_some(right < grid.side && below < grid.side, ()) {
+        ::core::option::Option::Some(()) => {
+          let Ok(one) = grid.module(Point { x: across, y: down });
+          let Ok(two) = grid.module(Point { x: right, y: down });
+          let Ok(three) = grid.module(Point {
+            x: across,
+            y: below,
+          });
+          let Ok(four) = grid.module(Point { x: right, y: below });
 
-        Ok(match ::core::primitive::bool::then_some(one == two && two == three && three == four, ()) {
-          ::core::option::Option::Some(()) => 3,
-          ::core::option::Option::None => 0,
-        })
+          Ok(
+            match ::core::primitive::bool::then_some(
+              one == two && two == three && three == four,
+              (),
+            ) {
+              ::core::option::Option::Some(()) => 3,
+              ::core::option::Option::None => 0,
+            },
+          )
+        }
+        ::core::option::Option::None => Ok(0),
       }
-      ::core::option::Option::None => Ok(0),
-    },
+    }
     (None, _) | (_, None) => Ok(0),
   }
 }
@@ -957,10 +968,14 @@ pub fn wifi(
     })
   };
 
-  Ok(match ::core::primitive::bool::then_some(credential.is_empty(), ()) {
-    ::core::option::Option::Some(()) => format!("WIFI:T:nopass;S:{};;", escaped(name)),
-    ::core::option::Option::None => format!("WIFI:T:WPA;S:{};P:{};;", escaped(name), escaped(credential)),
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(credential.is_empty(), ()) {
+      ::core::option::Option::Some(()) => format!("WIFI:T:nopass;S:{};;", escaped(name)),
+      ::core::option::Option::None => {
+        format!("WIFI:T:WPA;S:{};P:{};;", escaped(name), escaped(credential))
+      }
+    },
+  )
 }
 
 #[cfg(test)]

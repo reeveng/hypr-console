@@ -99,10 +99,12 @@ pub fn scanned(line: &str) -> Result<Worth, Never> {
 }
 
 fn naming(line: &str, shown: &[&str]) -> Result<Worth, Never> {
-  Ok(match ::core::primitive::bool::then_some(shown.iter().any(|word| line.contains(word)), ()) {
-    ::core::option::Option::Some(()) => Worth::Querying,
-    ::core::option::Option::None => Worth::Ignoring,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(shown.iter().any(|word| line.contains(word)), ()) {
+      ::core::option::Option::Some(()) => Worth::Querying,
+      ::core::option::Option::None => Worth::Ignoring,
+    },
+  )
 }
 
 fn surfaces(line: &str) -> Result<Worth, Never> {

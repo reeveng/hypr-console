@@ -61,7 +61,10 @@ impl RefMvsTemporalBlock {
 
   #[must_use]
   fn vector(self) -> Result<Mv, Never> {
-    Ok(Mv { y: self.vector_y.get(), x: self.vector_x.get() })
+    Ok(Mv {
+      y: self.vector_y.get(),
+      x: self.vector_x.get(),
+    })
   }
 }
 
@@ -123,7 +126,10 @@ pub(crate) struct AsmRefMvsFrame<'a> {
   pub rp_proj: *mut RefMvsTemporalBlock,
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
-    expect(explicit051_no_machine_width, reason = "the AArch64 assembly parity fixture mirrors the native ptrdiff_t stride field")
+    expect(
+      explicit051_no_machine_width,
+      reason = "the AArch64 assembly parity fixture mirrors the native ptrdiff_t stride field"
+    )
   )]
   pub rp_stride: console_core_api_compatibility::NativeOffset,
   pub r: *mut RefMvsBlock,
@@ -203,8 +209,10 @@ impl TemporalMvRegion {
   fn validate(&self) -> Rav1dResult {
     let rows = self.rows.end.checked_sub(self.rows.start).ok_or(EINVAL)?;
 
-    match (self.columns.start >= 0 && self.columns.end >= self.columns.start,
-        self.rows.start >= 0 && (0..=16).contains(&rows)) {
+    match (
+      self.columns.start >= 0 && self.columns.end >= self.columns.start,
+      self.rows.start >= 0 && (0..=16).contains(&rows),
+    ) {
       (true, true) => Ok(()),
       (true, false) | (false, true) | (false, false) => Err(EINVAL),
     }
@@ -520,7 +528,12 @@ fn scan_spatial_edge(
     cmp::Ordering::Less | cmp::Ordering::Equal => {
       let weight = match block_span {
         1 => 2,
-        _ => 2.max(scan.available_perpendicular.saturating_mul(2).min(perpendicular)),
+        _ => 2.max(
+          scan
+            .available_perpendicular
+            .saturating_mul(2)
+            .min(perpendicular),
+        ),
       };
       search.consider(first, initial_span.saturating_mul(weight))?;
       return Ok(::core::primitive::u32::wrapping_shr(weight, 1_u32));
@@ -614,11 +627,20 @@ fn mv_projection(vector: Mv, projection: MotionProjection) -> Rav1dResult<Mv> {
   };
   let component = |value: i16| {
     let scaled = i32::from(value).wrapping_mul(scale);
-    let rounded = ::core::primitive::i32::wrapping_shr(scaled.wrapping_add(8192).wrapping_add(::core::primitive::i32::wrapping_shr(scaled, 31_u32)), 14_u32);
-    let Ok(clipped) = console_core_number_conversion::wrapped::<_, i16>(iclip(rounded, -16383, 16383));
+    let rounded = ::core::primitive::i32::wrapping_shr(
+      scaled
+        .wrapping_add(8192)
+        .wrapping_add(::core::primitive::i32::wrapping_shr(scaled, 31_u32)),
+      14_u32,
+    );
+    let Ok(clipped) =
+      console_core_number_conversion::wrapped::<_, i16>(iclip(rounded, -16383, 16383));
     clipped
   };
-  Ok(Mv { x: component(vector.x), y: component(vector.y) })
+  Ok(Mv {
+    x: component(vector.x),
+    y: component(vector.y),
+  })
 }
 
 struct GlobalMotionContext<'a> {
@@ -648,7 +670,10 @@ fn add_temporal_candidate(
     let ordinal = reference_index(target_reference)?;
     let Ok(position) = console_core_number_conversion::index(ordinal);
     let destination = frame.pocdiff.get(position).ok_or(EINVAL)?;
-    let projection = MotionProjection { destination_distance: i32::from(*destination), source_distance };
+    let projection = MotionProjection {
+      destination_distance: i32::from(*destination),
+      source_distance,
+    };
     let mut projected = mv_projection(vector, projection)?;
     let Ok(()) = fix_mv_precision(header, &mut projected);
     Ok(projected)
@@ -658,7 +683,10 @@ fn add_temporal_candidate(
   let candidate = match second {
     -1 => {
       match global {
-        Some(GlobalMotionContext { differs, expected: &[primary_global, _] }) => {
+        Some(GlobalMotionContext {
+          differs,
+          expected: &[primary_global, _],
+        }) => {
           let x_difference = primary.x.wrapping_sub(primary_global.x).wrapping_abs();
           let y_difference = primary.y.wrapping_sub(primary_global.y).wrapping_abs();
           *differs = i32::from(x_difference | y_difference >= 16);
@@ -695,35 +723,54 @@ fn scan_temporal_candidates(
   area: TemporalCandidateArea,
   mut search: TemporalCandidateSearch<'_>,
 ) -> Rav1dResult {
-  let origin = Point { x: ::core::primitive::i32::wrapping_shr(area.block.origin.x, 1_u32), y: ::core::primitive::i32::wrapping_shr(area.block.origin.y, 1_u32) };
+  let origin = Point {
+    x: ::core::primitive::i32::wrapping_shr(area.block.origin.x, 1_u32),
+    y: ::core::primitive::i32::wrapping_shr(area.block.origin.y, 1_u32),
+  };
   let stride = u64::from(frame.rp_stride);
   let grid_base = tile.rp_proj;
   let Ok(grid_length) = console_core_number_conversion::fixed_index(frame.rp_proj.len());
-  let consider = |relative: Point<i32>, search_2: &mut TemporalCandidateSearch<'_>| -> Rav1dResult {
-    let row = (origin.y & 15).checked_add(relative.y).ok_or(EINVAL)?;
-    let column = origin.x.checked_add(relative.x).ok_or(EINVAL)?;
-    let fixed_row = u64::try_from(row).map_err(|_| EINVAL)?;
-    let fixed_column = u64::try_from(column).map_err(|_| EINVAL)?;
-    let index = fixed_row.checked_mul(stride)
-      .and_then(|offset| offset.checked_add(fixed_column))
-      .and_then(|offset| grid_base.checked_add(offset))
-      .filter(|index| *index < grid_length)
-      .ok_or(EINVAL)?;
-    let Ok(native_index) = console_core_number_conversion::index(index);
-    let block = *frame.rp_proj.index(native_index);
-    let global = match relative {
-      Point { x: 0, y: 0 } => Some(GlobalMotionContext {
-        differs: &mut *search_2.global.differs,
-        expected: search_2.global.expected,
-      }),
-      _ => None,
+  let consider =
+    |relative: Point<i32>, search_2: &mut TemporalCandidateSearch<'_>| -> Rav1dResult {
+      let row = (origin.y & 15).checked_add(relative.y).ok_or(EINVAL)?;
+      let column = origin.x.checked_add(relative.x).ok_or(EINVAL)?;
+      let fixed_row = u64::try_from(row).map_err(|_| EINVAL)?;
+      let fixed_column = u64::try_from(column).map_err(|_| EINVAL)?;
+      let index = fixed_row
+        .checked_mul(stride)
+        .and_then(|offset| offset.checked_add(fixed_column))
+        .and_then(|offset| grid_base.checked_add(offset))
+        .filter(|index| *index < grid_length)
+        .ok_or(EINVAL)?;
+      let Ok(native_index) = console_core_number_conversion::index(index);
+      let block = *frame.rp_proj.index(native_index);
+      let global = match relative {
+        Point { x: 0, y: 0 } => Some(GlobalMotionContext {
+          differs: &mut *search_2.global.differs,
+          expected: search_2.global.expected,
+        }),
+        _ => None,
+      };
+      add_temporal_candidate(
+        frame,
+        search_2.candidates,
+        search_2.count,
+        block,
+        search_2.reference,
+        global,
+        search_2.header,
+      )
     };
-    add_temporal_candidate(frame, search_2.candidates, search_2.count, block, search_2.reference, global, search_2.header)
-  };
   let w8 = area.visible.width.wrapping_add(1).wrapping_shr(1).min(8);
   let h8 = area.visible.height.wrapping_add(1).wrapping_shr(1).min(8);
-  let horizontal_shift = match area.block.size.width { 16.. => 1_u32, _ => 0 };
-  let vertical_shift = match area.block.size.height { 16.. => 1_u32, _ => 0 };
+  let horizontal_shift = match area.block.size.width {
+    16.. => 1_u32,
+    _ => 0,
+  };
+  let vertical_shift = match area.block.size.height {
+    16.. => 1_u32,
+    _ => 0,
+  };
   let positions = |count: i32, shift: u32| {
     let limit = count.wrapping_add(shift.cast_signed()).wrapping_shr(shift);
     (0..limit).map(move |slot| slot.wrapping_shl(shift))
@@ -741,16 +788,21 @@ fn scan_temporal_candidates(
     (2..=15, 2..=15) => {
       let bw8 = ::core::primitive::i32::wrapping_shr(width, 1_u32);
       let bh8 = ::core::primitive::i32::wrapping_shr(height, 1_u32);
-      let left = ::core::primitive::i32::wrapping_shr(tile.tile_col.start, 1_u32).max(origin.x & !7);
-      let right = ::core::primitive::i32::wrapping_shr(tile.tile_col.end, 1_u32).min((origin.x & !7).wrapping_add(8));
-      let bottom = ::core::primitive::i32::wrapping_shr(tile.tile_row.end, 1_u32).min((origin.y & !7).wrapping_add(8));
+      let left =
+        ::core::primitive::i32::wrapping_shr(tile.tile_col.start, 1_u32).max(origin.x & !7);
+      let right = ::core::primitive::i32::wrapping_shr(tile.tile_col.end, 1_u32)
+        .min((origin.x & !7).wrapping_add(8));
+      let bottom = ::core::primitive::i32::wrapping_shr(tile.tile_row.end, 1_u32)
+        .min((origin.y & !7).wrapping_add(8));
       let has_bottom = origin.y.wrapping_add(bh8) < bottom;
       let has_right = origin.x.wrapping_add(bw8) < right;
       let adjacent = [
         (has_bottom && origin.x > left).then_some(Point { x: -1, y: bh8 }),
         (has_bottom && has_right).then_some(Point { x: bw8, y: bh8 }),
-        (has_right && origin.y.wrapping_add(bh8).wrapping_sub(1) < bottom)
-          .then_some(Point { x: bw8, y: bh8.wrapping_sub(1) }),
+        (has_right && origin.y.wrapping_add(bh8).wrapping_sub(1) < bottom).then_some(Point {
+          x: bw8,
+          y: bh8.wrapping_sub(1),
+        }),
       ];
 
       for candidate in adjacent.into_iter().flatten() {
@@ -804,7 +856,10 @@ fn reference_sign(reference: i8, signs: &[u8; 7]) -> Rav1dResult<u8> {
   signs.get(position).copied().ok_or(EINVAL)
 }
 
-fn align_reference_sign(motion: Mv, [desired, source]: [u8; 2]) -> Result<Mv, console_core_never::Never> {
+fn align_reference_sign(
+  motion: Mv,
+  [desired, source]: [u8; 2],
+) -> Result<Mv, console_core_never::Never> {
   Ok(match desired ^ source {
     0 => motion,
     _ => -motion,
@@ -822,7 +877,12 @@ fn add_compound_extended_candidate(
   let (same, different) = candidates.split_at_mut_checked(2).ok_or(EINVAL)?;
   let same_2 = same.first_chunk_mut::<2>().ok_or(EINVAL)?;
   let different_2 = different.first_chunk_mut::<2>().ok_or(EINVAL)?;
-  let [same_primary, same_secondary, different_primary, different_secondary] = counts;
+  let [
+    same_primary,
+    same_secondary,
+    different_primary,
+    different_secondary,
+  ] = counts;
   let [primary, secondary] = references.r#ref;
   let neighbors = block.r#ref.r#ref.into_iter().zip(block.mv.mv);
 
@@ -833,16 +893,38 @@ fn add_compound_extended_candidate(
 
     match (reference.cmp(&primary), reference.cmp(&secondary)) {
       (cmp::Ordering::Equal, _) => {
-        let Ok(()) = append_compound_member(same_2, same_primary, CompoundMember::Primary, motion);
-        let Ok(()) = append_compound_member(different_2, different_secondary, CompoundMember::Secondary, for_secondary);
+        let Ok(()) =
+          append_compound_member(same_2, same_primary, CompoundMember::Primary, motion);
+        let Ok(()) = append_compound_member(
+          different_2,
+          different_secondary,
+          CompoundMember::Secondary,
+          for_secondary,
+        );
       }
       (_, cmp::Ordering::Equal) => {
-        let Ok(()) = append_compound_member(same_2, same_secondary, CompoundMember::Secondary, motion);
-        let Ok(()) = append_compound_member(different_2, different_primary, CompoundMember::Primary, for_primary);
+        let Ok(()) =
+          append_compound_member(same_2, same_secondary, CompoundMember::Secondary, motion);
+        let Ok(()) = append_compound_member(
+          different_2,
+          different_primary,
+          CompoundMember::Primary,
+          for_primary,
+        );
       }
       _ => {
-        let Ok(()) = append_compound_member(different_2, different_primary, CompoundMember::Primary, for_primary);
-        let Ok(()) = append_compound_member(different_2, different_secondary, CompoundMember::Secondary, for_secondary);
+        let Ok(()) = append_compound_member(
+          different_2,
+          different_primary,
+          CompoundMember::Primary,
+          for_primary,
+        );
+        let Ok(()) = append_compound_member(
+          different_2,
+          different_secondary,
+          CompoundMember::Secondary,
+          for_secondary,
+        );
       }
     }
   }
@@ -865,10 +947,13 @@ fn add_single_extended_candidate(
     let Ok(occupied) = console_core_number_conversion::index(*count);
     let (recorded, vacant) = candidates.split_at_mut_checked(occupied).ok_or(EINVAL)?;
 
-    match ::core::primitive::bool::then_some(recorded.iter().any(|candidate| {
-      let [first, _] = candidate.mv.mv;
-      first == aligned
-    }), ()) {
+    match ::core::primitive::bool::then_some(
+      recorded.iter().any(|candidate| {
+        let [first, _] = candidate.mv.mv;
+        first == aligned
+      }),
+      (),
+    ) {
       ::core::option::Option::Some(()) => continue,
       ::core::option::Option::None => {}
     }
@@ -907,7 +992,12 @@ fn fill_compound_member(
 
 fn fill_compound_candidates(
   slots: &mut [RefMvsCandidate],
-  [matching_first, matching_second, alternate_first, alternate_second]: [u8; 4],
+  [
+    matching_first,
+    matching_second,
+    alternate_first,
+    alternate_second,
+  ]: [u8; 4],
   [global_first, global_second]: [Mv; 2],
 ) -> Rav1dResult {
   let (first, second, alternate_a, alternate_b) = match slots {
@@ -922,13 +1012,19 @@ fn fill_compound_candidates(
   let Ok(()) = fill_compound_member(
     [primary_a, primary_b],
     [alternate_primary_a, alternate_primary_b],
-    CompoundFallback { matching: matching_first, alternate: alternate_first },
+    CompoundFallback {
+      matching: matching_first,
+      alternate: alternate_first,
+    },
     global_first,
   );
   let Ok(()) = fill_compound_member(
     [secondary_a, secondary_b],
     [alternate_secondary_a, alternate_secondary_b],
-    CompoundFallback { matching: matching_second, alternate: alternate_second },
+    CompoundFallback {
+      matching: matching_second,
+      alternate: alternate_second,
+    },
     global_second,
   );
   Ok(())
@@ -940,10 +1036,20 @@ struct ReferenceMotionBounds {
 }
 
 impl ReferenceMotionBounds {
-  fn new(block: Rectangle<i32>, frame_size: Size<i32>) -> Result<Self, console_core_never::Never> {
+  fn new(
+    block: Rectangle<i32>,
+    frame_size: Size<i32>,
+  ) -> Result<Self, console_core_never::Never> {
     let bounds = |position: i32, span: i32, frame_span: i32| {
-      let start = position.wrapping_add(span).wrapping_add(4).wrapping_neg().wrapping_mul(32);
-      let end = frame_span.wrapping_sub(position).wrapping_add(4).wrapping_mul(32);
+      let start = position
+        .wrapping_add(span)
+        .wrapping_add(4)
+        .wrapping_neg()
+        .wrapping_mul(32);
+      let end = frame_span
+        .wrapping_sub(position)
+        .wrapping_add(4)
+        .wrapping_mul(32);
       start..=end
     };
     Ok(Self {
@@ -953,11 +1059,22 @@ impl ReferenceMotionBounds {
   }
 
   fn clamp(&self, motion: &mut Mv) -> Result<(), console_core_never::Never> {
-    let x = iclip(i32::from(motion.x), *self.horizontal.start(), *self.horizontal.end());
-    let y = iclip(i32::from(motion.y), *self.vertical.start(), *self.vertical.end());
+    let x = iclip(
+      i32::from(motion.x),
+      *self.horizontal.start(),
+      *self.horizontal.end(),
+    );
+    let y = iclip(
+      i32::from(motion.y),
+      *self.vertical.start(),
+      *self.vertical.end(),
+    );
     let Ok(horizontal) = console_core_number_conversion::wrapped::<_, i16>(x);
     let Ok(vertical) = console_core_number_conversion::wrapped::<_, i16>(y);
-    *motion = Mv { x: horizontal, y: vertical };
+    *motion = Mv {
+      x: horizontal,
+      y: vertical,
+    };
     Ok(())
   }
 }
@@ -989,7 +1106,11 @@ fn global_motion_candidates(
   let mut gmv = [Mv::INVALID, Mv::ZERO];
   let mut tgmv = [Mv::ZERO; 2];
 
-  for (ordinal, (warped, predicted)) in references.r#ref.into_iter().zip(gmv.iter_mut().zip(tgmv.iter_mut())) {
+  for (ordinal, (warped, predicted)) in references
+    .r#ref
+    .into_iter()
+    .zip(gmv.iter_mut().zip(tgmv.iter_mut()))
+  {
     match ordinal {
       ..=0 => continue,
       _ => {}
@@ -1006,7 +1127,10 @@ fn global_motion_candidates(
     };
   }
 
-  Ok(GlobalCandidatePair { warped: gmv, by_reference: tgmv })
+  Ok(GlobalCandidatePair {
+    warped: gmv,
+    by_reference: tgmv,
+  })
 }
 
 pub(crate) fn rav1d_refmvs_find(
@@ -1017,7 +1141,12 @@ pub(crate) fn rav1d_refmvs_find(
   search: RefMvsSearch,
   frame_hdr: &Rav1dFrameHeader,
 ) -> Rav1dResult<u8> {
-  let RefMvsSearch { references: r#ref, block: bs, edges: edge_flags, origin: Point { x: bx4, y: by4 } } = search;
+  let RefMvsSearch {
+    references: r#ref,
+    block: bs,
+    edges: edge_flags,
+    origin: Point { x: bx4, y: by4 },
+  } = search;
   let Ok(&[block_width, block_height, ..]) = bs.dimensions();
   let bw4 = i32::from(block_width);
   let bh4 = i32::from(block_height);
@@ -1025,74 +1154,111 @@ pub(crate) fn rav1d_refmvs_find(
   let h4 = bh4.min(16).min(rt.tile_row.end.wrapping_sub(by4));
   let block = Rectangle {
     origin: Point { x: bx4, y: by4 },
-    size: Size { width: bw4, height: bh4 },
+    size: Size {
+      width: bw4,
+      height: bh4,
+    },
   };
   let cnt = &mut 0_u8;
-  let GlobalCandidatePair { warped: gmv, by_reference: tgmv } = global_motion_candidates(r#ref, block, frame_hdr)?;
+  let GlobalCandidatePair {
+    warped: gmv,
+    by_reference: tgmv,
+  } = global_motion_candidates(r#ref, block, frame_hdr)?;
 
   let mut have_newmv = 0;
   let mut have_col_mvs = 0;
   let mut have_row_mvs = 0;
   let local_row = by4 & 31;
-  let (max_rows, mut scanned_rows, top_start) = match ::core::primitive::bool::then_some(by4 > rt.tile_row.start, ()) {
-    ::core::option::Option::Some(()) => {
-      let available = ::core::primitive::i32::wrapping_shr(by4.wrapping_sub(rt.tile_row.start).wrapping_add(1), 1_u32);
-      let depth_limit = 2i32.wrapping_add(i32::from(bh4 > 1));
-      let maximum = u32::try_from(available.min(depth_limit)).map_err(|_| EINVAL)?;
-      let start = spatial_row_start(&rt.r, Point { x: bx4, y: local_row.wrapping_add(4) })?;
-      let scanned = scan_spatial_edge(
-        &rf.r,
-        NeighborEdge::Row { start },
-        NeighborScan {
-          block_span: bw4,
-          visible_span: w4,
-          available_perpendicular: maximum,
-          step: match bw4 { 16.. => 4, _ => 1 },
-        },
-        CandidateSearch {
-          candidates: mvstack,
-          count: cnt,
-          reference: r#ref,
-          global: &gmv,
-          matches: SpatialMatches { new_motion: &mut have_newmv, reference_motion: &mut have_row_mvs },
-        },
-      )?;
-      (maximum, Some(scanned), Some(start))
-    }
-    ::core::option::Option::None => (0, None, None),
-  };
+  let (max_rows, mut scanned_rows, top_start) =
+    match ::core::primitive::bool::then_some(by4 > rt.tile_row.start, ()) {
+      ::core::option::Option::Some(()) => {
+        let available = ::core::primitive::i32::wrapping_shr(
+          by4.wrapping_sub(rt.tile_row.start).wrapping_add(1),
+          1_u32,
+        );
+        let depth_limit = 2i32.wrapping_add(i32::from(bh4 > 1));
+        let maximum = u32::try_from(available.min(depth_limit)).map_err(|_| EINVAL)?;
+        let start = spatial_row_start(
+          &rt.r,
+          Point {
+            x: bx4,
+            y: local_row.wrapping_add(4),
+          },
+        )?;
+        let scanned = scan_spatial_edge(
+          &rf.r,
+          NeighborEdge::Row { start },
+          NeighborScan {
+            block_span: bw4,
+            visible_span: w4,
+            available_perpendicular: maximum,
+            step: match bw4 {
+              16.. => 4,
+              _ => 1,
+            },
+          },
+          CandidateSearch {
+            candidates: mvstack,
+            count: cnt,
+            reference: r#ref,
+            global: &gmv,
+            matches: SpatialMatches {
+              new_motion: &mut have_newmv,
+              reference_motion: &mut have_row_mvs,
+            },
+          },
+        )?;
+        (maximum, Some(scanned), Some(start))
+      }
+      ::core::option::Option::None => (0, None, None),
+    };
 
-  let (max_cols, mut scanned_columns, left_rows) = match ::core::primitive::bool::then_some(bx4 > rt.tile_col.start, ()) {
-    ::core::option::Option::Some(()) => {
-      let available = ::core::primitive::i32::wrapping_shr(bx4.wrapping_sub(rt.tile_col.start).wrapping_add(1), 1_u32);
-      let depth_limit = 2i32.wrapping_add(i32::from(bw4 > 1));
-      let maximum = u32::try_from(available.min(depth_limit)).map_err(|_| EINVAL)?;
-      let Ok(row_index) = console_core_number_conversion::index(local_row.wrapping_add(5));
-      let row_starts = rt.r.get(row_index..).ok_or(EINVAL)?;
-      let scanned = scan_spatial_edge(
-        &rf.r,
-        NeighborEdge::Column { row_starts, x: bx4.wrapping_sub(1) },
-        NeighborScan {
-          block_span: bh4,
-          visible_span: h4,
-          available_perpendicular: maximum,
-          step: match bh4 { 16.. => 4, _ => 1 },
-        },
-        CandidateSearch {
-          candidates: mvstack,
-          count: cnt,
-          reference: r#ref,
-          global: &gmv,
-          matches: SpatialMatches { new_motion: &mut have_newmv, reference_motion: &mut have_col_mvs },
-        },
-      )?;
-      (maximum, Some(scanned), Some(row_starts))
-    }
-    ::core::option::Option::None => (0, None, None),
-  };
+  let (max_cols, mut scanned_columns, left_rows) =
+    match ::core::primitive::bool::then_some(bx4 > rt.tile_col.start, ()) {
+      ::core::option::Option::Some(()) => {
+        let available = ::core::primitive::i32::wrapping_shr(
+          bx4.wrapping_sub(rt.tile_col.start).wrapping_add(1),
+          1_u32,
+        );
+        let depth_limit = 2i32.wrapping_add(i32::from(bw4 > 1));
+        let maximum = u32::try_from(available.min(depth_limit)).map_err(|_| EINVAL)?;
+        let Ok(row_index) = console_core_number_conversion::index(local_row.wrapping_add(5));
+        let row_starts = rt.r.get(row_index..).ok_or(EINVAL)?;
+        let scanned = scan_spatial_edge(
+          &rf.r,
+          NeighborEdge::Column {
+            row_starts,
+            x: bx4.wrapping_sub(1),
+          },
+          NeighborScan {
+            block_span: bh4,
+            visible_span: h4,
+            available_perpendicular: maximum,
+            step: match bh4 {
+              16.. => 4,
+              _ => 1,
+            },
+          },
+          CandidateSearch {
+            candidates: mvstack,
+            count: cnt,
+            reference: r#ref,
+            global: &gmv,
+            matches: SpatialMatches {
+              new_motion: &mut have_newmv,
+              reference_motion: &mut have_col_mvs,
+            },
+          },
+        )?;
+        (maximum, Some(scanned), Some(row_starts))
+      }
+      ::core::option::Option::None => (0, None, None),
+    };
 
-  let right_available = matches!(edge_flags.availability(EdgeFlags::I444_TOP_HAS_RIGHT), Ok(EdgeAvailability::Present))
-    && cmp::max(bw4, bh4) <= 16
+  let right_available = matches!(
+    edge_flags.availability(EdgeFlags::I444_TOP_HAS_RIGHT),
+    Ok(EdgeAvailability::Present)
+  ) && cmp::max(bw4, bh4) <= 16
     && bw4.wrapping_add(bx4) < rt.tile_col.end;
 
   match (top_start, right_available) {
@@ -1106,7 +1272,10 @@ pub(crate) fn rav1d_refmvs_find(
         neighbor,
         r#ref,
         &gmv,
-        SpatialMatches { new_motion: &mut have_newmv, reference_motion: &mut have_row_mvs },
+        SpatialMatches {
+          new_motion: &mut have_newmv,
+          reference_motion: &mut have_row_mvs,
+        },
       )?;
     }
     (Some(_), false) | (None, _) => {}
@@ -1114,7 +1283,13 @@ pub(crate) fn rav1d_refmvs_find(
 
   let nearest_match = i32::wrapping_add(have_col_mvs, have_row_mvs);
   let nearest_count = u64::from(*cnt);
-  let nearest_candidates = mvstack.get_mut(..match ::console_core_number_conversion::index(nearest_count) { ::core::result::Result::Ok(native_position) => native_position }).ok_or(EINVAL)?;
+  let nearest_candidates = mvstack
+    .get_mut(
+      ..match ::console_core_number_conversion::index(nearest_count) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    )
+    .ok_or(EINVAL)?;
 
   for candidate in nearest_candidates {
     candidate.weight = candidate.weight.wrapping_add(640);
@@ -1122,19 +1297,26 @@ pub(crate) fn rav1d_refmvs_find(
 
   let mut globalmv_ctx = i32::from(frame_hdr.use_ref_frame_mvs);
 
-  match ::core::primitive::bool::then_some(rf.temporal_references.iter().any(Option::is_some), ()) {
+  match ::core::primitive::bool::then_some(rf.temporal_references.iter().any(Option::is_some), ())
+  {
     ::core::option::Option::Some(()) => scan_temporal_candidates(
       rf,
       rt,
       TemporalCandidateArea {
         block,
-        visible: Size { width: w4, height: h4 },
+        visible: Size {
+          width: w4,
+          height: h4,
+        },
       },
       TemporalCandidateSearch {
         candidates: mvstack,
         count: cnt,
         reference: r#ref,
-        global: GlobalMotionContext { differs: &mut globalmv_ctx, expected: &tgmv },
+        global: GlobalMotionContext {
+          differs: &mut globalmv_ctx,
+          expected: &tgmv,
+        },
         header: frame_hdr,
       },
     )?,
@@ -1146,7 +1328,10 @@ pub(crate) fn rav1d_refmvs_find(
   match (top_start, left_rows) {
     (Some(start), Some(_)) => {
       let before_origin = start.checked_sub(1).ok_or(EINVAL)?;
-      let neighbor = NeighborEdge::Row { start: before_origin }.read(&rf.r, 0)?;
+      let neighbor = NeighborEdge::Row {
+        start: before_origin,
+      }
+      .read(&rf.r, 0)?;
       add_spatial_candidate(
         mvstack,
         cnt,
@@ -1154,21 +1339,30 @@ pub(crate) fn rav1d_refmvs_find(
         neighbor,
         r#ref,
         &gmv,
-        SpatialMatches { new_motion: &mut have_dummy_newmv_match, reference_motion: &mut have_row_mvs },
+        SpatialMatches {
+          new_motion: &mut have_dummy_newmv_match,
+          reference_motion: &mut have_row_mvs,
+        },
       )?;
     }
     (Some(_), None) | (None, _) => {}
   }
 
   for n in 2..=3 {
-    match scanned_rows.as_mut().filter(|scanned| n > **scanned && n <= max_rows) {
+    match scanned_rows
+      .as_mut()
+      .filter(|scanned| n > **scanned && n <= max_rows)
+    {
       Some(scanned) => {
         let Ok(ordinal) = console_core_number_conversion::wrapped::<_, i32>(n);
         let even_distance = ordinal.wrapping_mul(2);
         let previous_row = local_row.wrapping_sub(even_distance).wrapping_add(1) | 1;
         let start = spatial_row_start(
           &rt.r,
-          Point { x: bx4 | 1, y: previous_row.wrapping_add(5) },
+          Point {
+            x: bx4 | 1,
+            y: previous_row.wrapping_add(5),
+          },
         )?;
         let nearby_rows = scan_spatial_edge(
           &rf.r,
@@ -1177,7 +1371,10 @@ pub(crate) fn rav1d_refmvs_find(
             block_span: bw4,
             visible_span: w4,
             available_perpendicular: max_rows.wrapping_add(1).wrapping_sub(n),
-            step: match bw4 { 16.. => 4, _ => 2 },
+            step: match bw4 {
+              16.. => 4,
+              _ => 2,
+            },
           },
           CandidateSearch {
             candidates: mvstack,
@@ -1195,12 +1392,19 @@ pub(crate) fn rav1d_refmvs_find(
       None => {}
     }
 
-    match scanned_columns.as_mut().filter(|scanned| n > **scanned && n <= max_cols) {
+    match scanned_columns
+      .as_mut()
+      .filter(|scanned| n > **scanned && n <= max_cols)
+    {
       Some(scanned) => {
-        let Ok(row_index) = console_core_number_conversion::index((local_row | 1).wrapping_add(5));
+        let Ok(row_index) =
+          console_core_number_conversion::index((local_row | 1).wrapping_add(5));
         let row_starts = rt.r.get(row_index..).ok_or(EINVAL)?;
         let Ok(neighbor_distance) = console_core_number_conversion::wrapped::<_, i32>(n);
-        let x = bx4.wrapping_sub(neighbor_distance.wrapping_mul(2)).wrapping_add(1) | 1;
+        let x = bx4
+          .wrapping_sub(neighbor_distance.wrapping_mul(2))
+          .wrapping_add(1)
+          | 1;
         let nearby_cols = scan_spatial_edge(
           &rf.r,
           NeighborEdge::Column { row_starts, x },
@@ -1208,7 +1412,10 @@ pub(crate) fn rav1d_refmvs_find(
             block_span: bh4,
             visible_span: h4,
             available_perpendicular: max_cols.wrapping_add(1).wrapping_sub(n),
-            step: match bh4 { 16.. => 4, _ => 2 },
+            step: match bh4 {
+              16.. => 4,
+              _ => 2,
+            },
           },
           CandidateSearch {
             candidates: mvstack,
@@ -1241,19 +1448,31 @@ pub(crate) fn rav1d_refmvs_find(
 
   let Ok(active_count) = console_core_number_conversion::index(*cnt);
   let active = mvstack.get_mut(..active_count).ok_or(EINVAL)?;
-  let (nearest, later) = active.split_at_mut_checked(match ::console_core_number_conversion::index(nearest_count) { ::core::result::Result::Ok(native_position) => native_position }).ok_or(EINVAL)?;
+  let (nearest, later) = active
+    .split_at_mut_checked(
+      match ::console_core_number_conversion::index(nearest_count) {
+        ::core::result::Result::Ok(native_position) => native_position,
+      },
+    )
+    .ok_or(EINVAL)?;
   nearest.sort_by_key(|candidate| candidate.weight.wrapping_neg());
   later.sort_by_key(|candidate| candidate.weight.wrapping_neg());
 
   let Ok(motion_bounds) = ReferenceMotionBounds::new(
     block,
-    Size { width: rf.iw4, height: rf.ih4 },
+    Size {
+      width: rf.iw4,
+      height: rf.ih4,
+    },
   );
 
   let extended_span = cmp::min(w4, h4);
   let extended_edges = [
     top_start.map(|start| NeighborEdge::Row { start }),
-    left_rows.map(|row_starts| NeighborEdge::Column { row_starts, x: bx4.wrapping_sub(1) }),
+    left_rows.map(|row_starts| NeighborEdge::Column {
+      row_starts,
+      x: bx4.wrapping_sub(1),
+    }),
   ];
 
   let fallback = MotionFallbackEdges {
@@ -1263,7 +1482,11 @@ pub(crate) fn rav1d_refmvs_find(
     references: r#ref,
     global: tgmv,
   };
-  let contexts = MotionContexts { nearest: refmv_ctx, new_motion: newmv_ctx, global: globalmv_ctx };
+  let contexts = MotionContexts {
+    nearest: refmv_ctx,
+    new_motion: newmv_ctx,
+    global: globalmv_ctx,
+  };
   complete_motion_candidates(mvstack, cnt, ctx, contexts, fallback, motion_bounds)
 }
 
@@ -1321,7 +1544,13 @@ fn complete_motion_candidates(
             fallback.extent,
             &mut state,
             |neighbor, (stack, written)| {
-              add_single_extended_candidate(stack, written, neighbor, sign, &fallback.frame.sign_bias)?;
+              add_single_extended_candidate(
+                stack,
+                written,
+                neighbor,
+                sign,
+                &fallback.frame.sign_bias,
+              )?;
 
               match **written {
                 0 | 1 => Ok(ExtendedScan::Continue),
@@ -1350,7 +1579,8 @@ fn complete_motion_candidates(
         *vector = global;
       }
 
-      *context = motion.nearest.wrapping_shl(4) | motion.global.wrapping_shl(3) | motion.new_motion;
+      *context =
+        motion.nearest.wrapping_shl(4) | motion.global.wrapping_shl(3) | motion.new_motion;
     }
   }
 
@@ -1374,12 +1604,23 @@ fn complete_compound_motion(
   let Ok(occupied) = console_core_number_conversion::index(*count);
   let vacancies = stack.get_mut(occupied..).ok_or(EINVAL)?;
   let mut state = (vacancies, [0_u8; 4]);
-  scan_extended_edges(&fallback.frame.r, &fallback.edges, fallback.extent, &mut state, |neighbor, (same, counts)| {
-    add_compound_extended_candidate(
-      same, counts, neighbor, [primary_sign, secondary_sign], fallback.references, sign_bias,
-    )?;
-    Ok(ExtendedScan::Continue)
-  })?;
+  scan_extended_edges(
+    &fallback.frame.r,
+    &fallback.edges,
+    fallback.extent,
+    &mut state,
+    |neighbor, (same, counts)| {
+      add_compound_extended_candidate(
+        same,
+        counts,
+        neighbor,
+        [primary_sign, secondary_sign],
+        fallback.references,
+        sign_bias,
+      )?;
+      Ok(ExtendedScan::Continue)
+    },
+  )?;
   fill_compound_candidates(state.0, state.1, fallback.global)?;
 
   let [first, second, third, ..] = stack;
@@ -1403,7 +1644,6 @@ fn complete_compound_motion(
   *count = 2;
   Ok(())
 }
-
 
 pub(crate) struct SpatialMvRegion {
   pub columns: RefmvsTileRange,
@@ -1441,14 +1681,18 @@ pub(crate) fn rav1d_refmvs_tile_sbrow_init(
   let stride = u64::from(frame.rp_stride);
   let spatial_stride = ::core::primitive::u64::wrapping_mul(stride, 2);
   let pass_base = match (frame.n_frame_threads, row.pass) {
-    (2.., MotionRowPass::Second) => ::core::primitive::u64::wrapping_mul(u64::from(frame.n_blocks), 70),
+    (2.., MotionRowPass::Second) => {
+      ::core::primitive::u64::wrapping_mul(u64::from(frame.n_blocks), 70)
+    }
     _ => 0,
   };
   let row_base = ::core::primitive::u64::wrapping_mul(u64::from(tile_row), 35)
     .checked_mul(spatial_stride)
     .and_then(|tile_base| tile_base.checked_add(pass_base))
     .ok_or(EINVAL)?;
-  let projected_base = ::core::primitive::u64::wrapping_mul(u64::from(tile_row), 16).checked_mul(stride).ok_or(EINVAL)?;
+  let projected_base = ::core::primitive::u64::wrapping_mul(u64::from(tile_row), 16)
+    .checked_mul(stride)
+    .ok_or(EINVAL)?;
   console_core_number_conversion::checked_index(projected_base).map_err(|_| EINVAL)?;
   let alternate_row = ::core::primitive::u32::wrapping_rem(superblock_row, 2) != 0;
   let page_start = match (depth, alternate_row) {
@@ -1473,7 +1717,9 @@ pub(crate) fn rav1d_refmvs_tile_sbrow_init(
       (_, Some(row_3)) => row_3,
       _ => continue,
     };
-    let address = row_base.checked_add(u64::from(buffer_row).wrapping_mul(spatial_stride)).ok_or(EINVAL)?;
+    let address = row_base
+      .checked_add(u64::from(buffer_row).wrapping_mul(spatial_stride))
+      .ok_or(EINVAL)?;
     console_core_number_conversion::checked_index(address).map_err(|_| EINVAL)?;
     *offset = address;
   }
@@ -1505,7 +1751,8 @@ impl ProjectedMotion<'_> {
     let column = u32::try_from(point.x).map_err(|_negative_column| EINVAL)?;
     let row = u64::from((point.y & 15).cast_unsigned()).wrapping_mul(self.stride);
 
-    self.tile_base
+    self
+      .tile_base
       .checked_add(row)
       .and_then(|row_base| row_base.checked_add(u64::from(column)))
       .ok_or(EINVAL)
@@ -1513,8 +1760,14 @@ impl ProjectedMotion<'_> {
 
   fn clear(&self) -> Rav1dResult {
     for y in self.region.rows.clone() {
-      let start = self.offset(Point { x: self.region.columns.start, y })?;
-      let end = self.offset(Point { x: self.region.columns.end, y })?;
+      let start = self.offset(Point {
+        x: self.region.columns.start,
+        y,
+      })?;
+      let end = self.offset(Point {
+        x: self.region.columns.end,
+        y,
+      })?;
       let span = checked_motion_range(start..end, self.length)?;
       let Ok(range) = console_core_number_conversion::indices(span);
 
@@ -1563,10 +1816,14 @@ fn load_tmvs_rust(
   let tile_rows = u64::from(projected_tile).wrapping_mul(16);
   let tile_base = tile_rows.checked_mul(stride).ok_or(EINVAL)?;
   let Ok(length) = console_core_number_conversion::fixed_index(frame.rp_proj.len());
-  let scan_columns = columns.start.saturating_sub(8).max(0)..columns.end.saturating_add(8).min(frame.iw8);
+  let scan_columns =
+    columns.start.saturating_sub(8).max(0)..columns.end.saturating_add(8).min(frame.iw8);
   let plane = ProjectedMotion {
     cells: &frame.rp_proj,
-    region: TemporalMvRegion { columns, rows: rows.start..rows.end.min(frame.ih8) },
+    region: TemporalMvRegion {
+      columns,
+      rows: rows.start..rows.end.min(frame.ih8),
+    },
     tile_base,
     stride,
     length,
@@ -1584,7 +1841,10 @@ fn load_tmvs_rust(
       None => continue,
     };
     let Ok(reference_index) = console_core_number_conversion::index(candidate.source);
-    let reference = motion.get(reference_index).and_then(Option::as_ref).ok_or(EINVAL)?;
+    let reference = motion
+      .get(reference_index)
+      .and_then(Option::as_ref)
+      .ok_or(EINVAL)?;
     project_temporal_rows(&plane, &reference.inner, &scan_columns, candidate, distance)?;
   }
 
@@ -1626,16 +1886,26 @@ fn project_temporal_rows(
           updated
         }
       };
-      let TemporalProjection { displacement, block: translated } = match projection {
+      let TemporalProjection {
+        displacement,
+        block: translated,
+      } = match projection {
         Some(projected) => projected,
         None => continue 'scan_columns,
       };
-      let position_2 = Point { x: x.wrapping_add(displacement.x), y: y.wrapping_add(displacement.y) };
+      let position_2 = Point {
+        x: x.wrapping_add(displacement.x),
+        y: y.wrapping_add(displacement.y),
+      };
       let column_band = x & !7;
-      let allowed_columns = column_band.saturating_sub(8).max(plane.region.columns.start)
+      let allowed_columns = column_band
+        .saturating_sub(8)
+        .max(plane.region.columns.start)
         ..column_band.saturating_add(16).min(plane.region.columns.end);
 
-      match (allowed_rows.contains(&position_2.y) && allowed_columns.contains(&position_2.x)).then_some(position_2) {
+      match (allowed_rows.contains(&position_2.y) && allowed_columns.contains(&position_2.x))
+        .then_some(position_2)
+      {
         Some(inside_tile) => plane.paint(inside_tile, translated)?,
         None => {}
       }
@@ -1661,7 +1931,10 @@ fn project_temporal_block(
     Some(nonzero) => *nonzero,
     None => return Ok(None),
   };
-  let projection = MotionProjection { destination_distance: distance, source_distance: other_distance };
+  let projection = MotionProjection {
+    destination_distance: distance,
+    source_distance: other_distance,
+  };
   let Ok(vector) = block.vector();
   let offset = mv_projection(vector, projection)?;
   let sign = i32::from(candidate.source).wrapping_sub(4);
@@ -1673,7 +1946,10 @@ fn project_temporal_block(
   };
   let Ok(r#ref) = console_core_number_conversion::wrapped::<_, i8>(other_distance.get());
 
-  Ok(Some(TemporalProjection { displacement, block: RefMvsTemporalBlock { r#ref, ..block } }))
+  Ok(Some(TemporalProjection {
+    displacement,
+    block: RefMvsTemporalBlock { r#ref, ..block },
+  }))
 }
 
 fn checked_motion_range(span: Range<u64>, length: u64) -> Rav1dResult<Range<u64>> {
@@ -1738,7 +2014,10 @@ fn save_tmvs_rust(
   Ok(())
 }
 
-fn select_temporal_block(block: RefMvsBlock, signs: &[u8; 7]) -> Rav1dResult<RefMvsTemporalBlock> {
+fn select_temporal_block(
+  block: RefMvsBlock,
+  signs: &[u8; 7],
+) -> Rav1dResult<RefMvsTemporalBlock> {
   let [first, second] = block.mv.mv;
   let [first_reference, second_reference] = block.r#ref.r#ref;
 
@@ -1779,7 +2058,10 @@ pub(crate) fn rav1d_refmvs_init_frame(
   rp_ref: &[Option<DisjointMutArcSlice<RefMvsTemporalBlock>>; 7],
   parallelism: RefMvsParallelism,
 ) -> Rav1dResult {
-  let RefMvsParallelism { tile_threads: n_tile_threads, frame_threads: n_frame_threads } = parallelism;
+  let RefMvsParallelism {
+    tile_threads: n_tile_threads,
+    frame_threads: n_frame_threads,
+  } = parallelism;
   let [frame_width, _output_width] = frm_hdr.size.width;
   let width = u32::try_from(frame_width).map_err(|_| EINVAL)?;
   let height = u32::try_from(frm_hdr.size.height).map_err(|_| EINVAL)?;
@@ -1809,7 +2091,14 @@ pub(crate) fn rav1d_refmvs_init_frame(
 
   match (frm_hdr.use_ref_frame_mvs, bits) {
     (0, _) | (_, 0) => {}
-    (_, _) => fill_temporal_references(&mut references, current_poc, bits, ref_poc, ref_ref_poc, rp_ref)?,
+    (_, _) => fill_temporal_references(
+      &mut references,
+      current_poc,
+      bits,
+      ref_poc,
+      ref_ref_poc,
+      rp_ref,
+    )?,
   }
 
   match n_blocks.cmp(&rf.n_blocks) {
@@ -1819,12 +2108,20 @@ pub(crate) fn rav1d_refmvs_init_frame(
         0..=1 => 1,
         _ => 2,
       };
-      let cells = u64::from(n_blocks).wrapping_mul(70).wrapping_mul(passes).wrapping_add(R_PAD);
+      let cells = u64::from(n_blocks)
+        .wrapping_mul(70)
+        .wrapping_mul(passes)
+        .wrapping_add(R_PAD);
       let projections = u64::from(n_blocks).wrapping_mul(16);
       let grid_size = console_core_number_conversion::checked_index(cells).map_err(|_| ENOMEM)?;
-      let projected_size = console_core_number_conversion::checked_index(projections).map_err(|_| ENOMEM)?;
-      rf.r.try_resize(grid_size, FromZeros::new_zeroed()).map_err(|_| ENOMEM)?;
-      rf.rp_proj.try_resize(projected_size, Default::default()).map_err(|_| ENOMEM)?;
+      let projected_size =
+        console_core_number_conversion::checked_index(projections).map_err(|_| ENOMEM)?;
+      rf.r
+        .try_resize(grid_size, FromZeros::new_zeroed())
+        .map_err(|_| ENOMEM)?;
+      rf.rp_proj
+        .try_resize(projected_size, Default::default())
+        .map_err(|_| ENOMEM)?;
       rf.n_blocks = n_blocks;
     }
   }
@@ -1847,8 +2144,20 @@ pub(crate) fn rav1d_refmvs_init_frame(
     .zip(ref_poc)
   {
     let reference_order = reference_poc.cast_signed();
-    let Ok(forward) = get_poc_diff(bits, OrderHintComparison { target: reference_order, origin: current_poc });
-    let Ok(backward) = get_poc_diff(bits, OrderHintComparison { target: current_poc, origin: reference_order });
+    let Ok(forward) = get_poc_diff(
+      bits,
+      OrderHintComparison {
+        target: reference_order,
+        origin: current_poc,
+      },
+    );
+    let Ok(backward) = get_poc_diff(
+      bits,
+      OrderHintComparison {
+        target: current_poc,
+        origin: reference_order,
+      },
+    );
     *sign_bias = u8::from(forward > 0);
     *motion_sign = u8::from(forward < 0);
     let Ok(distance) = console_core_number_conversion::wrapped::<_, i8>(backward.clamp(-31, 31));
@@ -1880,7 +2189,13 @@ fn fill_temporal_references(
     let motion_buffer = motion.get(index).ok_or(EINVAL)?;
     let picture_order_bits = ref_poc.get(index).ok_or(EINVAL)?;
     let picture_order = picture_order_bits.cast_signed();
-    let Ok(distance) = get_poc_diff(bits, OrderHintComparison { target: picture_order, origin: current_poc });
+    let Ok(distance) = get_poc_diff(
+      bits,
+      OrderHintComparison {
+        target: picture_order,
+        origin: current_poc,
+      },
+    );
     let is_eligible = match source {
       0 => use_last,
       1 => motion_buffer.is_some(),
@@ -1912,7 +2227,11 @@ fn fill_temporal_references(
       }
       _outside_usable_range => None,
     };
-    *slot = Some(TemporalReference { source, current_distance, other_distances });
+    *slot = Some(TemporalReference {
+      source,
+      current_distance,
+      other_distances,
+    });
   }
 
   Ok(())
@@ -1924,7 +2243,13 @@ fn temporal_reference_distances(
   other_pocs: &[u32; 7],
 ) -> Result<[Option<NonZeroU8>; 7], console_core_never::Never> {
   Ok(other_pocs.map(|poc| {
-    let Ok(delta) = get_poc_diff(bits, OrderHintComparison { target: reference_order, origin: poc.cast_signed() });
+    let Ok(delta) = get_poc_diff(
+      bits,
+      OrderHintComparison {
+        target: reference_order,
+        origin: poc.cast_signed(),
+      },
+    );
 
     match delta {
       1..=31 => {
@@ -1983,18 +2308,30 @@ mod tests {
   #[test]
   fn splat_checks_all_rows_before_writing_and_skips_unavailable_rows() -> Rav1dResult {
     let mut frame = RefMvsFrame::default();
-    frame.r.try_resize(33, RefMvsBlock::new_zeroed()).map_err(|_| ENOMEM)?;
+    frame
+      .r
+      .try_resize(33, RefMvsBlock::new_zeroed())
+      .map_err(|_| ENOMEM)?;
     let mut tile = RefmvsTile::default();
     let [_, _, _, _, _, first, second, absent, ..] = &mut tile.r;
     *first = 0;
     *second = 30;
     *absent = 32;
     let origin = Bxy { x: 2, y: 32 };
-    let extent = Size { width: 3, height: 3 };
-    let template = Aligned(RefMvsBlock { mf: 5, ..RefMvsBlock::new_zeroed() });
+    let extent = Size {
+      width: 3,
+      height: 3,
+    };
+    let template = Aligned(RefMvsBlock {
+      mf: 5,
+      ..RefMvsBlock::new_zeroed()
+    });
     let splat = splat_mv::Fn::DEFAULT;
 
-    assert_eq!(splat.call(&frame, &tile, &template, origin, extent), Err(EINVAL));
+    assert_eq!(
+      splat.call(&frame, &tile, &template, origin, extent),
+      Err(EINVAL)
+    );
     assert!(frame.r.index(..).iter().all(|block| block.mf == 0));
 
     let [_, _, _, _, _, _, middle_row, ..] = &mut tile.r;
@@ -2002,7 +2339,10 @@ mod tests {
     splat.call(&frame, &tile, &template, origin, extent)?;
 
     for (block, ordinal) in frame.r.index(..).iter().zip(0_u32..) {
-      let expected = match ordinal { 2..=4 | 10..=12 => 5, _ => 0 };
+      let expected = match ordinal {
+        2..=4 | 10..=12 => 5,
+        _ => 0,
+      };
       assert_eq!(block.mf, expected);
     }
 

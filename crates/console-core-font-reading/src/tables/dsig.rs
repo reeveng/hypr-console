@@ -21,7 +21,9 @@ impl SignatureRecord {
 
         match ::core::primitive::bool::then_some(length == actual_len, ()) {
           ::core::option::Option::Some(()) => Ok(signature),
-          ::core::option::Option::None => Err(ReadError::MalformedData("ambiguous DSIG signature length")),
+          ::core::option::Option::None => {
+            Err(ReadError::MalformedData("ambiguous DSIG signature length"))
+          }
         }
       }
       unknown => Err(ReadError::InvalidFormat(
@@ -133,7 +135,10 @@ mod tests {
     };
 
     let block_attempt = record.signature_block(data);
-    assert!(matches!(block_attempt, Err(ReadError::MalformedData("ambiguous DSIG signature length"))));
+    assert!(matches!(
+      block_attempt,
+      Err(ReadError::MalformedData("ambiguous DSIG signature length"))
+    ));
     ::core::result::Result::Ok(())
   }
 }

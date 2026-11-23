@@ -19,7 +19,7 @@
 
 use crate::parser::parse_config;
 use crate::{
-  Alias, Bases, CacheDir, Config, Dir, Error, Include, IncludeFailure, Match, RemapDir,
+  Alias, Bases, CacheDir, Configuration, Dir, Error, Include, IncludeFailure, Match, RemapDir,
   SelectFont,
 };
 
@@ -38,7 +38,8 @@ pub enum ConfigPart {
   CacheDir(CacheDir),
   Include(Include),
   Match(Match),
-  Config(Config),
+  #[cfg_attr(feature = "serde", serde(rename = "Config"))]
+  Configuration(Configuration),
   Alias(Alias),
   RemapDir(RemapDir),
   ResetDirs,
@@ -52,7 +53,7 @@ pub struct FontConfig {
   pub cache_dirs: Vec<PathBuf>,
   pub remap_dirs: Vec<RemapDirData>,
   pub matches: Vec<Match>,
-  pub config: Config,
+  pub config: Configuration,
   pub aliases: Vec<Alias>,
   pub config_files: HashSet<PathBuf>,
 }
@@ -128,7 +129,7 @@ struct Inclusion {
 }
 
 enum Origin {
-  Asked,
+  Requested,
   Included(Inclusion),
   Member(PathBuf),
 }
@@ -147,7 +148,7 @@ struct Frame {
 enum Next {
   Part(PathBuf, ConfigPart),
   Member(PathBuf),
-  Fault(Error),
+  ParseError(Error),
   Finished,
   Empty,
 }
@@ -171,7 +172,7 @@ impl FontConfig {
       Opened::AlreadyMerged => return Ok(()),
     };
     let asked = Frame {
-      origin: Origin::Asked,
+      origin: Origin::Requested,
       path: path.to_path_buf(),
       work: Work::Parts(parts.into_iter()),
     };
@@ -240,11 +241,11 @@ fn step(mut merging: Merging) -> Result<Step<Merging, Result<(), Error>>, Never>
     Next::Member(member) => {
       let Ok(()) = merging.member(member);
     }
-    Next::Fault(fault) => {
+    Next::ParseError(fault) => {
       let ended = merging.stack.pop();
 
       match ended.map(|frame| frame.origin) {
-        Some(Origin::Asked) => return Ok(Step::Halt(Err(fault))),
+        Some(Origin::Requested) => return Ok(Step::Halt(Err(fault))),
         Some(origin @ (Origin::Included(_) | Origin::Member(_))) => {
           let Ok(()) = report(origin, fault);
         }
@@ -265,7 +266,7 @@ fn take_next(stack: &mut [Frame]) -> Result<Next, Never> {
   Ok(match &mut frame.work {
     Work::Parts(parts) => match parts.next() {
       Some(Ok(part)) => Next::Part(frame.path.clone(), part),
-      Some(Err(fault)) => Next::Fault(fault),
+      Some(Err(fault)) => Next::ParseError(fault),
       None => Next::Finished,
     },
     Work::Members(members) => match members.next() {
@@ -279,7 +280,7 @@ impl Merging<'_> {
   fn apply(&mut self, part: ConfigPart, config_path: &Path) -> Result<(), Never> {
     match part {
       ConfigPart::Alias(alias) => self.config.aliases.push(alias),
-      ConfigPart::Config(mut config) => {
+      ConfigPart::Configuration(mut config) => {
         self.config.config.rescans.append(&mut config.rescans);
         self.config.config.blanks.append(&mut config.blanks);
       }
@@ -400,7 +401,7 @@ fn members_of(directory: &Path) -> Result<Vec<PathBuf>, Error> {
 
 fn report(origin: Origin, fault: Error) -> Result<(), Never> {
   match origin {
-    Origin::Asked => Ok(()),
+    Origin::Requested => Ok(()),
     Origin::Included(Inclusion {
       include_path,
       ignore_missing,
@@ -462,9 +463,9 @@ impl From<Match> for ConfigPart {
   }
 }
 
-impl From<Config> for ConfigPart {
-  fn from(part: Config) -> Self {
-    ConfigPart::Config(part)
+impl From<Configuration> for ConfigPart {
+  fn from(part: Configuration) -> Self {
+    ConfigPart::Configuration(part)
   }
 }
 

@@ -11,7 +11,10 @@
 //!
 //! When `dav1d-compat` is disabled, symbols are exported as `rav1d_*`, allowing
 //! side-by-side loading with real libdav1d for benchmarking.
-#![allow(unsafe_code, reason = "this module implements the public C pointer and callback ABI")]
+#![allow(
+  unsafe_code,
+  reason = "this module implements the public C pointer and callback ABI"
+)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use crate::include::common::validate::validate_input;
@@ -97,7 +100,10 @@ pub extern "C" fn dav1d_version_api() -> c_uint {
 #[doc = "\n# Safety\n`output` must be writable storage for a C settings record."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller supplies writable output storage")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller supplies writable output storage"
+  )
 )]
 pub unsafe extern "C" fn dav1d_default_settings(output: NonNull<Dav1dSettings>) {
   let settings = Dav1dSettings::from(Rav1dSettings::default());
@@ -125,9 +131,14 @@ pub unsafe extern "C" fn dav1d_default_settings(output: NonNull<Dav1dSettings>) 
 #[doc = "\n# Safety\nA non-null `settings` must point to an initialized C settings record for the duration of the call."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the settings record is supplied by the C caller")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the settings record is supplied by the C caller"
+  )
 )]
-pub unsafe extern "C" fn dav1d_get_frame_delay(settings: Option<NonNull<Dav1dSettings>>) -> Dav1dResult {
+pub unsafe extern "C" fn dav1d_get_frame_delay(
+  settings: Option<NonNull<Dav1dSettings>>,
+) -> Dav1dResult {
   Dav1dResult::from((|| {
     let settings_ptr = validate_input!(settings.ok_or(EINVAL))?;
     // SAFETY: The C settings record is initialized and owns no resources.
@@ -151,7 +162,10 @@ pub unsafe extern "C" fn dav1d_get_frame_delay(settings: Option<NonNull<Dav1dSet
 #[doc = "\n# Safety\nNon-null `output` must be writable decoder handle storage. Non-null `settings` must point to an initialized C settings record that may be read for the duration of the call."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller supplies the readable settings and writable output locations")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller supplies the readable settings and writable output locations"
+  )
 )]
 pub unsafe extern "C" fn dav1d_open(
   output: Option<NonNull<Option<Dav1dContext>>>,
@@ -201,7 +215,10 @@ pub unsafe extern "C" fn dav1d_open(
 #[doc = "\n# Safety\nNon-null `output` must point to writable storage. Non-null `input` must point to `size` initialized readable bytes for the duration of the call."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller supplies the readable packet and writable sequence header storage")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller supplies the readable packet and writable sequence header storage"
+  )
 )]
 pub unsafe extern "C" fn dav1d_parse_sequence_header(
   output: Option<NonNull<Dav1dSequenceHeader>>,
@@ -235,7 +252,10 @@ pub unsafe extern "C" fn dav1d_parse_sequence_header(
 #[doc = "\n# Safety\nNon-null `context` must be a live decoder. Non-null `input` must point to an initialized C packet and remain exclusively accessible during this call."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller lends a live decoder and transfers the initialized packet during this call")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller lends a live decoder and transfers the initialized packet during this call"
+  )
 )]
 pub unsafe extern "C" fn dav1d_send_data(
   context: Option<Dav1dContext>,
@@ -266,7 +286,10 @@ pub unsafe extern "C" fn dav1d_send_data(
 #[doc = "\n# Safety\nNon-null `context` must be a live decoder and non-null `output` must be writable picture storage."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller lends the decoder and supplies writable output storage")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller lends the decoder and supplies writable output storage"
+  )
 )]
 pub unsafe extern "C" fn dav1d_get_picture(
   context: Option<Dav1dContext>,
@@ -348,7 +371,10 @@ pub unsafe extern "C" fn dav1d_apply_grain(
 #[doc = "\n# Safety\n`context` must refer to a live decoder throughout the call. The caller must serialize flush with other operations on that decoder."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller owns the live decoder context")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller owns the live decoder context"
+  )
 )]
 pub unsafe extern "C" fn dav1d_flush(context: Dav1dContext) {
   // SAFETY: The caller keeps the decoder alive during this call.
@@ -363,7 +389,10 @@ pub unsafe extern "C" fn dav1d_flush(context: Dav1dContext) {
 #[doc = "\n# Safety\nA non-null `context` must point to an initialized, exclusively accessible handle slot. A present handle must own the reference returned by `dav1d_open`."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller transfers its decoder token and grants writable access to the handle slot")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller transfers its decoder token and grants writable access to the handle slot"
+  )
 )]
 pub unsafe extern "C" fn dav1d_close(context: Option<NonNull<Option<Dav1dContext>>>) {
   let mut context_slot = match validate_input!(context.ok_or(())) {
@@ -395,7 +424,10 @@ pub unsafe extern "C" fn dav1d_close(context: Option<NonNull<Option<Dav1dContext
 #[doc = "\n# Safety\nNon-null `context` must be a live decoder. Non-null `output` must point to writable storage for the event flags."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller supplies a live decoder and writable flags storage")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller supplies a live decoder and writable flags storage"
+  )
 )]
 pub unsafe extern "C" fn dav1d_get_event_flags(
   context: Option<Dav1dContext>,
@@ -430,7 +462,10 @@ pub unsafe extern "C" fn dav1d_get_event_flags(
 #[doc = "\n# Safety\nNon-null `context` must point to a live decoder. Non-null `output` must point to writable storage for the data properties."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller supplies a live decoder and writable data properties storage")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller supplies a live decoder and writable data properties storage"
+  )
 )]
 pub unsafe extern "C" fn dav1d_get_decode_error_data_props(
   context: Option<Dav1dContext>,
@@ -469,7 +504,10 @@ pub unsafe extern "C" fn dav1d_get_decode_error_data_props(
 #[doc = "\n# Safety\nA non-null `picture` must point to an initialized, exclusively accessible C picture that owns any of its present references."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller transfers the picture tokens and grants writable access to its slot")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller transfers the picture tokens and grants writable access to its slot"
+  )
 )]
 pub unsafe extern "C" fn dav1d_picture_unref(picture: Option<NonNull<Dav1dPicture>>) {
   let slot = match validate_input!(picture.ok_or(())) {
@@ -499,7 +537,10 @@ pub unsafe extern "C" fn dav1d_picture_unref(picture: Option<NonNull<Dav1dPictur
 #[doc = "\n# Safety\nA non-null `output` must point to writable packet storage."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller supplies the writable packet storage")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller supplies the writable packet storage"
+  )
 )]
 pub unsafe extern "C" fn dav1d_data_create(
   output: Option<NonNull<Dav1dData>>,
@@ -533,7 +574,10 @@ pub unsafe extern "C" fn dav1d_data_create(
 #[doc = "\n# Safety\nNon-null `output` must be writable packet storage. A non-null `input` must refer to an initialized buffer of `size` bytes that remains valid until `free_callback` releases it. The callback and `user_data` must be valid to use from decoder worker threads."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller transfers the original allocation with its matching release callback")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller transfers the original allocation with its matching release callback"
+  )
 )]
 pub unsafe extern "C" fn dav1d_data_wrap(
   output: Option<NonNull<Dav1dData>>,
@@ -575,7 +619,10 @@ pub unsafe extern "C" fn dav1d_data_wrap(
 #[doc = "\n# Safety\nA non-null `packet` must be an initialized, exclusively accessible C packet. Non-null `user_data` must remain valid until its callback releases it. The callback and `cookie` may be used from decoder worker threads."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller transfers the user-data pointer with its matching callback and lends its packet slot")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller transfers the user-data pointer with its matching callback and lends its packet slot"
+  )
 )]
 pub unsafe extern "C" fn dav1d_data_wrap_user_data(
   packet: Option<NonNull<Dav1dData>>,
@@ -607,7 +654,10 @@ pub unsafe extern "C" fn dav1d_data_wrap_user_data(
 #[doc = "\n# Safety\nA non-null `packet` must be initialized and exclusively accessible. The record transfers its live owned references to this call."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller grants exclusive access to the initialized packet and transfers its references")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller grants exclusive access to the initialized packet and transfers its references"
+  )
 )]
 pub unsafe extern "C" fn dav1d_data_unref(packet: Option<NonNull<Dav1dData>>) {
   let mut slot = match validate_input!(packet.ok_or(())) {
@@ -630,7 +680,10 @@ pub unsafe extern "C" fn dav1d_data_unref(packet: Option<NonNull<Dav1dData>>) {
 #[doc = "\n# Safety\nNon-null `properties` must be initialized and exclusively accessible, and the record transfers any live user-data reference to this call."]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",
-  expect(explicit058_contain_unsafe, reason = "the C caller grants exclusive access to the initialized data properties and transfers any user reference")
+  expect(
+    explicit058_contain_unsafe,
+    reason = "the C caller grants exclusive access to the initialized data properties and transfers any user reference"
+  )
 )]
 pub unsafe extern "C" fn dav1d_data_props_unref(properties: Option<NonNull<Dav1dDataProps>>) {
   let mut slot = match validate_input!(properties.ok_or(())) {
@@ -746,7 +799,10 @@ mod tests {
     assert!(matches!(default_rejected, Err(ENOMEM)));
     assert_eq!(Arc::strong_count(&header), 1);
 
-    let c_callback = Rav1dPicAllocator { default_pool: None, ..default_allocator };
+    let c_callback = Rav1dPicAllocator {
+      default_pool: None,
+      ..default_allocator
+    };
     let callback_rejected =
       c_callback.alloc_picture_data(16, invalid_height, Arc::clone(&header), None);
     assert!(matches!(callback_rejected, Err(ENOMEM)));
@@ -777,14 +833,23 @@ mod tests {
   #[test]
   #[cfg_attr(
     dylint_lib = "explicit058_contain_unsafe",
-    expect(explicit058_contain_unsafe, reason = "the test owns initialized C pictures and retains each live callback counter until the corresponding release")
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the test owns initialized C pictures and retains each live callback counter until the corresponding release"
+    )
   )]
   fn malformed_picture_parameters_preserve_borrows_and_release_consumed_owners() -> Rav1dResult {
     use crate::include::dav1d::picture::Dav1dPictureParameters;
 
     for parameters in [
-      Dav1dPictureParameters { layout: u32::MAX, ..Dav1dPictureParameters::default() },
-      Dav1dPictureParameters { bpc: -1, ..Dav1dPictureParameters::default() },
+      Dav1dPictureParameters {
+        layout: u32::MAX,
+        ..Dav1dPictureParameters::default()
+      },
+      Dav1dPictureParameters {
+        bpc: -1,
+        ..Dav1dPictureParameters::default()
+      },
     ] {
       let release_count = AtomicU32::new(0);
       let mut picture = counted_picture(&Rav1dPicture::default(), &release_count)?;
@@ -849,8 +914,14 @@ mod tests {
     )]
     // SAFETY: Success initializes the output slot.
     let output = unsafe { destination.assume_init_ref() };
-    assert_eq!((output.frame_hdr, output.data, output.m.user_data.data), original_fields);
-    assert_eq!((original.frame_hdr, original.data, original.m.user_data.data), original_fields);
+    assert_eq!(
+      (output.frame_hdr, output.data, output.m.user_data.data),
+      original_fields
+    );
+    assert_eq!(
+      (original.frame_hdr, original.data, original.m.user_data.data),
+      original_fields
+    );
     assert_eq!(released.load(Ordering::Relaxed), 0);
 
     // SAFETY: Each slot owns its own reference and is released exactly once.
@@ -868,7 +939,8 @@ mod tests {
     let mut in_place = counted_picture(&picture, &released)?;
     let replaced_slot = NonNull::from(&mut in_place);
     // SAFETY: The output replaces the same initialized input slot.
-    let in_place_status = unsafe { dav1d_apply_grain(Some(context), Some(replaced_slot), Some(replaced_slot)) };
+    let in_place_status =
+      unsafe { dav1d_apply_grain(Some(context), Some(replaced_slot), Some(replaced_slot)) };
     assert_eq!(in_place_status, Dav1dResult(0));
     assert_eq!(in_place.data, original_fields.1);
     assert_eq!(released.load(Ordering::Relaxed), 1);
@@ -882,7 +954,8 @@ mod tests {
     missing_header.m.timestamp = 42;
     let invalid_slot = NonNull::from(&mut missing_header);
     // SAFETY: Both pointers name the same exclusively accessible initialized record.
-    let invalid = unsafe { dav1d_apply_grain(Some(context), Some(invalid_slot), Some(invalid_slot)) };
+    let invalid =
+      unsafe { dav1d_apply_grain(Some(context), Some(invalid_slot), Some(invalid_slot)) };
     let expected: Rav1dResult = Err(EINVAL);
     assert_eq!(invalid, Dav1dResult::from(expected));
     assert_eq!(missing_header.m.timestamp, 42);
@@ -915,7 +988,8 @@ mod tests {
     let metadata = NonNull::from(&USER_DATA);
     let packet_slot = NonNull::from(&mut packet);
     // SAFETY: The packet is initialized and exclusive, and the static metadata is readable.
-    let status = unsafe { dav1d_data_wrap_user_data(Some(packet_slot), Some(metadata), None, None) };
+    let status =
+      unsafe { dav1d_data_wrap_user_data(Some(packet_slot), Some(metadata), None, None) };
     let rejected: Rav1dResult = Err(EINVAL);
     assert_eq!(status, Dav1dResult::from(rejected));
     assert_eq!(packet.data, original_buffer);

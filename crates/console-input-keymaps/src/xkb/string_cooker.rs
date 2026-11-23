@@ -1,5 +1,5 @@
-use crate::xkb::code::display_text;
 use crate::xkb::code::Code;
+use crate::xkb::code::display_text;
 use crate::xkb::code_map::CodeMap;
 use crate::xkb::code_slice::CodeSlice;
 use crate::xkb::diagnostic::DiagnosticKind;
@@ -51,7 +51,11 @@ impl std::fmt::Display for StringCookerError {
       }
       StringCookerError::InvalidUnicodeEscapeRepresentation(written) => {
         let Ok(text) = display_text(written);
-        write!(f, "Unicode escape sequence contains invalid representation {:?}", text)
+        write!(
+          f,
+          "Unicode escape sequence contains invalid representation {:?}",
+          text
+        )
       }
       StringCookerError::InvalidUnicodeCodepoint(point) => {
         write!(f, "Code point is not valid: U+{point:X}")

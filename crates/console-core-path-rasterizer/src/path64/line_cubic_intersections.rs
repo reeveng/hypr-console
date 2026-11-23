@@ -11,7 +11,10 @@ use super::{
 
 pub fn intersect(cubic: &Cubic64, intercept: AxisIntercept) -> Result<Parameters, Never> {
   let Ok(axis) = cubic.axis_coordinates(intercept.axis);
-  let Ok(roots) = unit_roots(bezier::cubic_intercept_coefficients(axis, intercept.position));
+  let Ok(roots) = unit_roots(bezier::cubic_intercept_coefficients(
+    axis,
+    intercept.position,
+  ));
 
   for &parameter in &roots {
     let Ok(point) = cubic.point_at(parameter);

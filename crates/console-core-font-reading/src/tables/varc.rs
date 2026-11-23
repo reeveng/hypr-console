@@ -17,8 +17,8 @@ impl<'a> Get<'a> for Result<Option<Index2<'a>>, ReadError> {
       let maybe_index = self?;
       maybe_index
     }
-      .ok_or(ReadError::NullOffset)
-      .and_then(|index| index.get(nth).map_err(|_| ReadError::OutOfBounds))
+    .ok_or(ReadError::NullOffset)
+    .and_then(|index| index.get(nth).map_err(|_| ReadError::OutOfBounds))
   }
 }
 
@@ -51,11 +51,17 @@ impl SparseVariationRegion<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `SparseVariationRegion::compute_scalar_f32` method returns `f32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `SparseVariationRegion::compute_scalar_f32` method returns `f32` directly in the existing parser interface"
+    )
   )]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
-    expect(explicit067_no_unit_less_quantity, reason = "the sparse-region API returns a dimensionless binary32 interpolation weight")
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the sparse-region API returns a dimensionless binary32 interpolation weight"
+    )
   )]
   pub fn compute_scalar_f32(&self, coords: &[F2Dot14]) -> f32 {
     let mut scalar = 1.0f32;
@@ -102,7 +108,10 @@ impl SparseVariationRegion<'_> {
       let Ok(start) = axis.start();
       let Ok(end) = axis.end();
 
-      match ::core::primitive::bool::then_some(start > peak || peak > end || (start < F2Dot14::ZERO && end > F2Dot14::ZERO), ()) {
+      match ::core::primitive::bool::then_some(
+        start > peak || peak > end || (start < F2Dot14::ZERO && end > F2Dot14::ZERO),
+        (),
+      ) {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -119,11 +128,17 @@ impl SparseVariationRegion<'_> {
       let (numerator, denominator) = match coord.cmp(&peak) {
         core::cmp::Ordering::Less => {
           let Ok(start_bits) = start.to_bits();
-          (coordinate.wrapping_sub(start_bits), peak_bits.wrapping_sub(start_bits))
+          (
+            coordinate.wrapping_sub(start_bits),
+            peak_bits.wrapping_sub(start_bits),
+          )
         }
         core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
           let Ok(end_bits) = end.to_bits();
-          (end_bits.wrapping_sub(coordinate), end_bits.wrapping_sub(peak_bits))
+          (
+            end_bits.wrapping_sub(coordinate),
+            end_bits.wrapping_sub(peak_bits),
+          )
         }
       };
 
@@ -146,7 +161,10 @@ impl<'a> VarcGlyph<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcGlyph::components` method returns its iterator or trait value directly for existing callers to compose")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcGlyph::components` method returns its iterator or trait value directly for existing callers to compose"
+    )
   )]
   pub fn components(
     &self,
@@ -452,7 +470,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::flags` method returns `VarcFlags` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::flags` method returns `VarcFlags` directly in the existing parser interface"
+    )
   )]
   pub fn flags(&self) -> VarcFlags {
     self.flags
@@ -461,7 +482,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::gid` method returns `GlyphId` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::gid` method returns `GlyphId` directly in the existing parser interface"
+    )
   )]
   pub fn gid(&self) -> GlyphId {
     self.gid
@@ -470,7 +494,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::condition_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::condition_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn condition_index(&self) -> Option<u32> {
     self.condition_index
@@ -479,7 +506,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::transform` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::transform` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn transform(&self) -> &DecomposedTransform {
     &self.transform
@@ -488,7 +518,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::axis_indices_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::axis_indices_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn axis_indices_index(&self) -> Option<u32> {
     self.axis_indices_index
@@ -497,7 +530,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::axis_values` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::axis_values` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn axis_values(&self) -> Option<&PackedDeltas<'a>> {
     self.axis_values.as_ref()
@@ -506,7 +542,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::axis_values_var_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::axis_values_var_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn axis_values_var_index(&self) -> Option<u32> {
     self.axis_values_var_index
@@ -515,7 +554,10 @@ impl<'a> VarcComponent<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `VarcComponent::transform_var_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `VarcComponent::transform_var_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn transform_var_index(&self) -> Option<u32> {
     self.transform_var_index
@@ -526,7 +568,10 @@ impl<'a> VarcComponent<'a> {
 #[repr(transparent)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "the transparent representation stores fractional OpenType design units in binary32")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the transparent representation stores fractional OpenType design units in binary32"
+  )
 )]
 struct FontUnits(f32);
 
@@ -534,7 +579,10 @@ struct FontUnits(f32);
 #[repr(transparent)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "the transparent representation stores angles as multiples of π without converting their precision")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the transparent representation stores angles as multiples of π without converting their precision"
+  )
 )]
 struct HalfTurns(f32);
 
@@ -542,7 +590,10 @@ struct HalfTurns(f32);
 #[repr(transparent)]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "the scale factor is a dimensionless binary32 ratio")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "the scale factor is a dimensionless binary32 ratio"
+  )
 )]
 struct TransformScale(f32);
 
@@ -577,11 +628,17 @@ impl Default for DecomposedTransform {
 
 #[cfg_attr(
   dylint_lib = "explicit002_infallible_result",
-  expect(explicit002_infallible_result, reason = "font-metrics applies VARC deltas through the existing scalar accessors and setters")
+  expect(
+    explicit002_infallible_result,
+    reason = "font-metrics applies VARC deltas through the existing scalar accessors and setters"
+  )
 )]
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(explicit067_no_unit_less_quantity, reason = "font-metrics consumes the published raw VARC coordinate, half-turn, and scale accessors")
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "font-metrics consumes the published raw VARC coordinate, half-turn, and scale accessors"
+  )
 )]
 impl DecomposedTransform {
   #[must_use]
@@ -669,7 +726,10 @@ impl DecomposedTransform {
 impl DecomposedTransform {
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published VARC transform API hands font-metrics its affine matrix directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published VARC transform API hands font-metrics its affine matrix directly"
+    )
   )]
   #[must_use]
   pub fn matrix(&self) -> Matrix<f32> {
@@ -708,8 +768,7 @@ impl DecomposedTransform {
 
     match ::core::primitive::bool::then_some((scale_x, scale_y) != (1.0, 1.0), ()) {
       ::core::option::Option::Some(()) => {
-        let Ok(value_22) =
-          Matrix::from_elements([scale_x, 0.0, 0.0, scale_y, 0.0, 0.0]);
+        let Ok(value_22) = Matrix::from_elements([scale_x, 0.0, 0.0, scale_y, 0.0, 0.0]);
 
         transform *= value_22;
       }
@@ -734,8 +793,7 @@ impl DecomposedTransform {
 
     match ::core::primitive::bool::then_some((center_x, center_y) != (0.0, 0.0), ()) {
       ::core::option::Option::Some(()) => {
-        let Ok(value_24) =
-          Matrix::from_elements([1.0, 0.0, 0.0, 1.0, -center_x, -center_y]);
+        let Ok(value_24) = Matrix::from_elements([1.0, 0.0, 0.0, 1.0, -center_x, -center_y]);
 
         transform *= value_24;
       }
@@ -809,7 +867,10 @@ mod tests {
   }
 
   fn assert_close(
-    AssertCloseArguments { actual: TransformScale(actual), expected: TransformScale(expected) }: AssertCloseArguments,
+    AssertCloseArguments {
+      actual: TransformScale(actual),
+      expected: TransformScale(expected),
+    }: AssertCloseArguments,
   ) -> ::core::result::Result<(), ::console_core_never::Never> {
     let diff = (actual - expected).abs();
     assert!(
@@ -829,7 +890,9 @@ mod tests {
     let Ok(directory) = font.table_directory();
     let Ok(records) = directory.table_records();
     let Ok(table_tag) = crate::types::Tag::new(&tag);
-    let record = records.iter().find(|record| record.tag() == Ok(table_tag))
+    let record = records
+      .iter()
+      .find(|record| record.tag() == Ok(table_tag))
       .ok_or(ReadError::TableIsMissing(table_tag))?;
     let Ok(start) = record.offset();
     let Ok(length) = record.length();
@@ -905,14 +968,16 @@ mod tests {
   }
 
   #[test]
-  fn read_condition_format1_axis_range() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn read_condition_format1_axis_range()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::varc::CONDITIONALS)?;
     let table = font.varc()?;
 
     let mut conditions = table.conditions()?;
 
     let record = crate::test_support::fixture_value(
-      conditions.find(|condition| condition.format() == Ok(1)), "VARC condition format 1",
+      conditions.find(|condition| condition.format() == Ok(1)),
+      "VARC condition format 1",
     )?;
     let condition = match record {
       Condition::Format1AxisRange(condition) => condition,
@@ -920,7 +985,9 @@ mod tests {
       | Condition::Format3And(_)
       | Condition::Format4Or(_)
       | Condition::Format5Negate(_) => {
-        return Err(crate::test_support::Failure::from("expected VARC condition format 1"));
+        return Err(crate::test_support::Failure::from(
+          "expected VARC condition format 1",
+        ));
       }
     };
 
@@ -945,15 +1012,16 @@ mod tests {
   }
 
   #[test]
-  fn read_condition_format2_variable_value() -> ::core::result::Result<(), crate::test_support::Failure>
-  {
+  fn read_condition_format2_variable_value()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::varc::CONDITIONALS)?;
     let table = font.varc()?;
 
     let mut conditions = table.conditions()?;
 
     let record = crate::test_support::fixture_value(
-      conditions.find(|condition| condition.format() == Ok(2)), "VARC condition format 2",
+      conditions.find(|condition| condition.format() == Ok(2)),
+      "VARC condition format 2",
     )?;
     let condition = match record {
       Condition::Format2VariableValue(condition) => condition,
@@ -961,7 +1029,9 @@ mod tests {
       | Condition::Format3And(_)
       | Condition::Format4Or(_)
       | Condition::Format5Negate(_) => {
-        return Err(crate::test_support::Failure::from("expected VARC condition format 2"));
+        return Err(crate::test_support::Failure::from(
+          "expected VARC condition format 2",
+        ));
       }
     };
 
@@ -980,7 +1050,8 @@ mod tests {
     let mut conditions = table.conditions()?;
 
     let record = crate::test_support::fixture_value(
-      conditions.find(|condition| condition.format() == Ok(3)), "VARC condition format 3",
+      conditions.find(|condition| condition.format() == Ok(3)),
+      "VARC condition format 3",
     )?;
     let condition = match record {
       Condition::Format3And(condition) => condition,
@@ -988,7 +1059,9 @@ mod tests {
       | Condition::Format2VariableValue(_)
       | Condition::Format4Or(_)
       | Condition::Format5Negate(_) => {
-        return Err(crate::test_support::Failure::from("expected VARC condition format 3"));
+        return Err(crate::test_support::Failure::from(
+          "expected VARC condition format 3",
+        ));
       }
     };
 
@@ -1014,7 +1087,8 @@ mod tests {
     let mut conditions = table.conditions()?;
 
     let record = crate::test_support::fixture_value(
-      conditions.find(|condition| condition.format() == Ok(4)), "VARC condition format 4",
+      conditions.find(|condition| condition.format() == Ok(4)),
+      "VARC condition format 4",
     )?;
     let condition = match record {
       Condition::Format4Or(condition) => condition,
@@ -1022,7 +1096,9 @@ mod tests {
       | Condition::Format2VariableValue(_)
       | Condition::Format3And(_)
       | Condition::Format5Negate(_) => {
-        return Err(crate::test_support::Failure::from("expected VARC condition format 4"));
+        return Err(crate::test_support::Failure::from(
+          "expected VARC condition format 4",
+        ));
       }
     };
 
@@ -1048,7 +1124,8 @@ mod tests {
     let mut conditions = table.conditions()?;
 
     let record = crate::test_support::fixture_value(
-      conditions.find(|condition| condition.format() == Ok(5)), "VARC condition format 5",
+      conditions.find(|condition| condition.format() == Ok(5)),
+      "VARC condition format 5",
     )?;
     let condition = match record {
       Condition::Format5Negate(condition) => condition,
@@ -1056,7 +1133,9 @@ mod tests {
       | Condition::Format2VariableValue(_)
       | Condition::Format3And(_)
       | Condition::Format4Or(_) => {
-        return Err(crate::test_support::Failure::from("expected VARC condition format 5"));
+        return Err(crate::test_support::Failure::from(
+          "expected VARC condition format 5",
+        ));
       }
     };
 
@@ -1095,20 +1174,31 @@ mod tests {
   -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::varc::CJK_6868)?;
     let varc = font.varc()?;
-    let store = crate::test_support::fixture_value(match varc.multi_var_store() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let store = crate::test_support::fixture_value(
+      match varc.multi_var_store() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     let regions = store.region_list()?;
     let Ok(region_list) = regions.regions();
 
     let axis0_region = region_list.get(0)?;
     let ::core::result::Result::Ok(()) = assert_close(self::AssertCloseArguments {
-      actual: TransformScale(axis0_region.compute_scalar_f32(&[({ let Ok(explicit_value) = F2Dot14::from_f32(1.0); explicit_value })])),
+      actual: TransformScale(axis0_region.compute_scalar_f32(&[({
+        let Ok(explicit_value) = F2Dot14::from_f32(1.0);
+        explicit_value
+      })])),
       expected: TransformScale(1.0),
     });
     let ::core::result::Result::Ok(()) = assert_close(self::AssertCloseArguments {
-      actual: TransformScale(axis0_region.compute_scalar_f32(&[({ let Ok(explicit_value) = F2Dot14::from_f32(0.5); explicit_value })])),
+      actual: TransformScale(axis0_region.compute_scalar_f32(&[({
+        let Ok(explicit_value) = F2Dot14::from_f32(0.5);
+        explicit_value
+      })])),
       expected: TransformScale(0.5),
     });
     let ::core::result::Result::Ok(()) = assert_close(self::AssertCloseArguments {
@@ -1120,13 +1210,25 @@ mod tests {
       expected: TransformScale(0.0),
     });
     let ::core::result::Result::Ok(()) = assert_close(self::AssertCloseArguments {
-      actual: TransformScale(axis0_region.compute_scalar_f32(&[({ let Ok(explicit_value) = F2Dot14::from_f32(-0.25); explicit_value })])),
+      actual: TransformScale(axis0_region.compute_scalar_f32(&[({
+        let Ok(explicit_value) = F2Dot14::from_f32(-0.25);
+        explicit_value
+      })])),
       expected: TransformScale(0.0),
     });
 
     let axis0_axis1_region = region_list.get(2)?;
     let ::core::result::Result::Ok(()) = assert_close(self::AssertCloseArguments {
-      actual: TransformScale(axis0_axis1_region.compute_scalar_f32(&[({ let Ok(explicit_value) = F2Dot14::from_f32(0.5); explicit_value }), ({ let Ok(explicit_value) = F2Dot14::from_f32(0.25); explicit_value })])),
+      actual: TransformScale(axis0_axis1_region.compute_scalar_f32(&[
+        ({
+          let Ok(explicit_value) = F2Dot14::from_f32(0.5);
+          explicit_value
+        }),
+        ({
+          let Ok(explicit_value) = F2Dot14::from_f32(0.25);
+          explicit_value
+        }),
+      ])),
       expected: TransformScale(0.125),
     });
     ::core::result::Result::Ok(())
@@ -1210,11 +1312,26 @@ mod tests {
 
     let flags = 0x0001_8010_u32;
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(flags); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(flags);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
     bytes.extend_from_slice(&[0x00, 0x07]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(2); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(1);
+        explicit_value
+      }),
+    );
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(2);
+        explicit_value
+      }),
+    );
     bytes.push(0xAA);
     let Ok(data) = FontData::new(&bytes);
     let mut cursor = {
@@ -1236,10 +1353,20 @@ mod tests {
 
     let flags = 0x0001_8010_u32;
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(flags); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(flags);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
     bytes.extend_from_slice(&[0x00, 0x07]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(1);
+        explicit_value
+      }),
+    );
     let Ok(data) = FontData::new(&bytes);
     let mut cursor = {
       let Ok(value) = data.cursor();
@@ -1259,7 +1386,12 @@ mod tests {
     let table = font.varc()?;
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::GID_IS_24BIT.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x12, 0x34, 0x56]);
     bytes.push(0xAA);
     let Ok(data) = FontData::new(&bytes);
@@ -1287,7 +1419,12 @@ mod tests {
     let table = font.varc()?;
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::GID_IS_24BIT.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x12, 0x34]);
     let Ok(data) = FontData::new(&bytes);
     let mut cursor = {
@@ -1319,9 +1456,19 @@ mod tests {
     );
 
     let mut bytes_2 = Vec::new();
-    bytes_2.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0x12); explicit_value }));
+    bytes_2.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0x12);
+        explicit_value
+      }),
+    );
     bytes_2.extend_from_slice(&[0x00, 0x01]);
-    bytes_2.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0); explicit_value }));
+    bytes_2.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0);
+        explicit_value
+      }),
+    );
     bytes_2.extend_from_slice(&[0x00, 0x05]);
     bytes_2.push(0xAA);
     let Ok(data) = FontData::new(&bytes_2);
@@ -1352,9 +1499,19 @@ mod tests {
     );
 
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0x12); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0x12);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(1);
+        explicit_value
+      }),
+    );
     bytes.push(0x04);
     bytes.extend_from_slice(&[1, 2, 3, 4, 5]);
     bytes.extend_from_slice(&[0x00, 0x09]);
@@ -1378,7 +1535,12 @@ mod tests {
     let table = font.varc()?;
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::HAVE_SCALE_X.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
     bytes.extend_from_slice(&[0x08, 0x00]);
     bytes.push(0xAA);
@@ -1404,7 +1566,12 @@ mod tests {
     let Ok(have_scale_y_bits) = super::VarcFlags::HAVE_SCALE_Y.bits();
     let flags = bits | have_scale_y_bits;
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(flags); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(flags);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
     bytes.extend_from_slice(&[0x08, 0x00]);
     bytes.extend_from_slice(&[0x0C, 0x00]);
@@ -1436,11 +1603,31 @@ mod tests {
       | transform_has_variation_bits
       | have_translate_x_bits;
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(flags); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(flags);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0x2345); explicit_value }));
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0x0123); explicit_value }));
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0x0222); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0x2345);
+        explicit_value
+      }),
+    );
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0x0123);
+        explicit_value
+      }),
+    );
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0x0222);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x07]);
     bytes.push(0xAA);
     let Ok(data) = FontData::new(&bytes);
@@ -1465,7 +1652,12 @@ mod tests {
     let table = font.varc()?;
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::HAVE_CONDITION.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
     bytes.push(0x81);
     let Ok(data) = FontData::new(&bytes);
@@ -1493,10 +1685,25 @@ mod tests {
     let Ok(have_translate_x_bits) = super::VarcFlags::HAVE_TRANSLATE_X.bits();
     let flags = bits | axis_values_have_variation_bits | have_translate_x_bits;
     let mut bytes_2 = Vec::new();
-    bytes_2.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(flags); explicit_value }));
+    bytes_2.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(flags);
+        explicit_value
+      }),
+    );
     bytes_2.extend_from_slice(&[0x00, 0x01]);
-    bytes_2.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0); explicit_value }));
-    bytes_2.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(0x0123); explicit_value }));
+    bytes_2.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0);
+        explicit_value
+      }),
+    );
+    bytes_2.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(0x0123);
+        explicit_value
+      }),
+    );
     bytes_2.extend_from_slice(&[0x00, 0x06]);
     bytes_2.push(0xAA);
     let Ok(data) = FontData::new(&bytes_2);
@@ -1531,9 +1738,19 @@ mod tests {
 
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::HAVE_AXES.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(1);
+        explicit_value
+      }),
+    );
     bytes.push(0x44);
     bytes.extend_from_slice(&[0x00, 0x01, 0x00, 0x02, 0x00, 0x03]);
     let Ok(data) = FontData::new(&bytes);
@@ -1544,12 +1761,10 @@ mod tests {
 
     let component = super::VarcComponent::parse(&table, &mut cursor)?;
     let mut out = [0.0; 5];
-    let fixture_value = crate::test_support::fixture_value(component
-      .axis_values(), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(component.axis_values(), "fixture value")?;
     assert!(matches!(
-      fixture_value
-        .fetcher()
-        .add_to_f32_scaled(&mut out, 1.0),
+      fixture_value.fetcher().add_to_f32_scaled(&mut out, 1.0),
       Err(ReadError::OutOfBounds)
     ));
     ::core::result::Result::Ok(())
@@ -1572,9 +1787,19 @@ mod tests {
 
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::HAVE_AXES.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(1);
+        explicit_value
+      }),
+    );
     bytes.push(0xC4);
     bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02]);
     let Ok(data) = FontData::new(&bytes);
@@ -1585,12 +1810,10 @@ mod tests {
 
     let component = super::VarcComponent::parse(&table, &mut cursor)?;
     let mut out = [0.0; 5];
-    let fixture_value = crate::test_support::fixture_value(component
-      .axis_values(), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(component.axis_values(), "fixture value")?;
     assert!(matches!(
-      fixture_value
-        .fetcher()
-        .add_to_f32_scaled(&mut out, 1.0),
+      fixture_value.fetcher().add_to_f32_scaled(&mut out, 1.0),
       Err(ReadError::OutOfBounds)
     ));
     ::core::result::Result::Ok(())
@@ -1614,9 +1837,19 @@ mod tests {
     let mut bytes = Vec::new();
     let Ok(bits) = super::VarcFlags::HAVE_AXES.bits();
     let Ok(have_translate_x_bits) = super::VarcFlags::HAVE_TRANSLATE_X.bits();
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits | have_translate_x_bits); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(bits | have_translate_x_bits);
+        explicit_value
+      }),
+    );
     bytes.extend_from_slice(&[0x00, 0x01]);
-    bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
+    bytes.extend_from_slice(
+      &({
+        let Ok(explicit_value) = encode_u32_var(1);
+        explicit_value
+      }),
+    );
     bytes.push(0x44);
     bytes.extend_from_slice(&[0x00, 0x01, 0x00, 0x02]);
     bytes.extend_from_slice(&[0x00, 0x09]);
@@ -1634,8 +1867,12 @@ mod tests {
   }
 
   #[test]
-  fn generated_condition_varints_roundtrip() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::varc::CJK_6868), "fixture value")?;
+  fn generated_condition_varints_roundtrip()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::varc::CJK_6868),
+      "fixture value",
+    )?;
     let table = crate::test_support::fixture_value(font.varc(), "fixture value")?;
     let mut state = 0x1234_5678_u32;
 
@@ -1647,9 +1884,19 @@ mod tests {
 
       let mut bytes = Vec::new();
       let Ok(bits) = super::VarcFlags::HAVE_CONDITION.bits();
-      bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+      bytes.extend_from_slice(
+        &({
+          let Ok(explicit_value) = encode_u32_var(bits);
+          explicit_value
+        }),
+      );
       bytes.extend_from_slice(&[0x00, 0x01]);
-      bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(value); explicit_value }));
+      bytes.extend_from_slice(
+        &({
+          let Ok(explicit_value) = encode_u32_var(value);
+          explicit_value
+        }),
+      );
       bytes.push(0xAA);
       let Ok(data) = FontData::new(&bytes);
       let mut cursor = {
@@ -1657,20 +1904,27 @@ mod tests {
         value_2
       };
 
-      let component = crate::test_support::fixture_value(super::VarcComponent::parse(&table, &mut cursor), "fixture value")?;
+      let component = crate::test_support::fixture_value(
+        super::VarcComponent::parse(&table, &mut cursor),
+        "fixture value",
+      )?;
       assert_eq!(component.condition_index(), Some(value));
       assert_eq!((cursor).read::<u8>(), ::core::result::Result::Ok(0xAA));
     }
-  ;
 
     Ok(())
   }
 
   #[test]
-  fn generated_axis_values_single_run_roundtrip() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::varc::CONDITIONALS), "fixture value")?;
+  fn generated_axis_values_single_run_roundtrip()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::varc::CONDITIONALS),
+      "fixture value",
+    )?;
     let table = crate::test_support::fixture_value(font.varc(), "fixture value")?;
-    let fixture_value = crate::test_support::fixture_value(table.axis_indices(1), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(table.axis_indices(1), "fixture value")?;
     assert_eq!(fixture_value.count_or_compute(), 5);
 
     let mut state = 0xA5A5_5A5A_u32;
@@ -1752,9 +2006,19 @@ mod tests {
       let mut bytes = Vec::new();
       let Ok(bits) = super::VarcFlags::HAVE_AXES.bits();
       let Ok(have_translate_x_bits) = super::VarcFlags::HAVE_TRANSLATE_X.bits();
-      bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits | have_translate_x_bits); explicit_value }));
+      bytes.extend_from_slice(
+        &({
+          let Ok(explicit_value) = encode_u32_var(bits | have_translate_x_bits);
+          explicit_value
+        }),
+      );
       bytes.extend_from_slice(&[0x00, 0x01]);
-      bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(1); explicit_value }));
+      bytes.extend_from_slice(
+        &({
+          let Ok(explicit_value) = encode_u32_var(1);
+          explicit_value
+        }),
+      );
       bytes.extend_from_slice(&payload);
       bytes.extend_from_slice(&[0x00, 0x07]);
       bytes.push(0xAA);
@@ -1764,27 +2028,36 @@ mod tests {
         let Ok(value) = data.cursor();
         value
       };
-      let component = crate::test_support::fixture_value(super::VarcComponent::parse(&table, &mut cursor), "fixture value")?;
+      let component = crate::test_support::fixture_value(
+        super::VarcComponent::parse(&table, &mut cursor),
+        "fixture value",
+      )?;
       let mut out = [0.0f32; 5];
-      crate::test_support::fixture_value({
-        let axis_coordinates = crate::test_support::fixture_value(component
-        .axis_values(), "fixture value")?;
-        axis_coordinates
-      }
+      crate::test_support::fixture_value(
+        {
+          let axis_coordinates =
+            crate::test_support::fixture_value(component.axis_values(), "fixture value")?;
+          axis_coordinates
+        }
         .fetcher()
-        .add_to_f32_scaled(&mut out, 1.0), "fixture value")?;
+        .add_to_f32_scaled(&mut out, 1.0),
+        "fixture value",
+      )?;
       assert_eq!(out, expected);
       assert_eq!(component.transform().translate_x(), 7.0);
       assert_eq!((cursor).read::<u8>(), ::core::result::Result::Ok(0xAA));
     }
-  ;
 
     Ok(())
   }
 
   #[test]
-  fn parse_component_truncated_condition_varint_boundaries_error() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::varc::CJK_6868), "fixture value")?;
+  fn parse_component_truncated_condition_varint_boundaries_error()
+  -> ::core::result::Result<(), crate::test_support::Failure> {
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::varc::CJK_6868),
+      "fixture value",
+    )?;
     let table = crate::test_support::fixture_value(font.varc(), "fixture value")?;
     let values = [0x80_u32, 0x4000_u32, 0x20_0000_u32, 0x1000_0000_u32];
 
@@ -1792,12 +2065,18 @@ mod tests {
       let Ok(encoded) = encode_u32_var(value);
       assert!(encoded.len() > 1);
       let (_last_byte, truncated) = crate::test_support::fixture_value(
-        encoded.split_last(), "VARC component condition bytes"
+        encoded.split_last(),
+        "VARC component condition bytes",
       )?;
 
       let mut bytes = Vec::new();
       let Ok(bits) = super::VarcFlags::HAVE_CONDITION.bits();
-      bytes.extend_from_slice(&({ let Ok(explicit_value) = encode_u32_var(bits); explicit_value }));
+      bytes.extend_from_slice(
+        &({
+          let Ok(explicit_value) = encode_u32_var(bits);
+          explicit_value
+        }),
+      );
       bytes.extend_from_slice(&[0x00, 0x01]);
       bytes.extend_from_slice(truncated);
       let Ok(data) = FontData::new(&bytes);
@@ -1811,7 +2090,6 @@ mod tests {
         Err(ReadError::OutOfBounds)
       ));
     }
-  ;
 
     Ok(())
   }
@@ -1819,23 +2097,35 @@ mod tests {
   #[test]
   fn read_glyph_6868() -> ::core::result::Result<(), crate::test_support::Failure> {
     let font = FontRef::new(font_test_data::varc::CJK_6868)?;
-    let gid = crate::test_support::fixture_value(match font.cmap() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }
-    .map_codepoint(0x6868_u32), "fixture value")?;
+    let gid = crate::test_support::fixture_value(
+      match font.cmap() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      }
+      .map_codepoint(0x6868_u32),
+      "fixture value",
+    )?;
     let table = font.varc()?;
-    let idx = crate::test_support::fixture_value(match table.coverage() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }
-    .get(gid), "fixture value")?;
+    let idx = crate::test_support::fixture_value(
+      match table.coverage() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      }
+      .get(gid),
+      "fixture value",
+    )?;
 
     let glyph = table.glyph({
       let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(idx);
       migrated_value
     })?;
-    let component_ids = glyph.components().map(|entry| entry.map(|component| component.gid))
+    let component_ids = glyph
+      .components()
+      .map(|entry| entry.map(|component| component.gid))
       .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(
       vec![
@@ -1865,12 +2155,14 @@ mod tests {
       [scale_x, 0.0, 0.0, scale_y, 0.0, 0.0],
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            scale_x: TransformScale(scale_x),
-            scale_y: TransformScale(scale_y),
-            ..Default::default()
-          }
-          .matrix());
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              scale_x: TransformScale(scale_x),
+              scale_y: TransformScale(scale_y),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -1885,11 +2177,13 @@ mod tests {
       [0.0, 1.0, -1.0, 0.0, 0.0, 0.0],
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            rotation: HalfTurns(0.5),
-            ..Default::default()
-          }
-          .matrix());
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              rotation: HalfTurns(0.5),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -1916,12 +2210,14 @@ mod tests {
       expected_elements,
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            skew_x: HalfTurns(skew_x),
-            skew_y: HalfTurns(skew_y),
-            ..Default::default()
-          }
-          .matrix());
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              skew_x: HalfTurns(skew_x),
+              skew_y: HalfTurns(skew_y),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -1938,14 +2234,16 @@ mod tests {
       [0.0, scale_x, -scale_y, 0.0, 0.0, 0.0],
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            scale_x: TransformScale(scale_x),
-            scale_y: TransformScale(scale_y),
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              scale_x: TransformScale(scale_x),
+              scale_y: TransformScale(scale_y),
 
-            rotation: HalfTurns(0.5),
-            ..Default::default()
-          }
-          .matrix());
+              rotation: HalfTurns(0.5),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -1960,15 +2258,17 @@ mod tests {
       [0.0, 2.0, -1.0, 0.0, 10.0, 20.0],
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            scale_x: TransformScale(2.0),
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              scale_x: TransformScale(2.0),
 
-            rotation: HalfTurns(0.5),
-            translate_x: FontUnits(10.0),
-            translate_y: FontUnits(20.0),
-            ..Default::default()
-          }
-          .matrix());
+              rotation: HalfTurns(0.5),
+              translate_x: FontUnits(10.0),
+              translate_y: FontUnits(20.0),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -1983,18 +2283,20 @@ mod tests {
       [-0.866026, 5.5, -2.5, 2.020726, 10.0, 20.0],
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            scale_x: TransformScale(2.0),
-            scale_y: TransformScale(3.0),
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              scale_x: TransformScale(2.0),
+              scale_y: TransformScale(3.0),
 
-            rotation: HalfTurns(1.0 / 6.0),
-            skew_x: HalfTurns(1.0 / 6.0),
-            skew_y: HalfTurns(1.0 / 3.0),
-            translate_x: FontUnits(10.0),
-            translate_y: FontUnits(20.0),
-            ..Default::default()
-          }
-          .matrix());
+              rotation: HalfTurns(1.0 / 6.0),
+              skew_x: HalfTurns(1.0 / 6.0),
+              skew_y: HalfTurns(1.0 / 3.0),
+              translate_x: FontUnits(10.0),
+              translate_y: FontUnits(20.0),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -2009,17 +2311,19 @@ mod tests {
       [1.732051, 1.0, -0.5, 0.866025, 10.267949, 19.267949],
       ({
         let Ok(value) = ({
-          let Ok(explicit_value) = rounded_matrix(DecomposedTransform {
-            scale_x: TransformScale(2.0),
+          let Ok(explicit_value) = rounded_matrix(
+            DecomposedTransform {
+              scale_x: TransformScale(2.0),
 
-            rotation: HalfTurns(1.0 / 6.0),
-            translate_x: FontUnits(10.0),
-            translate_y: FontUnits(20.0),
-            center_x: FontUnits(1.0),
-            center_y: FontUnits(2.0),
-            ..Default::default()
-          }
-          .matrix());
+              rotation: HalfTurns(1.0 / 6.0),
+              translate_x: FontUnits(10.0),
+              translate_y: FontUnits(20.0),
+              center_x: FontUnits(1.0),
+              center_y: FontUnits(2.0),
+              ..Default::default()
+            }
+            .matrix(),
+          );
           explicit_value
         })
         .elements();
@@ -2029,16 +2333,24 @@ mod tests {
   }
 
   #[test]
-  fn read_multivar_store_region_list() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn read_multivar_store_region_list() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
     let font = FontRef::new(font_test_data::varc::CJK_6868)?;
     let table = font.varc()?;
-    let varstore = crate::test_support::fixture_value(match table.multi_var_store() {
-      ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
-    }, "fixture value")?;
+    let varstore = crate::test_support::fixture_value(
+      match table.multi_var_store() {
+        ::core::result::Result::Ok(read_value) => read_value,
+        ::core::result::Result::Err(read_error) => {
+          return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+        }
+      },
+      "fixture value",
+    )?;
     let Ok(regions) = match varstore.region_list() {
       ::core::result::Result::Ok(read_value) => read_value,
-      ::core::result::Result::Err(read_error) => return ::core::result::Result::Err(crate::test_support::Failure::from(read_error)),
+      ::core::result::Result::Err(read_error) => {
+        return ::core::result::Result::Err(crate::test_support::Failure::from(read_error));
+      }
     }
     .regions();
 
@@ -2076,8 +2388,14 @@ mod tests {
         Ok(axes)
       })
       .collect::<Result<Vec<_>, _>>()?;
-    let regions_to_compare = [0, 2, 38].into_iter()
-      .map(|index| crate::test_support::fixture_value(sparse_regions.get(index).cloned(), "fixture sparse region"))
+    let regions_to_compare = [0, 2, 38]
+      .into_iter()
+      .map(|index| {
+        crate::test_support::fixture_value(
+          sparse_regions.get(index).cloned(),
+          "fixture sparse region",
+        )
+      })
       .collect::<Result<Vec<_>, _>>()?;
 
     assert_eq!(
@@ -2092,10 +2410,15 @@ mod tests {
   }
 
   #[test]
-  fn read_multivar_store_delta_sets() -> ::core::result::Result<(), crate::test_support::Failure> {
-    let font = crate::test_support::fixture_value(FontRef::new(font_test_data::varc::CJK_6868), "fixture value")?;
+  fn read_multivar_store_delta_sets() -> ::core::result::Result<(), crate::test_support::Failure>
+  {
+    let font = crate::test_support::fixture_value(
+      FontRef::new(font_test_data::varc::CJK_6868),
+      "fixture value",
+    )?;
     let table = crate::test_support::fixture_value(font.varc(), "fixture value")?;
-    let fixture_value = crate::test_support::fixture_value(table.multi_var_store(), "fixture value")?;
+    let fixture_value =
+      crate::test_support::fixture_value(table.multi_var_store(), "fixture value")?;
     let varstore = crate::test_support::fixture_value(fixture_value, "fixture value")?;
     let Ok(data_offsets) = varstore.variation_data();
     let Ok(records) = data_offsets.iter();
@@ -2107,26 +2430,39 @@ mod tests {
       counts.push((data.region_index_count(), delta_sets.count()));
     }
 
-    assert_eq!(counts, [(Ok(3), Ok(6)), (Ok(33), Ok(6)), (Ok(10), Ok(5)), (Ok(25), Ok(8))]);
+    assert_eq!(
+      counts,
+      [
+        (Ok(3), Ok(6)),
+        (Ok(33), Ok(6)),
+        (Ok(10), Ok(5)),
+        (Ok(25), Ok(8))
+      ]
+    );
 
     assert_eq!(
       vec![-1, 33, 0, 0, 0, 0],
       {
-        let delta_set = crate::test_support::fixture_value({
-        let variation_data_record = crate::test_support::fixture_value(({
-        let Ok(explicit_value) = varstore.variation_data();
-        explicit_value
-      })
-      .get(0), "fixture value")?;
-        variation_data_record
-      }
-      .delta_set(5), "fixture value")?;
+        let delta_set = crate::test_support::fixture_value(
+          {
+            let variation_data_record = crate::test_support::fixture_value(
+              ({
+                let Ok(explicit_value) = varstore.variation_data();
+                explicit_value
+              })
+              .get(0),
+              "fixture value",
+            )?;
+            variation_data_record
+          }
+          .delta_set(5),
+          "fixture value",
+        )?;
         delta_set
       }
       .iter()
       .collect::<Vec<_>>()
-    )
-  ;
+    );
     Ok(())
   }
 }

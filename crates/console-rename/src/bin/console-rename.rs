@@ -190,10 +190,12 @@ fn git_mv(root: &Path, from: &Path, to: &Path) -> Result<Went, Never> {
   asking.arg("-C").arg(root).arg("mv").arg(from).arg(to);
 
   match asking.status() {
-    Ok(done) => Ok(match ::core::primitive::bool::then_some(done.success(), ()) {
-      ::core::option::Option::Some(()) => Went::Yes,
-      ::core::option::Option::None => Went::No,
-    }),
+    Ok(done) => Ok(
+      match ::core::primitive::bool::then_some(done.success(), ()) {
+        ::core::option::Option::Some(()) => Went::Yes,
+        ::core::option::Option::None => Went::No,
+      },
+    ),
     Err(fault) => {
       eprintln!("console-rename: moving {}: {fault}", from.display());
 

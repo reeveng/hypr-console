@@ -60,7 +60,11 @@ impl fmt::Display for Unnested {
       ),
       Unnested::NoCompositor => write!(to, "the nested compositor never came up"),
       Unnested::NoScreen => write!(to, "the screen never appeared"),
-      Unnested::InvalidStage(at) => write!(to, "CONSOLE_STAGE must name one directory under .stage: {}", at.display()),
+      Unnested::InvalidStage(at) => write!(
+        to,
+        "CONSOLE_STAGE must name one directory under .stage: {}",
+        at.display()
+      ),
       Unnested::NowhereToWrite => {
         write!(to, "a picture wants somewhere to be written")
       }
@@ -103,10 +107,15 @@ pub fn root() -> Result<PathBuf, Never> {
   let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
   let Ok(repository) = console_repository::above(manifest);
 
-  Ok(match repository.as_deref().or_else(|| manifest.ancestors().nth(2)) {
-    Some(root) => root.to_path_buf(),
-    None => manifest.to_path_buf(),
-  })
+  Ok(
+    match repository
+      .as_deref()
+      .or_else(|| manifest.ancestors().nth(2))
+    {
+      Some(root) => root.to_path_buf(),
+      None => manifest.to_path_buf(),
+    },
+  )
 }
 
 pub fn screen() -> Result<console_screen::Screen, Unnested> {
@@ -140,17 +149,19 @@ pub fn stage() -> Result<PathBuf, Unnested> {
 pub(crate) fn child_name(name: &str) -> Result<Option<RelativePath<'_>>, Never> {
   let path = Path::new(name);
 
-  Ok(match (path.file_name() == Some(path.as_os_str())).then_some(()) {
-    Some(()) => match RelativePath::new(path) {
-      Ok(child) => Some(child),
-      Err(fault) => {
-        console_core_logging::debug!("console-desktop: invalid child name: {fault}");
+  Ok(
+    match (path.file_name() == Some(path.as_os_str())).then_some(()) {
+      Some(()) => match RelativePath::new(path) {
+        Ok(child) => Some(child),
+        Err(fault) => {
+          console_core_logging::debug!("console-desktop: invalid child name: {fault}");
 
-        None
-      }
+          None
+        }
+      },
+      None => None,
     },
-    None => None,
-  })
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

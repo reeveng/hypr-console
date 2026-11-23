@@ -12,7 +12,10 @@ impl FdSelect<'_> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `FdSelect::font_index` method returns the optional value directly to callers that match its presence")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `FdSelect::font_index` method returns the optional value directly to callers that match its presence"
+    )
   )]
   pub fn font_index(&self, glyph_id: GlyphId) -> Option<u16> {
     match self {
@@ -52,12 +55,10 @@ impl FdSelect<'_> {
           },
         );
         Some({
-          let checked_value = ranges
-            .get(match ::console_core_number_conversion::index(ix) {
-              ::core::result::Result::Ok(native_position) => native_position,
-            })?;
-          let Ok(ranges_fd) = checked_value
-            .fd();
+          let checked_value = ranges.get(match ::console_core_number_conversion::index(ix) {
+            ::core::result::Result::Ok(native_position) => native_position,
+          })?;
+          let Ok(ranges_fd) = checked_value.fd();
           let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(ranges_fd);
           migrated_value
         })
@@ -78,12 +79,10 @@ impl FdSelect<'_> {
             Err(ix) => ix.saturating_sub(1),
           },
         );
-        let checked_value_2 = ranges
-          .get(match ::console_core_number_conversion::index(ix) {
-            ::core::result::Result::Ok(native_position) => native_position,
-          })?;
-        let Ok(ranges_fd) = checked_value_2
-          .fd();
+        let checked_value_2 = ranges.get(match ::console_core_number_conversion::index(ix) {
+          ::core::result::Result::Ok(native_position) => native_position,
+        })?;
+        let Ok(ranges_fd) = checked_value_2.fd();
 
         Some(ranges_fd)
       }
@@ -126,9 +125,8 @@ mod tests {
                 fd_select.font_index(GlyphId::from(gid)),
                 "fixture value",
               )?;
-              let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u8>(
-                fixture_value,
-              );
+              let Ok(migrated_value) =
+                console_core_number_conversion::wrapped::<_, u8>(fixture_value);
               migrated_value
             }),
             *font_index
@@ -151,56 +149,62 @@ mod tests {
         let mut buf = font_test_data::bebuffer::BeBuffer::default();
         buf.extend([0u8]);
 
-      let Ok(length) = console_core_number_conversion::index(glyph_count);
-      let mut fds = vec![0u8; length.min(65_535)];
+        let Ok(length) = console_core_number_conversion::index(glyph_count);
+        let mut fds = vec![0u8; length.min(65_535)];
 
-      for (range, font_index) in map {
-        for gid in range.clone() {
-          let slot = crate::test_support::fixture_value(
-            fds.get_mut(match ::console_core_number_conversion::index::<::core::primitive::u16>(gid) { ::core::result::Result::Ok(converted_position) => converted_position }),
-            "FDSelect fixture glyph index",
-          )?;
-          *slot = *font_index;
+        for (range, font_index) in map {
+          for gid in range.clone() {
+            let slot = crate::test_support::fixture_value(
+              fds.get_mut(
+                match ::console_core_number_conversion::index::<::core::primitive::u16>(gid) {
+                  ::core::result::Result::Ok(converted_position) => converted_position,
+                },
+              ),
+              "FDSelect fixture glyph index",
+            )?;
+            *slot = *font_index;
+          }
         }
-      }
 
-      buf.extend(fds);
-      buf
-    };
-    let format3 = {
-      let mut buf = font_test_data::bebuffer::BeBuffer::default();
-      buf.extend([3u8]);
+        buf.extend(fds);
+        buf
+      };
+      let format3 = {
+        let mut buf = font_test_data::bebuffer::BeBuffer::default();
+        buf.extend([3u8]);
 
-      buf.extend([({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(map.len());
-        migrated_value
-      })]);
-      for (range, font_index) in map {
-        buf.extend([range.start]);
-        buf.extend([*font_index]);
-      }
-
-      buf.extend([glyph_count]);
-      buf
-    };
-    let format4 = {
-      let mut buf = font_test_data::bebuffer::BeBuffer::default();
-      buf.extend([4u8]);
-
-      buf.extend([({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(map.len());
-        migrated_value
-      })]);
-      for (range, font_index) in map {
         buf.extend([({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(range.start);
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(map.len());
           migrated_value
         })]);
+        for (range, font_index) in map {
+          buf.extend([range.start]);
+          buf.extend([*font_index]);
+        }
+
+        buf.extend([glyph_count]);
+        buf
+      };
+      let format4 = {
+        let mut buf = font_test_data::bebuffer::BeBuffer::default();
+        buf.extend([4u8]);
+
         buf.extend([({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(*font_index);
+          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(map.len());
           migrated_value
         })]);
-      }
+        for (range, font_index) in map {
+          buf.extend([({
+            let Ok(migrated_value) =
+              console_core_number_conversion::wrapped::<_, u32>(range.start);
+            migrated_value
+          })]);
+          buf.extend([({
+            let Ok(migrated_value) =
+              console_core_number_conversion::wrapped::<_, u16>(*font_index);
+            migrated_value
+          })]);
+        }
 
         buf.extend([({
           let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u32>(glyph_count);

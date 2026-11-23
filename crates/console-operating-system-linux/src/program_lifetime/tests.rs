@@ -42,11 +42,19 @@ fn dropping_it_ends_the_child() -> Result<(), Box<dyn Error>> {
   let Ok(id) = running.id();
   let process = process_of(id)?;
 
-  assert_eq!(process_presence(process), Ok(Still::Running), "it never started");
+  assert_eq!(
+    process_presence(process),
+    Ok(Still::Running),
+    "it never started"
+  );
 
   drop(running);
 
-  assert_eq!(process_presence(process), Ok(Still::Ended), "the child outlived the thing holding it");
+  assert_eq!(
+    process_presence(process),
+    Ok(Still::Ended),
+    "the child outlived the thing holding it"
+  );
 
   Ok(())
 }
@@ -60,7 +68,11 @@ fn a_child_let_go_is_still_running_after_the_drop() -> Result<(), Box<dyn Error>
 
   drop(running);
 
-  assert_eq!(process_presence(process), Ok(Still::Running), "letting go ended it anyway");
+  assert_eq!(
+    process_presence(process),
+    Ok(Still::Running),
+    "letting go ended it anyway"
+  );
 
   killed(id)?;
   let _reaped = waitpid(Some(process), WaitOptions::empty())?;
@@ -148,7 +160,11 @@ fn a_child_let_go_that_ended_is_reaped_and_one_still_going_is_kept() -> Result<(
   let finished = process_of(ended)?;
 
   assert_eq!(kept, [held]);
-  assert_eq!(process_presence(finished), Ok(Still::Ended), "{ended} is still in the process table");
+  assert_eq!(
+    process_presence(finished),
+    Ok(Still::Ended),
+    "{ended} is still in the process table"
+  );
 
   for mut one in started {
     let Ok(id) = one.id();

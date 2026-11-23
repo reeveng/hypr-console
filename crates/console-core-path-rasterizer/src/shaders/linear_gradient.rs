@@ -147,7 +147,8 @@ fn average_gradient_color(points: &[GradientStop]) -> Result<Option<Color>, Neve
     None => {}
   }
 
-  let [red, green, blue, alpha]: [f32; 4] = <_ as ::core::convert::Into<[::core::primitive::f32; 4]>>::into(blend);
+  let [red, green, blue, alpha]: [f32; 4] =
+    <_ as ::core::convert::Into<[::core::primitive::f32; 4]>>::into(blend);
 
   Color::from_rgba(red, green, blue, alpha)
 }

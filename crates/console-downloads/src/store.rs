@@ -114,7 +114,9 @@ impl Drop for Scratch {
   fn drop(&mut self) {
     match std::fs::remove_dir_all(&self.0) {
       Ok(()) => {}
-      Err(fault) => console_core_logging::warn!("downloads: clearing {}: {fault}", self.0.display()),
+      Err(fault) => {
+        console_core_logging::warn!("downloads: clearing {}: {fault}", self.0.display())
+      }
     }
   }
 }
@@ -178,10 +180,12 @@ pub fn picture_of(cache: &Path, id: &str) -> Result<Option<PathBuf>, Never> {
 pub fn valid_id(id: &str) -> Result<Option<String>, Never> {
   let plain = |letter: char| letter.is_ascii_alphanumeric() || letter == '-' || letter == '_';
 
-  Ok(match ::core::primitive::bool::then_some(!id.is_empty() && id.chars().all(plain), ()) {
-    ::core::option::Option::Some(()) => Some(id.to_string()),
-    ::core::option::Option::None => None,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(!id.is_empty() && id.chars().all(plain), ()) {
+      ::core::option::Option::Some(()) => Some(id.to_string()),
+      ::core::option::Option::None => None,
+    },
+  )
 }
 
 #[cfg(test)]

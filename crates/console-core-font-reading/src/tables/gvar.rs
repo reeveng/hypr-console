@@ -18,7 +18,7 @@ pub type GlyphVariationData<'a> = TupleVariationData<'a, GlyphDelta>;
 pub struct U16Or32(u32);
 
 impl ReadArgs for U16Or32 {
-  type Args = GvarFlags;
+  type Arguments = GvarFlags;
 }
 
 impl ComputeSize for U16Or32 {
@@ -33,7 +33,7 @@ impl ComputeSize for U16Or32 {
 }
 
 impl FontReadWithArgs<'_> for U16Or32 {
-  fn read_with_args(data: FontData<'_>, args: &Self::Args) -> Result<Self, ReadError> {
+  fn read_with_args(data: FontData<'_>, args: &Self::Arguments) -> Result<Self, ReadError> {
     let Ok(long_offsets) = args.contains(GvarFlags::LONG_OFFSETS);
 
     match long_offsets {
@@ -50,7 +50,10 @@ impl U16Or32 {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `U16Or32::get` method returns `u32` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `U16Or32::get` method returns `u32` directly in the existing parser interface"
+    )
   )]
   pub fn get(self) -> u32 {
     self.0
@@ -109,7 +112,10 @@ impl<'a> Gvar<'a> {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `Gvar::as_bytes` method returns a borrow tied to the source lifetime directly")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `Gvar::as_bytes` method returns a borrow tied to the source lifetime directly"
+    )
   )]
   pub fn as_bytes(&self) -> &[u8] {
     let Ok(value_2) = self.data.as_bytes();
@@ -142,8 +148,9 @@ impl<'a> Gvar<'a> {
 
       match outcome_start_2 {
         (Some(matched_start_2), Some(matched_end_2)) => (matched_start_2, matched_end_2),
-        (::core::option::Option::None, _)
-        | (_, ::core::option::Option::None) => return Err(ReadError::OutOfBounds),
+        (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {
+          return Err(ReadError::OutOfBounds);
+        }
       }
     };
 
@@ -202,7 +209,9 @@ impl<'a> Gvar<'a> {
               ::core::primitive::u64::wrapping_sub(ix, phantom_range.start),
             );
 
-            let delta = phantom_deltas.get_mut(value_5).ok_or(ReadError::OutOfBounds)?;
+            let delta = phantom_deltas
+              .get_mut(value_5)
+              .ok_or(ReadError::OutOfBounds)?;
             *delta += tuple_delta.apply_scalar(scalar);
           }
           ::core::option::Option::None => {}
@@ -227,14 +236,16 @@ impl<'a> GlyphVariationData<'a> {
     let data_2 = header.serialized_data()?;
 
     let Ok(tuple_variation_count) = header.tuple_variation_count();
-    let (shared_point_numbers, serialized_data) =
-      match ::core::primitive::bool::then_some(tuple_variation_count.shared_point_numbers(), ()) {
-        ::core::option::Option::Some(()) => {
-          let (packed, data_3) = PackedPointNumbers::split_off_front(data_2);
-          (Some(packed), data_3)
-        }
-        ::core::option::Option::None => (None, data_2),
-      };
+    let (shared_point_numbers, serialized_data) = match ::core::primitive::bool::then_some(
+      tuple_variation_count.shared_point_numbers(),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let (packed, data_3) = PackedPointNumbers::split_off_front(data_2);
+        (Some(packed), data_3)
+      }
+      ::core::option::Option::None => (None, data_2),
+    };
 
     let Ok(tuples) = shared_tuples.tuples();
 
@@ -261,7 +272,10 @@ impl GlyphDelta {
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",
-    expect(explicit002_infallible_result, reason = "the published `GlyphDelta::apply_scalar` method returns `Point` directly in the existing parser interface")
+    expect(
+      explicit002_infallible_result,
+      reason = "the published `GlyphDelta::apply_scalar` method returns `Point` directly in the existing parser interface"
+    )
   )]
   pub fn apply_scalar<D: PointCoord>(self, scalar: Fixed) -> Point<D> {
     let scalar_2 = D::from_fixed(scalar);
@@ -321,7 +335,9 @@ fn find_glyph_and_point_count(
     }
   }
 
-  Err(ReadError::MalformedData("nesting too deep in composite glyph"))
+  Err(ReadError::MalformedData(
+    "nesting too deep in composite glyph",
+  ))
 }
 
 #[cfg(test)]
@@ -410,7 +426,11 @@ mod tests {
       let Ok(values) = tuple.values();
       let (first, second) = match values {
         [first, second] => (first, second),
-        _invalid_axes => return Err(ReadError::MalformedData("expected two shared tuple coordinates")),
+        _invalid_axes => {
+          return Err(ReadError::MalformedData(
+            "expected two shared tuple coordinates",
+          ));
+        }
       };
       let Ok(x) = first.get();
       let Ok(y) = second.get();
@@ -442,10 +462,9 @@ mod tests {
     )?;
     let Ok(tuple_count) = vardata.tuple_count();
     assert_eq!(tuple_count, 8);
-    let fixture_value = crate::test_support::fixture_value(vardata.tuples().next(), "fixture value")?;
-    let deltas = fixture_value
-      .deltas()
-      .collect::<Vec<_>>();
+    let fixture_value =
+      crate::test_support::fixture_value(vardata.tuples().next(), "fixture value")?;
+    let deltas = fixture_value.deltas().collect::<Vec<_>>();
     assert_eq!(deltas.len(), 18);
     static EXPECTED: &[(i32, i32)] = &[
       (257, 0),
@@ -705,10 +724,13 @@ mod tests {
     let loca = font.loca(None)?;
     let glyf = font.glyf()?;
     let gvar = font.gvar()?;
-    let scaled = coords.iter().map(|&coord| {
-      let Ok(normalized) = F2Dot14::from_f32(coord);
-      normalized
-    }).collect::<Vec<_>>();
+    let scaled = coords
+      .iter()
+      .map(|&coord| {
+        let Ok(normalized) = F2Dot14::from_f32(coord);
+        normalized
+      })
+      .collect::<Vec<_>>();
     let maybe_deltas = gvar.phantom_point_deltas(&glyf, &loca, &scaled, glyph_id)?;
     let deltas = crate::test_support::fixture_value(maybe_deltas, "phantom point deltas")?;
     Ok(deltas.map(|point| {
@@ -750,7 +772,10 @@ mod tests {
     >>::from(&*buf))?;
 
     let Ok(glyph) = GlyphId::new(0);
-    assert!(matches!(gvar.data_range_for_gid(glyph), Err(ReadError::OutOfBounds)));
+    assert!(matches!(
+      gvar.data_range_for_gid(glyph),
+      Err(ReadError::OutOfBounds)
+    ));
     ::core::result::Result::Ok(())
   }
 
@@ -767,16 +792,29 @@ mod tests {
 
     for index in 0..fixture_value {
       let Ok(glyph) = GlyphId16::new(index);
-      let name = crate::test_support::fixture_value(post.glyph_name(glyph), "post fixture glyph name")?;
+      let name =
+        crate::test_support::fixture_value(post.glyph_name(glyph), "post fixture glyph name")?;
       gids.insert(name, glyph);
     }
 
     let named_glyph = |name| crate::test_support::fixture_value(gids.get(name).copied(), name);
 
     for (glyph_name, source_name, expectation) in [
-      ("neither", "neither", "a composite without any USE_MY_METRICS components should use its own metrics"),
-      ("firstonly", "first", "a composite with a single USE_MY_METRICS component should use that component's metrics"),
-      ("both", "second", "a composite with multiple USE_MY_METRICS components should use the last flagged component's metrics"),
+      (
+        "neither",
+        "neither",
+        "a composite without any USE_MY_METRICS components should use its own metrics",
+      ),
+      (
+        "firstonly",
+        "first",
+        "a composite with a single USE_MY_METRICS component should use that component's metrics",
+      ),
+      (
+        "both",
+        "second",
+        "a composite with multiple USE_MY_METRICS components should use the last flagged component's metrics",
+      ),
     ] {
       let checked_value = named_glyph(glyph_name)?;
       let glyph = GlyphId::from(checked_value);

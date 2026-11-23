@@ -976,7 +976,7 @@ impl CoefficientContext {
   }
 }
 
-fn strip_layout(strip: &super::Strip, plane: u64) -> Result<(u64, u64), Never> {
+fn strip_layout(strip: &super::TileBand, plane: u64) -> Result<(u64, u64), Never> {
   let Ok(stride) = read(&strip.strides, plane);
   let Ok(origin) = read(&strip.x_off, plane);
   Ok((stride, origin))

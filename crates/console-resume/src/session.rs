@@ -193,7 +193,10 @@ impl<'de> serde::Deserialize<'de> for SavedText {
     let text = <String as serde::Deserialize>::deserialize(deserializer)?;
     let Ok(length) = fitted::<_, u64>(text.len());
 
-    match ::core::primitive::bool::then_some(length <= u64::from(console_core_atomic_writes::MAX_TEXT_BYTES), ()) {
+    match ::core::primitive::bool::then_some(
+      length <= u64::from(console_core_atomic_writes::MAX_TEXT_BYTES),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Ok(Self(text)),
       ::core::option::Option::None => Err(serde::de::Error::custom(
         "window text exceeds the session file limit",
@@ -322,7 +325,10 @@ impl Changes {
       .is_some_and(|at| at.elapsed() >= LOSS_SETTLES_AFTER);
 
     Ok(
-      match ::core::primitive::bool::then_some(self.gained || settled || saved.elapsed() >= interval, ()) {
+      match ::core::primitive::bool::then_some(
+        self.gained || settled || saved.elapsed() >= interval,
+        (),
+      ) {
         ::core::option::Option::Some(()) => Worth::Saving,
         ::core::option::Option::None => Worth::Waiting,
       },
@@ -365,10 +371,15 @@ fn under(at: &Path, name: &str) -> Result<PathBuf, Unresumed> {
 fn which_workspace(window: &Window) -> Result<Workspace, Never> {
   let named = &window.workspace_named;
 
-  Ok(match ::core::primitive::bool::then_some(named == SPECIAL || named.starts_with(SPECIAL_NAMED), ()) {
-    ::core::option::Option::Some(()) => Workspace::Special,
-    ::core::option::Option::None => Workspace::Numbered,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(
+      named == SPECIAL || named.starts_with(SPECIAL_NAMED),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => Workspace::Special,
+      ::core::option::Option::None => Workspace::Numbered,
+    },
+  )
 }
 
 fn workspace_selector(saved: &Window) -> Result<String, Never> {
@@ -404,10 +415,12 @@ fn differs<T: PartialEq>(
   saved: &Window,
   of: fn(&Window) -> T,
 ) -> Result<Differs, Never> {
-  Ok(match ::core::primitive::bool::then_some(of(real) == of(saved), ()) {
-    ::core::option::Option::Some(()) => Differs::No,
-    ::core::option::Option::None => Differs::Yes,
-  })
+  Ok(
+    match ::core::primitive::bool::then_some(of(real) == of(saved), ()) {
+      ::core::option::Option::Some(()) => Differs::No,
+      ::core::option::Option::None => Differs::Yes,
+    },
+  )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

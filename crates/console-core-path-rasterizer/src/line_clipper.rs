@@ -5,7 +5,7 @@ use console_core_number_conversion::nearest_f32_from_f64;
 use console_core_paths::{Scalar, ScalarProximity};
 
 use crate::answers::PointOrder;
-use crate::{IntersectAnswer, Point, Rect};
+use crate::{IntersectAnswer, Point, FloatRectangle};
 
 pub enum ClippedLine {
   Empty,
@@ -43,7 +43,7 @@ struct Extent {
 }
 
 impl Extent {
-  fn from_rect(rect: &Rect) -> Result<Self, Never> {
+  fn from_rect(rect: &FloatRectangle) -> Result<Self, Never> {
     let Ok(left) = rect.left();
     let Ok(top) = rect.top();
     let Ok(right) = rect.right();
@@ -95,7 +95,7 @@ enum Relation {
   Crosses,
 }
 
-pub fn clip(src: &[Point; 2], clip: &Rect) -> Result<ClippedLine, Never> {
+pub fn clip(src: &[Point; 2], clip: &FloatRectangle) -> Result<ClippedLine, Never> {
   let Ok(extent) = Extent::from_rect(clip);
   let [first, second] = *src;
   let (upper, lower) = match first.y.partial_cmp(&second.y) {
@@ -168,12 +168,12 @@ fn limit_side(
 
 pub fn intersect(
   src: &[Point; 2],
-  clip: &Rect,
+  clip: &FloatRectangle,
   dst: &mut [Point; 2],
 ) -> Result<IntersectAnswer, Never> {
   let [first, second] = *src;
   let Ok(extent) = Extent::from_rect(clip);
-  let Ok(bounds) = Rect::from_ltrb(
+  let Ok(bounds) = FloatRectangle::from_ltrb(
     first.x.min(second.x),
     first.y.min(second.y),
     first.x.max(second.x),

@@ -38,7 +38,7 @@ enum FrameLength {
   Short,
 }
 
-pub(crate) struct Config {
+pub(crate) struct Configuration {
   pub(crate) sample_rate: u32,
   pub(crate) channels: u32,
 }
@@ -123,7 +123,7 @@ pub(crate) fn map_channels(channels: u32) -> Sure<Option<Channels>> {
   })
 }
 
-impl Config {
+impl Configuration {
   pub(crate) fn from_audio_specific_config(bytes: &[u8]) -> Result<Self> {
     Constraint::from(bytes.len() >= 2).require()?;
 
@@ -184,7 +184,7 @@ impl Config {
       FlagBit::Zero => {}
     }
 
-    Config {
+    Configuration {
       sample_rate,
       channels,
     }
@@ -208,7 +208,7 @@ impl Config {
 
     match channels {
       0 => unsupported_error("aac: channels or channel layout is required"),
-      _ => Config {
+      _ => Configuration {
         sample_rate,
         channels,
       }

@@ -519,11 +519,13 @@ impl<'a> Attrs<'a> {
   ) -> Result<crate::Compatibility, console_core_never::Never> {
     {
       Ok(
-        match ::core::primitive::bool::then_some(self.family == other.family
-          && self.stretch == other.stretch
-          && self.style == other.style
-          && self.weight == other.weight, ())
-        {
+        match ::core::primitive::bool::then_some(
+          self.family == other.family
+            && self.stretch == other.stretch
+            && self.style == other.style
+            && self.weight == other.weight,
+          (),
+        ) {
           ::core::option::Option::Some(()) => crate::Compatibility::Compatible,
           ::core::option::Option::None => crate::Compatibility::Incompatible,
         },
@@ -677,7 +679,10 @@ impl AttrsList {
       let mut spans = Vec::with_capacity(self.spans.len().saturating_add(2));
 
       'text_items_19: for (old_range, old_attrs) in self.spans.drain(..) {
-        match ::core::primitive::bool::then_some(old_range.end <= range.start || old_range.start >= range.end, ()) {
+        match ::core::primitive::bool::then_some(
+          old_range.end <= range.start || old_range.start >= range.end,
+          (),
+        ) {
           ::core::option::Option::Some(()) => {
             spans.push((old_range, old_attrs));
             continue 'text_items_19;
@@ -772,7 +777,8 @@ impl AttrsList {
         });
 
       match new.spans.first_mut() {
-        Some((range, attrs)) => match ::core::primitive::bool::then_some(range.start < index, ()) {
+        Some((range, attrs)) => match ::core::primitive::bool::then_some(range.start < index, ())
+        {
           ::core::option::Option::Some(()) => {
             self.spans.push((range.start..index, attrs.clone()));
             range.start = index;

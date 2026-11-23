@@ -422,7 +422,7 @@ impl Type1Kind {
         .copied()
       {
         Some(Width::Value(w)) => Some(w),
-        Some(Width::Missing) => Some(self.missing_width.0),
+        Some(Width::Absent) => Some(self.missing_width.0),
         None => {
           let sf = match self.standard_font {
             Some(explicit_value) => explicit_value,
@@ -601,7 +601,7 @@ impl CffKind {
         .copied()
       {
         Some(Width::Value(w)) => Some(w),
-        Some(Width::Missing) => Some(self.missing_width.0),
+        Some(Width::Absent) => Some(self.missing_width.0),
         None => {
           let sf = match self.standard_font {
             Some(explicit_value) => explicit_value,

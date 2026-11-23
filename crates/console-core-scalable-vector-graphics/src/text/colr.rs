@@ -21,8 +21,14 @@ impl<'a> Builder<'a> {
   fn new(path: &'a mut String) -> Result<Self, Never> {
     Ok(Self {
       path,
-      min: Point { x: f32::MAX, y: f32::MAX },
-      max: Point { x: f32::MIN, y: f32::MIN },
+      min: Point {
+        x: f32::MAX,
+        y: f32::MAX,
+      },
+      max: Point {
+        x: f32::MIN,
+        y: f32::MIN,
+      },
     })
   }
 
@@ -35,9 +41,14 @@ impl<'a> Builder<'a> {
     Ok(())
   }
 
-  fn bounds(&self) -> Result<Option<console_core_paths::Rect>, Never> {
-    match ::core::primitive::bool::then_some(self.min.x <= self.max.x && self.min.y <= self.max.y, ()) {
-      ::core::option::Option::Some(()) => console_core_paths::Rect::from_ltrb(self.min.x, self.min.y, self.max.x, self.max.y),
+  fn bounds(&self) -> Result<Option<console_core_paths::FloatRectangle>, Never> {
+    match ::core::primitive::bool::then_some(
+      self.min.x <= self.max.x && self.min.y <= self.max.y,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        console_core_paths::FloatRectangle::from_ltrb(self.min.x, self.min.y, self.max.x, self.max.y)
+      }
       ::core::option::Option::None => Ok(None),
     }
   }
@@ -49,10 +60,15 @@ impl<'a> Builder<'a> {
   }
 }
 
-fn append_path_command(buffer: &mut String, command: std::fmt::Arguments<'_>) -> Result<(), Never> {
+fn append_path_command(
+  buffer: &mut String,
+  command: std::fmt::Arguments<'_>,
+) -> Result<(), Never> {
   match buffer.write_fmt(command) {
     Ok(()) => {}
-    Err(problem) => console_core_logging::warn!("Could not format COLR path coordinates: {problem}"),
+    Err(problem) => {
+      console_core_logging::warn!("Could not format COLR path coordinates: {problem}")
+    }
   }
 
   Ok(())
@@ -79,7 +95,10 @@ impl skrifa::outline::OutlinePen for Builder<'_> {
     let Ok(()) = self.add_point(Point { x: cx0, y: cy0 });
     let Ok(()) = self.add_point(Point { x: cx1, y: cy1 });
     let Ok(()) = self.add_point(Point { x, y });
-    let Ok(()) = append_path_command(self.path, format_args!("C {cx0} {cy0} {cx1} {cy1} {x} {y} "));
+    let Ok(()) = append_path_command(
+      self.path,
+      format_args!("C {cx0} {cy0} {cx1} {cy1} {x} {y} "),
+    );
   }
 
   fn close(&mut self) {
@@ -87,7 +106,7 @@ impl skrifa::outline::OutlinePen for Builder<'_> {
   }
 }
 
-use console_core_extensible_markup_writer::Fault as XmlFault;
+use console_core_extensible_markup_writer::Error as XmlFault;
 use console_core_never::Never;
 
 trait XmlWriterExt {
@@ -150,7 +169,7 @@ pub(crate) struct GlyphPainter<'a> {
   pub(crate) outline_transform: Transform,
   pub(crate) transforms_stack: Vec<Transform>,
 
-  pub(crate) clip_stack: Vec<Option<console_core_paths::Rect>>,
+  pub(crate) clip_stack: Vec<Option<console_core_paths::FloatRectangle>>,
 }
 
 impl<'a> GlyphPainter<'a> {
@@ -189,7 +208,9 @@ impl<'a> GlyphPainter<'a> {
     self.svg.start_element("path")?;
     self.svg.write_color_attribute("fill", color)?;
     self.svg.write_attribute("fill-opacity", &opacity)?;
-    self.svg.write_transform_attribute("transform", self.outline_transform)?;
+    self
+      .svg
+      .write_transform_attribute("transform", self.outline_transform)?;
     self.svg.write_attribute("d", self.path_buf)?;
     self.svg.end_element()
   }
@@ -211,7 +232,12 @@ impl<'a> GlyphPainter<'a> {
         self.svg.start_element("linearGradient")?;
         self.svg.write_attribute("id", &id)?;
 
-        for (name, value) in [("x1", start.x), ("y1", start.y), ("x2", end.x), ("y2", end.y)] {
+        for (name, value) in [
+          ("x1", start.x),
+          ("y1", start.y),
+          ("x2", end.x),
+          ("y2", end.y),
+        ] {
           self.svg.write_attribute(name, &value)?;
         }
       }
@@ -220,8 +246,12 @@ impl<'a> GlyphPainter<'a> {
         self.svg.write_attribute("id", &id)?;
 
         for (name, value) in [
-          ("cx", end.center.x), ("cy", end.center.y), ("r", end.radius), ("fr", start.radius),
-          ("fx", start.center.x), ("fy", start.center.y),
+          ("cx", end.center.x),
+          ("cy", end.center.y),
+          ("r", end.radius),
+          ("fr", start.radius),
+          ("fx", start.center.x),
+          ("fy", start.center.y),
         ] {
           self.svg.write_attribute(name, &value)?;
         }
@@ -229,22 +259,36 @@ impl<'a> GlyphPainter<'a> {
     }
 
     let Ok(gradient_transform) = paint_transform(self.outline_transform, self.transform);
-    self.svg.write_attribute("gradientUnits", &"userSpaceOnUse")?;
+    self
+      .svg
+      .write_attribute("gradientUnits", &"userSpaceOnUse")?;
     self.svg.write_spread_method_attribute(extend)?;
-    self.svg.write_transform_attribute("gradientTransform", gradient_transform)?;
+    self
+      .svg
+      .write_transform_attribute("gradientTransform", gradient_transform)?;
     self.write_gradient_stops(stops)?;
     self.svg.end_element()?;
     self.svg.start_element("path")?;
-    self.svg.write_attribute_fmt("fill", format_args!("url(#{id})"))?;
-    self.svg.write_transform_attribute("transform", self.outline_transform)?;
+    self
+      .svg
+      .write_attribute_fmt("fill", format_args!("url(#{id})"))?;
+    self
+      .svg
+      .write_transform_attribute("transform", self.outline_transform)?;
     self.svg.write_attribute("d", self.path_buf)?;
     self.svg.end_element()
   }
 }
 
 enum GradientGeometry {
-  Linear { start: Point<f32>, end: Point<f32> },
-  Radial { start: GradientCircle, end: GradientCircle },
+  Linear {
+    start: Point<f32>,
+    end: Point<f32>,
+  },
+  Radial {
+    start: GradientCircle,
+    end: GradientCircle,
+  },
 }
 
 #[cfg_attr(
@@ -290,9 +334,9 @@ fn paint_transform(
 }
 
 fn map_rect(
-  rect: console_core_paths::Rect,
+  rect: console_core_paths::FloatRectangle,
   transform: console_core_paths::Transform,
-) -> Result<Option<console_core_paths::Rect>, Never> {
+) -> Result<Option<console_core_paths::FloatRectangle>, Never> {
   let Ok(left) = rect.left();
   let Ok(top) = rect.top();
   let Ok(right) = rect.right();
@@ -301,7 +345,10 @@ fn map_rect(
     console_core_paths::Point { x: left, y: top },
     console_core_paths::Point { x: right, y: top },
     console_core_paths::Point { x: left, y: bottom },
-    console_core_paths::Point { x: right, y: bottom },
+    console_core_paths::Point {
+      x: right,
+      y: bottom,
+    },
   ];
   let Ok(()) = transform.map_points(&mut points);
   let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
@@ -318,16 +365,16 @@ fn map_rect(
 
   let [min_x, min_y, max_x, max_y] = bounds;
 
-  console_core_paths::Rect::from_ltrb(min_x, min_y, max_x, max_y)
+  console_core_paths::FloatRectangle::from_ltrb(min_x, min_y, max_x, max_y)
 }
 
 fn intersect_rects(
-  a: console_core_paths::Rect,
-  b: console_core_paths::Rect,
-) -> ::core::result::Result<Option<console_core_paths::Rect>, ::console_core_never::Never> {
+  a: console_core_paths::FloatRectangle,
+  b: console_core_paths::FloatRectangle,
+) -> ::core::result::Result<Option<console_core_paths::FloatRectangle>, ::console_core_never::Never> {
   let Ok(left) = a.left();
   let Ok(b_left) = b.left();
-  let Ok(rect) = console_core_paths::Rect::from_ltrb(
+  let Ok(rect) = console_core_paths::FloatRectangle::from_ltrb(
     left.max(b_left),
     ({
       let Ok(explicit_value) = a.top();
@@ -366,17 +413,24 @@ impl GlyphPainter<'_> {
     self.svg.start_element("clipPath")?;
     self.svg.write_attribute("id", &id)?;
     self.svg.start_element("path")?;
-    self.svg.write_transform_attribute("transform", self.outline_transform)?;
+    self
+      .svg
+      .write_transform_attribute("transform", self.outline_transform)?;
     self.svg.write_attribute("d", &path)?;
     self.svg.end_element()?;
     self.svg.end_element()?;
     self.svg.start_element("g")?;
-    self.svg.write_attribute_fmt("clip-path", format_args!("url(#{id})"))?;
+    self
+      .svg
+      .write_attribute_fmt("clip-path", format_args!("url(#{id})"))?;
 
     Ok(())
   }
 
-  fn outline_glyph(&mut self, glyph_id: skrifa::GlyphId) -> Result<Option<console_core_paths::Rect>, Never> {
+  fn outline_glyph(
+    &mut self,
+    glyph_id: skrifa::GlyphId,
+  ) -> Result<Option<console_core_paths::FloatRectangle>, Never> {
     self.path_buf.clear();
     self.outline_transform = self.transform;
     let glyphs = self.font.outline_glyphs();
@@ -403,17 +457,40 @@ impl GlyphPainter<'_> {
 
   fn paint_brush(&mut self, brush: Brush<'_>) -> Result<(), Never> {
     let result = match brush {
-      Brush::Solid { palette_index, alpha } => {
+      Brush::Solid {
+        palette_index,
+        alpha,
+      } => {
         let Ok(color) = self.palette_index_to_color(palette_index, PaintAlpha(alpha));
         self.paint_solid(color)
       }
-      Brush::LinearGradient { p0, p1, color_stops, extend } => {
-        self.paint_gradient(GradientGeometry::Linear { start: p0, end: p1 }, color_stops, extend)
-      }
-      Brush::RadialGradient { c0, r0, c1, r1, color_stops, extend } => self.paint_gradient(
+      Brush::LinearGradient {
+        p0,
+        p1,
+        color_stops,
+        extend,
+      } => self.paint_gradient(
+        GradientGeometry::Linear { start: p0, end: p1 },
+        color_stops,
+        extend,
+      ),
+      Brush::RadialGradient {
+        c0,
+        r0,
+        c1,
+        r1,
+        color_stops,
+        extend,
+      } => self.paint_gradient(
         GradientGeometry::Radial {
-          start: GradientCircle { center: c0, radius: r0 },
-          end: GradientCircle { center: c1, radius: r1 },
+          start: GradientCircle {
+            center: c0,
+            radius: r0,
+          },
+          end: GradientCircle {
+            center: c1,
+            radius: r1,
+          },
         },
         color_stops,
         extend,
@@ -424,7 +501,10 @@ impl GlyphPainter<'_> {
     self.record(result)
   }
 
-  fn root_bounds(&self, bounds: Option<console_core_paths::Rect>) -> Result<Option<console_core_paths::Rect>, Never> {
+  fn root_bounds(
+    &self,
+    bounds: Option<console_core_paths::FloatRectangle>,
+  ) -> Result<Option<console_core_paths::FloatRectangle>, Never> {
     match bounds {
       Some(rect) => {
         let Ok(transform) = skrifa_to_tsp_transform(self.outline_transform);
@@ -435,25 +515,30 @@ impl GlyphPainter<'_> {
     }
   }
 
-  fn palette_index_to_color(&self, palette_index: u16, alpha: PaintAlpha) -> Result<Color, Never> {
+  fn palette_index_to_color(
+    &self,
+    palette_index: u16,
+    alpha: PaintAlpha,
+  ) -> Result<Color, Never> {
     const FOREGROUND_INDEX: u16 = 0xffff;
     let Ok(index) = console_core_number_conversion::index(palette_index);
     let palettes = self.font.color_palettes();
     let mut color = match palette_index {
       FOREGROUND_INDEX => self.foreground_color,
-      _ => match palettes.get(0).and_then(|palette| palette.colors().get(index).map(|color| Color {
-        red: color.red,
-        blue: color.blue,
-        green: color.green,
-        alpha: color.alpha,
-      })) {
+      _ => match palettes.get(0).and_then(|palette| {
+        palette.colors().get(index).map(|color| Color {
+          red: color.red,
+          blue: color.blue,
+          green: color.green,
+          alpha: color.alpha,
+        })
+      }) {
         Some(color) => color,
         None => self.foreground_color,
       },
     };
-    let Ok(alpha_byte) = console_core_number_conversion::toward_zero_u8(
-      f64::from(f32::from(color.alpha) * alpha.0),
-    );
+    let Ok(alpha_byte) =
+      console_core_number_conversion::toward_zero_u8(f64::from(f32::from(color.alpha) * alpha.0));
     color.alpha = alpha_byte;
 
     Ok(color)
@@ -519,7 +604,7 @@ impl<'a> skrifa::color::ColorPainter for GlyphPainter<'a> {
     self.outline_transform = self.transform;
     let clip = self.clip_with_path(&clip_path);
     let Ok(()) = self.record(clip);
-    let Ok(rect) = console_core_paths::Rect::from_ltrb(x_min, y_min, x_max, y_max);
+    let Ok(rect) = console_core_paths::FloatRectangle::from_ltrb(x_min, y_min, x_max, y_max);
     let Ok(bounds) = self.root_bounds(rect);
     self.clip_stack.push(bounds);
   }
@@ -542,7 +627,7 @@ impl<'a> skrifa::color::ColorPainter for GlyphPainter<'a> {
       ::core::option::Option::None => {}
     }
 
-    let mut region: Option<console_core_paths::Rect> = None;
+    let mut region: Option<console_core_paths::FloatRectangle> = None;
 
     for bounds in &self.clip_stack {
       let bounds_3 = match bounds {
@@ -604,9 +689,18 @@ impl<'a> skrifa::color::ColorPainter for GlyphPainter<'a> {
       CompositeMode::HslSaturation => "saturation",
       CompositeMode::HslColor => "color",
       CompositeMode::HslLuminosity => "luminosity",
-      CompositeMode::Clear | CompositeMode::Src | CompositeMode::Dest | CompositeMode::DestOver
-      | CompositeMode::SrcIn | CompositeMode::DestIn | CompositeMode::SrcOut | CompositeMode::DestOut
-      | CompositeMode::SrcAtop | CompositeMode::DestAtop | CompositeMode::Xor | CompositeMode::Plus
+      CompositeMode::Clear
+      | CompositeMode::Src
+      | CompositeMode::Dest
+      | CompositeMode::DestOver
+      | CompositeMode::SrcIn
+      | CompositeMode::DestIn
+      | CompositeMode::SrcOut
+      | CompositeMode::DestOut
+      | CompositeMode::SrcAtop
+      | CompositeMode::DestAtop
+      | CompositeMode::Xor
+      | CompositeMode::Plus
       | CompositeMode::Unknown => "normal",
     };
 

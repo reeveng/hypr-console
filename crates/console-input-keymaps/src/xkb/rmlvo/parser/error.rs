@@ -48,7 +48,11 @@ impl fmt::Display for ParserError {
       ParserError::IndexEnd(byte) => write!(f, "expected `]` but found `{}`", char::from(*byte)),
       ParserError::Index(written) => {
         let Ok(text) = display_text(written);
-        write!(f, "expected `single`, `first`, `later`, `any`, or a group index, but found `{}`", text)
+        write!(
+          f,
+          "expected `single`, `first`, `later`, `any`, or a group index, but found `{}`",
+          text
+        )
       }
     }
   }

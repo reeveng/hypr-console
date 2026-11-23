@@ -6,9 +6,9 @@
 //! byte it sits in is a position that only moves forward while there is data
 //! under it.
 
-use core::num::{NonZeroU8, NonZeroU32};
 #[cfg(test)]
 use core::cmp::Ordering;
+use core::num::{NonZeroU8, NonZeroU32};
 
 use super::sparse_bit_set::{BranchFactor, DecodingError};
 use console_core_never::Never;

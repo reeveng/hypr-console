@@ -358,13 +358,12 @@ pub(crate) fn through(geometry: &Geometry, ready: &[u32], from: u32) -> Result<u
   let mut through = from;
 
   for down in from..geometry.output.height {
-    let readiness = RowReadiness::from(
-      geometry.layouts.iter().zip(ready).all(|(layout, ready_2)| {
+    let readiness =
+      RowReadiness::from(geometry.layouts.iter().zip(ready).all(|(layout, ready_2)| {
         let Ok((_, last)) = needed(*layout, down);
 
         last < *ready_2
-      }),
-    );
+      }));
 
     match readiness {
       RowReadiness::Ready => through = down.saturating_add(1),

@@ -6,7 +6,7 @@ use std::{fs, io};
 use console_core_color::Oklch;
 use console_core_color::palette::{self, PaletteError, Wearing, WearingError};
 
-use crate::Result;
+use super::Result;
 
 const SYSTEM: &str = "/usr/local/lib/console/palette.sh";
 const BUNDLED: &str = include_str!("../../../../files/usr/local/lib/console/palette.sh");

@@ -18,6 +18,7 @@ console-core-arguments.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
+console-location.workspace = true
 console-panel.workspace = true
 console-wallpaper.workspace = true
 console-weather.workspace = true

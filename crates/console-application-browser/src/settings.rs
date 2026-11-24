@@ -292,7 +292,10 @@ impl Settings {
       .saturating_sub(::core::primitive::i32::wrapping_mul(2, INSET))
       .max(1);
     let x = left.saturating_add(INSET);
-    let origin = Point { x, y: top.saturating_add(INSET) };
+    let origin = Point {
+      x,
+      y: top.saturating_add(INSET),
+    };
     let Ok(reader_heading) = self.add_rows(origin, content, choices);
     let Ok(engine) = status.renderer.label();
     let arrow = match self.view {
@@ -312,7 +315,11 @@ impl Settings {
     match status.reader {
       Some(Mode::Dark) => {
         let row_pitch = ROW.saturating_add(GAP);
-        let y = reader_heading.origin.y.saturating_add(row_pitch).saturating_add(row_pitch);
+        let y = reader_heading
+          .origin
+          .y
+          .saturating_add(row_pitch)
+          .saturating_add(row_pitch);
         let text_controls = content.saturating_sub(80).max(0);
         let Ok(()) = label_at(
           &mut shapes,
@@ -371,7 +378,10 @@ impl Settings {
   ) -> Result<Rectangle<i32>, console_core_never::Never> {
     let pitch = ROW.saturating_add(GAP);
     let Point { x, mut y } = origin;
-    let size = Size { width: content, height: ROW };
+    let size = Size {
+      width: content,
+      height: ROW,
+    };
     let Ok(engine) = rectangle(origin, size);
     let Ok(()) = self.add(Control::Engines, engine);
     y = y.saturating_add(pitch);
@@ -388,9 +398,16 @@ impl Settings {
       .saturating_sub(::core::primitive::i32::wrapping_mul(2, GAP))
       .wrapping_div(3)
       .max(1);
-    let choice_size = Size { width: segment, height: ROW };
+    let choice_size = Size {
+      width: segment,
+      height: ROW,
+    };
 
-    for (offset, reader) in [(0_i32, None), (1, Some(Mode::Dark)), (2, Some(Mode::Desktop))] {
+    for (offset, reader) in [
+      (0_i32, None),
+      (1, Some(Mode::Dark)),
+      (2, Some(Mode::Desktop)),
+    ] {
       let left = x.saturating_add(offset.saturating_mul(segment.saturating_add(GAP)));
       let Ok(area) = rectangle(Point { x: left, y }, choice_size);
       let Ok(()) = self.add(Control::Reader(reader), area);

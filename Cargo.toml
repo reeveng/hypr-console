@@ -119,6 +119,7 @@ console-input-keyboard = { path = "crates/console-input-keyboard" }
 console-input-keymaps = { path = "crates/console-input-keymaps" }
 console-input-keymaps-derive = { path = "crates/console-input-keymaps-derive" }
 console-launcher = { path = "crates/console-launcher" }
+console-location = { path = "crates/console-location" }
 console-login-greeter = { path = "crates/console-login-greeter" }
 console-login-pattern = { path = "crates/console-login-pattern" }
 console-login-session = { path = "crates/console-login-session" }
@@ -194,6 +195,7 @@ console-draw-surface = { path = "crates/console-draw-surface" }
 console-session = { path = "crates/console-session" }
 console-session-plasma = { path = "crates/console-session-plasma" }
 console-settings = { path = "crates/console-settings" }
+console-night-light = { path = "crates/console-night-light" }
 console-status-bar = { path = "crates/console-status-bar" }
 console-resource-usage = { path = "crates/console-resource-usage" }
 console-test-stages = { path = "crates/console-test-stages" }

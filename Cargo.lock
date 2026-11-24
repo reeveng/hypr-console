@@ -833,14 +833,12 @@ dependencies = [
  "console-core-fonts",
  "console-core-geometry",
  "console-core-iteration",
- "console-core-jpeg-files",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
- "console-core-shapes",
- "console-draw-painting",
  "console-draw-surface",
+ "console-panel",
  "console-wayland",
  "rustix",
  "serde",
@@ -973,6 +971,7 @@ dependencies = [
  "console-gio",
  "console-input-text",
  "console-package-manager",
+ "console-panel",
  "console-program-lifetime",
  "console-waiting",
 ]
@@ -3155,6 +3154,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-location",
  "console-panel",
  "console-wallpaper",
  "console-weather",
@@ -3570,6 +3570,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-location"
+version = "0.1.0"
+dependencies = [
+ "console-core-atomic-writes",
+ "console-core-finite-numbers",
+ "console-core-logging",
+ "console-core-never",
+ "console-defaults",
+]
+
+[[package]]
 name = "console-lock-screen"
 version = "0.1.0"
 dependencies = [
@@ -3763,6 +3774,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-night-light"
+version = "0.1.0"
+dependencies = [
+ "console-compositor",
+ "console-core-arguments",
+ "console-core-atomic-writes",
+ "console-core-color",
+ "console-core-external-programs",
+ "console-core-iteration",
+ "console-core-logging",
+ "console-core-never",
+ "console-core-number-conversion",
+ "console-core-places",
+ "console-core-temporary-directories",
+ "console-core-words",
+ "console-location",
+ "console-readiness",
+ "console-wayland",
+ "rustix",
+]
+
+[[package]]
 name = "console-notifications"
 version = "0.1.0"
 dependencies = [
@@ -3934,6 +3967,7 @@ dependencies = [
  "console-core-highlight",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-jpeg-files",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
@@ -4288,6 +4322,7 @@ dependencies = [
  "console-login-greeter",
  "console-login-pattern",
  "console-login-window",
+ "console-night-light",
  "console-notifications",
  "console-operating-system-linux",
  "console-panel",
@@ -4609,6 +4644,7 @@ dependencies = [
  "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-words",
+ "console-location",
  "console-onscreen",
  "console-operating-system-linux",
  "console-paper",
@@ -4647,12 +4683,11 @@ version = "0.1.0"
 dependencies = [
  "console-core-atomic-writes",
  "console-core-external-programs",
- "console-core-finite-numbers",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-temporary-directories",
  "console-core-words",
- "console-defaults",
+ "console-location",
  "serde",
  "serde_json",
 ]

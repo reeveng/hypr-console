@@ -41,6 +41,7 @@ pub enum Unapplied {
   AsRoot(&'static str),
   PacmanRefused,
   PacmanUntold,
+  PackageRemoval(&'static str, std::io::Error),
   Restore(Vec<String>),
   CargoRefused,
   NoProgram,
@@ -132,6 +133,9 @@ impl fmt::Display for Unapplied {
       }
       Unapplied::PacmanUntold => {
         write!(to, "pacman would not be told the desktop asks for these.")
+      }
+      Unapplied::PackageRemoval(package, fault) => {
+        write!(to, "pacman could not remove {package}: {fault}")
       }
       Unapplied::Restore(fell) => write!(
         to,

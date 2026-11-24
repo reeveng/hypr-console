@@ -100,7 +100,16 @@ impl FocusedReply {
     let initial_class = property(&mut properties, "initialClass")?;
     let title = property(&mut properties, "title")?;
     let monitor = property(&mut properties, "monitor")?;
-    Ok(Self { address, pid, mapped, hidden, class, initial_class, title, monitor })
+    Ok(Self {
+      address,
+      pid,
+      mapped,
+      hidden,
+      class,
+      initial_class,
+      title,
+      monitor,
+    })
   }
 }
 
@@ -271,7 +280,10 @@ fn observe(
   };
 
   let outputs = body::<Vec<Properties>>("j/monitors")?;
-  let monitors = outputs.into_iter().map(MonitorPower::readings).collect::<Result<Vec<_>>>()?;
+  let monitors = outputs
+    .into_iter()
+    .map(MonitorPower::readings)
+    .collect::<Result<Vec<_>>>()?;
   let on_screen = monitors
     .iter()
     .any(|monitor| monitor.id == Some(window.monitor) && monitor.enabled == Some(true));
@@ -590,12 +602,10 @@ fn receive_before_next_sample(paths: &Paths, sites: &mut Sites, started: Instant
 
     match started.elapsed().cmp(&interval) {
       std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => Ok(Step::Halt(Ok(()))),
-      std::cmp::Ordering::Less => {
-        Ok(match sites_2.wait_for_signal() {
-          Ok(()) => Step::Again(sites_2),
-          Err(fault) => Step::Halt(Err(fault)),
-        })
-      }
+      std::cmp::Ordering::Less => Ok(match sites_2.wait_for_signal() {
+        Ok(()) => Step::Again(sites_2),
+        Err(fault) => Step::Halt(Err(fault)),
+      }),
     }
   })?;
   ended
@@ -691,7 +701,7 @@ mod tests {
     let encoded = serde_json::to_string(&span)?;
     assert_eq!(encoded, original);
     let unexpected = serde_json::from_str::<StoredSpan>(
-      r#"{"start":100,"end":160,"app":"Browser","site":null,"extra":1}"#
+      r#"{"start":100,"end":160,"app":"Browser","site":null,"extra":1}"#,
     );
 
     match unexpected {

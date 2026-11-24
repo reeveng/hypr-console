@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-use crate::src::strided::Strided as _;
 use crate::include::common::bitdepth::AsPrimitive;
 use crate::include::common::bitdepth::BitDepth;
 use crate::src::align::AlignedVec64;
@@ -29,6 +28,7 @@ use crate::src::levels::Z1_PRED;
 use crate::src::levels::Z2_PRED;
 use crate::src::levels::Z3_PRED;
 use crate::src::owned_recon::ReconSrc;
+use crate::src::strided::Strided as _;
 use console_core_geometry::{Point, Size};
 use console_core_number_conversion::{
   fixed_index, fixed_offset, index, indices, wrapped, wrapped_offset,

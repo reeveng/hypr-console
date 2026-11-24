@@ -283,7 +283,9 @@ fn relay(paths: &Paths, parent: u32, message: Message) -> Result<()> {
     Err(fault) => match matches!(
       fault.kind(),
       io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-    ).then_some(()) {
+    )
+    .then_some(())
+    {
       Some(()) => return Ok(()),
       None => return Err(Box::new(fault)),
     },
@@ -334,7 +336,9 @@ fn relay(paths: &Paths, parent: u32, message: Message) -> Result<()> {
     Err(fault) => match matches!(
       fault.kind(),
       io::ErrorKind::WouldBlock | io::ErrorKind::ConnectionRefused
-    ).then_some(()) {
+    )
+    .then_some(())
+    {
       Some(()) => Ok(()),
       None => Err(Box::new(fault)),
     },

@@ -47,7 +47,12 @@ let
     module = {
       imports = [ module ];
       systemd.services.console-test = {
-        path = [ archive ] ++ (with pkgs; [ cargo-nextest zstd git dbus ]);
+        path = [ archive ] ++ (with pkgs; [ cargo-nextest gnutar zstd git dbus ]);
+        environment = {
+          CARGO_TERM_COLOR = "never";
+          NEXTEST_SHOW_PROGRESS = "none";
+          NEXTEST_NO_INPUT_HANDLER = "true";
+        };
         serviceConfig.ExecStartPre = [ "+${archive}/bin/console-tasks guest-workspace ${archive}" ];
       };
       systemd.tmpfiles.rules = with pkgs; [
@@ -90,6 +95,7 @@ let
   };
 in
 {
+  night-light = import ./night-light-test.nix { inherit pkgs source src; };
   unit = rustVM { name = "unit"; };
   integration = builtins.deepSeq (import ./tests.nix) (rustVM { name = "integration"; });
   e2e-desktop = rustVM { name = "e2e-desktop"; wayland = true; module = desktopModule; };

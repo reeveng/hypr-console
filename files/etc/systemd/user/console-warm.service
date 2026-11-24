@@ -3,21 +3,17 @@ Description=Night colors
 PartOf=console.target
 
 [Service]
-Type=simple
-# The scheduled mode reads Console's hyprsunset profile. The always-on mode
-# starts hyprsunset with a constant temperature.
-Environment=XDG_CONFIG_HOME=%h/.config/console
+Type=notify
 ExecCondition=/usr/local/bin/console-warm switched-on
-ExecStart=/usr/local/bin/console-warm --engine /usr/bin/hyprsunset daemon
+ExecStart=/usr/local/bin/console-warm daemon
 ExecStopPost=-/usr/local/bin/console-report-crash %n
-Restart=always
+Restart=on-failure
 RestartSec=5
 
 # What this reaches past `console-.service.d/confining.conf`, and why.
 #
-# hyprsunset reads its curve out of the home directory once and then talks to
-# the compositor. Nothing is written and no device is opened: the screen's
-# color is the compositor's to set, not this program's.
+# Night Light reads the saved setting and location and sends color transforms
+# to the compositor over Wayland.
 PrivateDevices=yes
 ProtectHome=read-only
 RestrictAddressFamilies=AF_UNIX AF_NETLINK

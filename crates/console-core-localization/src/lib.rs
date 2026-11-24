@@ -79,7 +79,7 @@
 //! machine* tells someone a word they have never seen; *This needs a program
 //! the machine does not have yet* tells them what happened.  **No jargon and no
 //! names of programs**, unless the person chose that program themselves.
-//! `hyprsunset`, `nmcli`, `powerprofilesctl` and `polkit` are this desktop's
+//! `console-warm`, `nmcli`, `powerprofilesctl` and `polkit` are this desktop's
 //! business, not theirs.  The part of that a machine can check is a test in
 //! each crate that has words: `every_word_fits_a_row_and_names_no_program`,
 //! `a_switch_names_the_thing_and_its_two_states_are_told_apart`, and

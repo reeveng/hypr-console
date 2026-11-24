@@ -24,6 +24,7 @@ use std::fmt;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
+use console_location::Coordinates;
 use serde::de::{DeserializeOwned, IgnoredAny};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
@@ -165,7 +166,7 @@ struct CurrentCode {
   _interval: Option<IgnoredAny>,
 }
 
-pub fn request_url(at: &crate::here::Where) -> Result<String, Never> {
+pub fn request_url(at: &Coordinates) -> Result<String, Never> {
   Ok(format!(
     "{SERVICE}?latitude={:.4}&longitude={:.4}&current=weather_code",
     at.latitude.0, at.longitude.0
@@ -195,7 +196,7 @@ pub enum Notified {
   Already,
 }
 
-pub fn now(at: &crate::here::Where, told: &mut Notified) -> Result<Option<Weather>, Never> {
+pub fn now(at: &Coordinates, told: &mut Notified) -> Result<Option<Weather>, Never> {
   let asked = request_url(at)?;
 
   let said = match answer(&asked) {
@@ -272,6 +273,7 @@ fn complain(told: &mut Notified, said: &str) -> Result<Option<Weather>, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_location::{Latitude, Longitude};
 
   #[test]
   fn a_clear_sky_and_an_overcast_one_are_told_apart() {
@@ -315,9 +317,9 @@ mod tests {
 
   #[test]
   fn the_question_names_the_place_it_is_asked_about() {
-    let Ok(asked) = request_url(&crate::here::Where {
-      latitude: crate::here::Latitude(13.7563),
-      longitude: crate::here::Longitude(100.5018),
+    let Ok(asked) = request_url(&Coordinates {
+      latitude: Latitude(13.7563),
+      longitude: Longitude(100.5018),
     });
 
     assert!(asked.contains("latitude=13.7563"), "{asked}");

@@ -1,69 +1,12 @@
-//! How warm the screen is, and when.
-//!
-//! `hyprsunset` does the work. It is a daemon that hands the compositor a
-//! color transform, which is why it is preferred to a shader: what it changes
-//! is not in a screenshot or a recording, so the screenshot the top right
-//! paddle takes at eleven at night looks like the one taken at noon.
-//!
-//! ## The clock decides, not a thumb
-//!
-//! It used to be a switch and one temperature: press it and the screen went
-//! warm, press it again and it went back. That is a decision someone has to
-//! remember to make twice a day, and the evening it is wanted is the evening
-//! no one thinks of it.
-//!
-//! So the screen follows the clock. It cools nothing all day, slides from
-//! daylight down to lamplight across the two hours of dusk, holds there through
-//! the night, and climbs back over the half hour before morning. The slide is
-//! what makes it invisible: a screen that changed color in one step at half
-//! past seven would be a thing that happened to you, and this is a thing you
-//! never catch happening.
-//!
-//! `hyprsunset` does the following itself, out of `hyprsunset.conf`: a list of
-//! profiles, each a time and what to wear from then on, and it holds each one
-//! until the next. So the whole of the curve is a file, and nothing here has to
-//! be running to keep the screen honest at three in the morning.
-//!
-//! The steps are spaced evenly **in mireds**, not in kelvin. Kelvin is not
-//! perceptually even -- the same thousand degrees is an enormous change down at
-//! the warm end and barely visible up at the cold one -- so a curve stepped
-//! evenly in kelvin crawls all evening and then lurches at the end. A mired is
-//! a million over the kelvin, and even steps in it are even steps to an eye.
-//!
-//! ## And the switch is now the daemon
-//!
-//! There is still a way to say no, and it had to change shape. `hyprsunset`
-//! re-applies its profile at every step, so telling it `identity` is undone by
-//! the clock -- three minutes later during dusk, and not until morning at
-//! midnight, which is a switch that behaves differently depending on when it is
-//! pressed. There is no way to ask the daemon to stop following its own
-//! profiles.
-//!
-//! So off means the daemon is not running. `console-warm` writes the answer
-//! down and restarts the unit; the unit asks this before it starts anything, in
-//! `ExecCondition=`, and a compositor with no color transform on it is a screen
-//! showing its own colors -- which is the one state that is true whatever the
-//! hour and survives a reboot without anyone re-asserting it.
-//!
-//! What is here is the curve, the answer to "is it switched on", and the writing of
-//! the config out of the first. `console-warm curve` prints it, which is how
-//! the copy in `files/` is made; a test holds the two together so the file on
-//! the machine cannot drift from the curve this says.
-//!
-//! `standing` is the reading of that answer, and it is here rather than at each
-//! caller because there are two of them and they were not reading it the same
-//! way. A file no one has written yet means following the clock, which is what
-//! a machine that was never asked should do. A file that is there and will not
-//! be read means nothing of the sort, and a reader that turns it into
-//! `Scheduled` reports a setting the person may have turned off. So the two are
-//! separate answers, and it is the caller that decides how loudly to say the
-//! second.
+//! Night Light preferences and the display temperature curve.
 
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
 use console_core_words::Words;
 use std::path::{Path, PathBuf};
+
+pub mod schedule;
 
 pub const DAYLIGHT: u32 = 6500;
 
@@ -163,20 +106,9 @@ pub fn configuration() -> Result<String, Never> {
 }
 
 const HEAD: &str = "\
-# The color of the screen, on a clock. Written by `console-warm curve` out of
-# `console_settings::warm`, which is where the hours and the two temperatures
-# are decided; a test holds this file to what that says, so editing it here is
-# an edit that comes back.
-#
-# hyprsunset holds each profile until the next one, so the last of the evening
-# carries through the small hours and there is nothing written for the night.
-# The steps are spaced evenly in mireds rather than in kelvin, because kelvin is
-# not perceptually even.
-#
-# The unit that starts hyprsunset asks `console-warm switched-on` first, so the
-# switch on the Screen tab is this daemon running or not running rather than a
-# temperature sent to it: a temperature would be undone by the next profile
-# below.
+# The fallback Night Light schedule in UTC when Console has no location.
+# `console-warm` applies the same temperatures around the local sunset and
+# sunrise when a location is available.
 ";
 
 fn clock(minutes: u32) -> Result<String, Never> {
@@ -200,11 +132,11 @@ struct Kelvin {
 }
 
 fn interpolate(kelvin: Kelvin, along: Along) -> Result<u32, Never> {
+  let fraction = f64::from(along.part) / f64::from(along.whole);
   let Ok(from) = mired(kelvin.from);
   let Ok(to) = mired(kelvin.to);
-  let at = from + (to - from) * f64::from(along.part) / f64::from(along.whole);
-  let kelvin_2 = 1_000_000.0 / at;
-  let Ok(tens) = whole_u32(kelvin_2 / 10.0);
+  let mireds = from + (to - from) * fraction;
+  let Ok(tens) = whole_u32((1_000_000.0 / mireds) / 10.0);
 
   Ok(tens.saturating_mul(10))
 }
@@ -434,7 +366,7 @@ mod tests {
   }
 
   #[test]
-  fn the_config_is_written_the_way_the_daemon_reads_it() {
+  fn the_fallback_curve_can_be_printed_as_profiles() {
     let Ok(said) = configuration();
     let Ok(steps) = curve();
 

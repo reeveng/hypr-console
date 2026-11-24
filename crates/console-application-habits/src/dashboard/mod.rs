@@ -2,47 +2,27 @@
 
 mod calendar;
 mod model;
-mod scene;
-mod theme;
 
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
 
-use console_core_geometry::Size;
+use console_core_geometry::{Point, Size};
 use console_core_iteration::{Step, iterate};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use console_draw_surface::{Closed, Keysym, PointerEvent, Scale, Surface, Window};
+use console_panel::activity::{
+  self, Action, Art, Day as DisplayDay, Frame, KeyAction, Kind, Lane, LaneView, Page, Period,
+  Press, Recorder as Recording, Refresh, Rows, Scope, Source, View, duration,
+};
 
 use crate::activity::{Span, read_history};
 use crate::report::Recorder;
-use crate::{APP_ID, Paths, Result, now};
+use crate::{APP_ID, DEFAULT_INTERVAL, Paths, Result, now};
 use calendar::{CURRENT_DAY, Day, local_days, time_range};
-use model::{Kind, Period, Scope, duration};
-use scene::{Art, FocusDirection, Frame};
 
-const WINDOW_SIZE: Size<u32> = Size {
-  width: 1080,
-  height: 760,
-};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Page {
-  Overview,
-  Timeline,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Action {
-  Page(Page),
-  Scope(Scope),
-  Kind(Kind),
-  Chart { day: u32, slot: u32 },
-  Step(i32),
-  More,
-  Segment { lane: u32, period: Period },
-  Close,
-}
+const WINDOW_TITLE: &str = "Habits";
+const ART: &[u8] = include_bytes!("../../assets/woodland.jpg");
 
 #[derive(Clone, Copy, PartialEq)]
 enum RecorderState {
@@ -50,22 +30,10 @@ enum RecorderState {
   Stale,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Refresh {
-  Unchanged,
-  Changed,
-}
-
 #[derive(Clone, Copy)]
 enum WindowChange {
   StayOpen,
   Close,
-}
-
-#[derive(Clone, Copy)]
-enum Rows {
-  Summary,
-  Expanded,
 }
 
 struct Dashboard {
@@ -88,6 +56,39 @@ struct Dashboard {
 }
 
 impl Dashboard {
+  fn view(&self) -> std::result::Result<View<'_>, Never> {
+    let recorder = match (&self.recorder, self.recorder_state) {
+      (Some(value), RecorderState::Current) => Recording::Current {
+        status: &value.status,
+        interval: value.interval,
+      },
+      (Some(value), RecorderState::Stale) => Recording::Stale {
+        interval: value.interval,
+      },
+      (None, RecorderState::Current | RecorderState::Stale) => Recording::Waiting {
+        interval: DEFAULT_INTERVAL,
+      },
+    };
+    Ok(View {
+      title: WINDOW_TITLE,
+      source: self,
+      recorder,
+      day: self.day,
+      current_day: CURRENT_DAY,
+      today_ticks: &self.today_ticks,
+      ticks: &self.ticks,
+      scope: self.scope,
+      kind: self.kind,
+      page: self.page,
+      scroll: self.scroll,
+      more: self.more,
+      focus: self.focus,
+      hover: self.hover,
+      details: self.details.as_ref(),
+      problem: self.problem,
+    })
+  }
+
   fn new(paths: &Paths) -> Result<Self> {
     let Ok(at) = now();
     let calendar = local_days(at)?;
@@ -251,45 +252,50 @@ impl Dashboard {
   }
 
   fn keyboard(&mut self, key: Keysym, frame: &Frame) -> Result<Option<WindowChange>> {
-    let action = match key {
-      Keysym::Escape | Keysym::q => Some(Action::Close),
-      Keysym::o => Some(Action::Page(Page::Overview)),
-      Keysym::t => Some(Action::Page(Page::Timeline)),
-      Keysym::_1 => Some(Action::Scope(Scope::Today)),
-      Keysym::_7 => Some(Action::Scope(Scope::Week)),
-      Keysym::_3 => Some(Action::Scope(Scope::Month)),
-      Keysym::Left | Keysym::Right => match (key, self.page) {
-        (Keysym::Left, Page::Timeline) => Some(Action::Step(-1)),
-        (Keysym::Right, Page::Timeline) => Some(Action::Step(1)),
-        _ => None,
-      },
-      Keysym::Return | Keysym::KP_Enter | Keysym::space => self.focus,
-      Keysym::Tab | Keysym::ISO_Left_Tab => {
-        let direction = match key {
-          Keysym::ISO_Left_Tab => FocusDirection::Backward,
-          _forward => FocusDirection::Forward,
-        };
-        let Ok(focus) = frame.tab(self.focus, direction);
-        self.focus = focus;
-        return Ok(Some(WindowChange::StayOpen));
-      }
-      Keysym::Down | Keysym::Page_Down | Keysym::Up | Keysym::Page_Up => {
-        let by = match key {
-          Keysym::Down => 45,
-          Keysym::Up => -45,
-          Keysym::Page_Down => 270,
-          _ => -270,
-        };
-        self.scroll = i32::wrapping_add(self.scroll, by).clamp(0, frame.max_scroll);
-        return Ok(Some(WindowChange::StayOpen));
-      }
-      _ => None,
-    };
+    let Ok(command) = activity::keyboard(key, self.page, self.focus);
 
-    match action {
-      Some(requested) => self.activate(requested).map(Some),
-      None => Ok(None),
+    match command {
+      KeyAction::Activate(action) => self.activate(action).map(Some),
+      KeyAction::Focus(direction) => {
+        let Ok(focus) = frame.targets.tab(self.focus, direction);
+        self.focus = focus;
+        Ok(Some(WindowChange::StayOpen))
+      }
+      KeyAction::Scroll(by) => {
+        self.scroll = i32::wrapping_add(self.scroll, by).clamp(0, frame.max_scroll);
+        Ok(Some(WindowChange::StayOpen))
+      }
+      KeyAction::Ignore => Ok(None),
     }
+  }
+}
+
+impl Source for Dashboard {
+  fn day(&self, position: u32) -> std::result::Result<Option<DisplayDay<'_>>, Never> {
+    let Ok(slot) = index(position);
+    Ok(self.calendar.get(slot).map(|day| DisplayDay {
+      period: Period {
+        start: day.start,
+        end: day.end,
+      },
+      weekday: &day.weekday,
+      month: &day.month,
+      number: &day.number,
+      title: &day.title,
+    }))
+  }
+
+  fn total(&self, range: Period) -> std::result::Result<u64, Never> {
+    model::total(range, &self.history)
+  }
+
+  fn lanes(
+    &self,
+    range: Period,
+    kind: Kind,
+    view: LaneView,
+  ) -> std::result::Result<Vec<Lane<'_>>, Never> {
+    model::lanes(&self.history, range, kind, view)
   }
 }
 
@@ -312,14 +318,14 @@ fn timeline_ticks(day: &Day) -> Result<Vec<(u64, String)>> {
 
 pub fn open(paths: &Paths) -> Result<()> {
   let app = Dashboard::new(paths)?;
-  let art = Art::new()?;
+  let art = Art::new(ART)?;
   let mut surface = Surface::connect()?;
   surface.show_window_sized(
     &Window {
       app_id: String::from(APP_ID),
-      title: String::from("Habits"),
+      title: String::from(WINDOW_TITLE),
     },
-    WINDOW_SIZE,
+    activity::WINDOW_SIZE,
   )?;
   let starting = WindowSession {
     app,
@@ -348,7 +354,7 @@ enum Drawing {
 
 struct WindowSession {
   app: Dashboard,
-  art: Art,
+  art: Art<'static>,
   surface: Surface,
   frame: Frame,
   drawing: Drawing,
@@ -409,40 +415,30 @@ impl WindowSession {
       None => {}
     }
 
-    let Ok(next_frame) = scene::draw(&self.app, room, &self.art);
+    let Ok(view) = self.app.view();
+    let Ok(next_frame) = activity::draw(&view, room, &self.art);
     self.frame = next_frame;
 
     match self.app.scroll.cmp(&self.frame.max_scroll) {
       Ordering::Greater => {
         self.app.scroll = self.frame.max_scroll;
-        let Ok(scrolled) = scene::draw(&self.app, room, &self.art);
+        let Ok(scrolled_view) = self.app.view();
+        let Ok(scrolled) = activity::draw(&scrolled_view, room, &self.art);
         self.frame = scrolled;
       }
       Ordering::Less | Ordering::Equal => {}
     }
 
-    self.surface.draw(|pixels, device, _| {
-      let frame_size = console_draw_painting::Frame {
-        device,
-        points: room,
-      };
-
-      match console_draw_painting::onto(pixels, frame_size, &self.frame.shapes) {
-        Ok(()) => {}
-        Err(fault) => console_core_logging::warn!("Habits window: {fault}"),
-      }
-
-      Ok(())
-    })?;
+    self.frame.paint(&mut self.surface, room)?;
     self.drawing = current;
     Ok(())
   }
 
   fn pointer(&mut self, event: PointerEvent) -> Result<WindowChange> {
     match event {
-      PointerEvent::Down { at } => return self.press(at),
-      PointerEvent::Moved { at } => {
-        let Ok(hover) = self.frame.action(at);
+      PointerEvent::Down { at: (x, y) } => return self.press(Point { x, y }),
+      PointerEvent::Moved { at: (x, y) } => {
+        let Ok(hover) = self.frame.targets.action(Point { x, y });
 
         match (hover != self.app.hover).then_some(()) {
           Some(()) => self.drawing = Drawing::Needed,
@@ -473,21 +469,16 @@ impl WindowSession {
     Ok(WindowChange::StayOpen)
   }
 
-  fn press(&mut self, at: (f64, f64)) -> Result<WindowChange> {
+  fn press(&mut self, at: Point<f64>) -> Result<WindowChange> {
     self.app.focus = None;
-    let Ok(action) = self.frame.action(at);
-    let change = match action {
-      Some(requested) => self.app.activate(requested)?,
-      None => {
-        let Ok(titlebar) = scene::titlebar(at);
-
-        match titlebar {
-          Some(()) => self.surface.move_window()?,
-          None => {}
-        }
-
+    let Ok(press) = activity::press(&self.frame, at);
+    let change = match press {
+      Press::Activate(action) => self.app.activate(action)?,
+      Press::MoveWindow => {
+        self.surface.move_window()?;
         WindowChange::StayOpen
       }
+      Press::Ignore => WindowChange::StayOpen,
     };
 
     match change {

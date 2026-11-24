@@ -8758,7 +8758,9 @@ mod tests {
     let Ok(card) = card();
     let state = state_of(vec![page])?;
     let Ok(initial) = drawn(&state, &card, &wearing);
-    let moving = initial.moving.ok_or("the looked-at picture has no layout")?;
+    let moving = initial
+      .moving
+      .ok_or("the looked-at picture has no layout")?;
     let Ok(_ready) = crate::frames::current(&moving.of, moving.room);
     let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
 

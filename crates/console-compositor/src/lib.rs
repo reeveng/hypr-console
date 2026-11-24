@@ -83,6 +83,8 @@ use console_core_text_encodings::decode;
 use console_core_words::Words;
 
 mod answer;
+#[cfg(feature = "color-transform")]
+pub mod color_transform;
 pub mod events;
 pub mod lua;
 mod operation;

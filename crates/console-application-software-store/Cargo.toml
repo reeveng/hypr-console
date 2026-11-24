@@ -25,6 +25,7 @@ console-draw-surface.workspace = true
 console-gio.workspace = true
 console-input-text.workspace = true
 console-package-manager = { workspace = true, features = ["user"] }
+console-panel.workspace = true
 console-program-lifetime.workspace = true
 
 [dev-dependencies]

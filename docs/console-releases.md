@@ -12,15 +12,13 @@ private machine and account names. Commit the export to the public repository
 and push a new tag such as `console-v0.1.8` on that commit. GitHub Actions
 builds the bundle and publishes the immutable release after the build succeeds.
 
+During a staged rollout, add `Console-Latest: false` as a trailer on the
+annotated tag to keep the current release marked latest. The new release
+can be installed by tag as soon as it is published.
+
 The build uses an Arch Linux container and the `x86-64-v3` CPU target. The
 `console-x86_64.tar.gz` archive contains the built binaries and their source
 commit. GitHub publishes its SHA-256 digest with the immutable release metadata.
-
-For the one-time migration, push `console-v0.1.7` and `legion-go-v0.1.7`
-together on the same commit. GitHub Actions publishes the same bundle under
-both tags. It names the legacy copy `legion-go-x86_64.tar.gz` and marks that
-release as latest so older updaters can find it. Later releases use `console-v`
-tags and `console-x86_64.tar.gz`.
 
 ## Set up update checks
 
@@ -42,7 +40,7 @@ then choose **Install** when ready.
 An administrator can also install a specific tag with
 `sudo console-update console-v0.1.8`.
 
-If a device with an older updater missed the migration, run
+If a device still runs an updater that requires `legion-go-v` tags, run
 `sudo console-update legion-go-v0.1.7` once. The installed updater can then
 find `console-v` releases and read earlier installation and rollback records.
 

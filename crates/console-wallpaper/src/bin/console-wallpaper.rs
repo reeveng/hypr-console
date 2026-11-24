@@ -5,6 +5,7 @@ use std::time::UNIX_EPOCH;
 
 use console_core_arguments::read;
 use console_core_never::Never;
+use console_location::timezone::CachedLocation;
 use console_operating_system_linux::program_runtime::{self, Clock, Interpreter};
 use console_paper::{self as paper, Motion, Request};
 use console_program_contract::{Answer, Event, ExitStatus};
@@ -14,7 +15,6 @@ use console_wallpaper::keeping::{
 };
 use console_wallpaper::{covered, place, rules};
 use console_weather::conditions::{self as weather, Weather};
-use console_weather::here::CachedLocation;
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();

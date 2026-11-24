@@ -13,9 +13,11 @@
 //! under any of it, and what a panel drew is written down from the same
 //! placement rather than read back out of a widget tree.
 
+pub mod activity;
 pub mod arrivals;
 pub mod asked;
 pub mod before;
+pub mod canvas;
 pub mod card;
 pub mod picker;
 

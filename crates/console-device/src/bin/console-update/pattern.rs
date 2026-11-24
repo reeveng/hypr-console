@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use console_login_window::stored_pattern::{self, Hash, Matched, StoredPattern};
 use console_operating_system_linux::program_lifetime::TimedReadPipe;
 
-use super::{UpdateError, desktop_account, optional, undo_target, version, write};
+use super::{UpdateError, desktop_account, optional, recorded_version, undo_target, write};
 
 const ENROLLED: &str = "update-pattern";
 const ATTEMPT: &str = "update-pattern-attempt";
@@ -45,7 +45,7 @@ impl Order {
         Action::Undo(requested.to_owned())
       }
       None => {
-        let _version = version(requested).map_err(|_| INVALID)?;
+        let _version = recorded_version(requested).map_err(|_| INVALID)?;
         Action::Install(requested.to_owned())
       }
     };
@@ -224,7 +224,9 @@ mod tests {
     let target = format!("undo:release-101-234:{}", "a".repeat(40));
     let order = Order::parse(&format!("{target}\naidc\n"));
     assert!(matches!(order, Ok(Order { action: Action::Undo(saved), .. }) if saved == target));
-    assert!(matches!(Order::parse("undo:release-101-234:wrong\naidc\n"), Err(fault) if fault.to_string() == INVALID));
+    assert!(
+      matches!(Order::parse("undo:release-101-234:wrong\naidc\n"), Err(fault) if fault.to_string() == INVALID)
+    );
   }
 
   #[test]

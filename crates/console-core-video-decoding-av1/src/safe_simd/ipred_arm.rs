@@ -135,7 +135,10 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
     None => return Ok(PredictionDispatch::ScalarFallback),
   };
   let Ok(columns) = index(width);
-  let extent = Size { width: u64::from(width), height: u64::from(height) };
+  let extent = Size {
+    width: u64::from(width),
+    height: u64::from(height),
+  };
   let mut residual_rows = active.chunks_exact(columns);
   let written = match BD::BPC {
     BPC::BPC8 => {
@@ -149,13 +152,11 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
     BPC::BPC16 => {
       let bitdepth_max = bd.bitdepth_max().as_::<c_int>();
 
-      dst.for_rows_mut::<BitDepth16, _>(extent, |_row, pixels| {
-        match residual_rows.next() {
-          Some(residual) => {
-            let Ok(()) = cfl_row_16bpc(token, pixels, residual, &projection, bitdepth_max);
-          }
-          None => {}
+      dst.for_rows_mut::<BitDepth16, _>(extent, |_row, pixels| match residual_rows.next() {
+        Some(residual) => {
+          let Ok(()) = cfl_row_16bpc(token, pixels, residual, &projection, bitdepth_max);
         }
+        None => {}
       })
     }
   };

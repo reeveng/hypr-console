@@ -178,7 +178,10 @@ impl<'de> serde::de::Visitor<'de> for ScreenSequence {
     message.write_str("a list of displays within the session file limit")
   }
 
-  fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut input: A) -> Result<Self::Value, A::Error> {
+  fn visit_seq<A: serde::de::SeqAccess<'de>>(
+    self,
+    mut input: A,
+  ) -> Result<Self::Value, A::Error> {
     const LIMIT: u32 = console_core_atomic_writes::MAX_TEXT_BYTES / 2;
     let mut screens = Vec::new();
 
@@ -194,7 +197,9 @@ impl<'de> serde::de::Visitor<'de> for ScreenSequence {
     let extra = input.next_element::<serde::de::IgnoredAny>()?;
 
     match extra {
-      Some(_) => Err(serde::de::Error::custom("too many displays in the session setup")),
+      Some(_) => Err(serde::de::Error::custom(
+        "too many displays in the session setup",
+      )),
       None => Ok(ScreenList(screens)),
     }
   }

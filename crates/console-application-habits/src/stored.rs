@@ -18,7 +18,9 @@ impl<'de, const LIMIT: u32> Deserialize<'de> for Text<LIMIT> {
     let Ok(limit) = index(LIMIT);
 
     match value.len().cmp(&limit) {
-      Ordering::Greater => Err(de::Error::custom("the recorded text exceeds its byte limit")),
+      Ordering::Greater => Err(de::Error::custom(
+        "the recorded text exceeds its byte limit",
+      )),
       Ordering::Equal | Ordering::Less => Ok(Self(value)),
     }
   }

@@ -42,10 +42,6 @@ name = "console-volume"
 path = "src/bin/console-volume.rs"
 
 [[bin]]
-name = "console-warm"
-path = "src/bin/console-warm.rs"
-
-[[bin]]
 name = "console-scale"
 path = "src/bin/console-scale.rs"
 
@@ -100,6 +96,7 @@ console-input-alphabets.workspace = true
 console-input-language.workspace = true
 console-input-dictation.workspace = true
 console-core-localization.workspace = true
+console-night-light.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 console-actor.workspace = true

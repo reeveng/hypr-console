@@ -978,10 +978,16 @@ impl DeblockRow<'_> {
     pass: DeblockPass,
   ) -> Rav1dResult {
     let Ok(direction) = pass.direction();
-    let luma_base = pass.byte_stride.checked_mul(i64::from(self.base)).ok_or(EINVAL)?;
+    let luma_base = pass
+      .byte_stride
+      .checked_mul(i64::from(self.base))
+      .ok_or(EINVAL)?;
 
     for (column, mask) in (0_u32..).zip(self.masks) {
-      let checked_value = self.width.checked_sub(column.wrapping_mul(32)).ok_or(EINVAL)?;
+      let checked_value = self
+        .width
+        .checked_sub(column.wrapping_mul(32))
+        .ok_or(EINVAL)?;
       let columns = checked_value.min(32);
       let Ok(pixel_offset) = index(column.wrapping_mul(128));
       let [columns_mask, rows_mask] = &mask.filter_y;
@@ -1017,7 +1023,6 @@ impl DeblockRow<'_> {
     Ok(())
   }
 
-
   fn dispatch<BD: BitDepth>(
     &self,
     f: &Rav1dFrameData,
@@ -1037,7 +1042,11 @@ impl DeblockRow<'_> {
     } = *self;
     let frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
     let byte_stride = level_stride.checked_mul(4).ok_or(EINVAL)?;
-    let pass = DeblockPass { sweep, superblock_row: sby, byte_stride };
+    let pass = DeblockPass {
+      sweep,
+      superblock_row: sby,
+      byte_stride,
+    };
     let Ok(horizontal) = pass.direction();
     self.dispatch_luma::<BD>(f, py, pass)?;
 

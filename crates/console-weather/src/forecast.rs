@@ -31,9 +31,9 @@ use serde_json::Number;
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, whole_i32, whole_u8, whole_u32};
+use console_location::Coordinates;
 
 use crate::conditions::{self, FetchError, SERVICE};
-use crate::here::Where;
 
 const ASKED: &str = "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code\
 &hourly=temperature_2m,precipitation_probability,weather_code\
@@ -218,14 +218,14 @@ pub fn read_cache(at: &Path) -> Result<Option<Forecast>, Never> {
   }
 }
 
-pub fn request_url(at: &Where) -> Result<String, Never> {
+pub fn request_url(at: &Coordinates) -> Result<String, Never> {
   Ok(format!(
     "{SERVICE}?latitude={:.4}&longitude={:.4}{ASKED}",
     at.latitude.0, at.longitude.0
   ))
 }
 
-pub fn fetch(at: &Where, keep: Option<&Path>) -> Result<Forecast, Unforecast> {
+pub fn fetch(at: &Coordinates, keep: Option<&Path>) -> Result<Forecast, Unforecast> {
   let Ok(asked) = request_url(at);
 
   let said = conditions::answer(&asked)?;
@@ -456,6 +456,7 @@ fn code(said: Option<u64>) -> Result<Option<u32>, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_location::{Latitude, Longitude};
   use std::error::Error;
 
   const ANSWER: &str = r#"{
@@ -591,9 +592,9 @@ mod tests {
 
   #[test]
   fn the_question_asks_for_times_the_place_can_read() {
-    let Ok(asked) = request_url(&Where {
-      latitude: crate::here::Latitude(50.85),
-      longitude: crate::here::Longitude(4.35),
+    let Ok(asked) = request_url(&Coordinates {
+      latitude: Latitude(50.85),
+      longitude: Longitude(4.35),
     });
 
     assert!(asked.contains("latitude=50.8500"), "{asked}");

@@ -5,8 +5,7 @@ use std::process::{ExitCode, ExitStatus};
 use std::time::Duration;
 
 use console_compositor::setup::{
-  self, Mode, ModeMatch, Output, OutputRule, Outputs, WorkspaceLocations,
-  workspace_selector,
+  self, Mode, ModeMatch, Output, OutputRule, Outputs, WorkspaceLocations, workspace_selector,
 };
 use console_compositor::{DispatchResult, HyprctlError, Operation, Script};
 use console_core_internal_programs::{CONFIRM_DOES, InternalProgram};

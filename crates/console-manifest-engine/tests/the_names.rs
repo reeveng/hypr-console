@@ -102,7 +102,8 @@ fn known() -> Result<BTreeSet<String>, Failure> {
 fn installed(kind: Section) -> Result<BTreeSet<String>, Failure> {
   let desktop = read("desktop.conf")?;
   let overlays = read("machines.conf")?;
-  let mut installed: BTreeSet<String> = section(&desktop, kind)?.into_iter().collect();
+  let listed = section(&desktop, kind)?;
+  let mut installed: BTreeSet<String> = listed.into_iter().collect();
   let machines = machines::every(&overlays)?;
 
   for machine in machines {
@@ -140,7 +141,10 @@ fn every_desktop_entry_is_named_for_something_this_tree_still_uses() -> Result<(
 
     let program = executable(&name)?;
 
-    match program.is_some_and(|command| known.contains(&command)).then_some(()) {
+    match program
+      .is_some_and(|command| known.contains(&command))
+      .then_some(())
+    {
       Some(()) => {}
       None => stale.push(name),
     }

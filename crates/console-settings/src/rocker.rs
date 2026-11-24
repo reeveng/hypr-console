@@ -65,7 +65,10 @@ pub fn asks(press: ButtonPress, sink: &str, current: i32) -> Result<Vec<Vec<Stri
         "set-sink-volume",
         sink,
         &({
-          let Ok(explicit_value) = volume_argument(VolumeStep { from: current, to: next });
+          let Ok(explicit_value) = volume_argument(VolumeStep {
+            from: current,
+            to: next,
+          });
           explicit_value
         }),
       ]));

@@ -913,7 +913,10 @@ impl EId {
 impl AId {
   #[cfg_attr(
     dylint_lib = "explicit050_no_long_function",
-    expect(explicit050_no_long_function, reason = "the presentation property list is one membership test with no separate stages or decisions")
+    expect(
+      explicit050_no_long_function,
+      reason = "the presentation property list is one membership test with no separate stages or decisions"
+    )
   )]
   fn is_presentation(&self) -> Result<crate::IsPresentationAnswer, console_core_never::Never> {
     Ok(crate::IsPresentationAnswer::from(matches!(

@@ -1,6 +1,5 @@
 //! What the weather is here, and what it is going to be.
 //!
-//! `here` is where the machine is, taken from the timezone its clock keeps.
 //! `conditions` is the WMO code open-meteo answers with, and what it is called:
 //! grouped into the handful of skies there is a wallpaper for, and named one by
 //! one for somebody reading a forecast. `forecast` is the week ahead asked
@@ -13,4 +12,3 @@
 
 pub mod conditions;
 pub mod forecast;
-pub mod here;

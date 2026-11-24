@@ -412,7 +412,12 @@ fn turned<'a>(
     (FocusLayer::Popups, FocusLayer::Popups) | (FocusLayer::Passive, FocusLayer::Passive) => {}
   }
 
-  match target.and_then(|focused| stack.touching.iter().find(|region| region.target == focused)) {
+  match target.and_then(|focused| {
+    stack
+      .touching
+      .iter()
+      .find(|region| region.target == focused)
+  }) {
     Some(region) => {
       let Ok(outline) = region.panel.focus_outline(asked.wearing.text);
 
@@ -470,8 +475,7 @@ fn turned<'a>(
   let Ok(owns_keyboard) = running.surface.keyboard_focus();
   let Ok(()) = running.selection.observe(owns_keyboard, Instant::now());
 
-  match ::core::primitive::bool::then_some(focus_request == Some(focus::Request::Release), ())
-  {
+  match ::core::primitive::bool::then_some(focus_request == Some(focus::Request::Release), ()) {
     ::core::option::Option::Some(()) => {
       running.selection = Selection::Idle;
     }

@@ -271,7 +271,10 @@ impl Stream {
   }
 
   pub fn frame(&mut self, now: Instant) -> io::Result<Option<Pixels>> {
-    let effects = self.received.send(CameraRequest::Take).map_err(io::Error::other)?;
+    let effects = self
+      .received
+      .send(CameraRequest::Take)
+      .map_err(io::Error::other)?;
 
     match effects.into_iter().next() {
       Some(Receipt::Frame(frame)) => {
@@ -282,7 +285,12 @@ impl Stream {
       None => {}
     }
 
-    match { ::core::primitive::bool::then_some(now.saturating_duration_since(self.last_frame) >= FRAME_TIMEOUT, ()) } {
+    match {
+      ::core::primitive::bool::then_some(
+        now.saturating_duration_since(self.last_frame) >= FRAME_TIMEOUT,
+        (),
+      )
+    } {
       ::core::option::Option::Some(()) => {
         return Err(io::Error::new(
           io::ErrorKind::TimedOut,
@@ -296,7 +304,9 @@ impl Stream {
   }
 }
 
-fn capture_frames(capture: &mut std::process::Command) -> io::Result<(BoundToParent, UnixStream)> {
+fn capture_frames(
+  capture: &mut std::process::Command,
+) -> io::Result<(BoundToParent, UnixStream)> {
   capture.args([
     "-map", "0:v:0",
     "-filter_threads", "1",
@@ -379,7 +389,10 @@ mod tests {
 
   #[test]
   fn the_reader_keeps_the_latest_complete_frame() -> io::Result<()> {
-    let size = Size { width: 2, height: 1 };
+    let size = Size {
+      width: 2,
+      height: 1,
+    };
     let Ok(first) = console_pictures::portable_pixmap(size, &[5, 6, 7, 8, 9, 10]);
     let Ok(second) = console_pictures::portable_pixmap(size, &[11, 12, 13, 14, 15, 16]);
     let inbox = boot::<Inbox>(()).map_err(io::Error::other)?;
@@ -408,18 +421,17 @@ mod tests {
   #[ignore = "requires the desktop FFmpeg with the lavfi test source"]
   fn a_monochrome_stream_can_be_previewed_and_encoded() -> io::Result<()> {
     let Ok(mut capture) = Program::Ffmpeg.command();
-    capture
-      .args([
-        "-nostdin",
-        "-loglevel",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        "testsrc=size=16x8:rate=10,format=gray",
-        "-frames:v",
-        "2",
-      ]);
+    capture.args([
+      "-nostdin",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=16x8:rate=10,format=gray",
+      "-frames:v",
+      "2",
+    ]);
     let (_capture, pipe) = capture_frames(&mut capture)?;
     let mut source = BufReader::new(pipe);
     let decoded_frame = console_pictures::read_portable_pixmap(&mut source, MAX_FRAME)?;

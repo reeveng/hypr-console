@@ -24,6 +24,7 @@ mod at_1790212903;
 mod at_1790218469;
 mod at_1790221016;
 mod at_1790221017;
+mod at_1795535160;
 
 use crate::sweeping::Migration;
 
@@ -46,6 +47,7 @@ pub const EVERY: &[Migration] = &[
   at_1790218469::MIGRATION,
   at_1790221016::MIGRATION,
   at_1790221017::MIGRATION,
+  at_1795535160::MIGRATION,
 ];
 
 pub const CRATE: &str = "crates/console-manifest-migrations";
@@ -65,6 +67,19 @@ mod tests {
     let moments: Vec<Moment> = EVERY.iter().map(|one| one.moment).collect();
 
     assert!(moments.windows(2).all(|pair| pair.first() < pair.last()));
+  }
+
+  #[test]
+  fn the_old_night_light_package_is_removed_after_deployment() {
+    use crate::sweeping::{Step, Timing};
+
+    let night_light = at_1795535160::MIGRATION;
+    assert_eq!(night_light.timing(), Ok(Timing::AfterDeployment));
+    assert!(
+      night_light
+        .steps
+        .contains(&Step::RemovePackage("hyprsunset"))
+    );
   }
 
   #[test]

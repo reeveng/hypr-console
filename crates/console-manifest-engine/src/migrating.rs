@@ -3,7 +3,7 @@
 //! outstanding; this is the half that is allowed to touch the machine. The
 //! split is the same one the rest of the tree keeps: the crate is arithmetic
 //! over names and can be asked twice, and the answer only becomes a `mv` here.
-//! It runs before anything else an apply does. A migration exists because the
+//! Most migrations run before an apply lays down the new generation. A migration exists because the
 //! manifest stopped naming something, so the machine it runs on is the one
 //! about to be brought to a manifest that does not name it -- and a sweep that
 //! ran afterwards would be sweeping beside a freshly installed set of the very
@@ -13,7 +13,8 @@
 //! doing the install.  A migration that fails stops the apply. That is not the
 //! cautious choice, it is the only honest one: the next thing the apply does is
 //! install over a machine whose state no one now knows, and `console apply` is
-//! the thing people reach for when something is wrong.
+//! the thing people reach for when something is wrong. Package removals wait
+//! for the new generation to start.
 //!
 //! A step that stops or disables a unit is allowed to find nothing to stop:
 //! a unit systemd has never heard of is a machine that already does not start
@@ -29,7 +30,10 @@ use std::process::Command;
 use console_core_external_programs::Program;
 use console_manifest_migrations::done::{self, KEPT, Outstanding};
 use console_manifest_migrations::history::EVERY;
-use console_manifest_migrations::sweeping::{self, CopySetting, Migration, Rewrite, Step};
+use console_manifest_migrations::sweeping::{
+  self, CopySetting, Migration, Rewrite, Step, Timing,
+};
+use console_package_manager::system::{self, Removal};
 
 use crate::install::{self, User};
 use crate::machine::{self, Ran};
@@ -69,11 +73,18 @@ pub fn outstanding() -> Result<Outstanding, Unapplied> {
   Ok(pending)
 }
 
-pub fn run(user: User<'_>) -> Result<(), Unapplied> {
+pub fn run(user: User<'_>, timing: Timing) -> Result<(), Unapplied> {
   let pending = outstanding()?;
 
   let outstanding = match pending {
-    Outstanding::Run(migrations) => migrations,
+    Outstanding::Run(migrations) => migrations
+      .into_iter()
+      .filter(|migration| {
+        let Ok(when) = migration.timing();
+
+        when == timing
+      })
+      .collect::<Vec<_>>(),
     Outstanding::Remember(migrations) => return remembered(&migrations),
   };
 
@@ -151,6 +162,17 @@ fn carried_out(step: &Step, attic: &Path, user: User<'_>) -> Result<(), Unapplie
       match said.ran {
         Ran::Fine => println!("  ended {program}"),
         Ran::Badly => {}
+      }
+
+      Ok(())
+    }
+    Step::RemovePackage(package) => {
+      let outcome =
+        system::remove(package).map_err(|fault| Unapplied::PackageRemoval(package, fault))?;
+
+      match outcome {
+        Removal::Removed => println!("  removed {package}"),
+        Removal::Absent => {}
       }
 
       Ok(())

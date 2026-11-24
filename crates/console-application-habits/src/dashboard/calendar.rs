@@ -4,7 +4,7 @@ use std::io::Write;
 use std::process::Stdio;
 
 use console_core_external_programs::Program;
-use console_core_never::Never;
+use console_panel::activity::Period;
 
 use crate::Result;
 
@@ -22,10 +22,6 @@ pub struct Day {
 }
 
 impl Day {
-  pub fn short(&self) -> std::result::Result<String, Never> {
-    Ok(format!("{} {}", self.month, self.number))
-  }
-
   pub fn ticks(&self, hours: impl IntoIterator<Item = u8>) -> Result<Vec<(u64, String)>> {
     let times = hours
       .into_iter()
@@ -91,7 +87,7 @@ pub fn local_days(at: u64) -> Result<Vec<Day>> {
   Ok(days)
 }
 
-pub fn time_range(super::model::Period { start, end }: super::model::Period) -> Result<String> {
+pub fn time_range(Period { start, end }: Period) -> Result<String> {
   let output = dates([format!("@{start}"), format!("@{end}")], "%H:%M")?;
   Ok(output.lines().collect::<Vec<_>>().join("–"))
 }

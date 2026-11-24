@@ -14,8 +14,8 @@ pub mod system {
   //! System package operations for the Arch deployment using pacman.
 
   pub use console_package_manager_pacman::{
-    Ownership, PacmanOutput as InstallOutput, explicit, install_with, installed, mark_explicit,
-    owner,
+    Ownership, PacmanOutput as InstallOutput, Removal, explicit, install_with, installed,
+    mark_explicit, owner, remove,
   };
 }
 

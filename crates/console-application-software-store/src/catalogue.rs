@@ -176,8 +176,11 @@ pub fn suggested(query: &str) -> core::result::Result<Vec<Package>, core::conver
     })
     .into_iter()
     .filter(|item| {
-      let searchable =
-        format!("{} {} {}", item.installable.attribute, item.title, item.description).to_lowercase();
+      let searchable = format!(
+        "{} {} {}",
+        item.installable.attribute, item.title, item.description
+      )
+      .to_lowercase();
       terms.iter().all(|word| searchable.contains(word))
     })
     .collect(),

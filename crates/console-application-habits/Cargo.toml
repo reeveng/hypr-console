@@ -19,14 +19,12 @@ console-core-external-programs.workspace = true
 console-core-fonts.workspace = true
 console-core-geometry.workspace = true
 console-core-iteration.workspace = true
-console-core-jpeg-files.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
-console-core-shapes.workspace = true
-console-draw-painting.workspace = true
 console-draw-surface.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-places.workspace = true
+console-panel.workspace = true
 console-wayland = { path = "../console-wayland" }
 rustix.workspace = true
 serde = { version = "1", features = ["derive"] }

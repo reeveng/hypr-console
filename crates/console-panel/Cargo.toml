@@ -48,6 +48,7 @@ console-core-words.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true
+console-core-jpeg-files.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-iteration.workspace = true
 console-core-never.workspace = true

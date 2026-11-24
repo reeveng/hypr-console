@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use console_core_external_programs::Program;
 use console_core_never::Never;
+use console_location::{Coordinates, Latitude, Longitude};
 use console_program_contract::{
   Answer, Change, Command, Effect, Event, EventGroup, Exit, ExitStatus, Fork, JobId, JobOwner,
   Subscription, Task, Timer,
@@ -17,12 +18,11 @@ use console_wallpaper::keeping::{
 };
 use console_wallpaper::units::UnixSeconds;
 use console_weather::conditions::{self, Weather};
-use console_weather::here::{Latitude, Longitude, Where};
 
 type Failure = Box<dyn Error>;
 type Script = Expected<WallpaperEvent, WallpaperEffect>;
 
-const AT: Where = Where {
+const AT: Coordinates = Coordinates {
   latitude: Latitude(50.85),
   longitude: Longitude(4.35),
 };

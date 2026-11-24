@@ -1168,7 +1168,7 @@ impl StoreWindow {
   }
 
   fn pointer_down(&mut self, point: Point<f64>) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(target) = self.frame.hit((point.x, point.y));
+    let Ok(target) = self.frame.hit(point);
     self.gesture = Some(Gesture {
       start: point,
       last: point,
@@ -1186,7 +1186,7 @@ impl StoreWindow {
   }
 
   fn pointer_moved(&mut self, point: Point<f64>) -> Result<(), Infallible> {
-    let Ok(target) = self.frame.hit((point.x, point.y));
+    let Ok(target) = self.frame.hit(point);
 
     match (target != self.shop.hover).then_some(()) {
       Some(()) => self.drawing = Drawing::Pending,
@@ -1237,7 +1237,7 @@ impl StoreWindow {
       }
     };
     let (target, last) = gesture;
-    let Ok(hit) = self.frame.hit((last.x, last.y));
+    let Ok(hit) = self.frame.hit(last);
 
     match (hit == Some(target)).then_some(()) {
       Some(()) => {
@@ -1288,7 +1288,7 @@ mod tests {
     shop.nix_available = Installed::Yes;
     let theme = Theme::new()?;
     let Ok(frame) = scene::draw(&shop, WINDOW, &theme);
-    let Ok(hit) = frame.hit((264.0, 376.0));
+    let Ok(hit) = frame.hit(Point { x: 264.0, y: 376.0 });
     let featured = hit.ok_or("Missing OBS feature")?;
     assert_eq!(featured, Action::Featured);
     let Ok(tab) = Frame::default().tab(None, FocusDirection::Next);
@@ -1304,7 +1304,9 @@ mod tests {
     check_painting(&frame)?;
 
     let Ok(_flow) = shop.action(featured);
-    assert!(matches!(shop.overlay, Some(Overlay::Package(row)) if row.installable.attribute == "obs-studio"));
+    assert!(
+      matches!(shop.overlay, Some(Overlay::Package(row)) if row.installable.attribute == "obs-studio")
+    );
     Ok(())
   }
 

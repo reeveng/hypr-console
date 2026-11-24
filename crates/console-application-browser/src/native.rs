@@ -2231,7 +2231,9 @@ fn picker_pointer(
     PointerEvent::Down { at: (_, y) } => match (y >= origin).then_some(()) {
       Some(()) => {
         let Ok(row) = console_core_number_conversion::toward_zero_u32(y - origin);
-        picker.click(VerticalOffset(row), viewport_height).map(PickerPointer::Interacted)
+        picker
+          .click(VerticalOffset(row), viewport_height)
+          .map(PickerPointer::Interacted)
       }
       None => Ok(PickerPointer::Ignored),
     },
@@ -2245,7 +2247,9 @@ fn picker_pointer(
           Some(()) => Keysym::Down,
           None => Keysym::Up,
         };
-        picker.key(key, viewport_height).map(PickerPointer::Interacted)
+        picker
+          .key(key, viewport_height)
+          .map(PickerPointer::Interacted)
       }
     },
     PointerEvent::Moved { .. }
@@ -2470,7 +2474,10 @@ fn draw_combined(
 
           match (
             file_picker,
-            matches!(download_overlay.visibility(), Ok(DownloadVisibility::Visible)),
+            matches!(
+              download_overlay.visibility(),
+              Ok(DownloadVisibility::Visible)
+            ),
           ) {
             (Some(picker), _) => {
               let Ok((palette, font)) = bar_controls.style();

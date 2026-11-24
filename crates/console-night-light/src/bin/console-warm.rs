@@ -1,38 +1,45 @@
-//! Whether the screen follows the clock, and the curve it follows.
-//!
-//!     console-warm on|scheduled|off
-//!                             choose when the display is warm
-//!     console-warm get        which way the switch is standing
-//!     console-warm switched-on   nothing said; the exit code is the answer
-//!     console-warm curve      print the config the daemon reads
-//!
-//! The service asks whether Night Light is enabled and uses this command to
-//! launch hyprsunset in the saved mode. The scheduled mode reads the shipped
-//! curve. The always-on mode sets a constant color temperature.
-//!
-//! `curve` prints the config from which the repo's scheduled profile is made.
+//! Control Console's Night Light and run its session daemon.
 
-use std::os::unix::process::CommandExt;
+use std::fmt;
+use std::ops::RangeInclusive;
 use std::process::ExitCode;
 
-use console_core_arguments::{Flag, Operands, Subcommand, Takes, read_with};
+use console_core_arguments::{Flag, Operands, Presence, Subcommand, Takes, read_with};
+use console_core_color::temperature::{MAX_KELVIN, MIN_KELVIN};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
-use console_settings::warm::{self, NightShift, Standing, Switched, at, configuration};
+use console_night_light::{
+  self as warm, NightShift, Standing, Switched, Temperature, at, configuration,
+};
+
+mod clock;
+mod display;
+
+use display::{GammaPercent, Look};
 
 const UNIT: &str = "console-warm.service";
 
-const ENGINE: Flag = Flag {
-  spelling: "--engine",
-  takes: Takes::Value("PATH"),
-  about: "the night light daemon to run from the service",
+const TEMPERATURE: Flag = Flag {
+  spelling: "--temperature",
+  takes: Takes::Value("KELVIN"),
+  about: "use a fixed temperature in the daemon",
+};
+const GAMMA: Flag = Flag {
+  spelling: "--gamma",
+  takes: Takes::Value("PERCENT"),
+  about: "scale output brightness in the daemon, from 0 to 200",
+};
+const IDENTITY: Flag = Flag {
+  spelling: "--identity",
+  takes: Takes::None,
+  about: "use neutral colors in the daemon",
 };
 
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
   name: "console-warm",
-  about: "whether the screen follows the clock, and the curve it follows; with nothing, follow it or stop following it",
-  flags: &[ENGINE],
+  about: "set Night Light or toggle it when called without a command",
+  flags: &[TEMPERATURE, GAMMA, IDENTITY],
   operands: Operands::None,
 };
 
@@ -45,7 +52,7 @@ enum Report {
     about = "nothing said; the exit code is the answer"
   )]
   SwitchedOn,
-  #[words(word = "curve", about = "print the config the daemon reads")]
+  #[words(word = "curve", about = "print the fallback UTC schedule")]
   Curve,
   #[words(word = "on", about = "keep the display warm")]
   On,
@@ -82,19 +89,27 @@ fn curve() -> Result<ExitCode, Never> {
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
 
-  let (asked, engine) = match read_with::<Report, String>(&COMMAND, &words) {
-    Ok(line) => {
-      let Ok(asked) = line.subcommand();
-      let Ok(engine) = line.value(ENGINE);
-
-      (asked, engine.map(str::to_owned))
-    }
+  let line = match read_with::<Report, String>(&COMMAND, &words) {
+    Ok(line) => line,
     Err(refusal) => {
       let Ok(code) = refusal.print();
 
       return ExitCode::from(code);
     }
   };
+
+  let Ok(asked) = line.subcommand();
+  let Ok(temperature) = line.value(TEMPERATURE);
+  let Ok(gamma) = line.value(GAMMA);
+  let Ok(identity) = line.presence(IDENTITY);
+
+  match (asked, temperature, gamma, identity) {
+    (Some(Report::Daemon), _, _, _) | (_, None, None, Presence::Absent) => {}
+    _ => {
+      eprintln!("console-warm: display flags require the daemon command");
+      return ExitCode::FAILURE;
+    }
+  }
 
   match asked {
     Some(Report::Curve) => {
@@ -131,7 +146,7 @@ fn main() -> ExitCode {
     Standing::Loaded(warmth) => warmth,
 
     Standing::Invalid(fault) => {
-      eprintln!("console-warm: {}: {fault}", at.display());
+      console_core_logging::warn!("{}: {fault}", at.display());
 
       NightShift::Scheduled
     }
@@ -158,32 +173,13 @@ fn main() -> ExitCode {
       return printed;
     }
     Some(Report::Daemon) => {
-      let engine_path = match engine {
-        Some(path) => path,
-        None => {
-          eprintln!("console-warm: --engine is required for the service");
-          return ExitCode::FAILURE;
+      return match daemon(standing, temperature, gamma, identity) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(fault) => {
+          eprintln!("console-warm: {fault}");
+          ExitCode::FAILURE
         }
       };
-
-      let mut command = std::process::Command::new(engine_path);
-
-      match standing {
-        NightShift::On => {
-          command.args([
-            "--config",
-            "/dev/null",
-            "--temperature",
-            &warm::WARM.to_string(),
-          ]);
-        }
-        NightShift::Scheduled => {}
-        NightShift::Off => return ExitCode::SUCCESS,
-      }
-
-      let fault = command.exec();
-      eprintln!("console-warm: starting the night light daemon: {fault}");
-      return ExitCode::FAILURE;
     }
     Some(Report::On) => NightShift::On,
     Some(Report::Scheduled) => NightShift::Scheduled,
@@ -246,6 +242,73 @@ fn main() -> ExitCode {
   }
 
   ExitCode::SUCCESS
+}
+
+fn daemon(
+  standing: NightShift,
+  kelvin: Option<&str>,
+  gamma: Option<&str>,
+  identity: Presence,
+) -> Result<(), Box<dyn std::error::Error>> {
+  let look = match (kelvin, identity, standing) {
+    (Some(_), Presence::Present, _) => {
+      return Err(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        "choose either --temperature or --identity",
+      )));
+    }
+    (Some(value), Presence::Absent, _) => {
+      let fixed = bounded_value(value, TEMPERATURE, MIN_KELVIN..=MAX_KELVIN)?;
+
+      Look::Fixed(Temperature::Kelvin(fixed))
+    }
+    (None, Presence::Present, _) => Look::Fixed(Temperature::Neutral),
+    (None, Presence::Absent, NightShift::On) => Look::Fixed(Temperature::Kelvin(warm::WARM)),
+    (None, Presence::Absent, NightShift::Scheduled) => Look::Scheduled,
+    (None, Presence::Absent, NightShift::Off) => return Ok(()),
+  };
+  let percent = match gamma {
+    Some(value) => bounded_value(value, GAMMA, 0..=200)?,
+    None => 100,
+  };
+
+  display::run(look, GammaPercent(percent))
+}
+
+#[derive(Debug)]
+struct InvalidValue {
+  flag: Flag,
+  allowed: RangeInclusive<u32>,
+}
+
+impl fmt::Display for InvalidValue {
+  fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(
+      out,
+      "{} expects a whole number between {} and {}",
+      self.flag.spelling,
+      self.allowed.start(),
+      self.allowed.end(),
+    )
+  }
+}
+
+impl std::error::Error for InvalidValue {}
+
+fn bounded_value(
+  text: &str,
+  flag: Flag,
+  allowed: RangeInclusive<u32>,
+) -> Result<u32, InvalidValue> {
+  let value = match text.parse::<u32>() {
+    Ok(parsed) => parsed,
+    Err(_not_an_unsigned_integer) => return Err(InvalidValue { flag, allowed }),
+  };
+
+  match allowed.contains(&value).then_some(value) {
+    Some(valid) => Ok(valid),
+    None => Err(InvalidValue { flag, allowed }),
+  }
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@
 //!
 //! The VM must have a user manager and be able to take the desktop screenshot.
 
+use std::error::Error;
 use std::io;
 use std::process::{Command, Stdio};
 
@@ -28,7 +29,7 @@ const STAGE: &str = "a-run-that-leaves-nothing";
 
 #[test]
 #[ignore = "run just test e2e-desktop in a disposable NixOS VM"]
-fn a_nested_desktop_leaves_nothing_of_itself_running() -> Result<(), Box<dyn std::error::Error>> {
+fn a_nested_desktop_leaves_nothing_of_itself_running() -> Result<(), Box<dyn Error>> {
   let _ = std::fs::metadata("/etc/console-test-vm").map_err(|fault| {
     io::Error::new(
       fault.kind(),
@@ -39,7 +40,11 @@ fn a_nested_desktop_leaves_nothing_of_itself_running() -> Result<(), Box<dyn std
 
   match held {
     Scopes::Available => {}
-    Scopes::Unavailable => return Err(io::Error::other("the guest has no user manager").into()),
+    Scopes::Unavailable => {
+      return Err(Box::<dyn Error>::from(io::Error::other(
+        "the guest has no user manager",
+      )));
+    }
   }
 
   let folder = console_core_temporary_directories::fresh("what-a-run-leaves")?;
@@ -60,7 +65,9 @@ fn a_nested_desktop_leaves_nothing_of_itself_running() -> Result<(), Box<dyn std
   match status.success().then_some(()) {
     Some(()) => {}
     None => {
-      return Err(io::Error::other(format!("the nested compositor exited with {status}")).into());
+      return Err(Box::<dyn Error>::from(io::Error::other(format!(
+        "the nested compositor exited with {status}"
+      ))));
     }
   }
 

@@ -26,19 +26,13 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$(git rev-parse "$GITHUB_SHA^{commit}")"
 
-      - name: Verify release tags
+      - name: Verify release tag
         if: github.ref_type == 'tag'
         shell: bash
         run: |
           set -euo pipefail
           component='(0|[1-9][0-9]*)'
           [[ "$GITHUB_REF_NAME" =~ ^console-v$component\.$component\.$component$ ]]
-          if [[ "$GITHUB_REF_NAME" == console-v0.1.7 ]]; then
-            bridge=legion-go-v0.1.7
-            git fetch --quiet --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "refs/tags/$bridge"
-            test "$(git rev-parse HEAD)" = "$(git rev-parse 'FETCH_HEAD^{commit}')"
-            printf 'CONSOLE_MIGRATION_TAG=%s\n' "$bridge" >> "$GITHUB_ENV"
-          fi
 
       - name: Build Legion Go binaries
         shell: bash
@@ -62,26 +56,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          publish() {
-            local tag=$1 latest=$2 archive=$3 draft
-            shift 3
-            if draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
-              if [[ "$draft" == false ]]; then
-                return 0
-              fi
-              gh release upload "$tag" "$archive" --repo "$GITHUB_REPOSITORY" --clobber
-            else
-              gh release create "$tag" "$archive" \
-                --repo "$GITHUB_REPOSITORY" --verify-tag --draft "$@"
+          tag=$GITHUB_REF_NAME
+          archive=console-x86_64.tar.gz
+          latest=true
+          if [[ "$(git cat-file -t FETCH_HEAD)" == tag ]]; then
+            trailers=$(git cat-file tag FETCH_HEAD | git interpret-trailers --parse)
+            if [[ $'\n'"$trailers"$'\n' == *$'\nConsole-Latest: false\n'* ]]; then
+              latest=false
             fi
-            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
-          }
-
-          if [[ -n "${CONSOLE_MIGRATION_TAG:-}" ]]; then
-            publish "$GITHUB_REF_NAME" false console-x86_64.tar.gz --generate-notes
-            cp console-x86_64.tar.gz legion-go-x86_64.tar.gz
-            publish "$CONSOLE_MIGRATION_TAG" true legion-go-x86_64.tar.gz \
-              --notes "One-time updater migration. This is the same build as [$GITHUB_REF_NAME]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME)."
-          else
-            publish "$GITHUB_REF_NAME" true console-x86_64.tar.gz --generate-notes
           fi
+          if draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+            if [[ "$draft" == false ]]; then
+              exit 0
+            fi
+            gh release upload "$tag" "$archive" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "$archive" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes
+          fi
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"

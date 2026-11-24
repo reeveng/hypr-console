@@ -161,7 +161,7 @@ mod tests {
       );
 
       for jargon in [
-        "hyprsunset",
+        "console-warm",
         "nmcli",
         "powerprofilesctl",
         "polkit",

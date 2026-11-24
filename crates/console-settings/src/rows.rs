@@ -1533,10 +1533,8 @@ fn idle_lock_rows(label: &str, profile: LockProfile, delay: Delay) -> Result<Vec
   });
   let Ok(picker) = Row::picking(label, control);
   let Ok(edit) = Handler::and_stay(move |showing| {
-    {
-      let Ok(explicit_value) = ask_idle_delay(showing, profile, delay);
-      explicit_value
-    }
+    let Ok(explicit_value) = ask_idle_delay(showing, profile, delay);
+    explicit_value
   });
   let custom_label = match profile {
     LockProfile::General => "Custom Delay…",
@@ -1557,10 +1555,8 @@ fn ask_idle_delay(
     let initial = timeout.map_or_else(String::new, |seconds| seconds.to_string());
     let Ok(respond) = answer(move |showing_2, written| match Delay::custom(written) {
       Ok(parsed) => {
-        {
-          let Ok(explicit_value) = save_idle_delay(showing_2, profile, parsed);
-          explicit_value
-        }
+        let Ok(explicit_value) = save_idle_delay(showing_2, profile, parsed);
+        explicit_value
       }
       Err(idle::InvalidDelay) => showing_2.note(&format!(
         "Enter a delay from 1 to {} seconds",

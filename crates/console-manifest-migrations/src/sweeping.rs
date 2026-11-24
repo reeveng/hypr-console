@@ -62,6 +62,7 @@ pub enum Step {
   Disable(&'static str),
   DisableGlobally(&'static str),
   Terminate(&'static str),
+  RemovePackage(&'static str),
   RemoveIfEmpty(&'static str),
   Rewrite(Rewrite),
   CopySetting(CopySetting),
@@ -87,6 +88,26 @@ pub struct CopySetting {
   pub into: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Timing {
+  BeforeDeployment,
+  AfterDeployment,
+}
+
+impl Migration {
+  pub fn timing(&self) -> Result<Timing, Never> {
+    let removes_package = self
+      .steps
+      .iter()
+      .any(|step| matches!(step, Step::RemovePackage(_)));
+
+    Ok(match removes_package.then_some(()) {
+      Some(()) => Timing::AfterDeployment,
+      None => Timing::BeforeDeployment,
+    })
+  }
+}
+
 pub fn sweeps(migration: &Migration) -> Result<BTreeSet<String>, Never> {
   Ok(
     migration
@@ -99,6 +120,7 @@ pub fn sweeps(migration: &Migration) -> Result<BTreeSet<String>, Never> {
           Step::AtticEach(_)
           | Step::Stop(_)
           | Step::Terminate(_)
+          | Step::RemovePackage(_)
           | Step::RemoveIfEmpty(_)
           | Step::Rewrite(_)
           | Step::CopySetting(_) => return None,

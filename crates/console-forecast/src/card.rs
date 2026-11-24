@@ -36,11 +36,10 @@
 //! last told or pinned to. A picture of the rain says it is raining before a
 //! word is read.
 //!
-//! The place is the timezone's city, which is where `console_weather::here`
-//! says the machine is; see its head for why that is near enough and why no
-//! address is stored. The last tab lists every zone's city to choose another
-//! one from, and choosing forgets the kept forecast, since it was for the
-//! place before.
+//! The place is the timezone's city, which is where `console_location::timezone`
+//! says the machine is. See that module for how it estimates the location.
+//! The last tab lists every zone's city. Choosing another city clears the
+//! cached forecast for the previous location.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -49,6 +48,7 @@ use console_core_arguments::{Command, Operands};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
 use console_core_places::Base;
+use console_location::timezone::{self, Zone};
 use console_panel::card::{Card, Door};
 use console_panel::icons::Icon;
 use console_panel::page::{
@@ -59,7 +59,6 @@ use console_weather::conditions::{self, Weather};
 use console_weather::forecast::{
   self, Day, Degrees, Forecast, Freshness, Hour, LocalTime, Percent, Unforecast, Unix,
 };
-use console_weather::here::{self, Zone};
 
 pub const WHO: &str = "forecast-panel";
 
@@ -156,9 +155,9 @@ fn unix(since: Duration) -> Result<Unix, Never> {
 
 fn still(forecast: &Forecast, since: Duration) -> Result<Option<PathBuf>, Never> {
   let seconds = since.as_secs_f64();
-  let Ok(here) = here::locate();
+  let Ok(coordinates) = timezone::locate();
   let Ok(weather) = Weather::of_code(forecast.now.code);
-  let Ok(outside) = Outside::at(&here, seconds, Some(weather));
+  let Ok(outside) = Outside::at(&coordinates, seconds, Some(weather));
   let Ok(turn) = Turn::at(seconds);
 
   choose::still(&outside, turn)
@@ -204,14 +203,14 @@ fn location_page() -> Result<Page, Never> {
 }
 
 fn location_rows() -> Result<Vec<Row>, Never> {
-  let Ok(chosen) = here::current();
-  let Ok(every) = here::every_zone();
+  let Ok(chosen) = timezone::current();
+  let Ok(every) = timezone::every_zone();
   let Ok(clock) = clock_city();
   let Ok(mine) = location_row(&format!("{HERE}  {clock}"), None, chosen.as_deref());
   let mut cities = Vec::new();
 
   for zone in every {
-    let Ok(city) = here::city(Zone(&zone));
+    let Ok(city) = timezone::city(Zone(&zone));
     let Ok(row) = location_row(&city, Some(zone), chosen.as_deref());
 
     cities.push(row);
@@ -226,10 +225,10 @@ fn location_rows() -> Result<Vec<Row>, Never> {
 }
 
 fn clock_city() -> Result<String, Never> {
-  let Ok(zone) = here::zone();
+  let Ok(zone) = timezone::zone();
 
   match zone {
-    Some(zone_2) => here::city(Zone(&zone_2)),
+    Some(zone_2) => timezone::city(Zone(&zone_2)),
     None => Ok(String::new()),
   }
 }
@@ -240,7 +239,7 @@ fn location_row(says: &str, zone: Option<String>, chosen: Option<&str>) -> Resul
     ::core::option::Option::None => "",
   };
   let Ok(chooses) = Handler::and_stay(move |showing| {
-    let Ok(()) = here::choose(zone.as_deref().map(Zone));
+    let Ok(()) = timezone::choose(zone.as_deref().map(Zone));
     let Ok(()) = forget_forecast();
 
     showing.turn_to(0);
@@ -333,9 +332,9 @@ fn fetch_rows(
   keep: Option<&Path>,
   since: Duration,
 ) -> Result<Vec<Row>, Never> {
-  let Ok(here) = here::locate();
+  let Ok(coordinates) = timezone::locate();
 
-  match forecast::fetch(&here, keep) {
+  match forecast::fetch(&coordinates, keep) {
     Ok(forecast) => render_rows(tab, place, &forecast, since),
     Err(fault) => {
       let Ok(kept) = cached_forecast(keep);
@@ -349,10 +348,10 @@ fn fetch_rows(
 }
 
 fn place() -> Result<String, Never> {
-  let Ok(zone) = here::place();
+  let Ok(zone) = timezone::place();
 
   match zone {
-    Some(zone_2) => here::city(Zone(&zone_2)),
+    Some(zone_2) => timezone::city(Zone(&zone_2)),
     None => Ok(HERE.to_string()),
   }
 }

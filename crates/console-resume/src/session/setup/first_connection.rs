@@ -154,7 +154,10 @@ fn preference<'a>(
   let compatible = match by_model {
     Some(saved) => Some(saved),
     None => screens.find(|screen| {
-      matches!(specifications.similar(screen.specifications), Ok(Agreement::Same))
+      matches!(
+        specifications.similar(screen.specifications),
+        Ok(Agreement::Same)
+      )
     }),
   };
   Ok(compatible)

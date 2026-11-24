@@ -2803,7 +2803,9 @@ fn after_worker_filter(
 ) -> Result<WorkerStage<'_>, console_core_never::Never> {
   Ok(match transition {
     WorkerTaskTransition::Continue(task) => WorkerStage::Next { task, stage: next },
-    WorkerTaskTransition::Scheduled(scheduler) => WorkerStage::Row(WorkerRow::Scheduled(scheduler)),
+    WorkerTaskTransition::Scheduled(scheduler) => {
+      WorkerStage::Row(WorkerRow::Scheduled(scheduler))
+    }
   })
 }
 
@@ -2842,11 +2844,17 @@ fn advance_worker_stage<'scheduler>(
     }
     TaskType::SuperResolution => {
       resize_worker_row(decoder, frame, worker, task.sby)?;
-      Ok(WorkerStage::Next { task, stage: TaskType::LoopRestoration })
+      Ok(WorkerStage::Next {
+        task,
+        stage: TaskType::LoopRestoration,
+      })
     }
     TaskType::LoopRestoration => {
       restore_worker_row(decoder, frame, worker, task.sby)?;
-      Ok(WorkerStage::Next { task, stage: TaskType::ReconstructionProgress })
+      Ok(WorkerStage::Next {
+        task,
+        stage: TaskType::ReconstructionProgress,
+      })
     }
     TaskType::ReconstructionProgress | TaskType::EntropyProgress => {
       Ok(WorkerStage::Row(WorkerRow::Complete(task)))
@@ -2872,7 +2880,10 @@ fn process_worker_stages<'scheduler>(
     let advanced = advance_worker_stage(decoder, frame, worker, task, stage, error)?;
 
     match advanced {
-      WorkerStage::Next { task: next, stage: next_stage } => {
+      WorkerStage::Next {
+        task: next,
+        stage: next_stage,
+      } => {
         task = next;
         stage = next_stage;
       }

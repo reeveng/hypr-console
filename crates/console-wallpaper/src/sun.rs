@@ -19,7 +19,7 @@ use crate::units::UnixSeconds;
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
 use console_core_words::Words;
-use console_weather::here::Where;
+use console_location::{Coordinates, sun};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Words)]
 pub enum Sky {
@@ -77,53 +77,19 @@ impl Season {
   }
 }
 
-const EPOCH: f64 = 946_728_000.0;
+pub fn height(at: &Coordinates, unix: impl Into<UnixSeconds>) -> Result<f64, Never> {
+  let when = <_ as Into<UnixSeconds>>::into(unix);
 
-fn days(unix: impl Into<UnixSeconds>) -> Result<f64, Never> {
-  Ok((<_ as ::core::convert::Into<crate::units::UnixSeconds>>::into(unix).0 - EPOCH) / 86_400.0)
-}
-
-pub fn height(at: &Where, unix: impl Into<UnixSeconds>) -> Result<f64, Never> {
-  let days_since_2000 = days(unix)?;
-
-  let turns = |degrees: f64| degrees.rem_euclid(360.0).to_radians();
-
-  let mean_longitude = turns(280.460 + 0.985_647_4 * days_since_2000);
-  let anomaly = turns(357.528 + 0.985_600_3 * days_since_2000);
-  let ecliptic = mean_longitude
-    + (1.915_f64).to_radians() * anomaly.sin()
-    + (0.020_f64).to_radians() * (2.0 * anomaly).sin();
-  let tilt = (23.439 - 0.000_000_4 * days_since_2000).to_radians();
-
-  let right_ascension = (tilt.cos() * ecliptic.sin()).atan2(ecliptic.cos());
-  let declination = (tilt.sin() * ecliptic.sin()).asin();
-
-  let sidereal = (18.697_374_558 + 24.065_709_824_419_08 * days_since_2000).rem_euclid(24.0);
-  let local = sidereal * 15.0 + at.longitude.0;
-  let hour_angle = (local - right_ascension.to_degrees()).to_radians();
-
-  let latitude = at.latitude.0.to_radians();
-
-  Ok(
-    (latitude.sin() * declination.sin() + latitude.cos() * declination.cos() * hour_angle.cos())
-      .asin()
-      .to_degrees(),
-  )
+  sun::height(at, when)
 }
 
 pub fn along_the_year(unix: impl Into<UnixSeconds>) -> Result<f64, Never> {
-  let days_since_2000 = days(unix)?;
+  let when = <_ as Into<UnixSeconds>>::into(unix);
 
-  let turns = |degrees: f64| degrees.rem_euclid(360.0).to_radians();
-  let anomaly = turns(357.528 + 0.985_600_3 * days_since_2000);
-  let ecliptic = turns(280.460 + 0.985_647_4 * days_since_2000)
-    + (1.915_f64).to_radians() * anomaly.sin()
-    + (0.020_f64).to_radians() * (2.0 * anomaly).sin();
-
-  Ok(ecliptic.to_degrees().rem_euclid(360.0))
+  sun::along_the_year(when)
 }
 
-pub fn season(at: &Where, unix: impl Into<UnixSeconds>) -> Result<Season, Never> {
+pub fn season(at: &Coordinates, unix: impl Into<UnixSeconds>) -> Result<Season, Never> {
   let along = along_the_year(unix)?;
 
   let Ok(quarter) = toward_zero_u32(along / 90.0);
@@ -151,7 +117,7 @@ pub fn season(at: &Where, unix: impl Into<UnixSeconds>) -> Result<Season, Never>
 const TWILIGHT: f64 = -6.0;
 const RISEN: f64 = 6.0;
 
-pub fn sky(at: &Where, unix: impl Into<UnixSeconds>) -> Result<Sky, Never> {
+pub fn sky(at: &Coordinates, unix: impl Into<UnixSeconds>) -> Result<Sky, Never> {
   let when = <_ as ::core::convert::Into<crate::units::UnixSeconds>>::into(unix);
   let now = height(at, when)?;
 
@@ -185,29 +151,29 @@ mod tests {
   const MIDWINTER: f64 = 1_797_681_600.0;
   const EQUINOX: f64 = 1_774_008_000.0;
 
-  use console_weather::here::{Latitude, Longitude};
+  use console_location::{Latitude, Longitude};
 
-  const POLE: Where = Where {
+  const POLE: Coordinates = Coordinates {
     latitude: Latitude(90.0),
     longitude: Longitude(0.0),
   };
-  const MERIDIAN: Where = Where {
+  const MERIDIAN: Coordinates = Coordinates {
     latitude: Latitude(0.0),
     longitude: Longitude(0.0),
   };
-  const FAR_SIDE: Where = Where {
+  const FAR_SIDE: Coordinates = Coordinates {
     latitude: Latitude(0.0),
     longitude: Longitude(180.0),
   };
-  const BRUSSELS: Where = Where {
+  const BRUSSELS: Coordinates = Coordinates {
     latitude: Latitude(50.85),
     longitude: Longitude(4.35),
   };
-  const UTRECHT: Where = Where {
+  const UTRECHT: Coordinates = Coordinates {
     latitude: Latitude(52.0),
     longitude: Longitude(5.0),
   };
-  const SYDNEY: Where = Where {
+  const SYDNEY: Coordinates = Coordinates {
     latitude: Latitude(-33.9),
     longitude: Longitude(151.2),
   };

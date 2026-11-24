@@ -69,7 +69,11 @@ impl Monitor {
     let responses = stdout.ok_or("QEMU has no monitor output")?;
     let commands = TimedPipe::new(OwnedFd::from(command))?;
     let output = TimedReadPipe::new(OwnedFd::from(responses))?;
-    let mut monitor = Self { commands, output, received: Vec::new() };
+    let mut monitor = Self {
+      commands,
+      output,
+      received: Vec::new(),
+    };
     let deadline = Instant::now()
       .checked_add(MONITOR_TIMEOUT)
       .ok_or("QMP deadline overflowed")?;
@@ -97,7 +101,10 @@ impl Monitor {
         .ok_or("QEMU did not answer the monitor")?;
 
       let Ok(start) = index(scanned);
-      let new_bytes = self.received.get(start..).ok_or("invalid QMP scan position")?;
+      let new_bytes = self
+        .received
+        .get(start..)
+        .ok_or("invalid QMP scan position")?;
 
       match new_bytes.iter().position(|&byte| byte == b'\n') {
         Some(newline) => {
@@ -120,7 +127,9 @@ impl Monitor {
       }
 
       let Ok(capacity) = index(remaining);
-      let window = buffer.get_mut(..capacity).ok_or("invalid QMP read capacity")?;
+      let window = buffer
+        .get_mut(..capacity)
+        .ok_or("invalid QMP read capacity")?;
       let received = self.output.read_some(window, wait)?;
 
       match received {
@@ -272,9 +281,8 @@ fn expect_line(
 fn wait_for_exit(guest: &mut Guest) -> Result<ExitStatus, Failure> {
   let Ok(patience) = Schedule::asking_every(SHUTDOWN_TIMEOUT, POLL);
   let Ok(mut clock) = LiveClock::started();
-  let status = until_some_handed_on_result(&mut clock, patience, guest, |active| {
-    active.try_wait()
-  })?;
+  let status =
+    until_some_handed_on_result(&mut clock, patience, guest, |active| active.try_wait())?;
 
   status.ok_or_else(|| Failure::from("QEMU did not exit after Escape"))
 }
@@ -677,7 +685,8 @@ fn run(esp: &Path, work: &Path, check: Check) -> Result<(), Failure> {
     ])
     .stdin(Stdio::piped())
     .stdout(Stdio::piped());
-  let mut guest = alongside(&mut command).map_err(|fault| format!("could not start QEMU: {fault}"))?;
+  let mut guest =
+    alongside(&mut command).map_err(|fault| format!("could not start QEMU: {fault}"))?;
 
   let serial = work.join("serial.log");
   let result = match check {

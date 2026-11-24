@@ -644,9 +644,15 @@ mod tests {
     ));
     let colors = palette::Wearing::out_of(&shipped)?;
     let Ok(font) = TextStyle::Footnote.font();
-    const VIEWPORT: Size<u32> = Size { width: 640, height: 320 };
+    const VIEWPORT: Size<u32> = Size {
+      width: 640,
+      height: 320,
+    };
     const PIXEL_BYTES: u32 = VIEWPORT.width * VIEWPORT.height * 4;
-    let frame = Frame { points: VIEWPORT, device: VIEWPORT };
+    let frame = Frame {
+      points: VIEWPORT,
+      device: VIEWPORT,
+    };
     let Ok(length) = index(PIXEL_BYTES);
     let mut pixels = vec![0; length.min(const { 1024 * 1024 })];
     view.paint(&mut pixels, frame, &colors, &font)?;
@@ -666,14 +672,18 @@ mod tests {
     let Ok(open_menu) = view.click(menu);
     assert!(matches!(open_menu, Action::Handled));
     let Ok(reveal) = view.key(console_input_key_symbols::Keysym::Return, 0);
-    assert!(matches!(reveal, Action::File { id, action: FileAction::Reveal } if id.as_str() == Ok(FIRST)));
+    assert!(
+      matches!(reveal, Action::File { id, action: FileAction::Reveal } if id.as_str() == Ok(FIRST))
+    );
     let Ok(reopen_menu) = view.click(menu);
     assert!(matches!(reopen_menu, Action::Handled));
     let Ok(before_draw) = view.click(trash);
     assert!(matches!(before_draw, Action::Handled));
     view.paint(&mut pixels, frame, &colors, &font)?;
     let Ok(removed) = view.click(trash);
-    assert!(matches!(removed, Action::File { id, action: FileAction::Trash } if id.as_str() == Ok(FIRST)));
+    assert!(
+      matches!(removed, Action::File { id, action: FileAction::Trash } if id.as_str() == Ok(FIRST))
+    );
     let Ok(new_choice) = view.click(point);
     assert!(matches!(new_choice, Action::Open(id) if id.as_str() == Ok(SECOND)));
     Ok(())

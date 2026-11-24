@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-use crate::src::strided::Strided as _;
 use crate::include::common::bitdepth::AsPrimitive;
 use crate::include::common::bitdepth::BPC;
 use crate::include::common::bitdepth::BitDepth;
@@ -8,6 +7,7 @@ use crate::include::common::intops::iclip;
 use crate::include::dav1d::headers::Rav1dPixelLayoutSubSampled;
 use crate::src::owned_recon::ReconDst;
 use crate::src::owned_recon::ReconSrc;
+use crate::src::strided::Strided as _;
 
 use crate::src::cpu::CpuFlags;
 use crate::src::enum_map::EnumMap;
@@ -709,8 +709,7 @@ fn ipred_smooth_rust<BD: BitDepth>(
       })
       .zip(y_weights.get(match index(ordinal) {
         Ok(position) => position,
-      }))
-    {
+      })) {
       Some((&sample, &weight)) => (sample.as_::<i32>(), weight),
       None => return,
     };

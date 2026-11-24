@@ -59,9 +59,9 @@ use core::cmp::Ordering;
 use console_core_api_compatibility::{NativeOffset, NativeSize};
 use console_core_geometry::{Point, Rectangle, Size};
 use console_core_never::Never;
-use console_core_number_conversion::{checked_index, fixed_index, fixed_offset, index, indices};
 #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
 use console_core_number_conversion::wrapped_offset;
+use console_core_number_conversion::{checked_index, fixed_index, fixed_offset, index, indices};
 
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::dav1d::picture::{PicOffset, Rav1dPictureDataComponent};
@@ -637,7 +637,10 @@ impl<'a> ReconDst<'a> {
       }
       Self::Own(band) => {
         let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
-        let offset = band.offset.checked_mul(sample_size).ok_or(Rav1dError::ERANGE)?;
+        let offset = band
+          .offset
+          .checked_mul(sample_size)
+          .ok_or(Rav1dError::ERANGE)?;
         let stride = i64::try_from(band.stride).map_err(|_stride| Rav1dError::ERANGE)?;
         Ok(visit(band.bytes, offset, stride, context))
       }
@@ -705,10 +708,7 @@ impl<'a> ReconSrc<'a> {
       reason = "the borrowed picture guard takes an already converted native slice length"
     )
   )]
-  pub(crate) fn slice<BD: BitDepth>(
-    &self,
-    length: NativeSize,
-  ) -> Rav1dResult<Px<'a, BD>> {
+  pub(crate) fn slice<BD: BitDepth>(&self, length: NativeSize) -> Rav1dResult<Px<'a, BD>> {
     match self {
       Self::Pic(p) => Ok(Px::Pic(p.slice::<BD>(length))),
       Self::Own(band) => {
@@ -1179,7 +1179,13 @@ mod tests {
       source.slice::<BitDepth8>(65),
       Err(Rav1dError::EINVAL)
     ));
-    let result = view.for_rows_mut::<BitDepth8, _>(Size { width: 64, height: 2 }, |_, row| row.fill(1));
+    let result = view.for_rows_mut::<BitDepth8, _>(
+      Size {
+        width: 64,
+        height: 2,
+      },
+      |_, row| row.fill(1),
+    );
     assert_eq!(result, Err(Rav1dError::EINVAL));
     let [luma, ..] = &band.planes;
     let row = luma.row_bytes(3)?;
@@ -1198,10 +1204,16 @@ mod tests {
     assert_eq!(luma.stride, 128);
 
     let mut view = dst_at(&mut band, Point { x: 32, y: 16 })?;
-    view.for_rows_mut::<BitDepth8, _>(Size { width: 96, height: 4 }, |row, pixels| {
-      let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(row);
-      pixels.fill(byte.wrapping_add(1));
-    })?;
+    view.for_rows_mut::<BitDepth8, _>(
+      Size {
+        width: 96,
+        height: 4,
+      },
+      |row, pixels| {
+        let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(row);
+        pixels.fill(byte.wrapping_add(1));
+      },
+    )?;
 
     let [updated, ..] = &band.planes;
 

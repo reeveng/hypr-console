@@ -35,12 +35,12 @@ use console_core_arguments::{Command, Flag, Operands, Presence, Takes};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
+use console_location::Coordinates;
 use console_program_contract::{
   Answer, Change, Command as Invocation, Effect, Elapsed, Event, EventGroup, Exit, Fork, JobId,
   JobOwner, Subscription, Task, Timer,
 };
 use console_weather::conditions::{self as forecast, Weather};
-use console_weather::here::Where;
 
 use crate::choose::{self, Outside, Picture, Turn, Wanted};
 use crate::covered::{self, Covered, Worth};
@@ -126,7 +126,7 @@ pub struct Sky<'a> {
 pub struct Observation {
   pub seconds: UnixSeconds,
   pub elapsed: Elapsed,
-  pub at: Where,
+  pub at: Coordinates,
   pub wanted: Wanted,
   pub pinned_file: bool,
   pub rules: Rules,
@@ -137,7 +137,7 @@ pub struct Observation {
 pub enum WallpaperEvent {
   Reconnected,
   Observed(Observation),
-  WeatherLocation(Where),
+  WeatherLocation(Coordinates),
   Weather(Option<Weather>),
   Looked {
     elapsed: Elapsed,
@@ -429,7 +429,11 @@ fn observe(
   }
 }
 
-fn ask_weather(state: &mut Sky<'_>, at: &Where, effects: &mut Effects) -> Result<(), Never> {
+fn ask_weather(
+  state: &mut Sky<'_>,
+  at: &Coordinates,
+  effects: &mut Effects,
+) -> Result<(), Never> {
   match state.weather_job.is_some().then_some(()) {
     ::core::option::Option::Some(()) => {
       return Ok(());

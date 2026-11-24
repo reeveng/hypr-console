@@ -232,14 +232,20 @@ fn run(
   wearing: &Wearing,
   camera: &mut Camera,
 ) -> Result<(), Box<dyn Error>> {
-  let drawing = WindowState { pressed: None, shown: Drawing::Pending };
-  let result = iterate((surface, camera, drawing), |(target, camera_2, mut window)| {
-    Ok(match window.turn(target, camera_2, wearing) {
-      Ok(WindowChange::Continue) => Step::Again((target, camera_2, window)),
-      Ok(WindowChange::Close) => Step::Halt(Ok(())),
-      Err(fault) => Step::Halt(Err(fault)),
-    })
-  })?;
+  let drawing = WindowState {
+    pressed: None,
+    shown: Drawing::Pending,
+  };
+  let result = iterate(
+    (surface, camera, drawing),
+    |(target, camera_2, mut window)| {
+      Ok(match window.turn(target, camera_2, wearing) {
+        Ok(WindowChange::Continue) => Step::Again((target, camera_2, window)),
+        Ok(WindowChange::Close) => Step::Halt(Ok(())),
+        Err(fault) => Step::Halt(Err(fault)),
+      })
+    },
+  )?;
   result.map_err(Box::from)
 }
 
@@ -282,7 +288,10 @@ impl WindowState {
 
     match &layout {
       Some(visible) => {
-        let current = Drawing::Ready { points: visible.points, scale };
+        let current = Drawing::Ready {
+          points: visible.points,
+          scale,
+        };
 
         match (self.shown != current).then_some(()) {
           Some(()) => {

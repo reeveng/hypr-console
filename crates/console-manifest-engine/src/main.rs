@@ -57,6 +57,7 @@ use console_core_number_conversion::fitted;
 use console_core_words::Words;
 use console_how_far::Progress;
 use console_manifest_migrations::done::Outstanding;
+use console_manifest_migrations::sweeping::Timing;
 use console_package_manager::system::{self, InstallOutput};
 use laying::{Deploy, Put};
 use machine::Ran;
@@ -1244,7 +1245,7 @@ fn migrate(pending: Presence) -> Result<(), Unapplied> {
 
       let Ok(whoever) = machine::whoever();
 
-      migrating::run(User(whoever))
+      migrating::run(User(whoever), Timing::BeforeDeployment)
     }
   }
 }
@@ -1314,7 +1315,7 @@ fn apply(asked: Apply<'_>) -> Result<(), Unapplied> {
 
   let Ok(whoever) = machine::whoever();
 
-  migrating::run(User(whoever))?;
+  migrating::run(User(whoever), Timing::BeforeDeployment)?;
   pruned(root, manifest, whoever)?;
 
   let Ok(saying) = Updating::started();
@@ -1322,6 +1323,7 @@ fn apply(asked: Apply<'_>) -> Result<(), Unapplied> {
   let Ok(mut going) = going::Going::starting();
 
   install_generation(asked, &mut going)?;
+  let cleanup = migrating::run(User(whoever), Timing::AfterDeployment);
 
   let Ok(uncommitted) = machine::uncommitted(root);
 
@@ -1350,6 +1352,7 @@ fn apply(asked: Apply<'_>) -> Result<(), Unapplied> {
   let Ok(()) = timed(going, applying, whoever);
   let Ok(()) = saying.finish();
   let Ok(()) = told_the_front(root);
+  cleanup?;
 
   println!("\n{GREEN}Done.{OFF}");
 

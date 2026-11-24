@@ -8,6 +8,7 @@ let
     networking.hostName = "console-test-${name}";
     networking.useDHCP = false;
     system.stateVersion = "26.05";
+    boot.kernelParams = [ "systemd.show_status=yes" ];
     virtualisation = {
       memorySize = memory;
       cores = 2;
@@ -59,7 +60,7 @@ let
         StateDirectory = "console-test";
         TimeoutStartSec = seconds;
         ExecStart = lib.escapeShellArgs command;
-        ExecStartPost = "${pkgs.coreutils}/bin/echo CONSOLE_GUEST_TEST=passed";
+        ExecStartPost = ''${pkgs.coreutils}/bin/printf "\nCONSOLE_GUEST_TEST=passed\n"'';
         StandardOutput = "tty";
         StandardError = "inherit";
         TTYPath = "/dev/ttyS0";

@@ -75,7 +75,10 @@ pub fn hex_dump_pic<BD: BitDepth>(
       checked_offset(position).map_err(|_outside_offsets| io::ErrorKind::InvalidInput)?;
     let Ok(row) = source.at(offset);
     let pixels = row.slice::<BD>(width).map_err(|fault| {
-      io::Error::new(io::ErrorKind::InvalidData, format!("invalid debug row: {fault:?}"))
+      io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("invalid debug row: {fault:?}"),
+      )
     })?;
 
     for &pixel in &*pixels {

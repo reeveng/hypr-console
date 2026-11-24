@@ -43,6 +43,7 @@ use console_core_finite_numbers::FiniteF64;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, toward_zero_u8};
 pub mod palette;
+pub mod temperature;
 
 use std::{cmp::Ordering, fmt};
 

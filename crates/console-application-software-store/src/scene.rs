@@ -8,11 +8,13 @@ use console_core_color::palette::{self, Wearing};
 use console_core_color::{Oklch, to_oklch};
 use console_core_external_programs::Installed;
 use console_core_fonts::{Font, LETTERS, MONOSPACED, Weight};
-use console_core_geometry::{Containment, Point, Size};
+use console_core_geometry::{Containment, Point, Rectangle, Size};
 use console_core_number_conversion::{checked_index, fitted, toward_zero_u8};
 use console_core_shapes::{Clip, Cropped, Edge, Panel, Pixels, Round, Shape, Text};
 use console_draw_painting::{Lines, Run, at_most, measure_text};
 use console_draw_surface::Part;
+pub use console_panel::canvas::FocusDirection;
+use console_panel::canvas::{AreaLayout, Targets};
 
 use crate::catalogue::{Category, Package};
 use crate::{
@@ -143,15 +145,21 @@ impl Area {
 
   #[must_use]
   pub fn hit(self, (x, y): (f64, f64)) -> Result<Containment, core::convert::Infallible> {
-    let Ok(right) = self.right();
-    let Ok(bottom) = self.bottom();
-    let inside = f64::from(self.x) <= x
-      && x < f64::from(right)
-      && f64::from(self.y) <= y
-      && y < f64::from(bottom);
-    Ok(match inside.then_some(()) {
-      Some(()) => Containment::Inside,
-      None => Containment::Outside,
+    let Ok(rectangle) = self.rectangle();
+    let Ok(containment) = rectangle.contains_point(Point { x, y });
+    Ok(containment)
+  }
+
+  fn rectangle(self) -> Result<Rectangle<i32>, core::convert::Infallible> {
+    Ok(Rectangle {
+      origin: Point {
+        x: self.x,
+        y: self.y,
+      },
+      size: Size {
+        width: self.w,
+        height: self.h,
+      },
     })
   }
 
@@ -176,26 +184,17 @@ pub struct Frame {
   pub caret: Option<Part>,
   pub scroll_area: Area,
   pub max_scroll: i32,
-  hits: Vec<(Area, Action)>,
-}
-
-#[derive(Clone, Copy)]
-pub enum FocusDirection {
-  Next,
-  Previous,
+  targets: Targets<Action>,
 }
 
 impl Frame {
   #[must_use]
   pub fn hit(
     &self,
-    point: (f64, f64),
+    point: Point<f64>,
   ) -> core::result::Result<Option<Action>, core::convert::Infallible> {
-    Ok(
-      self.hits.iter().rev().find_map(|(area, action)| {
-        (area.hit(point) == Ok(Containment::Inside)).then_some(*action)
-      }),
-    )
+    let Ok(action) = self.targets.action(point);
+    Ok(action)
   }
 
   #[must_use]
@@ -204,19 +203,8 @@ impl Frame {
     current: Option<Action>,
     direction: FocusDirection,
   ) -> core::result::Result<Option<Action>, core::convert::Infallible> {
-    let actions = self.hits.iter().map(|&(_, action)| action);
-    Ok(match direction {
-      FocusDirection::Next => actions
-        .clone()
-        .skip_while(|action| Some(*action) != current)
-        .nth(1)
-        .or_else(|| actions.clone().next()),
-      FocusDirection::Previous => actions
-        .clone()
-        .take_while(|action| Some(*action) != current)
-        .last()
-        .or_else(|| actions.last()),
-    })
+    let Ok(action) = self.targets.tab(current, direction);
+    Ok(action)
   }
 }
 
@@ -399,7 +387,8 @@ impl Scene<'_> {
 
         match inside {
           Some(area_2) => {
-            self.frame.hits.push((area_2, action));
+            let Ok(bounds) = area_2.rectangle();
+            let Ok(()) = self.frame.targets.add(bounds, action);
           }
           None => {}
         };
@@ -974,7 +963,7 @@ impl Scene<'_> {
     overlay: &Overlay,
   ) -> core::result::Result<(), core::convert::Infallible> {
     {
-      self.frame.hits.clear();
+      let Ok(()) = self.frame.targets.clear();
       let Ok(()) = self.clip(whole);
       let Ok(()) = self.panel(whole, self.colors.night, 0, None);
       let width = i32::wrapping_sub(whole.w, 38).clamp(240, 630);
@@ -1019,7 +1008,10 @@ impl Scene<'_> {
           let version = match bool::then_some(item.version.is_empty(), ()) {
             Some(()) => item.installable.attribute.clone(),
             None => {
-              format!("{}  ·  Version {}", item.installable.attribute, item.version)
+              format!(
+                "{}  ·  Version {}",
+                item.installable.attribute, item.version
+              )
             }
           };
           let Ok(()) = self.text(

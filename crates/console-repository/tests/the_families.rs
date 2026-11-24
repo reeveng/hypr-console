@@ -125,8 +125,10 @@ fn a_core_crate_depends_on_nothing_but_the_core() -> Result<(), Box<dyn Error>> 
         .filter(move |dependency| {
           let hosted_font_compute = named == "console-core-font-reading"
             && dependency == "console-operating-system-linux"
-            && said.contains("hosted-compute = [\"std\", \"dep:console-operating-system-linux\"]")
-            && said.contains("console-operating-system-linux = { workspace = true, optional = true }");
+            && said
+              .contains("hosted-compute = [\"std\", \"dep:console-operating-system-linux\"]")
+            && said
+              .contains("console-operating-system-linux = { workspace = true, optional = true }");
 
           !dependency.starts_with(FAMILY) && !hosted_font_compute
         })
@@ -219,14 +221,16 @@ fn no_crate_is_named_for_the_mechanism_it_happens_to_be() -> Result<(), Box<dyn 
   let names = named_with(&MECHANISMS)?;
   let mechanical: Vec<_> = names
     .into_iter()
-    .filter(|name| !matches!(
-      name.as_str(),
-      "console-application-task-manager, for manager"
-        | "console-package-manager, for manager"
-        | "console-package-manager-mise, for manager"
-        | "console-package-manager-nix, for manager"
-        | "console-package-manager-pacman, for manager"
-    ))
+    .filter(|name| {
+      !matches!(
+        name.as_str(),
+        "console-application-task-manager, for manager"
+          | "console-package-manager, for manager"
+          | "console-package-manager-mise, for manager"
+          | "console-package-manager-nix, for manager"
+          | "console-package-manager-pacman, for manager"
+      )
+    })
     .collect();
 
   assert!(

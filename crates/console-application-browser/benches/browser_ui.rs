@@ -223,7 +223,9 @@ fn register(criterion: &mut Criterion) -> Result<(), BenchFault> {
           Err(fault) => {
             match first_fault.set(fault) {
               Ok(()) => {}
-              Err(additional_fault) => eprintln!("toolbar benchmark also failed: {additional_fault}"),
+              Err(additional_fault) => {
+                eprintln!("toolbar benchmark also failed: {additional_fault}")
+              }
             }
 
             failed_duration

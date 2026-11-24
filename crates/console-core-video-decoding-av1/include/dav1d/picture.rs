@@ -3483,9 +3483,18 @@ fn describe_picture_planes(
   }
 
   Ok([
-    CPlane { address: y, layout: y_layout },
-    CPlane { address: u, layout: uv_layout },
-    CPlane { address: v, layout: uv_layout },
+    CPlane {
+      address: y,
+      layout: y_layout,
+    },
+    CPlane {
+      address: u,
+      layout: uv_layout,
+    },
+    CPlane {
+      address: v,
+      layout: uv_layout,
+    },
   ])
 }
 

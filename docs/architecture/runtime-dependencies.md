@@ -5,7 +5,8 @@
 | `xdg-open`, `xdg-mime`, `xdg-settings` | `console-default-applications`. Installed Syncthing and indexed bookmarks enter through `console-open`. Opening the browser and launching a specific desktop entry are separate operations. |
 | `gio` | `console-gio`. It launches desktop entries for `console-applications` and supplies recoverable trash operations. |
 | Hyprland IPC and launch | `console-compositor`. The installed Wayland session and NixOS bootstrap call `console-compositor start`. The idle unit and Hypridle call its display power commands. |
-| Wayland client protocols | `console-wayland`. The optional Hyprland thumbnail protocol and its generated bindings live in `console-compositor`. |
+| Wayland client protocols | `console-wayland`. The optional Hyprland thumbnail and color transform bindings live in `console-compositor`. |
+| Night Light | `console-night-light` builds `console-warm` and sends per-output color transforms to Hyprland. |
 | Steam Game Mode switching | `console-session-cachyos` implements `console-session::SwitchBackend`. It builds the installed session buttons and the Steam compatibility switcher. The handheld profile in `machines.conf` supplies the Gamescope configuration and systemd units. |
 | Next login session | `console-session-plasma` implements `console-session::LoginBackend`. The login window links it to read the PlasmaLogin autologin selection written during the Steam handoff. |
 | `pacman` | `console-package-manager-pacman` through `console-package-manager::system`. The package list and handheld policy live in the deployment manifests. |

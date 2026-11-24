@@ -112,7 +112,10 @@ enum CatalogState {
   Empty,
   Ready(Catalog),
   Scanning(Option<Catalog>),
-  Failed { previous: Option<Catalog>, message: &'static str },
+  Failed {
+    previous: Option<Catalog>,
+    message: &'static str,
+  },
 }
 
 impl CatalogState {
@@ -175,7 +178,8 @@ impl View {
   ) -> core::result::Result<(), console_core_never::Never> {
     {
       let Ok(previous) = self.catalog.snapshot();
-      let selected = previous.and_then(|old| {
+      let selected = previous
+        .and_then(|old| {
           let Ok(row) = old.row(&self.matches, self.selected);
 
           row
@@ -252,8 +256,13 @@ impl View {
   #[must_use]
   pub(crate) fn availability(&self) -> Result<Availability, Never> {
     Ok(match self.catalog {
-      CatalogState::Ready(_) | CatalogState::Failed { previous: Some(_), .. } => Availability::Ready,
-      CatalogState::Empty | CatalogState::Scanning(_) | CatalogState::Failed { previous: None, .. } => Availability::Pending,
+      CatalogState::Ready(_)
+      | CatalogState::Failed {
+        previous: Some(_), ..
+      } => Availability::Ready,
+      CatalogState::Empty
+      | CatalogState::Scanning(_)
+      | CatalogState::Failed { previous: None, .. } => Availability::Pending,
     })
   }
 
@@ -484,8 +493,8 @@ impl View {
     {
       let Ok(letter) = key.char();
       let printable = letter.is_some_and(|ch| !ch.is_control());
-      let clear =
-        matches!(self.selection, Selection::All) && (printable || matches!(key, Keysym::BackSpace | Keysym::Delete));
+      let clear = matches!(self.selection, Selection::All)
+        && (printable || matches!(key, Keysym::BackSpace | Keysym::Delete));
       self.selection = Selection::Cursor;
 
       match ::core::primitive::bool::then_some(clear, ()) {
@@ -641,7 +650,9 @@ impl View {
   #[must_use]
   fn open_row(&self, row: u64) -> core::result::Result<Action, console_core_never::Never> {
     let Ok(snapshot) = self.catalog.snapshot();
-    Ok(snapshot.and_then(|catalog| {
+    Ok(
+      snapshot
+        .and_then(|catalog| {
           let Ok(catalog_row) = catalog.row(&self.matches, row);
 
           catalog_row
@@ -653,9 +664,10 @@ impl View {
   #[must_use]
   pub(crate) fn count(&self) -> core::result::Result<u64, console_core_never::Never> {
     let Ok(snapshot) = self.catalog.snapshot();
-    Ok(snapshot.map_or(0, |catalog| match catalog.count(&self.matches) {
-          ::core::result::Result::Ok(count) => count,
-        }),
+    Ok(
+      snapshot.map_or(0, |catalog| match catalog.count(&self.matches) {
+        ::core::result::Result::Ok(count) => count,
+      }),
     )
   }
 
@@ -855,13 +867,19 @@ impl View {
       }));
 
       match {
-        ::core::primitive::bool::then_some(focused && matches!(self.selection, Selection::All) && !query.is_empty(), ())
+        ::core::primitive::bool::then_some(
+          focused && matches!(self.selection, Selection::All) && !query.is_empty(),
+          (),
+        )
       } {
         ::core::option::Option::Some(()) => {
           let Ok(selection) = panel(
             Rectangle {
               origin: Point { x, y },
-              size: Size { width: caret.min(text_width), height: line_height },
+              size: Size {
+                width: caret.min(text_width),
+                height: line_height,
+              },
             },
             0,
             palette.fill,
@@ -884,7 +902,12 @@ impl View {
       );
       shapes.push(line);
 
-      match { ::core::primitive::bool::then_some(focused && matches!(self.selection, Selection::Cursor), ()) } {
+      match {
+        ::core::primitive::bool::then_some(
+          focused && matches!(self.selection, Selection::Cursor),
+          (),
+        )
+      } {
         ::core::option::Option::Some(()) => {
           let at = x.saturating_add(caret.saturating_sub(overflow));
           shapes.push(Shape::Line(Line {
@@ -918,16 +941,19 @@ impl View {
     let Ok(file_notice) = self.file_activity.message();
     let status = match (&self.catalog, file_notice) {
       (CatalogState::Failed { message, .. }, _) => String::from(*message),
-      (CatalogState::Empty | CatalogState::Ready(_) | CatalogState::Scanning(_), Some(message)) => {
-        String::from(message)
-      }
+      (
+        CatalogState::Empty | CatalogState::Ready(_) | CatalogState::Scanning(_),
+        Some(message),
+      ) => String::from(message),
       (CatalogState::Scanning(_), None) => String::from("Indexing downloads…"),
-      (CatalogState::Empty | CatalogState::Ready(_), None) => match (count, query.trim().is_empty()) {
-        (0, true) => String::from("No downloads yet"),
-        (0, false) => String::from("No matching downloads"),
-        (1, _) => String::from("1 download"),
-        (_, _) => format!("{count} downloads"),
-      },
+      (CatalogState::Empty | CatalogState::Ready(_), None) => {
+        match (count, query.trim().is_empty()) {
+          (0, true) => String::from("No downloads yet"),
+          (0, false) => String::from("No matching downloads"),
+          (1, _) => String::from("1 download"),
+          (_, _) => format!("{count} downloads"),
+        }
+      }
     };
 
     label_at(shapes, area, &status, font, palette.soft, Alignment::Start)
@@ -1061,30 +1087,57 @@ impl Layout {
     Ok(Self {
       title: (Rectangle {
         origin: Point { x: left, y: 15 },
-        size: Size { width: title, height: 34 },
+        size: Size {
+          width: title,
+          height: 34,
+        },
       }),
       folder: (Rectangle {
-        origin: Point { x: right
+        origin: Point {
+          x: right
             .saturating_sub(refresh)
             .saturating_sub(8)
-            .saturating_sub(folder), y: 15 },
-        size: Size { width: folder, height: 34 },
+            .saturating_sub(folder),
+          y: 15,
+        },
+        size: Size {
+          width: folder,
+          height: 34,
+        },
       }),
       refresh: (Rectangle {
-        origin: Point { x: right.saturating_sub(refresh), y: 15 },
-        size: Size { width: refresh, height: 34 },
+        origin: Point {
+          x: right.saturating_sub(refresh),
+          y: 15,
+        },
+        size: Size {
+          width: refresh,
+          height: 34,
+        },
       }),
       search: (Rectangle {
         origin: Point { x: left, y: 58 },
-        size: Size { width: content, height: 34 },
+        size: Size {
+          width: content,
+          height: 34,
+        },
       }),
       status: (Rectangle {
         origin: Point { x: left, y: 93 },
-        size: Size { width: content, height: 24 },
+        size: Size {
+          width: content,
+          height: 24,
+        },
       }),
       rows: (Rectangle {
-        origin: Point { x: left, y: ROW_TOP },
-        size: Size { width: content, height: height.saturating_sub(ROW_TOP).max(0) },
+        origin: Point {
+          x: left,
+          y: ROW_TOP,
+        },
+        size: Size {
+          width: content,
+          height: height.saturating_sub(ROW_TOP).max(0),
+        },
       }),
     })
   }
@@ -1097,8 +1150,14 @@ impl Layout {
   #[must_use]
   fn row(self, y: i32) -> core::result::Result<Rectangle<i32>, console_core_never::Never> {
     Ok(Rectangle {
-      origin: Point { x: self.rows.origin.x, y },
-      size: Size { width: self.rows.size.width, height: ROW_HEIGHT.saturating_sub(4) },
+      origin: Point {
+        x: self.rows.origin.x,
+        y,
+      },
+      size: Size {
+        width: self.rows.size.width,
+        height: ROW_HEIGHT.saturating_sub(4),
+      },
     })
   }
 
@@ -1123,8 +1182,14 @@ impl Layout {
       .x
       .saturating_add(self.rows.size.width.saturating_sub(width));
     let action = |y| Rectangle {
-      origin: Point { x: x.saturating_add(4), y },
-      size: Size { width: width.saturating_sub(8), height: 32 },
+      origin: Point {
+        x: x.saturating_add(4),
+        y,
+      },
+      size: Size {
+        width: width.saturating_sub(8),
+        height: 32,
+      },
     };
 
     Ok((
@@ -1151,7 +1216,10 @@ fn actions_button(
     .saturating_add(row.size.width.saturating_sub(width).saturating_sub(8));
 
   Ok(Rectangle {
-    origin: Point { x: left, y: row.origin.y.saturating_add(10) },
+    origin: Point {
+      x: left,
+      y: row.origin.y.saturating_add(10),
+    },
     size: Size { width, height: 32 },
   })
 }
@@ -1169,7 +1237,12 @@ fn paint_download(
   record: &Record,
   style: DownloadRow<'_>,
 ) -> Result<(), Never> {
-  let DownloadRow { palette, font, subtitle, highlight } = style;
+  let DownloadRow {
+    palette,
+    font,
+    subtitle,
+    highlight,
+  } = style;
   let Point { x, y } = row.origin;
   let Ok(actions) = actions_button(row);
   let label_width = actions.origin.x.saturating_sub(x).saturating_sub(12);
@@ -1184,8 +1257,14 @@ fn paint_download(
   let Ok(()) = label_at(
     shapes,
     Rectangle {
-      origin: Point { x: x.saturating_add(6), y },
-      size: Size { width: label_width, height: 29 },
+      origin: Point {
+        x: x.saturating_add(6),
+        y,
+      },
+      size: Size {
+        width: label_width,
+        height: 29,
+      },
     },
     &record.label,
     font,
@@ -1209,8 +1288,14 @@ fn paint_download(
   let Ok(()) = label_at(
     shapes,
     Rectangle {
-      origin: Point { x: x.saturating_add(6), y: y.saturating_add(27) },
-      size: Size { width: label_width, height: 20 },
+      origin: Point {
+        x: x.saturating_add(6),
+        y: y.saturating_add(27),
+      },
+      size: Size {
+        width: label_width,
+        height: 20,
+      },
     },
     &summary,
     subtitle,

@@ -1,0 +1,34 @@
+[package]
+name = "console-night-light"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autobins = false
+
+[[bin]]
+name = "console-warm"
+path = "src/bin/console-warm.rs"
+
+[dependencies]
+console-compositor = { workspace = true, features = ["color-transform"] }
+console-core-arguments.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-color.workspace = true
+console-core-external-programs.workspace = true
+console-core-iteration.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-places.workspace = true
+console-core-words.workspace = true
+console-location.workspace = true
+console-readiness.workspace = true
+console-wayland = { path = "../console-wayland" }
+rustix.workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
+
+[lints]
+workspace = true

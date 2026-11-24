@@ -1,4 +1,6 @@
-//! Fetch a published Legion Go release and apply its tag as one generation.
+//! Fetch a published Console release and apply its tag as one generation.
+//!
+//! While GitHub lists the migration release as latest, fetch its canonical counterpart.
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
@@ -43,7 +45,6 @@ const RELEASE_API: &str = "https://api.github.com/repos/reeveng/hypr-console/rel
 const TAG_PREFIX: &str = "console-v";
 const LEGACY_TAG_PREFIX: &str = "legion-go-v";
 const CONSOLE_BUNDLE: &str = "console-x86_64.tar.gz";
-const LEGACY_BUNDLE: &str = "legion-go-x86_64.tar.gz";
 const STAGED_BUNDLE: &str = "bundle.tar.gz";
 const LIVE: &str = console_repository::DEVICE_ROOT;
 const RELEASES: &str = "/etc/.console-releases";
@@ -76,7 +77,6 @@ enum Request {
 
 struct Release {
   tag: String,
-  archive: &'static str,
   digest: String,
   bytes: u64,
 }
@@ -395,7 +395,7 @@ fn request_release(
     | Request::PatternEntry
     | Request::VerifyPattern => None,
   };
-  let release = release(tag)?;
+  let release = release(tag, fetch_release)?;
 
   match order {
     Some(requested) => validate_order(live, &release, &requested)?,
@@ -417,7 +417,10 @@ fn request_release(
         }
       }
 
-      match bool::then_some(release.tag == installed_tag, ()) {
+      let installed_version =
+        recorded_version(&installed_tag).map_err(|_| "invalid installed release record")?;
+
+      match bool::then_some(version(&release.tag) == Ok(installed_version), ()) {
         Some(()) => {
           println!("Console is on {installed_tag}.");
           return Ok(());
@@ -469,10 +472,19 @@ struct Version {
 struct InvalidVersion;
 
 fn version(tag: &str) -> Result<Version, InvalidVersion> {
+  let numbers = tag.strip_prefix(TAG_PREFIX).ok_or(InvalidVersion)?;
+  parse_version(numbers)
+}
+
+fn recorded_version(tag: &str) -> Result<Version, InvalidVersion> {
   let numbers = tag
     .strip_prefix(TAG_PREFIX)
     .or_else(|| tag.strip_prefix(LEGACY_TAG_PREFIX))
     .ok_or(InvalidVersion)?;
+  parse_version(numbers)
+}
+
+fn parse_version(numbers: &str) -> Result<Version, InvalidVersion> {
   let mut parts = numbers.split('.');
   let parse = |part: Option<&str>| {
     let digits = part.ok_or(InvalidVersion)?;
@@ -540,7 +552,7 @@ fn notice_eligibility(releases: &Path, tag: &str) -> Result<notices::Eligibility
   let held = optional(&releases.join(HELD))?;
   let available = version(tag).map_err(|_| "invalid offered release tag")?;
   let held_back = match held {
-    Some(saved_tag) => match version(saved_tag.trim()) {
+    Some(saved_tag) => match recorded_version(saved_tag.trim()) {
       Ok(held_version) => held_version >= available,
       Err(InvalidVersion) => false,
     },
@@ -557,7 +569,7 @@ fn notice_eligibility(releases: &Path, tag: &str) -> Result<notices::Eligibility
     match ::core::primitive::bool::then_some(
       seen
         .as_deref()
-        .is_some_and(|seen_tag| version(seen_tag.trim()) == Ok(available)),
+        .is_some_and(|seen_tag| recorded_version(seen_tag.trim()) == Ok(available)),
       (),
     ) {
       Some(()) => Eligibility::Suppressed,
@@ -607,7 +619,7 @@ fn newer(live: &Path, tag: &str) -> Result<ReleaseAge, UpdateError> {
   let offered = match installed {
     Some((current, _)) => {
       let installed_version =
-        version(&current).map_err(|_| "invalid installed release record")?;
+        recorded_version(&current).map_err(|_| "invalid installed release record")?;
       available > installed_version
     }
     None => true,
@@ -620,7 +632,7 @@ fn newer(live: &Path, tag: &str) -> Result<ReleaseAge, UpdateError> {
 }
 
 fn latest_update(live: &Path) -> Result<Option<Release>, UpdateError> {
-  let latest = release(None)?;
+  let latest = release(None, fetch_release)?;
   let age = newer(live, &latest.tag)?;
 
   Ok(match age {
@@ -705,7 +717,25 @@ fn prompt(live: &Path) -> Result<(), UpdateError> {
   Ok(())
 }
 
-fn release(tag: Option<&str>) -> Result<Release, UpdateError> {
+fn release(
+  tag: Option<&str>,
+  fetch: impl Fn(Option<&str>) -> Result<release_metadata::GitHubRelease, UpdateError>,
+) -> Result<Release, UpdateError> {
+  use release_metadata::Publication;
+
+  let published = fetch(tag)?;
+
+  match (tag, &published.publication, published.tag_name.as_str()) {
+    (None, Publication::ImmutableRelease, "legion-go-v0.1.7") => {
+      let canonical = Some("console-v0.1.7");
+      let canonical_release = fetch(canonical)?;
+      parse_release(canonical_release, canonical)
+    }
+    _ => parse_release(published, tag),
+  }
+}
+
+fn fetch_release(tag: Option<&str>) -> Result<release_metadata::GitHubRelease, UpdateError> {
   let url = match tag {
     Some(tag_2) => format!("{RELEASE_API}/tags/{tag}", tag = tag_2),
     None => format!("{RELEASE_API}/latest"),
@@ -738,13 +768,15 @@ fn release(tag: Option<&str>) -> Result<Release, UpdateError> {
     ::core::option::Option::None => {}
   }
 
-  parse_release(&response.stdout, tag)
+  release_metadata::decode(&response.stdout)
 }
 
-fn parse_release(response: &[u8], requested: Option<&str>) -> Result<Release, UpdateError> {
+fn parse_release(
+  published: release_metadata::GitHubRelease,
+  requested: Option<&str>,
+) -> Result<Release, UpdateError> {
   use release_metadata::Publication;
 
-  let published = release_metadata::decode(response)?;
   let unsuitable = "GitHub did not report an immutable release with a Legion Go bundle";
 
   match published.publication {
@@ -754,11 +786,10 @@ fn parse_release(response: &[u8], requested: Option<&str>) -> Result<Release, Up
 
   let _tag_version = version(&published.tag_name)
     .map_err(|_| "GitHub returned invalid Legion Go release metadata")?;
-  let Ok(archive) = release_archive(&published.tag_name);
   let mut uploaded = published
     .assets
     .into_iter()
-    .filter(|asset| asset.name == archive && asset.state == "uploaded");
+    .filter(|asset| asset.name == CONSOLE_BUNDLE && asset.state == "uploaded");
   let asset = uploaded.next().ok_or(unsuitable)?;
 
   match { ::core::primitive::bool::then_some(uploaded.next().is_some(), ()) } {
@@ -796,16 +827,8 @@ fn parse_release(response: &[u8], requested: Option<&str>) -> Result<Release, Up
 
   Ok(Release {
     tag: published.tag_name,
-    archive,
     digest: digest.to_owned(),
     bytes,
-  })
-}
-
-fn release_archive(tag: &str) -> Result<&'static str, Never> {
-  Ok(match tag.strip_prefix(LEGACY_TAG_PREFIX) {
-    Some(_) => LEGACY_BUNDLE,
-    None => CONSOLE_BUNDLE,
   })
 }
 
@@ -935,7 +958,8 @@ impl ProgressNotice {
 
 fn download(stage: &Path, release: &Release) -> Result<(), UpdateError> {
   let archive = stage.join(STAGED_BUNDLE);
-  let url = format!("{REPOSITORY}/releases/download/{}/{}", release.tag, release.archive);
+  let tag = &release.tag;
+  let url = format!("{REPOSITORY}/releases/download/{tag}/{CONSOLE_BUNDLE}");
   let Ok(mut download) = curl(&url);
   checked(
     download
@@ -1156,7 +1180,9 @@ impl std::fmt::Display for UndoFault {
 impl Error for UndoFault {}
 
 fn undo_target(target: &str) -> Result<&str, UndoFault> {
-  let inner = target.strip_prefix("undo:").ok_or(UndoFault::InvalidTarget)?;
+  let inner = target
+    .strip_prefix("undo:")
+    .ok_or(UndoFault::InvalidTarget)?;
   let (slot, revision) = inner.split_once(':').ok_or(UndoFault::InvalidTarget)?;
   let _slot = ReleaseSlot::parse(slot).map_err(|_| UndoFault::InvalidTarget)?;
 
@@ -1166,7 +1192,10 @@ fn undo_target(target: &str) -> Result<&str, UndoFault> {
   }
 }
 
-fn previous_release(live: &Path, releases: &Path) -> Result<Option<PreviousRelease>, UpdateError> {
+fn previous_release(
+  live: &Path,
+  releases: &Path,
+) -> Result<Option<PreviousRelease>, UpdateError> {
   let previous = optional(&releases.join(PREVIOUS))?;
   let slot = match previous.as_deref() {
     Some(slot) => slot.trim(),
@@ -1192,14 +1221,20 @@ fn previous_release(live: &Path, releases: &Path) -> Result<Option<PreviousRelea
   }))
 }
 
-fn report_previous(live: &Path, releases: &Path, pending: Option<&str>) -> Result<(), UpdateError> {
+fn report_previous(
+  live: &Path,
+  releases: &Path,
+  pending: Option<&str>,
+) -> Result<(), UpdateError> {
   match pending {
     Some(_) => println!("pending"),
     None => {
       let previous = previous_release(live, releases)?;
 
       match previous {
-        Some(previous_release) => println!("{}\n{}", previous_release.target, previous_release.label),
+        Some(previous_release) => {
+          println!("{}\n{}", previous_release.target, previous_release.label)
+        }
         None => println!("none"),
       }
     }
@@ -1578,7 +1613,7 @@ fn marker(root: &Path) -> Result<Option<(String, String)>, UpdateError> {
         .collect::<Vec<_>>()
         .try_into()
         .map_err(|_| "invalid installed release record")?;
-      let _tag_version = version(tag).map_err(|_| "invalid installed release record")?;
+      let _tag_version = recorded_version(tag).map_err(|_| "invalid installed release record")?;
 
       match {
         ::core::primitive::bool::then_some(!matches!(hex::<40>(commit), Ok(Hex::Valid)), ())
@@ -1664,8 +1699,6 @@ mod tests {
   const DIGEST: &str = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffff0000000011111111";
 
   fn release_metadata(tag: &str) -> Result<serde_json::Value, Never> {
-    let Ok(archive) = release_archive(tag);
-
     Ok(serde_json::json!({
       "immutable": true,
       "draft": false,
@@ -1673,27 +1706,31 @@ mod tests {
       "tag_name": tag,
       "author": {"login": "release-bot"},
       "assets": [
-        {"name": archive, "state": "uploaded", "digest": format!("sha256:{DIGEST}"), "size": 42, "download_count": 12},
-        {"name": archive, "state": "new"},
+        {"name": CONSOLE_BUNDLE, "state": "uploaded", "digest": format!("sha256:{DIGEST}"), "size": 42, "download_count": 12},
+        {"name": CONSOLE_BUNDLE, "state": "new"},
         {"name": "release-notes.txt", "state": "uploaded"}
       ]
     }))
+  }
+
+  fn parse_response(response: &[u8], requested: Option<&str>) -> Result<Release, UpdateError> {
+    let published = release_metadata::decode(response)?;
+    parse_release(published, requested)
   }
 
   #[test]
   fn the_release_parser_reads_the_one_uploaded_bundle() -> Result<(), UpdateError> {
     let Ok(fixture) = release_metadata(TAG);
     let metadata = serde_json::to_vec(&fixture)?;
-    let release = parse_release(&metadata, Some(TAG))?;
+    let release = parse_response(&metadata, Some(TAG))?;
     assert_eq!(release.tag, TAG);
-    assert_eq!(release.archive, CONSOLE_BUNDLE);
     assert_eq!(release.digest, DIGEST);
     assert_eq!(release.bytes, 42);
     assert!(
-      matches!(parse_release(&metadata, Some("legion-go-v0.2.0")), Err(fault) if fault.to_string() == "GitHub returned invalid Legion Go release metadata")
+      matches!(parse_response(&metadata, Some("console-v0.2.1")), Err(fault) if fault.to_string() == "GitHub returned invalid Legion Go release metadata")
     );
     let oversized = vec![b' '; 1_048_577];
-    let rejected = parse_release(&oversized, None);
+    let rejected = parse_response(&oversized, None);
     assert!(
       matches!(rejected, Err(fault) if fault.to_string() == "GitHub release metadata exceeds 1 MiB")
     );
@@ -1701,13 +1738,29 @@ mod tests {
   }
 
   #[test]
-  fn a_legacy_release_uses_the_original_bundle_name() -> Result<(), UpdateError> {
-    let tag = "legion-go-v0.1.7";
-    let Ok(fixture) = release_metadata(tag);
-    let metadata = serde_json::to_vec(&fixture)?;
-    let release = parse_release(&metadata, Some(tag))?;
+  fn latest_can_find_the_canonical_bundle_during_the_migration() -> Result<(), UpdateError> {
+    let bridge = "legion-go-v0.1.7";
+    let canonical = "console-v0.1.7";
+    let fetch = |tag: Option<&str>| match tag {
+      None | Some("legion-go-v0.1.7") => Ok(release_metadata::GitHubRelease {
+        publication: release_metadata::Publication::ImmutableRelease,
+        tag_name: bridge.to_owned(),
+        assets: Vec::new(),
+      }),
+      Some("console-v0.1.7") => {
+        let Ok(fixture) = release_metadata(canonical);
+        let response = serde_json::to_vec(&fixture)?;
+        release_metadata::decode(&response)
+      }
+      Some(_) => Err(UpdateError::from("unexpected release lookup")),
+    };
 
-    assert_eq!(release.archive, LEGACY_BUNDLE);
+    let latest = release(None, fetch)?;
+    assert_eq!(latest.tag, canonical);
+    assert_eq!(latest.digest, DIGEST);
+    assert!(
+      matches!(release(Some(bridge), fetch), Err(fault) if fault.to_string() == "GitHub returned invalid Legion Go release metadata")
+    );
     Ok(())
   }
 
@@ -1722,11 +1775,7 @@ mod tests {
       ("immutable", json!(false), unsuitable),
       ("draft", json!(true), unsuitable),
       ("prerelease", json!(true), unsuitable),
-      (
-        "tag_name",
-        json!("legion-go-v0.2.0/../../checkout"),
-        invalid,
-      ),
+      ("tag_name", json!("console-v0.2.0/../../checkout"), invalid),
       ("assets", json!([]), unsuitable),
     ] {
       let Ok(mut metadata) = release_metadata(TAG);
@@ -1736,7 +1785,7 @@ mod tests {
       *entry = value;
       let vec = serde_json::to_vec(&metadata)?;
       assert!(
-        matches!(parse_release(&vec, None), Err(fault) if fault.to_string() == reason),
+        matches!(parse_response(&vec, None), Err(fault) if fault.to_string() == reason),
         "{field}"
       );
     }
@@ -1760,7 +1809,7 @@ mod tests {
       *entry = value;
       let vec = serde_json::to_vec(&metadata)?;
       assert!(
-        matches!(parse_release(&vec, None), Err(fault) if fault.to_string() == reason),
+        matches!(parse_response(&vec, None), Err(fault) if fault.to_string() == reason),
         "{field}"
       );
     }
@@ -1778,7 +1827,7 @@ mod tests {
 
     let vec = serde_json::to_vec(&metadata)?;
     assert!(
-      matches!(parse_release(&vec, None), Err(fault) if fault.to_string() == "GitHub did not report exactly one release bundle")
+      matches!(parse_response(&vec, None), Err(fault) if fault.to_string() == "GitHub did not report exactly one release bundle")
     );
     Ok(())
   }
@@ -1786,16 +1835,46 @@ mod tests {
   #[test]
   fn release_tags_have_an_order_and_cannot_form_paths() -> Result<(), InvalidVersion> {
     let later = version("console-v0.10.1")?;
-    let earlier = version("legion-go-v0.9.9")?;
+    let earlier = recorded_version("legion-go-v0.9.9")?;
     assert!(later > earlier);
-    assert_eq!(version("legion-go-v0.10.1"), Ok(later));
+    assert_eq!(recorded_version("legion-go-v0.10.1"), Ok(later));
+    assert_eq!(version("legion-go-v0.10.1"), Err(InvalidVersion));
 
     for prefix in ["console-v", "legion-go-v"] {
-      for invalid in ["0.1.0/../checkout", "0.1.0-rc1", "0.1.00", "0.1.2.3", "+0.1.0"] {
-        assert_eq!(version(&format!("{prefix}{invalid}")), Err(InvalidVersion));
+      for invalid in [
+        "0.1.0/../checkout",
+        "0.1.0-rc1",
+        "0.1.00",
+        "0.1.2.3",
+        "+0.1.0",
+      ] {
+        let tag = format!("{prefix}{invalid}");
+        assert_eq!(version(&tag), Err(InvalidVersion));
+        assert_eq!(recorded_version(&tag), Err(InvalidVersion));
       }
     }
 
+    Ok(())
+  }
+
+  #[test]
+  fn an_old_install_record_compares_with_console_releases() -> Result<(), UpdateError> {
+    let checkout = console_core_temporary_directories::private("console-update-record")?;
+    fs::create_dir(checkout.join(".git"))?;
+    let tag = "legion-go-v0.1.7";
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    write(&checkout.join(MARK), &format!("{tag}\n{commit}\n"))?;
+
+    let saved = marker(&checkout)?;
+    assert!(
+      matches!(saved, Some((saved_tag, saved_commit)) if saved_tag == tag && saved_commit == commit)
+    );
+    let same = newer(&checkout, "console-v0.1.7")?;
+    let next = newer(&checkout, "console-v0.1.8")?;
+    assert!(matches!(same, ReleaseAge::Current));
+    assert!(matches!(next, ReleaseAge::Available));
+
+    fs::remove_dir_all(checkout)?;
     Ok(())
   }
 
@@ -1840,7 +1919,7 @@ mod tests {
   #[test]
   fn an_update_notice_is_remembered_only_after_delivery() -> Result<(), UpdateError> {
     let releases = console_core_temporary_directories::private("console-update-notice")?;
-    let tag = "legion-go-v1.2.3";
+    let tag = "console-v1.2.3";
     let noticed = releases.join(NOTICED);
 
     offer_update(&releases, tag, |_| Ok(NoticeDelivery::Deferred))?;
@@ -1860,7 +1939,9 @@ mod tests {
     })?;
     let delivered = optional(&noticed)?;
     assert_eq!(delivered.as_deref(), Some(tag));
-    offer_update(&releases, "console-v1.2.3", |_| {
+    let saved = "legion-go-v1.2.3";
+    write(&noticed, saved)?;
+    offer_update(&releases, tag, |_| {
       Err(UpdateError::from("duplicate notification"))
     })?;
 
@@ -1870,7 +1951,7 @@ mod tests {
       Err(UpdateError::from("held release notification"))
     })?;
     let after_hold = optional(&noticed)?;
-    assert_eq!(after_hold.as_deref(), Some(tag));
+    assert_eq!(after_hold.as_deref(), Some(saved));
 
     fs::remove_dir_all(releases)?;
     Ok(())

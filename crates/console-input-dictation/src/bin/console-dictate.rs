@@ -275,7 +275,8 @@ fn listen(note_at: &Path) -> io::Result<()> {
 
 fn save_recorder(note: Note, at: &Path) -> io::Result<()> {
   let raw = i32::try_from(note.recorder).map_err(io::Error::other)?;
-  let pid = Pid::from_raw(raw).ok_or_else(|| io::Error::other("the recorder has no process ID"))?;
+  let pid =
+    Pid::from_raw(raw).ok_or_else(|| io::Error::other("the recorder has no process ID"))?;
   let process = pidfd_open(pid, PidfdFlags::empty())?;
   let named = fstat(&process)?;
   let Ok(record) = serialize_note(note);

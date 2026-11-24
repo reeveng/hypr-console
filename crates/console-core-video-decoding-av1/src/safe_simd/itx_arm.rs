@@ -28,7 +28,6 @@ use crate::include::dav1d::picture::PicOffset;
 #[cfg(test)]
 #[autoversion]
 pub(crate) fn inv_txfm_add_wht_wht_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -107,7 +106,6 @@ fn dct4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_dct_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -255,7 +253,6 @@ fn dct8_1d(input: &[i32; 8]) -> [i32; 8] {
 
 #[autoversion]
 fn inv_txfm_add_dct_dct_8x8_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -626,7 +623,6 @@ fn dct16_1d(input: &[i32; 16]) -> [i32; 16] {
 
 #[autoversion]
 fn inv_txfm_add_dct_dct_16x16_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -690,7 +686,6 @@ fn inv_txfm_add_dct_dct_16x16_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_identity_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -734,7 +729,6 @@ pub(crate) fn inv_txfm_add_identity_identity_4x4_8bpc_inner(
 
 #[autoversion]
 fn inv_txfm_add_identity_identity_8x8_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -809,7 +803,6 @@ fn adst4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_adst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -887,7 +880,6 @@ fn flipadst4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_flipadst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -959,7 +951,6 @@ pub(crate) fn inv_txfm_add_flipadst_flipadst_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_adst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1031,7 +1022,6 @@ pub(crate) fn inv_txfm_add_dct_adst_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_dct_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1103,7 +1093,6 @@ pub(crate) fn inv_txfm_add_adst_dct_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_flipadst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1175,7 +1164,6 @@ pub(crate) fn inv_txfm_add_dct_flipadst_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_dct_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1247,7 +1235,6 @@ pub(crate) fn inv_txfm_add_flipadst_dct_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_flipadst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1319,7 +1306,6 @@ pub(crate) fn inv_txfm_add_adst_flipadst_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_adst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1539,7 +1525,6 @@ fn dct32_1d(input: &[i32; 32]) -> [i32; 32] {
 
 #[autoversion]
 fn inv_txfm_add_dct_dct_32x32_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1665,7 +1650,6 @@ fn identity4_1d_arm(c: &mut [i32], stride: usize) {
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_identity_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1732,7 +1716,6 @@ pub(crate) fn inv_txfm_add_dct_identity_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_dct_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1809,7 +1792,6 @@ pub(crate) fn inv_txfm_add_identity_dct_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_identity_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1877,7 +1859,6 @@ pub(crate) fn inv_txfm_add_adst_identity_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_adst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1954,7 +1935,6 @@ pub(crate) fn inv_txfm_add_identity_adst_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_identity_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -2022,7 +2002,6 @@ pub(crate) fn inv_txfm_add_flipadst_identity_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_flipadst_4x4_8bpc_inner(
-
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -2263,7 +2242,9 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
               return match written {
                 Ok(()) => true,
                 Err(problem) => {
-                  console_core_logging::error!("Invalid AV1 NEON transform destination: {problem:?}");
+                  console_core_logging::error!(
+                    "Invalid AV1 NEON transform destination: {problem:?}"
+                  );
                   false
                 }
               };
@@ -2301,7 +2282,9 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
               match written {
                 Ok(()) => {}
                 Err(problem) => {
-                  console_core_logging::error!("Invalid AV1 NEON transform destination: {problem:?}");
+                  console_core_logging::error!(
+                    "Invalid AV1 NEON transform destination: {problem:?}"
+                  );
                   return false;
                 }
               }

@@ -37,8 +37,8 @@ use crate::units::UnixSeconds;
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_u64};
+use console_location::Coordinates;
 use console_weather::conditions::Weather;
-use console_weather::here::Where;
 
 pub const HOLD_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 
@@ -68,7 +68,7 @@ pub struct Outside {
 
 impl Outside {
   pub fn at(
-    here: &Where,
+    here: &Coordinates,
     seconds: impl Into<UnixSeconds>,
     weather: Option<Weather>,
   ) -> Result<Outside, Never> {

@@ -3,105 +3,42 @@
 use std::collections::BTreeMap;
 
 use console_core_never::Never;
+use console_panel::activity::{Kind, Lane, LaneView, Period};
 
 use crate::activity::Span;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Scope {
-  Today,
-  Week,
-  Month,
+fn clip(period: Period, span: &Span) -> Result<Period, Never> {
+  Ok(Period {
+    start: period.start.max(span.start),
+    end: period.end.min(span.end),
+  })
 }
 
-impl Scope {
-  pub const CHOICES: [(Self, &str); 3] = [
-    (Self::Today, "Today"),
-    (Self::Week, "7 days"),
-    (Self::Month, "30 days"),
-  ];
-
-  pub fn days(self) -> Result<u32, Never> {
-    Ok(match self {
-      Self::Today => 1,
-      Self::Week => 7,
-      Self::Month => 30,
-    })
-  }
+fn spans(period: Period, history: &[Span]) -> Result<&[Span], Never> {
+  let recent = match history.get(history.partition_point(|span| span.end <= period.start)..) {
+    Some(recent) => recent,
+    None => return Ok(&[]),
+  };
+  Ok(
+    match recent.get(..recent.partition_point(|span| span.start < period.end)) {
+      Some(spans) => spans,
+      None => &[],
+    },
+  )
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Kind {
-  Apps,
-  Websites,
-}
-
-impl Kind {
-  pub const CHOICES: [(Self, &str); 2] = [(Self::Apps, "Apps"), (Self::Websites, "Websites")];
-
-  fn label(self, span: &Span) -> Result<Option<&str>, Never> {
-    Ok(match self {
-      Self::Apps => Some(&span.activity.app),
-      Self::Websites => span.activity.site.as_deref(),
-    })
-  }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Period {
-  pub start: u64,
-  pub end: u64,
-}
-
-impl Period {
-  pub fn seconds(self) -> Result<u64, Never> {
-    Ok(self.end.saturating_sub(self.start))
-  }
-
-  fn clip(self, span: &Span) -> Result<Self, Never> {
-    Ok(Self {
-      start: self.start.max(span.start),
-      end: self.end.min(span.end),
-    })
-  }
-
-  fn spans(self, history: &[Span]) -> Result<&[Span], Never> {
-    let recent = match history.get(history.partition_point(|span| span.end <= self.start)..) {
-      Some(recent) => recent,
-      None => return Ok(&[]),
-    };
-    Ok(
-      match recent.get(..recent.partition_point(|span| span.start < self.end)) {
-        Some(spans) => spans,
-        None => &[],
-      },
-    )
-  }
-
-  pub fn total(self, history: &[Span]) -> Result<u64, Never> {
-    let Ok(spans) = self.spans(history);
-    Ok(
-      spans
-        .iter()
-        .map(|span| {
-          let Ok(period) = self.clip(span);
-          let Ok(seconds) = period.seconds();
-          seconds
-        })
-        .fold(0, u64::wrapping_add),
-    )
-  }
-}
-
-#[derive(Default)]
-pub struct Lane<'a> {
-  pub label: &'a str,
-  pub total: u64,
-  pub periods: Vec<Period>,
-}
-
-pub enum LaneView {
-  Overview,
-  Timeline,
+pub fn total(period: Period, history: &[Span]) -> Result<u64, Never> {
+  let Ok(in_range) = spans(period, history);
+  Ok(
+    in_range
+      .iter()
+      .map(|span| {
+        let Ok(clipped) = clip(period, span);
+        let Ok(seconds) = clipped.seconds();
+        seconds
+      })
+      .fold(0, u64::wrapping_add),
+  )
 }
 
 pub fn lanes(
@@ -111,16 +48,18 @@ pub fn lanes(
   view: LaneView,
 ) -> Result<Vec<Lane<'_>>, Never> {
   let mut found = BTreeMap::<&str, Lane>::new();
-  let Ok(spans) = range.spans(history);
+  let Ok(in_range) = spans(range, history);
 
-  for span in spans {
-    let Ok(optional_label) = kind.label(span);
-    let label = match optional_label {
-      Some(label) => label,
-      None => continue,
+  for span in in_range {
+    let label = match kind {
+      Kind::Apps => span.activity.app.as_str(),
+      Kind::Websites => match span.activity.site.as_deref() {
+        Some(site) => site,
+        None => continue,
+      },
     };
 
-    let Ok(period) = range.clip(span);
+    let Ok(period) = clip(range, span);
     let seconds = match period.seconds() {
       Ok(0) => continue,
       Ok(seconds) => seconds,
@@ -134,7 +73,11 @@ pub fn lanes(
 
     match view {
       LaneView::Overview => {}
-      LaneView::Timeline => match lane.periods.last_mut().filter(|last| last.end == period.start) {
+      LaneView::Timeline => match lane
+        .periods
+        .last_mut()
+        .filter(|last| last.end == period.start)
+      {
         Some(last) => last.end = period.end,
         None => lane.periods.push(period),
       },
@@ -149,25 +92,6 @@ pub fn lanes(
       .then_with(|| left.label.cmp(right.label))
   });
   Ok(result)
-}
-
-pub fn duration(seconds: u64) -> Result<String, Never> {
-  match seconds {
-    0 => return Ok("0m".to_owned()),
-    _nonzero => {}
-  }
-
-  let minutes = u64::wrapping_div(seconds, 60);
-
-  Ok(match minutes {
-    0 => format!("{seconds}s"),
-    1..=59 => format!("{minutes}m"),
-    _hours => format!(
-      "{}h {:02}m",
-      u64::wrapping_div(minutes, 60),
-      u64::wrapping_rem(minutes, 60)
-    ),
-  })
 }
 
 #[cfg(test)]
@@ -191,7 +115,7 @@ mod tests {
       span(40, 50, "alpha"),
     ];
     let range = Period { start: 15, end: 45 };
-    assert_eq!(range.total(&history), Ok(20));
+    assert_eq!(total(range, &history), Ok(20));
     let Ok(apps) = lanes(&history, range, Kind::Apps, LaneView::Timeline);
     assert_eq!(
       apps.first().map(|lane| lane.periods.as_slice()),

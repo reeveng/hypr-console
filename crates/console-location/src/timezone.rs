@@ -34,31 +34,7 @@ use console_core_atomic_writes::Stored;
 use console_core_finite_numbers::FiniteF64;
 use console_core_never::Never;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Where {
-  pub latitude: Latitude,
-  pub longitude: Longitude,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(
-  dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(
-    explicit067_no_unit_less_quantity,
-    reason = "the wrapped value gives latitude in decimal degrees north"
-  )
-)]
-pub struct Latitude(pub f64);
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(
-  dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(
-    explicit067_no_unit_less_quantity,
-    reason = "the wrapped value gives longitude in decimal degrees east"
-  )
-)]
-pub struct Longitude(pub f64);
+use crate::{Coordinates, Latitude, Longitude};
 
 pub const CLOCK: &str = "/etc/localtime";
 
@@ -69,20 +45,20 @@ pub const ZONES: [&str; 2] = [
 
 const KEEP_FOR: Duration = Duration::from_secs(12 * 60 * 60);
 
-pub const NOWHERE: Where = Where {
+pub const NOWHERE: Coordinates = Coordinates {
   latitude: Latitude(51.48),
   longitude: Longitude(0.0),
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct CachedLocation(Option<(Instant, Where)>);
+pub struct CachedLocation(Option<(Instant, Coordinates)>);
 
 impl CachedLocation {
   pub fn none() -> Result<CachedLocation, Never> {
     Ok(CachedLocation(None))
   }
 
-  pub fn here(&mut self, now: Instant) -> Result<Where, Never> {
+  pub fn here(&mut self, now: Instant) -> Result<Coordinates, Never> {
     match self.0 {
       Some((asked, at)) => match ::core::primitive::bool::then_some(
         now.saturating_duration_since(asked) < KEEP_FOR,
@@ -152,7 +128,7 @@ pub fn every_zone() -> Result<Vec<String>, Never> {
         every.extend(zones);
       }
       Stored::Absent => {}
-      Stored::Failed(fault) => eprintln!("console-weather: {named}: {fault}"),
+      Stored::Failed(fault) => console_core_logging::warn!("{named}: {fault}"),
     }
   }
 
@@ -166,12 +142,21 @@ pub fn every_zone() -> Result<Vec<String>, Never> {
   Ok(every)
 }
 
-pub fn locate() -> Result<Where, Never> {
+pub fn locate() -> Result<Coordinates, Never> {
+  let at = known_location()?;
+
+  Ok(match at {
+    Some(location) => location,
+    None => NOWHERE,
+  })
+}
+
+pub fn known_location() -> Result<Option<Coordinates>, Never> {
   let zone = place()?;
 
   let zone_3 = match zone {
     Some(zone_2) => zone_2,
-    None => return Ok(NOWHERE),
+    None => return Ok(None),
   };
 
   for named in ZONES {
@@ -181,7 +166,7 @@ pub fn locate() -> Result<Where, Never> {
       Stored::Text(table) => table,
       Stored::Absent => continue,
       Stored::Failed(fault) => {
-        eprintln!("console-weather: {named}: {fault}");
+        console_core_logging::warn!("{named}: {fault}");
 
         continue;
       }
@@ -190,12 +175,12 @@ pub fn locate() -> Result<Where, Never> {
     let found = at(Zone(&zone_3), &table)?;
 
     match found {
-      Some(found_2) => return Ok(found_2),
+      Some(found_2) => return Ok(Some(found_2)),
       None => {}
     }
   }
 
-  Ok(NOWHERE)
+  Ok(None)
 }
 
 pub fn zone() -> Result<Option<String>, Never> {
@@ -210,7 +195,7 @@ pub fn zone() -> Result<Option<String>, Never> {
       return Ok(None);
     }
     Err(fault) => {
-      eprintln!("console-weather: {CLOCK}: {fault}");
+      console_core_logging::warn!("{CLOCK}: {fault}");
 
       return Ok(None);
     }
@@ -240,7 +225,7 @@ pub fn city(zone: Zone<'_>) -> Result<String, Never> {
   })
 }
 
-pub fn at(zone: Zone<'_>, table: &str) -> Result<Option<Where>, Never> {
+pub fn at(zone: Zone<'_>, table: &str) -> Result<Option<Coordinates>, Never> {
   for line in table.lines() {
     match ::core::primitive::bool::then_some(line.starts_with('#'), ()) {
       ::core::option::Option::Some(()) => continue,
@@ -275,7 +260,7 @@ pub fn at(zone: Zone<'_>, table: &str) -> Result<Option<Where>, Never> {
   Ok(None)
 }
 
-fn pair(said: &str) -> Result<Option<Where>, Never> {
+fn pair(said: &str) -> Result<Option<Coordinates>, Never> {
   let mut letters = said.chars();
 
   let first = match letters.next() {
@@ -314,7 +299,7 @@ fn pair(said: &str) -> Result<Option<Where>, Never> {
     None => return Ok(None),
   };
 
-  Ok(Some(Where {
+  Ok(Some(Coordinates {
     latitude: Latitude(latitude_3),
     longitude: Longitude(longitude_3),
   }))

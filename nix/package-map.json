@@ -55,13 +55,6 @@
     ],
     "explanation": "External runtime dependency declared by the desktop manifest."
   },
-  "hyprsunset": {
-    "role": "runtime",
-    "nix": [
-      "hyprsunset"
-    ],
-    "explanation": "External runtime dependency declared by the desktop manifest."
-  },
   "polkit-kde-agent": {
     "role": "runtime",
     "nix": [

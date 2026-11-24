@@ -1006,7 +1006,9 @@ fn deed_row(
         console_core_external_programs::Installed::Yes => {
           Row::new(says, Aside("LocalSend"), Handler::Run(arguments))
         }
-        console_core_external_programs::Installed::No => Row::naming(says, Aside("LocalSend unavailable")),
+        console_core_external_programs::Installed::No => {
+          Row::naming(says, Aside("LocalSend unavailable"))
+        }
       };
     }
     FileAction::Copy

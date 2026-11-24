@@ -84,6 +84,44 @@ pub fn mark_explicit<'a>(packages: impl IntoIterator<Item = &'a str>) -> io::Res
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+  Removed,
+  Absent,
+}
+
+pub fn remove(package: &str) -> io::Result<Removal> {
+  let Ok(mut query) = Program::Pacman.command();
+  let installed = query.arg("-Qq").output()?;
+
+  match installed.status.success().then_some(()) {
+    Some(()) => {}
+    None => {
+      return Err(io::Error::other(format!(
+        "pacman -Qq exited with {}",
+        installed.status
+      )));
+    }
+  }
+
+  let names = std::str::from_utf8(&installed.stdout).map_err(io::Error::other)?;
+
+  match names.lines().any(|name| name == package).then_some(()) {
+    Some(()) => {}
+    None => return Ok(Removal::Absent),
+  }
+
+  let Ok(mut command) = Program::Pacman.command();
+  let removed = command
+    .args(["-R", "--noconfirm", "--", package])
+    .status()?;
+
+  match removed.success().then_some(()) {
+    Some(()) => Ok(Removal::Removed),
+    None => Err(io::Error::other(format!("pacman -R exited with {removed}"))),
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ownership {
   Owned,
   Unowned,

@@ -807,13 +807,11 @@ impl App {
       ::core::option::Option::Some(()) => {
         let Ok(across) = fitted::<i32, u32>(at_2.x.max(0));
 
-        let action = match ::core::primitive::bool::then_some(
-          across >= room.width.saturating_div(2),
-          (),
-        ) {
-          ::core::option::Option::Some(()) => PageAction::ToggleDiagrams,
-          ::core::option::Option::None => PageAction::Back,
-        };
+        let action =
+          match ::core::primitive::bool::then_some(across >= room.width.saturating_div(2), ()) {
+            ::core::option::Option::Some(()) => PageAction::ToggleDiagrams,
+            ::core::option::Option::None => PageAction::Back,
+          };
 
         return self.page_action(Activation::At(action), None);
       }

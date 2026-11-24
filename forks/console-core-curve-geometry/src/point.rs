@@ -6,6 +6,7 @@
 #[cfg(feature = "schemars")]
 use alloc::string::String;
 use console_core_point::Point as Coordinates;
+use console_core_vector::Vector2;
 use core::fmt;
 use core::ops::{Add, AddAssign, Deref, DerefMut, Sub, SubAssign};
 
@@ -110,7 +111,9 @@ impl Point {
     /// Convert this point into a `Vec2`.
     #[inline(always)]
     pub const fn to_vec2(self) -> Vec2 {
-        Vec2::new(self.0.x, self.0.y)
+        let Ok(vector) = Vector2::from_origin(self.0);
+        let Ok(displacement) = Vec2::from_displacement(vector);
+        displacement
     }
 
     /// Linearly interpolate between two points.
@@ -322,14 +325,16 @@ impl Add<Vec2> for Point {
 
     #[inline]
     fn add(self, other: Vec2) -> Self {
-        Point::new(self.x + other.x, self.y + other.y)
+        let Ok(displacement) = other.displacement();
+        let Ok(point) = displacement.translated(self.0);
+        Point::from_coordinates(point)
     }
 }
 
 impl AddAssign<Vec2> for Point {
     #[inline]
     fn add_assign(&mut self, other: Vec2) {
-        *self = Point::new(self.x + other.x, self.y + other.y);
+        *self = *self + other;
     }
 }
 
@@ -386,7 +391,9 @@ impl Sub<Point> for Point {
 
     #[inline]
     fn sub(self, other: Point) -> Vec2 {
-        Vec2::new(self.x - other.x, self.y - other.y)
+        let Ok(vector) = Vector2::<f64>::between([other.0, self.0]);
+        let Ok(displacement) = Vec2::from_displacement(vector);
+        displacement
     }
 }
 

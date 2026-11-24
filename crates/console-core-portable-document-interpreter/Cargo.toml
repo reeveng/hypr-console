@@ -77,6 +77,18 @@ features = [
 ]
 default-features = false
 
+[dependencies.console-core-circle]
+workspace = true
+
+[dependencies.console-core-point]
+workspace = true
+
+[dependencies.console-core-triangle]
+workspace = true
+
+[dependencies.console-core-vector]
+workspace = true
+
 [dependencies.console-core-curve-geometry]
 workspace = true
 features = ["std"]
@@ -86,8 +98,9 @@ workspace = true
 features = ["std"]
 optional = true
 
-[dependencies.moxcms]
-version = "0.8.1"
+[dependencies.console-core-icc]
+workspace = true
+features = ["transforms"]
 
 [dependencies.console-core-perfect-hash]
 workspace = true

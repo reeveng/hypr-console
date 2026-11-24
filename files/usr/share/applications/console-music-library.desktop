@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Music Library
+Comment=Browse albums, find covers, and review recordings
+Exec=/usr/local/bin/console-application-music-library
+StartupWMClass=music-library
+Icon=folder-music
+Terminal=false
+Categories=AudioVideo;Audio;

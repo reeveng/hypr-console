@@ -3,6 +3,9 @@
 
 //! A description of the distances between the edges of two rectangles.
 
+use console_core_never::Never;
+use console_core_rectangle::Insets as EdgeOffsets;
+use console_core_size::Size as Dimensions;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use crate::{Rect, Size};
@@ -108,23 +111,17 @@ impl Insets {
     /// New uniform insets.
     #[inline(always)]
     pub const fn uniform(d: f64) -> Insets {
-        Insets {
-            x0: d,
-            y0: d,
-            x1: d,
-            y1: d,
-        }
+        let Ok(edges) = EdgeOffsets::uniform(d);
+        let Ok(answer) = Self::from_edges(edges);
+        answer
     }
 
     /// New insets with uniform values along each axis.
     #[inline(always)]
     pub const fn uniform_xy(x: f64, y: f64) -> Insets {
-        Insets {
-            x0: x,
-            y0: y,
-            x1: x,
-            y1: y,
-        }
+        let Ok(edges) = EdgeOffsets::by_axis(Dimensions { width: x, height: y });
+        let Ok(answer) = Self::from_edges(edges);
+        answer
     }
 
     /// New insets. The ordering of the arguments is "left, top, right, bottom",
@@ -149,7 +146,9 @@ impl Insets {
     /// ```
     #[inline]
     pub const fn x_value(self) -> f64 {
-        self.x0 + self.x1
+        let Ok(edges) = self.edges();
+        let Ok(size) = edges.size();
+        size.width
     }
 
     /// The total delta on the y-axis represented by these insets.
@@ -167,7 +166,9 @@ impl Insets {
     /// ```
     #[inline]
     pub const fn y_value(self) -> f64 {
-        self.y0 + self.y1
+        let Ok(edges) = self.edges();
+        let Ok(size) = edges.size();
+        size.height
     }
 
     /// Returns the total delta represented by these insets as a [`Size`].
@@ -189,7 +190,9 @@ impl Insets {
     /// [`x_value`]: Insets::x_value
     /// [`y_value`]: Insets::y_value
     pub const fn size(self) -> Size {
-        Size::new(self.x_value(), self.y_value())
+        let Ok(edges) = self.edges();
+        let Ok(size) = edges.size();
+        Size::new(size.width, size.height)
     }
 
     /// Return `true` iff all values are nonnegative.
@@ -214,13 +217,10 @@ impl Insets {
     /// assert_eq!(nonnegative.y_value(), 7.0);
     /// ```
     pub const fn nonnegative(self) -> Insets {
-        let Insets { x0, y0, x1, y1 } = self;
-        Insets {
-            x0: x0.max(0.0),
-            y0: y0.max(0.0),
-            x1: x1.max(0.0),
-            y1: y1.max(0.0),
-        }
+        let Ok(offsets) = self.edges();
+        let Ok(edges) = offsets.nonnegative();
+        let Ok(answer) = Self::from_edges(edges);
+        answer
     }
 
     /// Are these insets finite?
@@ -248,12 +248,11 @@ impl Insets {
     /// assert_eq!(this.min(other), Insets::new(1., 2., 2., 1.));
     /// ```
     pub const fn min(self, other: Insets) -> Self {
-        Self {
-            x0: self.x0.min(other.x0),
-            x1: self.x1.min(other.x1),
-            y0: self.y0.min(other.y0),
-            y1: self.y1.min(other.y1),
-        }
+        let Ok(offsets) = self.edges();
+        let Ok(limit) = other.edges();
+        let Ok(edges) = offsets.min(limit);
+        let Ok(answer) = Self::from_edges(edges);
+        answer
     }
 
     /// Returns the component-wise maximum of `self` and `other`.
@@ -269,12 +268,40 @@ impl Insets {
     /// assert_eq!(this.max(other), Insets::new(4., 3., 3., 4.));
     /// ```
     pub const fn max(self, other: Insets) -> Self {
-        Self {
-            x0: self.x0.max(other.x0),
-            x1: self.x1.max(other.x1),
-            y0: self.y0.max(other.y0),
-            y1: self.y1.max(other.y1),
-        }
+        let Ok(offsets) = self.edges();
+        let Ok(limit) = other.edges();
+        let Ok(edges) = offsets.max(limit);
+        let Ok(answer) = Self::from_edges(edges);
+        answer
+    }
+}
+
+impl Insets {
+    const fn edges(self) -> Result<EdgeOffsets<f64>, Never> {
+        Ok(EdgeOffsets {
+            left: self.x0,
+            top: self.y0,
+            right: self.x1,
+            bottom: self.y1,
+        })
+    }
+
+    const fn from_edges(edges: EdgeOffsets<f64>) -> Result<Self, Never> {
+        Ok(Self::new(edges.left, edges.top, edges.right, edges.bottom))
+    }
+}
+
+impl From<Insets> for EdgeOffsets<f64> {
+    fn from(insets: Insets) -> Self {
+        let Ok(edges) = insets.edges();
+        edges
+    }
+}
+
+impl From<EdgeOffsets<f64>> for Insets {
+    fn from(edges: EdgeOffsets<f64>) -> Self {
+        let Ok(answer) = Self::from_edges(edges);
+        answer
     }
 }
 
@@ -317,15 +344,10 @@ impl Add<Rect> for Insets {
     type Output = Rect;
 
     #[inline]
-    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, other: Rect) -> Rect {
-        let other = other.abs();
-        Rect::new(
-            other.x0 - self.x0,
-            other.y0 - self.y0,
-            other.x1 + self.x1,
-            other.y1 + self.y1,
-        )
+        let Ok(edges) = self.edges();
+        let Ok(bounds) = other.bounds().expanded_by(edges);
+        Rect::from_bounds(bounds)
     }
 }
 

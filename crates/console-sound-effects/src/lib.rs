@@ -25,6 +25,7 @@
 
 pub mod balance;
 pub mod catalogue;
+pub mod gain;
 pub mod synthesis;
 
 use std::fmt;

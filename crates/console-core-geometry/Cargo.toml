@@ -12,6 +12,8 @@ path = "src/lib.rs"
 [dependencies]
 console-core-point.workspace = true
 console-core-rectangle.workspace = true
+console-core-triangle.workspace = true
+console-core-vector.workspace = true
 console-core-size.workspace = true
 
 [lints]

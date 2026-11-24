@@ -83,7 +83,7 @@ pub fn of(song: &Path, turn: u64) -> Result<Option<PathBuf>, Never> {
   Ok(Some(at))
 }
 
-fn picture(song: &Path) -> Result<Option<Vec<u8>>, Never> {
+pub fn picture(song: &Path) -> Result<Option<Vec<u8>>, Never> {
   let read = std::fs::File::open(song)
     .map_err(FileParseError::Open)
     .and_then(|mut reader| console_core_audio_metadata::read(&mut reader, song));

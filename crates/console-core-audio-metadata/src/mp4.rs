@@ -273,6 +273,13 @@ fn item_list(bytes: &[u8]) -> Result<Tag, Malformed> {
       let Ok(content) = fields.rest();
 
       match (name_3.as_str(), key, kind) {
+        ("trkn" | "disk", Some(key_2), _) => match content {
+          [_, _, high, low, ..] => {
+            let number = u16::from_be_bytes([*high, *low]);
+            let Ok(()) = tag.push_text(key_2, number.to_string());
+          }
+          _short => {}
+        },
         ("covr", _, _) => {
           let Ok(mime_type) = cover_type(kind, content);
 

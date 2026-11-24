@@ -8,20 +8,37 @@
 //! [`LineSegment::crossing`] finds the intersection of the two extended lines.
 //! Parallel lines have no unique crossing. [`Crossing`] gives the fractions at
 //! the intersection and [`Projection`] gives the nearest fraction and squared
-//! distance to the query.
+//! distance to the query. With `std`, `distance_to` measures distance to
+//! the closed segment with fused interpolation and hypot.
 
 #![no_std]
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "std")]
+extern crate std;
+
 use console_core_never::Never;
 use console_core_point::Point;
 use console_core_rectangle::Bounds;
+use console_core_vector::Vector2;
 use core::num::FpCategory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LineSegment<T> {
   pub start: Point<T>,
   pub end: Point<T>,
+}
+
+impl<T> From<[Point<T>; 2]> for LineSegment<T> {
+  fn from([start, end]: [Point<T>; 2]) -> Self {
+    Self { start, end }
+  }
+}
+
+impl<T> From<LineSegment<T>> for [Point<T>; 2] {
+  fn from(segment: LineSegment<T>) -> Self {
+    [segment.start, segment.end]
+  }
 }
 
 impl<T> LineSegment<T> {
@@ -64,11 +81,8 @@ pub struct Projection {
 
 impl LineSegment<f64> {
   #[inline]
-  pub const fn displacement(&self) -> Result<Point<f64>, Never> {
-    Ok(Point {
-      x: self.end.x - self.start.x,
-      y: self.end.y - self.start.y,
-    })
+  pub const fn displacement(&self) -> Result<Vector2<f64>, Never> {
+    Vector2::<f64>::between([self.start, self.end])
   }
 
   #[inline]
@@ -95,27 +109,28 @@ impl LineSegment<f64> {
 
   #[inline]
   pub const fn length_squared(&self) -> Result<f64, Never> {
-    self.end.distance_squared(self.start)
+    let Ok(displacement) = self.displacement();
+    displacement.length_squared()
   }
 
   #[inline]
   pub fn nearest(&self, point: Point<f64>) -> Result<Projection, Never> {
     let Ok(displacement) = self.displacement();
-    let from_start = Point {
-      x: point.x - self.start.x,
-      y: point.y - self.start.y,
-    };
-    let along = displacement.x * from_start.x + displacement.y * from_start.y;
-    let Ok(length_squared) = self.length_squared();
+    let Ok(from_start) = Vector2::<f64>::between([self.start, point]);
+    let Ok(along) = displacement.dot(from_start);
+    let Ok(length_squared) = displacement.length_squared();
 
     #[expect(clippy::manual_clamp, reason = "NaN selects the start of the segment")]
     let fraction = (along / length_squared).max(0.0).min(1.0);
-    let residual_x = from_start.x - fraction * displacement.x;
-    let residual_y = from_start.y - fraction * displacement.y;
+    let residual = Vector2 {
+      x: from_start.x - fraction * displacement.x,
+      y: from_start.y - fraction * displacement.y,
+    };
+    let Ok(distance_squared) = residual.length_squared();
 
     Ok(Projection {
       fraction,
-      distance_squared: residual_x * residual_x + residual_y * residual_y,
+      distance_squared,
     })
   }
 
@@ -123,18 +138,14 @@ impl LineSegment<f64> {
   pub fn crossing(&self, other: Self) -> Result<Option<Crossing>, Never> {
     let Ok(first) = self.displacement();
     let Ok(second) = other.displacement();
-    let Ok(denominator) = cross(first, second);
+    let Ok(denominator) = first.cross(second);
 
     match denominator.classify() {
       FpCategory::Zero => Ok(None),
       FpCategory::Nan | FpCategory::Infinite | FpCategory::Subnormal | FpCategory::Normal => {
-        let between = Point {
-          x: other.start.x - self.start.x,
-          y: other.start.y - self.start.y,
-        };
-
-        let Ok(first_cross) = cross(between, second);
-        let Ok(second_cross) = cross(between, first);
+        let Ok(between) = Vector2::<f64>::between([self.start, other.start]);
+        let Ok(first_cross) = between.cross(second);
+        let Ok(second_cross) = between.cross(first);
 
         Ok(Some(Crossing {
           first_fraction: first_cross / denominator,
@@ -145,9 +156,26 @@ impl LineSegment<f64> {
   }
 }
 
-#[must_use]
-fn cross(first: Point<f64>, second: Point<f64>) -> Result<f64, Never> {
-  Ok(first.x * second.y - first.y * second.x)
+#[cfg(feature = "std")]
+impl LineSegment<f64> {
+  pub fn distance_to(&self, point: Point<f64>) -> Result<f64, Never> {
+    let Ok(along) = self.displacement();
+    let Ok(from_start) = Vector2::<f64>::between([self.start, point]);
+    let length_squared = along.x.mul_add(along.x, along.y * along.y);
+    let fraction = match (length_squared > 0.0).then_some(()) {
+      Some(()) => {
+        let Ok(product) = from_start.dot(along);
+        (product / length_squared).clamp(0.0, 1.0)
+      }
+      None => 0.0,
+    };
+    let nearest = Point {
+      x: fraction.mul_add(along.x, self.start.x),
+      y: fraction.mul_add(along.y, self.start.y),
+    };
+    let Ok(residual) = Vector2::<f64>::between([nearest, point]);
+    residual.length()
+  }
 }
 
 #[cfg(test)]
@@ -188,5 +216,14 @@ mod tests {
         distance_squared: 25.0
       })
     );
+  }
+
+  #[cfg(feature = "std")]
+  #[test]
+  fn segment_distance_projects_inside_and_stops_at_the_endpoints() {
+    let segment = LineSegment::from([Point::from((1.0, 2.0)), Point::from((5.0, 2.0))]);
+
+    assert_eq!(segment.distance_to(Point::from((3.0, 5.0))), Ok(3.0));
+    assert_eq!(segment.distance_to(Point::from((8.0, 6.0))), Ok(5.0));
   }
 }

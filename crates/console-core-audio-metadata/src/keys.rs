@@ -19,6 +19,9 @@ pub enum ItemKey {
   TrackArtist,
   AlbumArtist,
   AlbumTitle,
+  TrackNumber,
+  DiscNumber,
+  MusicBrainzAlbumId,
   TrackSubtitle,
   RecordingDate,
   Year,
@@ -47,6 +50,9 @@ pub(crate) const APE: &[(&str, ItemKey)] = &[
   ("SUBTITLE", ItemKey::TrackSubtitle),
   ("ALBUM ARTIST", ItemKey::AlbumArtist),
   ("ALBUMARTIST", ItemKey::AlbumArtist),
+  ("TRACK", ItemKey::TrackNumber),
+  ("DISC", ItemKey::DiscNumber),
+  ("MUSICBRAINZ_ALBUMID", ItemKey::MusicBrainzAlbumId),
   ("ARTIST", ItemKey::TrackArtist),
   ("COMPOSER", ItemKey::Composer),
   ("PERFORMER", ItemKey::Performer),
@@ -61,6 +67,9 @@ pub(crate) const ID3V2: &[(&str, ItemKey)] = &[
   ("TALB", ItemKey::AlbumTitle),
   ("TIT2", ItemKey::TrackTitle),
   ("TIT3", ItemKey::TrackSubtitle),
+  ("TRCK", ItemKey::TrackNumber),
+  ("TPOS", ItemKey::DiscNumber),
+  ("MUSICBRAINZ ALBUM ID", ItemKey::MusicBrainzAlbumId),
   ("TPE2", ItemKey::AlbumArtist),
   ("ALBUMARTIST", ItemKey::AlbumArtist),
   ("ALBUM ARTIST", ItemKey::AlbumArtist),
@@ -76,6 +85,12 @@ pub(crate) const ID3V2: &[(&str, ItemKey)] = &[
 pub(crate) const ILST: &[(&str, ItemKey)] = &[
   ("\u{a9}ALB", ItemKey::AlbumTitle),
   ("\u{a9}NAM", ItemKey::TrackTitle),
+  ("trkn", ItemKey::TrackNumber),
+  ("disk", ItemKey::DiscNumber),
+  (
+    "----:COM.APPLE.ITUNES:MUSICBRAINZ ALBUM ID",
+    ItemKey::MusicBrainzAlbumId,
+  ),
   ("----:COM.APPLE.ITUNES:SUBTITLE", ItemKey::TrackSubtitle),
   ("AART", ItemKey::AlbumArtist),
   ("\u{a9}ART", ItemKey::TrackArtist),
@@ -101,6 +116,9 @@ pub(crate) const RIFF_INFO: &[(&str, ItemKey)] = &[
 
 pub(crate) const VORBIS_COMMENTS: &[(&str, ItemKey)] = &[
   ("ALBUM", ItemKey::AlbumTitle),
+  ("TRACKNUMBER", ItemKey::TrackNumber),
+  ("DISCNUMBER", ItemKey::DiscNumber),
+  ("MUSICBRAINZ_ALBUMID", ItemKey::MusicBrainzAlbumId),
   ("TITLE", ItemKey::TrackTitle),
   ("SUBTITLE", ItemKey::TrackSubtitle),
   ("ALBUMARTIST", ItemKey::AlbumArtist),
@@ -122,6 +140,8 @@ pub(crate) const VORBIS_COMMENTS: &[(&str, ItemKey)] = &[
 pub(crate) fn id3v2_frame(key: ItemKey) -> Result<Option<&'static str>, Never> {
   Ok(match key {
     ItemKey::AlbumTitle => Some("TALB"),
+    ItemKey::TrackNumber => Some("TRCK"),
+    ItemKey::DiscNumber => Some("TPOS"),
     ItemKey::TrackTitle => Some("TIT2"),
     ItemKey::TrackSubtitle => Some("TIT3"),
     ItemKey::AlbumArtist => Some("TPE2"),
@@ -132,6 +152,8 @@ pub(crate) fn id3v2_frame(key: ItemKey) -> Result<Option<&'static str>, Never> {
     ItemKey::Genre => Some("TCON"),
     ItemKey::CopyrightMessage => Some("TCOP"),
     ItemKey::Comment => Some("COMM"),
-    ItemKey::Year | ItemKey::Description | ItemKey::Performer => None,
+    ItemKey::Year | ItemKey::Description | ItemKey::Performer | ItemKey::MusicBrainzAlbumId => {
+      None
+    }
   })
 }

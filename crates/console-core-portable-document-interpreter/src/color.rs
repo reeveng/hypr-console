@@ -2,6 +2,7 @@
 
 use crate::cache::{Cache, CacheKey, Cached};
 use crate::interpret::state::Opacity;
+use console_core_icc::{Channels, ProfileColorSpace, ToSrgb};
 use console_core_never::Never;
 use console_core_portable_document_functions::{Function, PdfSample};
 use console_core_portable_document_syntax::object;
@@ -12,15 +13,11 @@ use console_core_portable_document_syntax::object::Object;
 use console_core_portable_document_syntax::object::Stream;
 use console_core_portable_document_syntax::object::array::FlexArrayIter;
 use console_core_portable_document_syntax::object::dict::keys::*;
-use moxcms::{
-  ColorProfile, DataColorSpace, Layout, Transform8BitExecutor, TransformF32Executor,
-  TransformOptions, Xyzd,
-};
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroU8;
 use std::ops::Deref;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock};
 
 pub type ColorComponents = Vec<f32>;
 
@@ -759,11 +756,15 @@ impl ColorSpace {
       ColorSpaceType::DeviceCmyk => vec![(0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0)],
       ColorSpaceType::DeviceGray => vec![(0.0, 1.0)],
       ColorSpaceType::DeviceRgb => vec![(0.0, 1.0), (0.0, 1.0), (0.0, 1.0)],
-      ColorSpaceType::ICCBased(profile) => match profile.0.channels {
-        Channels::Gray => vec![(0.0, 1.0)],
-        Channels::Rgb => vec![(0.0, 1.0); 3],
-        Channels::Cmyk => vec![(0.0, 1.0); 4],
-      },
+      ColorSpaceType::ICCBased(profile) => {
+        let Ok(channels) = profile.0.transform.channels();
+
+        match channels {
+          Channels::Gray => vec![(0.0, 1.0)],
+          Channels::Rgb => vec![(0.0, 1.0); 3],
+          Channels::Cmyk => vec![(0.0, 1.0); 4],
+        }
+      }
       ColorSpaceType::CalGray(_) => vec![(0.0, 1.0)],
       ColorSpaceType::CalRgb(_) => vec![(0.0, 1.0), (0.0, 1.0), (0.0, 1.0)],
       ColorSpaceType::Lab(l) => vec![
@@ -818,11 +819,15 @@ impl ColorSpace {
       ColorSpaceType::DeviceCmyk => vec![0.0, 0.0, 0.0, 1.0],
       ColorSpaceType::DeviceGray => vec![0.0],
       ColorSpaceType::DeviceRgb => vec![0.0, 0.0, 0.0],
-      ColorSpaceType::ICCBased(profile) => match profile.0.channels {
-        Channels::Gray => vec![0.0],
-        Channels::Rgb => vec![0.0, 0.0, 0.0],
-        Channels::Cmyk => vec![0.0, 0.0, 0.0, 1.0],
-      },
+      ColorSpaceType::ICCBased(profile) => {
+        let Ok(channels) = profile.0.transform.channels();
+
+        match channels {
+          Channels::Gray => vec![0.0],
+          Channels::Rgb => vec![0.0, 0.0, 0.0],
+          Channels::Cmyk => vec![0.0, 0.0, 0.0, 1.0],
+        }
+      }
       ColorSpaceType::CalGray(_) => vec![0.0],
       ColorSpaceType::CalRgb(_) => vec![0.0, 0.0, 0.0],
       ColorSpaceType::Lab(_) => vec![0.0, 0.0, 0.0],
@@ -859,7 +864,8 @@ impl ColorSpace {
       ColorSpaceType::DeviceGray => 1,
       ColorSpaceType::DeviceRgb => 3,
       ColorSpaceType::ICCBased(icc) => {
-        let Ok(count) = icc.0.channels.count();
+        let Ok(channels) = icc.0.transform.channels();
+        let Ok(count) = channels.count();
         count
       }
       ColorSpaceType::CalGray(_) => 1,
@@ -1415,41 +1421,17 @@ impl Lab {
       ::core::option::Option::None => [-100.0, 100.0, -100.0, 100.0],
     };
 
-    let mut profile =
-      match match ColorProfile::new_from_slice(include_bytes!("../assets/LAB.icc")) {
-        Ok(parsed_value) => Some(parsed_value),
-        Err(_invalid_color_profile) => None,
-      } {
-        Some(explicit_value) => explicit_value,
-        None => return Ok(None),
-      };
-    profile.white_point = Xyzd::new(
-      f64::from(match white_point {
-        [element, ..] => element,
-      }),
-      f64::from(match white_point {
-        [_, element, ..] => element,
-      }),
-      f64::from(match white_point {
-        [_, _, element, ..] => element,
-      }),
-    );
-
-    let Ok(icc_profile) = ICCProfile::new_from_src_profile(
-      profile,
+    let transform = match ToSrgb::for_lab(white_point.map(f64::from)) {
+      Ok(transform) => transform,
+      Err(_unavailable_color_transform) => return Ok(None),
+    };
+    let Ok(profile) = ICCProfile::from_transform(
+      transform,
       crate::SrgbProfile::NotSrgb,
       crate::LabProfile::NotLab,
-      3,
     );
-    let profile_2 = match icc_profile {
-      Some(explicit_value) => explicit_value,
-      None => return Ok(None),
-    };
 
-    Ok(Some(Self {
-      range,
-      profile: profile_2,
-    }))
+    Ok(Some(Self { range, profile }))
   }
 }
 
@@ -1634,45 +1616,10 @@ impl DeviceN {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Channels {
-  Gray,
-  Rgb,
-  Cmyk,
-}
-
-impl Channels {
-  fn count(self) -> Result<u8, console_core_never::Never> {
-    Ok(match self {
-      Self::Gray => 1,
-      Self::Rgb => 3,
-      Self::Cmyk => 4,
-    })
-  }
-
-  fn layout(self) -> Result<Layout, console_core_never::Never> {
-    Ok(match self {
-      Self::Gray => Layout::Gray,
-      Self::Rgb => Layout::Rgb,
-      Self::Cmyk => Layout::Rgba,
-    })
-  }
-}
-
-#[cfg_attr(
-  dylint_lib = "explicit081_no_shared_ownership",
-  expect(
-    explicit081_no_shared_ownership,
-    reason = "moxcms returns thread-safe transform executors under its reference-counted interface"
-  )
-)]
 struct ICCColorRepr {
-  src_profile: ColorProfile,
-  channels: Channels,
+  transform: ToSrgb,
   srgb: crate::SrgbProfile,
   lab: crate::LabProfile,
-  transform_u8: Arc<Transform8BitExecutor>,
-  transform_f32: OnceLock<Option<Arc<TransformF32Executor>>>,
 }
 
 #[derive(Clone)]
@@ -1696,35 +1643,6 @@ impl ICCProfile {
     profile: &[u8],
     number_components: u32,
   ) -> Result<Option<Self>, console_core_never::Never> {
-    let src_profile = match ColorProfile::new_from_slice(profile) {
-      Ok(profile_2) => profile_2,
-      Err(_invalid_color_profile) => return Ok(None),
-    };
-    let srgb = match profile.get(52..56) {
-      Some(b"sRGB") => crate::SrgbProfile::Srgb,
-      Some(_) | None => crate::SrgbProfile::NotSrgb,
-    };
-    let lab = match matches!(src_profile.color_space, DataColorSpace::Lab).then_some(()) {
-      Some(()) => crate::LabProfile::Lab,
-      None => crate::LabProfile::NotLab,
-    };
-
-    Self::new_from_src_profile(src_profile, srgb, lab, number_components)
-  }
-
-  #[cfg_attr(
-    dylint_lib = "explicit081_no_shared_ownership",
-    expect(
-      explicit081_no_shared_ownership,
-      reason = "this constructor stores one decoded profile and its native transforms for all uses of the cached color space"
-    )
-  )]
-  fn new_from_src_profile(
-    src_profile: ColorProfile,
-    srgb: crate::SrgbProfile,
-    lab: crate::LabProfile,
-    number_components: u32,
-  ) -> Result<Option<Self>, console_core_never::Never> {
     let channels = match number_components {
       1 => Channels::Gray,
       3 => Channels::Rgb,
@@ -1735,26 +1653,41 @@ impl ICCProfile {
         return Ok(None);
       }
     };
-    let Ok(layout) = channels.layout();
-    let dest_profile = ColorProfile::new_srgb();
-    let transform_u8 = match src_profile.clone().create_transform_8bit(
-      layout,
-      &dest_profile,
-      Layout::Rgb,
-      TransformOptions::default(),
-    ) {
+    let transform = match ToSrgb::new(profile, channels) {
       Ok(transform) => transform,
       Err(_unavailable_color_transform) => return Ok(None),
     };
+    let srgb = match profile.get(52..56) {
+      Some(b"sRGB") => crate::SrgbProfile::Srgb,
+      Some(_) | None => crate::SrgbProfile::NotSrgb,
+    };
+    let Ok(profile_space) = ProfileColorSpace::from_header(profile);
+    let lab = match profile_space {
+      Some(ProfileColorSpace::Lab) => crate::LabProfile::Lab,
+      Some(_) | None => crate::LabProfile::NotLab,
+    };
+    let Ok(icc) = Self::from_transform(transform, srgb, lab);
 
-    Ok(Some(Self(Arc::new(ICCColorRepr {
-      src_profile,
-      channels,
+    Ok(Some(icc))
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "this constructor stores one decoded profile and its native transforms for all uses of the cached color space"
+    )
+  )]
+  fn from_transform(
+    transform: ToSrgb,
+    srgb: crate::SrgbProfile,
+    lab: crate::LabProfile,
+  ) -> Result<Self, console_core_never::Never> {
+    Ok(Self(Arc::new(ICCColorRepr {
+      transform,
       srgb,
       lab,
-      transform_u8,
-      transform_f32: OnceLock::new(),
-    }))))
+    })))
   }
 
   fn is_srgb(&self) -> Result<crate::SrgbProfile, console_core_never::Never> {
@@ -1763,29 +1696,6 @@ impl ICCProfile {
 
   fn is_lab(&self) -> Result<crate::LabProfile, console_core_never::Never> {
     Ok(self.0.lab)
-  }
-
-  fn transform_u8(&self) -> Result<&Transform8BitExecutor, console_core_never::Never> {
-    Ok(self.0.transform_u8.as_ref())
-  }
-
-  fn transform_f32(&self) -> Result<Option<&TransformF32Executor>, console_core_never::Never> {
-    let transform = self.0.transform_f32.get_or_init(|| {
-      let dest_profile = ColorProfile::new_srgb();
-      let Ok(layout) = self.0.channels.layout();
-
-      match self.0.src_profile.clone().create_transform_f32(
-        layout,
-        &dest_profile,
-        Layout::Rgb,
-        TransformOptions::default(),
-      ) {
-        Ok(transform) => Some(transform),
-        Err(_unavailable_color_transform) => None,
-      }
-    });
-
-    Ok(transform.as_deref())
   }
 }
 
@@ -1808,11 +1718,9 @@ impl ToRgb for ICCProfile {
       ),
       crate::LabProfile::NotLab => Cow::Borrowed(input),
     };
-    let Ok(transform) = self.transform_f32();
-    let selected = transform?;
     let mut temp = vec![0.0_f32; output.len()];
 
-    match selected.transform(&values, &mut temp) {
+    match self.0.transform.transform_f32(&values, &mut temp) {
       Ok(()) => {}
       Err(_invalid_color_transform_input) => return None,
     }
@@ -1848,14 +1756,10 @@ impl ToRgb for ICCProfile {
         }
         None => return Ok(None),
       },
-      crate::SrgbProfile::NotSrgb => {
-        let Ok(transform) = self.transform_u8();
-
-        match transform.transform(input, output) {
-          Ok(()) => {}
-          Err(_unconvertible) => return Ok(None),
-        }
-      }
+      crate::SrgbProfile::NotSrgb => match self.0.transform.transform_u8(input, output) {
+        Ok(()) => {}
+        Err(_unconvertible) => return Ok(None),
+      },
     }
 
     Ok(Some(()))
@@ -1940,7 +1844,7 @@ impl Color {
   )
 )]
 static CMYK_TRANSFORM: LazyLock<Option<ICCProfile>> = LazyLock::new(|| {
-  let Ok(profile) = ICCProfile::new(include_bytes!("../assets/CGATS001Compat-v2-micro.icc"), 4);
+  let Ok(profile) = ICCProfile::new(console_core_icc::CGATS001_CMYK, 4);
   profile
 });
 

@@ -7,6 +7,7 @@ local max_gain = settings["max-gain"] or 1
 local noise_floor = settings["noise-floor"] or 0
 local full_gain_level = settings["full-gain-level"] or 1
 local automatic_setting = "console.balanced-playback.automatic-leveling"
+local night_setting = "console.balanced-playback.night-mode"
 -- WirePlumber's configured filter rules allocate their indices from zero.
 local stream_graph_param = "audioconvert.filter-graph.100"
 local mix_headroom = 10
@@ -17,6 +18,9 @@ local stream_graphs = {}
 local generation = 0
 local app_state = State("console-balanced-playback-apps")
 local bypassed_apps = app_state:load()
+local meter_plugin = "console-playback-gain"
+local runtime = os and os.getenv and os.getenv("XDG_RUNTIME_DIR")
+local meter_file = runtime and runtime .. "/" .. meter_plugin .. "/" .. meter_plugin .. ".so"
 -- Keep the exported proxy alive for the script's lifetime.
 app_metadata = ImplMetadata("console-balanced-playback")
 
@@ -38,6 +42,19 @@ end
 
 local function link(output, input)
   return Json.Object { output = output, input = input }
+end
+
+local function meter_ready()
+  return meter_file and GLib.access(meter_file, "r")
+end
+
+local function add_gain_meter(nodes, links, gain, id)
+  nodes[#nodes + 1] = Json.Object {
+    type = "ladspa", plugin = meter_plugin, label = "console_gain_meter", name = "console-meter",
+    control = Json.Object { ["Node low"] = id % 65536, ["Node high"] = id // 65536 },
+  }
+  links[#links + 1] = link(gain, "console-meter:Gain")
+  return "console-meter:Through"
 end
 
 local function output_positions(properties)
@@ -82,13 +99,129 @@ local function add_level_history(nodes, links, max_boost_floor)
   links[#links + 1] = link("history-bound:Out", "limit:In 4")
 end
 
-local function graph(channels, leveling)
+local function biquad(nodes, links, name, input, b0, b1, b2)
+  nodes[#nodes + 1] = stage(name, "bq_raw", nil, Json.Object {
+    coefficients = Json.Array { Json.Object {
+      rate = 48000, b0 = b0, b1 = b1, b2 = b2, a0 = 1, a1 = 0, a2 = 0,
+    } },
+  })
+  links[#links + 1] = link(input, name .. ":In")
+  return name .. ":Out"
+end
+
+local function greatest(nodes, links, name, inputs)
+  local previous, current, port
+  for i, input in ipairs(inputs) do
+    if not port or port > 8 then
+      current, port = name .. "-" .. i, 1
+      nodes[#nodes + 1] = stage(current, "max")
+      if previous then
+        links[#links + 1] = link(previous, current .. ":In 1")
+        port = 2
+      end
+      previous = current .. ":Out"
+    end
+    links[#links + 1] = link(input, current .. ":In " .. port)
+    port = port + 1
+  end
+  return previous
+end
+
+-- Bound every quarter-sample phase of a 12-tap Blackman-windowed sinc.
+-- Taking absolute weights makes the bound hold when adjacent samples receive
+-- different gains. The original sample is included as phase zero.
+local function interpolation_bounds()
+  local weights = {}
+  for tap = 0, 11 do
+    weights[tap + 1] = 0
+  end
+  for phase = 0, 3 do
+    local taps, sum = {}, 0
+    for tap = 0, 11 do
+      local x = tap - 5 - phase / 4
+      local sinc = x == 0 and 1 or math.sin(math.pi * x) / (math.pi * x)
+      local window = 0.42 - 0.5 * math.cos(2 * math.pi * tap / 11)
+                          + 0.08 * math.cos(4 * math.pi * tap / 11)
+      taps[tap + 1] = window * sinc
+      sum = sum + taps[tap + 1]
+    end
+    for tap = 1, 12 do
+      weights[tap] = math.max(weights[tap], math.abs(taps[tap] / sum))
+    end
+  end
+  return weights
+end
+
+local peak_weights = interpolation_bounds()
+
+local function true_peak_guard(nodes, links, samples, ceiling, meter)
+  local bounds, delayed = {}, {}
+  for channel, sample in ipairs(samples) do
+    local prefix = "true-peak-" .. channel
+    local abs, sum = prefix .. "-abs", prefix .. "-sum"
+    nodes[#nodes + 1] = stage(abs, "abs")
+    nodes[#nodes + 1] = stage(sum, "mixer")
+    links[#links + 1] = link(sample, abs .. ":In")
+    local age, sample_age = abs .. ":Out", sample
+    for pair = 1, 6 do
+      local tap = 2 * pair - 1
+      local contribution = biquad(nodes, links, prefix .. "-fir-" .. pair,
+        age, peak_weights[tap], peak_weights[tap + 1], 0)
+      links[#links + 1] = link(contribution, sum .. ":In " .. pair)
+      if pair < 6 then
+        age = biquad(nodes, links, prefix .. "-abs-delay-" .. pair, age, 0, 0, 1)
+        sample_age = biquad(nodes, links, prefix .. "-delay-" .. pair, sample_age, 0, 0, 1)
+      end
+    end
+    bounds[channel] = sum .. ":Out"
+    delayed[channel] = biquad(nodes, links, prefix .. "-last", sample_age, 0, 1, 0)
+  end
+
+  local age = greatest(nodes, links, "true-peak-channels", bounds)
+  local window = { age }
+  for t = 1, 11 do
+    age = biquad(nodes, links, "true-peak-window-" .. t, age, 0, 1, 0)
+    window[#window + 1] = age
+  end
+  local bound = greatest(nodes, links, "true-peak-maximum", window)
+  nodes[#nodes + 1] = stage("true-peak-floor", "clamp", Json.Object { Min = ceiling, Max = mix_headroom })
+  nodes[#nodes + 1] = stage("true-peak-recip", "recip")
+  nodes[#nodes + 1] = stage("true-peak-gain", "linear", Json.Object { Mult = ceiling })
+  links[#links + 1] = link(bound, "true-peak-floor:In")
+  links[#links + 1] = link("true-peak-floor:Out", "true-peak-recip:In")
+  links[#links + 1] = link("true-peak-recip:Out", "true-peak-gain:In")
+
+  if meter then
+    nodes[#nodes + 1] = stage("combined-gain", "mult")
+    links[#links + 1] = link("gain:Out", "combined-gain:In 1")
+    links[#links + 1] = link("true-peak-gain:Out", "combined-gain:In 2")
+    add_gain_meter(nodes, links, "combined-gain:Out", meter)
+  end
+
+  local outputs = {}
+  for channel, sample in ipairs(delayed) do
+    local output = "true-peak-output-" .. channel
+    nodes[#nodes + 1] = stage(output, "mult")
+    links[#links + 1] = link(sample, output .. ":In 1")
+    links[#links + 1] = link("true-peak-gain:Out", output .. ":In 2")
+    outputs[channel] = output .. ":Out"
+  end
+  return outputs
+end
+
+local function graph(channels, profile, meter)
+  local leveling = profile ~= "output"
   -- The combined output catches short bursts even when the app bypasses
   -- leveling. Leave 3 dB at the sample ceiling for downstream interpolation.
   local ceiling = leveling and peak or peak / math.sqrt(2)
   local target = leveling and sustained or sustained * 1.5
   local attack = leveling and 55 or 150
   local boost = leveling and max_gain or 1
+  if profile == "call" then
+    boost = 1
+  elseif profile == "night" then
+    target = sustained * 0.65
+  end
   local delay = Json.Object { ["Delay (s)"] = lookahead }
   local delay_config = Json.Object { ["max-delay"] = lookahead, latency = lookahead }
   local bounds = Json.Object { Min = -mix_headroom, Max = mix_headroom }
@@ -139,6 +272,10 @@ local function graph(channels, leveling)
     links[#links + 1] = link("level:Out", "gain-floor:In")
   end
   links[#links + 1] = link("gain-floor:Out", "limit:In 3")
+  local applied_gain = "gain:Out"
+  if leveling and meter then
+    applied_gain = add_gain_meter(nodes, links, applied_gain, meter)
+  end
   local inputs, outputs = {}, {}
   local maximum, port = nil, 9
   for channel = 1, channels do
@@ -152,7 +289,7 @@ local function graph(channels, leveling)
     links[#links + 1] = link(sample .. ":Out", magnitude .. ":In")
     links[#links + 1] = link(sample .. ":Out", delayed .. ":In")
     links[#links + 1] = link(delayed .. ":Out", output .. ":In 1")
-    links[#links + 1] = link("gain:Out", output .. ":In 2")
+    links[#links + 1] = link(applied_gain, output .. ":In 2")
 
     -- A max stage has eight ports. Carry its result into the next if needed.
     if port > 8 then
@@ -175,6 +312,9 @@ local function graph(channels, leveling)
   links[#links + 1] = link(maximum .. ":Out", "square:In 1")
   links[#links + 1] = link(maximum .. ":Out", "square:In 2")
   links[#links + 1] = link(maximum .. ":Out", "peak-delay:In")
+  if not leveling then
+    outputs = true_peak_guard(nodes, links, outputs, ceiling, meter)
+  end
   return Json.Object {
     nodes = Json.Array(nodes), links = Json.Array(links),
     inputs = Json.Array(inputs), outputs = Json.Array(outputs),
@@ -215,21 +355,51 @@ local function indexed_graph(channels, gain)
   }
 end
 
+local function profile_for(entry)
+  if not Settings.get_boolean(automatic_setting) or bypassed_apps[entry.app] == "false" then
+    return "bypass"
+  end
+  if entry.role == "notification" or entry.role == "event" then
+    return "notification"
+  end
+  if entry.role == "communication" or entry.role == "phone" then
+    return "call"
+  end
+  if Settings.get_boolean(night_setting) then
+    return "night"
+  end
+  return entry.indexed_gain and "indexed" or "live"
+end
+
+local function stream_change(current, profile, channels, meter)
+  if current and current.channels == channels and current.profile == profile and current.meter == meter then
+    return nil
+  end
+  return { channels = channels, profile = profile, meter = meter }
+end
+
 local function update_stream(entry)
-  local enabled = Settings.get_boolean(automatic_setting) and bypassed_apps[entry.app] ~= "false"
-  local channels = enabled and playback_channels(entry.node) or nil
-  if entry.channels == channels then
+  local profile = profile_for(entry)
+  local channels = profile ~= "bypass" and playback_channels(entry.node) or nil
+  local meter = channels and entry.meter and meter_ready() and entry.node["bound-id"] or nil
+  local next = stream_change(entry.applied, profile, channels, meter)
+  if not next then
     return
   end
   local description = Pod.None()
   if channels then
-    if entry.indexed_gain then
+    if profile == "indexed" then
       description = indexed_graph(channels, entry.indexed_gain):get_data()
+    elseif next.meter and profile ~= "notification" then
+      description = graph(channels, profile, next.meter):get_data()
     else
-      if not stream_graphs[channels] then
-        stream_graphs[channels] = graph(channels, true):get_data()
+      local key = profile .. "/" .. channels
+      if not stream_graphs[key] then
+        local filter = profile == "notification" and indexed_graph(channels, 0.5)
+          or graph(channels, profile)
+        stream_graphs[key] = filter:get_data()
       end
-      description = stream_graphs[channels]
+      description = stream_graphs[key]
     end
   end
   -- The stream's channel mixer applies its volume after this graph.
@@ -237,7 +407,7 @@ local function update_stream(entry)
     "Spa:Pod:Object:Param:Props", "Props",
     params = Pod.Struct { stream_graph_param, description },
   })
-  entry.channels = channels
+  entry.applied = next
 end
 
 app_metadata:activate(Features.ALL, function(metadata, fault)
@@ -263,11 +433,13 @@ app_metadata:activate(Features.ALL, function(metadata, fault)
   end)
 end)
 
-Settings.subscribe(automatic_setting, function()
+local function update_streams()
   for _, entry in pairs(streams) do
     update_stream(entry)
   end
-end)
+end
+Settings.subscribe(automatic_setting, update_streams)
+Settings.subscribe(night_setting, update_streams)
 
 local function is_output(properties)
   return properties["media.class"] == "Audio/Sink"
@@ -280,7 +452,7 @@ local function filter_name(serial)
   return "console.balance." .. serial
 end
 
-local function load_filter(entry)
+local function create_filter(entry, meter)
   local serial = entry.serial
   local name = filter_name(serial)
   local positions = output_positions(entry.node.properties)
@@ -290,7 +462,7 @@ local function load_filter(entry)
     ["node.name"] = name,
     ["node.description"] = "Balanced Playback",
     ["audio.position"] = Json.Array(positions),
-    ["filter.graph"] = graph(#positions, false),
+    ["filter.graph"] = graph(#positions, "output", meter),
     ["capture.props"] = Json.Object {
       ["node.name"] = name,
       ["media.class"] = "Audio/Sink",
@@ -309,6 +481,7 @@ local function load_filter(entry)
       ["node.dont-fallback"] = true,
       ["node.dont-move"] = true,
       ["channelmix.normalize"] = true,
+      ["resample.quality"] = 10,
       ["state.restore-props"] = false,
       ["state.default-volume"] = 1.0,
       ["media.role"] = "DSP",
@@ -317,6 +490,16 @@ local function load_filter(entry)
     },
   }
   entry.module = LocalModule("libpipewire-module-filter-chain", args:get_data(), {})
+end
+
+local function load_filter(entry)
+  if meter_ready() then
+    create_filter(entry, entry.node["bound-id"])
+    if entry.module then
+      return
+    end
+  end
+  create_filter(entry)
 end
 
 local function retry_filter(entry)
@@ -431,7 +614,9 @@ SimpleEventHook {
       local gain = tonumber(properties["console.balance.indexed-gain"])
       local entry = {
         node = node, app = app_key(properties),
+        role = (properties["media.role"] or ""):lower(),
         indexed_gain = gain and gain > 0 and gain <= 24 and gain or nil,
+        meter = properties["console.balance.meter-capable"] == "true",
       }
       streams[serial] = entry
       node:connect("pw-proxy-destroyed", function()

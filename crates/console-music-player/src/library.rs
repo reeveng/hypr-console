@@ -20,6 +20,8 @@
 
 use console_core_never::Never;
 use std::ffi::OsString;
+use std::io::{self, ErrorKind};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 const MUSIC: &str = "Music";
@@ -50,6 +52,62 @@ pub fn playable(at: &Path) -> Result<Playable, Never> {
   )
 }
 
+pub(crate) fn queueable(at: &Path) -> Result<Playable, Never> {
+  let Ok(kind) = playable(at);
+
+  match kind {
+    Playable::Yes => {}
+    Playable::No => return Ok(Playable::No),
+  }
+
+  let opened = at
+    .canonicalize()
+    .and_then(|path| console_core_atomic_writes::read_prefix(&path, 0));
+
+  Ok(match opened {
+    Ok(_checked_file) => Playable::Yes,
+    Err(fault) => {
+      console_core_logging::debug!("could not open song {}: {fault}", at.display());
+      Playable::No
+    }
+  })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DiskPresence {
+  Removed,
+  Retain,
+}
+
+pub fn disk_presence(path: &Path, device: u64) -> io::Result<DiskPresence> {
+  match path.symlink_metadata() {
+    Ok(_entry) => return Ok(DiskPresence::Retain),
+    Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+      Some(()) => {}
+      None => return Err(fault),
+    },
+  }
+
+  for parent in path.ancestors().skip(1) {
+    match parent.metadata() {
+      Ok(directory) => {
+        return Ok(
+          match (directory.is_dir() && directory.dev() == device).then_some(()) {
+            Some(()) => DiskPresence::Removed,
+            None => DiskPresence::Retain,
+          },
+        );
+      }
+      Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+        Some(()) => {}
+        None => return Err(fault),
+      },
+    }
+  }
+
+  Ok(DiskPresence::Retain)
+}
+
 pub fn songs_under(folder: &Path) -> Result<Vec<PathBuf>, Never> {
   let Ok(listing) = console_core_directory_listing::files(folder);
 
@@ -72,6 +130,52 @@ pub fn songs_under(folder: &Path) -> Result<Vec<PathBuf>, Never> {
         }
       })
       .collect(),
+  )
+}
+
+#[derive(Debug)]
+pub struct AlbumQueue {
+  pub tracks: Vec<PathBuf>,
+  pub first: u32,
+}
+
+pub fn album_argument(album: &AlbumQueue) -> Result<String, Never> {
+  use std::fmt::Write;
+
+  let mut argument = format!("{}\n", album.first);
+
+  for path in &album.tracks {
+    let Ok(url) = console_core_file_urls::url(path);
+    let _written = writeln!(argument, "{url}");
+  }
+
+  Ok(argument)
+}
+
+pub fn album_paths(argument: &str) -> Result<Option<AlbumQueue>, Never> {
+  let mut lines = argument.lines();
+  let first = match lines.next().map(str::parse::<u32>) {
+    Some(Ok(first)) => first,
+    Some(Err(_invalid_index)) => return Ok(None),
+    None => return Ok(None),
+  };
+  let mut tracks = Vec::new();
+
+  for line in lines {
+    let Ok(location) = console_core_file_urls::path(line);
+
+    match location.filter(|path| path.is_absolute()) {
+      Some(path) => tracks.push(path),
+      None => return Ok(None),
+    }
+  }
+
+  let Ok(at) = console_core_number_conversion::index(first);
+  Ok(
+    tracks
+      .get(at)
+      .is_some()
+      .then_some(AlbumQueue { tracks, first }),
   )
 }
 
@@ -148,6 +252,27 @@ pub fn said_in(file: &str) -> Result<Option<String>, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn queue_validation_follows_links_and_requires_a_readable_regular_file() -> std::io::Result<()>
+  {
+    let folder =
+      console_core_temporary_directories::private("queueable").map_err(std::io::Error::other)?;
+    let song = folder.join("song.opus");
+    let link = folder.join("link.opus");
+    let directory = folder.join("directory.opus");
+    console_core_atomic_writes::whole(&song, b"audio").map_err(std::io::Error::other)?;
+    std::os::unix::fs::symlink(&song, &link)?;
+    std::fs::create_dir(&directory)?;
+
+    assert_eq!(queueable(&song), Ok(Playable::Yes));
+    assert_eq!(queueable(&link), Ok(Playable::Yes));
+    assert_eq!(queueable(&directory), Ok(Playable::No));
+    assert_eq!(queueable(&folder.join("missing.opus")), Ok(Playable::No));
+    std::fs::remove_dir_all(folder)?;
+
+    Ok(())
+  }
 
   #[test]
   fn the_folder_is_under_the_home_it_belongs_to() {

@@ -53,11 +53,11 @@ use crate::light;
 use crate::network_code;
 use crate::rocker::{preview, sound_server};
 use crate::rows::{
-  Chosen, Languages, Opens, ScreenScale, SoundControls, adjustment, answer, automatic_leveling,
-  battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says,
-  engine_says, language_picker_rows, language_rows, meeting_rows, notifications_rows, place_rows,
-  region_rows, screen_rows, search_rows, security_rows, sound_effects, sound_rows, tabs,
-  wifi_rows, zone_rows,
+  Chosen, Languages, Opens, ScreenScale, SoundControls, adjustment, answer, battery_rows,
+  bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says, engine_says,
+  language_picker_rows, language_rows, meeting_rows, notifications_rows, place_rows,
+  playback_switch, region_rows, screen_rows, search_rows, security_rows, sound_effects,
+  sound_rows, tabs, wifi_rows, zone_rows,
 };
 use crate::wallpaper::{self, Edit, Found, Offered, wallpaper_rows};
 use crate::warm::{self, NightShift};
@@ -240,16 +240,22 @@ fn reset_app_volumes(
 }
 
 fn set_automatic_leveling(next: Switch) -> Result<(), Never> {
+  set_playback_switch(sound::AUTOMATIC_LEVELING, next)
+}
+
+fn set_night_mode(next: Switch) -> Result<(), Never> {
+  set_playback_switch(sound::NIGHT_MODE, next)
+}
+
+fn set_playback_switch(setting: &str, next: Switch) -> Result<(), Never> {
   let Ok(mut wpctl) = Program::Wpctl.command();
   let value = match next {
     Switch::On => "true",
     Switch::Off => "false",
   };
-  let response = wpctl
-    .args(["settings", "--save", sound::AUTOMATIC_LEVELING, value])
-    .output();
+  let response = wpctl.args(["settings", "--save", setting, value]).output();
 
-  report_leveling("automatic leveling", response)
+  report_leveling(setting, response)
 }
 
 fn set_app_leveling(key: &str, next: Switch) -> Result<(), Never> {
@@ -293,6 +299,7 @@ fn report_leveling(setting: &str, response: io::Result<CommandOutput>) -> Result
 const SINKS: &str = "sinks";
 const SPEAKERS: &str = "default sink";
 const LEVELING: &str = "automatic leveling";
+const NIGHT_MODE: &str = "night mode";
 
 fn run_and_note(note: &str, program: Program, arguments: &[&str]) -> Result<String, Never> {
   before::run_and_note(note, program, arguments)
@@ -315,11 +322,13 @@ fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
     Program::Wpctl,
     &["settings", sound::AUTOMATIC_LEVELING],
   );
+  let Ok(night) = run_and_note(NIGHT_MODE, Program::Wpctl, &["settings", sound::NIGHT_MODE]);
   sound_settings(SoundReadings {
     sinks: &sinks,
     playing: &playing,
     speakers: &speakers,
     leveling: &leveling,
+    night: &night,
   })
 }
 
@@ -327,11 +336,13 @@ fn sound_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(sinks) = last_output(SINKS);
   let Ok(speakers) = last_output(SPEAKERS);
   let Ok(leveling) = last_output(LEVELING);
+  let Ok(night) = last_output(NIGHT_MODE);
   sound_settings(SoundReadings {
     sinks: &sinks,
     playing: &[],
     speakers: &speakers,
     leveling: &leveling,
+    night: &night,
   })
 }
 
@@ -340,6 +351,7 @@ struct SoundReadings<'a> {
   playing: &'a [sound::Thing],
   speakers: &'a str,
   leveling: &'a str,
+  night: &'a str,
 }
 
 fn sound_settings(readings: SoundReadings<'_>) -> Result<Vec<console_panel::page::Row>, Never> {
@@ -348,6 +360,7 @@ fn sound_settings(readings: SoundReadings<'_>) -> Result<Vec<console_panel::page
     playing,
     speakers,
     leveling,
+    night,
   } = readings;
   let Ok(sinks_2) = sound::read(sinks);
   let bypassed = match {
@@ -389,10 +402,17 @@ fn sound_settings(readings: SoundReadings<'_>) -> Result<Vec<console_panel::page
 
   match sound::automatic_leveling(leveling) {
     Ok(Some(now)) => {
-      let Ok(row) = automatic_leveling(now, set_automatic_leveling);
+      let Ok(row) = playback_switch("Automatic Leveling", now, set_automatic_leveling);
       rows.push(row);
+      match (now, sound::automatic_leveling(night)) {
+        (Switch::On, Ok(Some(night))) => {
+          let Ok(row) = playback_switch("Night Mode", night, set_night_mode);
+          rows.push(row);
+        }
+        (Switch::Off, _) | (Switch::On, Ok(None)) => {}
+      }
     }
-    Ok(::core::option::Option::None) => {}
+    Ok(None) => {}
   }
 
   let Ok(effects) = SoundEffects::current();

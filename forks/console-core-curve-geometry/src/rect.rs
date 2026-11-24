@@ -731,11 +731,8 @@ impl Sub for Rect {
 
     #[inline]
     fn sub(self, other: Rect) -> Insets {
-        let x0 = other.x0 - self.x0;
-        let y0 = other.y0 - self.y0;
-        let x1 = self.x1 - other.x1;
-        let y1 = self.y1 - other.y1;
-        Insets { x0, y0, x1, y1 }
+        let Ok(edges) = self.bounds().expansion_from(other.bounds());
+        Insets::from(edges)
     }
 }
 

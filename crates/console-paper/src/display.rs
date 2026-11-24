@@ -5,7 +5,7 @@ use std::io;
 use std::os::fd::BorrowedFd;
 use std::time::Duration;
 
-use console_core_geometry::Size;
+use console_core_geometry::{CropMinimum, Rectangle, Size};
 use console_core_never::Never;
 use console_paper::NAMESPACE;
 use console_wayland::buffer::ShmBuffer;
@@ -299,8 +299,14 @@ impl Output {
     let Ok(memory_buffer) = buffer.memory.buffer();
     let proxy = memory_buffer.clone();
     self.surface.attach(Some(&proxy), 0, 0);
-    let Ok((left, top, width, height)) = cropped(drawing.size, logical);
-    self.viewport.set_source(left, top, width, height);
+    let Ok(destination) = logical.map(f64::from);
+    let Ok(crop) = Rectangle::centered_cover(drawing.size, destination, CropMinimum::OnePixel);
+    self.viewport.set_source(
+      crop.origin.x,
+      crop.origin.y,
+      crop.size.width,
+      crop.size.height,
+    );
     self.viewport.set_destination(logical.width, logical.height);
     self.surface.damage(0, 0, logical.width, logical.height);
 
@@ -377,15 +383,6 @@ impl Drop for Output {
       _ => {}
     }
   }
-}
-
-fn cropped(source: Size<u32>, target: Size<i32>) -> Result<(f64, f64, f64, f64), Never> {
-  let width = f64::from(source.width);
-  let height = f64::from(source.height);
-  let aspect = f64::from(target.width) / f64::from(target.height);
-  let across = width.min(height * aspect).max(1.0);
-  let down = height.min(width / aspect).max(1.0);
-  Ok(((width - across) * 0.5, (height - down) * 0.5, across, down))
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Outputs {

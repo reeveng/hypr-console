@@ -131,6 +131,8 @@ fn frames(tag: &Tag) -> Result<Vec<Written>, Never> {
         | ItemKey::AlbumArtist
         | ItemKey::TrackTitle
         | ItemKey::AlbumTitle
+        | ItemKey::TrackNumber
+        | ItemKey::DiscNumber
         | ItemKey::TrackSubtitle
         | ItemKey::Genre
         | ItemKey::Composer
@@ -169,6 +171,8 @@ fn frames(tag: &Tag) -> Result<Vec<Written>, Never> {
         | ItemKey::AlbumArtist
         | ItemKey::TrackTitle
         | ItemKey::AlbumTitle
+        | ItemKey::TrackNumber
+        | ItemKey::DiscNumber
         | ItemKey::TrackSubtitle
         | ItemKey::Genre
         | ItemKey::Composer
@@ -177,7 +181,10 @@ fn frames(tag: &Tag) -> Result<Vec<Written>, Never> {
         | ItemKey::Label,
         None,
       )
-      | (ItemKey::Year | ItemKey::Description | ItemKey::Performer, _) => {}
+      | (
+        ItemKey::Year | ItemKey::Description | ItemKey::Performer | ItemKey::MusicBrainzAlbumId,
+        _,
+      ) => {}
     }
   }
 

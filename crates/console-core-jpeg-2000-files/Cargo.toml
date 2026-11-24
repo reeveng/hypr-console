@@ -35,13 +35,6 @@ repository = "https://github.com/LaurenzV/hayro"
 default = [
     "std",
     "simd",
-    "image",
-]
-image = [
-    "dep:image",
-    "dep:console-core-bounded-reads",
-    "dep:moxcms",
-    "std",
 ]
 logging = ["dep:console-core-logging"]
 simd = [
@@ -57,27 +50,17 @@ path = "src/lib.rs"
 [dependencies.console-core-api-compatibility]
 workspace = true
 
+[dependencies.console-core-icc]
+workspace = true
+
 [dependencies.console-core-mq-decoding]
 path = "../console-core-mq-decoding"
-
-[dependencies.console-core-bounded-reads]
-path = "../console-core-bounded-reads"
-optional = true
 
 [dependencies.console-core-simd]
 workspace = true
 
-[dependencies.image]
-version = "0.25.10"
-optional = true
-default-features = false
-
 [dependencies.console-core-logging]
 workspace = true
-optional = true
-
-[dependencies.moxcms]
-version = "0.8.1"
 optional = true
 
 [lints]

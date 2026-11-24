@@ -3346,17 +3346,12 @@ impl Reader {
                 _ => None,
               })
               .chain(lone)
-              .any(|[from, to]| {
-                let Ok(away) = distance_to_segment(
-                  Point {
-                    x: f64::from(at.x),
-                    y: f64::from(at.y),
-                  },
-                  LineSegment {
-                    start: from,
-                    end: to,
-                  },
-                );
+              .any(|pair| {
+                let segment = LineSegment::from(pair);
+                let Ok(away) = segment.distance_to(Point {
+                  x: f64::from(at.x),
+                  y: f64::from(at.y),
+                });
 
                 away <= f64::from(reach)
               })
@@ -3462,24 +3457,6 @@ impl Reader {
 struct Rubbed {
   note: u32,
   stroke: u32,
-}
-
-fn distance_to_segment(at: Point<f64>, segment: LineSegment<f64>) -> Result<f64, Never> {
-  let from = segment.start;
-  let Ok(along) = segment.displacement();
-  let length = along.x.mul_add(along.x, along.y * along.y);
-  let share = match ::core::primitive::bool::then_some(length > 0.0, ()) {
-    ::core::option::Option::Some(()) => {
-      (((at.x - from.x) * along.x + (at.y - from.y) * along.y) / length).clamp(0.0, 1.0)
-    }
-    ::core::option::Option::None => 0.0,
-  };
-  let nearest = Point {
-    x: share.mul_add(along.x, from.x),
-    y: share.mul_add(along.y, from.y),
-  };
-
-  Ok((at.x - nearest.x).hypot(at.y - nearest.y))
 }
 
 fn relative(stroke: &Stroke, origin: Point<i32>, scale: Scale) -> Result<Stroke, Never> {

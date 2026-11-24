@@ -56,9 +56,9 @@ fn about(path: &Path) -> Result<Option<Thing>, Never> {
 
   let name = visible_name(called)?;
   let playable = playable(path)?;
-  let folder = match std::fs::metadata(path) {
+  let folder = match std::fs::symlink_metadata(path) {
     Ok(metadata) => metadata.is_dir(),
-    Err(_unavailable) => false,
+    Err(_unavailable) => return Ok(None),
   };
 
   match bool::then_some(folder, ()) {
@@ -69,6 +69,10 @@ fn about(path: &Path) -> Result<Option<Thing>, Never> {
     })),
     ::core::option::Option::None => match playable {
       Playable::Yes => {
+        match path.is_file().then_some(()) {
+          Some(()) => {}
+          None => return Ok(None),
+        }
         let named = console_core_file_names::title(&name)?;
 
         Ok(Some(Thing {

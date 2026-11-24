@@ -19,10 +19,22 @@ const LIST: Flag = Flag {
   about: "the word for every sound there is, one to a line",
 };
 
+const PREPARE_GAIN_METER: Flag = Flag {
+  spelling: "--prepare-gain-meter",
+  takes: Takes::None,
+  about: "install the gain meter for this PipeWire session",
+};
+
+const WATCH_GAIN: Flag = Flag {
+  spelling: "--watch-gain",
+  takes: Takes::None,
+  about: "show the live leveling and limiter gain in dB by PipeWire node",
+};
+
 const COMMAND: Command = Command {
   name: "console-sound-effect",
   about: "play SOUND from the catalogue, unless sound effects are off on the Sound tab",
-  flags: &[LIST],
+  flags: &[LIST, PREPARE_GAIN_METER, WATCH_GAIN],
   operands: Operands::Optional("SOUND"),
 };
 
@@ -37,6 +49,27 @@ fn main() -> ExitCode {
       return ExitCode::from(code);
     }
   };
+
+  let Ok(preparing) = line.presence(PREPARE_GAIN_METER);
+  let Ok(watching) = line.presence(WATCH_GAIN);
+
+  match (preparing, watching) {
+    (Presence::Present, Presence::Absent) => {
+      let Ok(code) = meter_result(console_sound_effects::gain::prepare());
+      return code;
+    }
+    (Presence::Absent, Presence::Present) => {
+      let Ok(code) = meter_result(console_sound_effects::gain::watch(
+        &mut std::io::stdout().lock(),
+      ));
+      return code;
+    }
+    (Presence::Present, Presence::Present) => {
+      eprintln!("console-sound-effect: use either --prepare-gain-meter or --watch-gain");
+      return ExitCode::from(2);
+    }
+    (Presence::Absent, Presence::Absent) => {}
+  }
 
   let Ok(listing) = line.presence(LIST);
 
@@ -94,4 +127,14 @@ fn main() -> ExitCode {
       ExitCode::FAILURE
     }
   }
+}
+
+fn meter_result(changed: std::io::Result<()>) -> Result<ExitCode, console_core_never::Never> {
+  Ok(match changed {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("console-sound-effect: {fault}");
+      ExitCode::FAILURE
+    }
+  })
 }

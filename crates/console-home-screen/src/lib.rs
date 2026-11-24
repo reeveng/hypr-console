@@ -24,10 +24,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::Stored;
+use console_core_geometry::Point;
 use console_screen::Shape as Standing;
 
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
+use console_core_vector::Vector2;
 use console_core_walking::Ring;
 
 const ONE_EMPTY_PANE: u32 = 1;
@@ -322,12 +324,12 @@ pub enum Touch {
 }
 
 pub fn classify_touch(from: (f64, f64), to: (f64, f64)) -> Result<Touch, Never> {
-  Ok(
-    match ::core::primitive::bool::then_some((to.0 - from.0).hypot(to.1 - from.1) <= DRIFT, ()) {
-      ::core::option::Option::Some(()) => Touch::Pressed,
-      ::core::option::Option::None => Touch::Travelled,
-    },
-  )
+  let Ok(shift) = Vector2::<f64>::between([Point::from(from), Point::from(to)]);
+  let Ok(distance) = shift.length();
+  Ok(match (distance <= DRIFT).then_some(()) {
+    ::core::option::Option::Some(()) => Touch::Pressed,
+    ::core::option::Option::None => Touch::Travelled,
+  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -406,12 +408,12 @@ pub enum Moved {
 }
 
 pub fn nudged(from: (f64, f64), to: (f64, f64)) -> Result<Moved, Never> {
-  Ok(
-    match ::core::primitive::bool::then_some((to.0 - from.0).hypot(to.1 - from.1) < A_HAIR, ()) {
-      ::core::option::Option::Some(()) => Moved::NotAtAll,
-      ::core::option::Option::None => Moved::Somewhere,
-    },
-  )
+  let Ok(shift) = Vector2::<f64>::between([Point::from(from), Point::from(to)]);
+  let Ok(distance) = shift.length();
+  Ok(match (distance < A_HAIR).then_some(()) {
+    ::core::option::Option::Some(()) => Moved::NotAtAll,
+    ::core::option::Option::None => Moved::Somewhere,
+  })
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -16,7 +16,6 @@ pub(crate) mod r#box;
 pub(crate) mod cdef;
 pub(crate) mod cmap;
 pub(crate) mod colr;
-pub(crate) mod icc;
 pub(crate) mod pclr;
 
 #[derive(Debug, Clone, Default)]

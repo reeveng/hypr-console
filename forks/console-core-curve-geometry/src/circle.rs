@@ -9,6 +9,10 @@ use core::{
     ops::{Add, Mul, Sub},
 };
 
+use console_core_circle::Circle as CoreCircle;
+use console_core_point::Point as Coordinates;
+use console_core_rectangle::Containment;
+
 use crate::{Affine, Arc, ArcAppendIter, Ellipse, PathEl, Point, Rect, Shape, Vec2};
 
 #[cfg(not(feature = "std"))]
@@ -61,6 +65,24 @@ impl Circle {
     #[inline]
     pub fn is_nan(&self) -> bool {
         self.center.is_nan() || self.radius.is_nan()
+    }
+}
+
+impl From<Circle> for CoreCircle<f64> {
+    fn from(circle: Circle) -> Self {
+        Self {
+            center: Coordinates::from(circle.center),
+            radius: circle.radius,
+        }
+    }
+}
+
+impl From<CoreCircle<f64>> for Circle {
+    fn from(circle: CoreCircle<f64>) -> Self {
+        Self {
+            center: Point::from(circle.center),
+            radius: circle.radius,
+        }
     }
 }
 
@@ -131,27 +153,29 @@ impl Shape for Circle {
 
     #[inline]
     fn area(&self) -> f64 {
-        PI * self.radius.powi(2)
+        let Ok(area) = CoreCircle::from(*self).area();
+        area
     }
 
     #[inline]
     fn perimeter(&self, _accuracy: f64) -> f64 {
-        (2.0 * PI * self.radius).abs()
+        let Ok(perimeter) = CoreCircle::from(*self).perimeter();
+        perimeter
     }
 
     fn winding(&self, pt: Point) -> i32 {
-        if (pt - self.center).hypot2() < self.radius.powi(2) {
-            1
-        } else {
-            0
+        let Ok(containment) = CoreCircle::from(*self).contains(Coordinates::from(pt));
+
+        match containment {
+            Containment::Inside => 1,
+            Containment::Outside => 0,
         }
     }
 
     #[inline]
     fn bounding_box(&self) -> Rect {
-        let r = self.radius.abs();
-        let (x, y) = self.center.into();
-        Rect::new(x - r, y - r, x + r, y + r)
+        let Ok(bounds) = CoreCircle::from(*self).bounds();
+        Rect::from_bounds(bounds)
     }
 
     #[inline(always)]

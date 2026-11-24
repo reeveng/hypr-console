@@ -10,9 +10,17 @@
 //! `width` and `height` give the extents, which saturate for integer coordinates.
 //! `intersect` clamps a disjoint axis to zero extent. `union` encloses both
 //! rectangles when the input bounds are normalized.
+//!
+//! [`Rectangle::centered_cover`] takes positive source and destination sizes.
+//! It gives the source region that fills the destination without stretching.
+//! [`CropMinimum::OnePixel`] preserves a nonempty viewport after quantization.
 
 #![no_std]
 #![forbid(unsafe_code)]
+
+mod insets;
+
+pub use insets::Insets;
 
 use console_core_never::Never;
 use console_core_point::Point;
@@ -28,6 +36,39 @@ pub struct Rectangle<T> {
 pub enum Containment {
   Inside,
   Outside,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CropMinimum {
+  Subpixel,
+  OnePixel,
+}
+
+impl Rectangle<f64> {
+  pub fn centered_cover(
+    source: Size<u32>,
+    destination: Size<f64>,
+    minimum: CropMinimum,
+  ) -> Result<Self, Never> {
+    let Ok(pixels) = source.map(f64::from);
+    let ratio = destination.width / destination.height;
+    let width = pixels.width.min(pixels.height * ratio);
+    let height = pixels.height.min(pixels.width / ratio);
+    let size = match minimum {
+      CropMinimum::Subpixel => Size { width, height },
+      CropMinimum::OnePixel => Size {
+        width: width.max(1.0),
+        height: height.max(1.0),
+      },
+    };
+    Ok(Self {
+      origin: Point {
+        x: (pixels.width - size.width) * 0.5,
+        y: (pixels.height - size.height) * 0.5,
+      },
+      size,
+    })
+  }
 }
 
 pub trait Coordinate: Copy + PartialOrd {
@@ -246,6 +287,39 @@ impl Bounds<f64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn centered_crop_preserves_each_callers_minimum_extent() {
+    let source = Size {
+      width: 4,
+      height: 2,
+    };
+    let destination = Size {
+      width: 0.25,
+      height: 1.0,
+    };
+
+    assert_eq!(
+      Rectangle::centered_cover(source, destination, CropMinimum::Subpixel),
+      Ok(Rectangle {
+        origin: Point { x: 1.75, y: 0.0 },
+        size: Size {
+          width: 0.5,
+          height: 2.0
+        }
+      })
+    );
+    assert_eq!(
+      Rectangle::centered_cover(source, destination, CropMinimum::OnePixel),
+      Ok(Rectangle {
+        origin: Point { x: 1.5, y: 0.0 },
+        size: Size {
+          width: 1.0,
+          height: 2.0
+        }
+      })
+    );
+  }
 
   #[test]
   fn floating_point_rectangles_keep_fractional_ends() {

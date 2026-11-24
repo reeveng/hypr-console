@@ -46,10 +46,17 @@ enum Leveling {
 }
 
 #[derive(Clone, Copy)]
+enum Transient {
+  Noise,
+  InterSample,
+}
+
+#[derive(Clone, Copy)]
 struct Playback<'a> {
   properties: &'a str,
   transients: &'a [Range<u32>],
   leveling: Leveling,
+  transient: Transient,
 }
 
 impl Playback<'_> {
@@ -57,6 +64,7 @@ impl Playback<'_> {
     properties: "{}",
     transients: &[],
     leveling: Leveling::Enabled,
+    transient: Transient::Noise,
   };
 }
 
@@ -71,18 +79,22 @@ struct Session {
 #[derive(Clone, Copy)]
 enum Log {
   Pipewire,
+  Pulse,
   Wireplumber,
   Monitor,
   Player,
+  Gain,
 }
 
 impl Log {
   fn filename(self) -> Result<&'static str, Never> {
     Ok(match self {
       Self::Pipewire => "pipewire.log",
+      Self::Pulse => "pulse.log",
       Self::Wireplumber => "wireplumber.log",
       Self::Monitor => "monitor.log",
       Self::Player => "player.log",
+      Self::Gain => "gain.log",
     })
   }
 }
@@ -117,6 +129,7 @@ impl Session {
       .env("PIPEWIRE_RUNTIME_DIR", &self.path)
       .env("PIPEWIRE_REMOTE", "pipewire-0")
       .env("PIPEWIRE_CONFIG_DIR", "/usr/share/pipewire")
+      .env("LADSPA_PATH", self.path.join("console-playback-gain"))
       .env(
         "DBUS_SESSION_BUS_ADDRESS",
         format!("unix:path={}/private-bus", self.path.display()),
@@ -143,9 +156,11 @@ impl Session {
   fn log_file(&self, log: Log) -> Result<PathBuf, Never> {
     Ok(match log {
       Log::Pipewire => self.path.join("pipewire.log"),
+      Log::Pulse => self.path.join("pulse.log"),
       Log::Wireplumber => self.path.join("wireplumber.log"),
       Log::Monitor => self.path.join("monitor.log"),
       Log::Player => self.path.join("player.log"),
+      Log::Gain => self.path.join("gain.log"),
     })
   }
 
@@ -179,7 +194,14 @@ impl Session {
   fn failure(&self, fault: io::Error) -> Result<io::Error, Never> {
     let mut report = fault.to_string();
 
-    for log in [Log::Pipewire, Log::Wireplumber, Log::Monitor, Log::Player] {
+    for log in [
+      Log::Pipewire,
+      Log::Pulse,
+      Log::Wireplumber,
+      Log::Monitor,
+      Log::Player,
+      Log::Gain,
+    ] {
       let Ok(path) = self.log_file(log);
       let Ok(name) = log.filename();
       let detail = match fs::read_to_string(path) {
@@ -253,18 +275,24 @@ fn noise() -> Result<Vec<f64>, Never> {
   Ok(samples)
 }
 
-fn fixture(levels: &[f64], transients: &[Range<u32>]) -> Result<Vec<u8>, Never> {
+fn fixture(levels: &[f64], variant: Playback<'_>) -> Result<Vec<u8>, Never> {
   let Ok(samples) = noise();
   let power = samples.iter().map(|sample| sample * sample).sum::<f64>();
   let rms = (power / f64::from(SEGMENT)).sqrt();
-  let impulses: BTreeSet<_> = transients.iter().cloned().flatten().collect();
+  let impulses: BTreeSet<_> = variant.transients.iter().cloned().flatten().collect();
   let mut playback = Vec::new();
   let mut frame = 0_u32;
 
   for &level in levels {
     for sample in &samples {
       let value = match impulses.contains(&frame).then_some(()) {
-        Some(()) => sample.signum(),
+        Some(()) => match variant.transient {
+          Transient::Noise => sample.signum(),
+          Transient::InterSample => match frame.wrapping_rem(4) {
+            0 | 1 => 1.0,
+            _ => -1.0,
+          },
+        },
         None => sample * level / rms,
       };
       let Ok(left) = narrow_f32(value);
@@ -278,6 +306,9 @@ fn fixture(levels: &[f64], transients: &[Range<u32>]) -> Result<Vec<u8>, Never> 
 }
 
 fn prepare(session: &mut Session, leveling: Leveling) -> io::Result<()> {
+  let Ok(mut installer) = session.command(env!("CARGO_BIN_EXE_console-sound-effect"));
+  let installed = installer.arg("--prepare-gain-meter").output()?;
+  command_succeeded(installed)?;
   let Ok(pipewire) = session.command("pipewire");
   session.start(Log::Pipewire, pipewire)?;
   let socket = session.path.join("pipewire-0");
@@ -318,7 +349,7 @@ fn prepare(session: &mut Session, leveling: Leveling) -> io::Result<()> {
 fn record(session: &mut Session, levels: &[f64], playback: Playback<'_>) -> io::Result<Vec<u8>> {
   prepare(session, playback.leveling)?;
   let source = session.path.join("playback.f32");
-  let Ok(fixture) = fixture(levels, playback.transients);
+  let Ok(fixture) = fixture(levels, playback);
   console_core_atomic_writes::whole(&source, &fixture).map_err(io::Error::other)?;
   let Ok(segments) = fitted::<_, u32>(levels.len());
   let record_frames = segments.saturating_mul(SEGMENT).saturating_add(RATE);
@@ -448,6 +479,68 @@ fn full_scale_surprises_stay_bounded_after_quiet_playback() -> io::Result<()> {
   }
 
   Ok(())
+}
+
+#[test]
+#[ignore = "starts a private WirePlumber and PipeWire session on a Linux host"]
+fn output_bounds_inter_sample_peaks_with_leveling_disabled() -> io::Result<()> {
+  let start = SEGMENT.saturating_mul(2);
+  let transients = [start..start.saturating_add(128)];
+  let samples = monitored(
+    "inter-sample",
+    &[NORMAL, SILENCE, SILENCE, SILENCE],
+    Playback {
+      transients: &transients,
+      transient: Transient::InterSample,
+      leveling: Leveling::Disabled,
+      ..Playback::DEFAULT
+    },
+  )?;
+  let slack = RATE.wrapping_div(100);
+  let burst = frame_range(
+    &samples,
+    start.saturating_sub(slack)..start.saturating_add(slack),
+  )?;
+  let Ok(peak) = reconstructed_peak(burst);
+  assert!(peak > 0.025, "the high-frequency burst was missing: {peak}");
+  assert!(
+    peak <= MIX_CEILING + 0.001,
+    "inter-sample peak reached {peak}"
+  );
+
+  Ok(())
+}
+
+fn reconstructed_peak(samples: &[StereoFrame]) -> Result<f64, Never> {
+  let mut peak = 0.0_f64;
+
+  for phase in 0..8 {
+    let mut coefficients = Vec::new();
+
+    for tap in 0..24 {
+      let age = f64::from(tap);
+      let x = age - 11.0 - f64::from(phase) / 8.0;
+      let sinc = match (phase, tap) {
+        (0, 11) => 1.0,
+        _ => (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x),
+      };
+      let taper = 0.5 - 0.5 * (std::f64::consts::TAU * age / 23.0).cos();
+      coefficients.push(sinc * taper);
+    }
+
+    let sum: f64 = coefficients.iter().sum();
+
+    for window in samples.windows(24) {
+      let mix = window
+        .iter()
+        .zip(&coefficients)
+        .map(|((left, _), weight)| left * weight)
+        .sum::<f64>();
+      peak = peak.max((mix / sum).abs());
+    }
+  }
+
+  Ok(peak)
 }
 
 fn frame_range(samples: &[StereoFrame], frames: Range<u32>) -> io::Result<&[StereoFrame]> {
@@ -656,4 +749,129 @@ fn indexed_playback_keeps_one_gain_across_quiet_and_loud_passages() -> io::Resul
     "last passage gained {last}"
   );
   Ok(())
+}
+
+#[test]
+#[ignore = "starts a private WirePlumber and PipeWire session on a Linux host"]
+fn live_gain_readout_tracks_attenuation_and_boost() -> io::Result<()> {
+  let mut session = Session::new("gain-meter")?;
+  exercise_gain_meter(&mut session, MeterPlayer::Native).map_err(|fault| {
+    let Ok(report) = session.failure(fault);
+    report
+  })
+}
+
+#[test]
+#[ignore = "starts a private WirePlumber, PipeWire and Pulse session on a Linux host"]
+fn pulse_streams_report_gain_without_application_configuration() -> io::Result<()> {
+  let mut session = Session::new("pulse-gain-meter")?;
+  exercise_gain_meter(&mut session, MeterPlayer::Pulse).map_err(|fault| {
+    let Ok(report) = session.failure(fault);
+    report
+  })
+}
+
+enum MeterPlayer {
+  Native,
+  Pulse,
+}
+
+fn pulse_meter(session: &mut Session) -> io::Result<Command> {
+  let config = session
+    .path
+    .join("pipewire/pipewire-pulse.conf.d/60-console-playback-gain.conf");
+  let installed = session
+    .files
+    .join("etc/pipewire/pipewire-pulse.conf.d/60-console-playback-gain.conf");
+  let bytes = fs::read(installed)?;
+  console_core_atomic_writes::whole_with_folders(&config, &bytes).map_err(io::Error::other)?;
+  let Ok(mut pulse) = session.command("pipewire-pulse");
+  let socket = session.path.join("pulse/native");
+  pulse
+    .env_remove("PIPEWIRE_CONFIG_DIR")
+    .env("PULSE_RUNTIME_PATH", session.path.join("pulse"));
+  session.start(Log::Pulse, pulse)?;
+  wait_for("private Pulse socket", || {
+    Ok(match socket.metadata() {
+      Ok(_) => Ready::Yes,
+      Err(_not_ready) => Ready::NotYet,
+    })
+  })?;
+  let Ok(mut player) = session.command("paplay");
+  player
+    .env("PULSE_SERVER", format!("unix:{}", socket.display()))
+    .args([
+      "--raw",
+      "--format=float32le",
+      "--rate=48000",
+      "--channels=2",
+      "--device=test-output",
+      "--stream-name=metered-pulse-player",
+      "--volume=32768",
+    ]);
+
+  Ok(player)
+}
+
+fn exercise_gain_meter(session: &mut Session, client: MeterPlayer) -> io::Result<()> {
+  let binary = env!("CARGO_BIN_EXE_console-sound-effect");
+  prepare(session, Leveling::Enabled)?;
+
+  let Ok(mut watcher) = session.command(binary);
+  let log = session.path.join("gain-readout");
+  let readout = fresh_stream(&log)?;
+  watcher.arg("--watch-gain").stdout(readout);
+  session.start(Log::Gain, watcher)?;
+
+  let samples = session.path.join("gain-fixture.f32");
+  let Ok(fixture) = fixture(&[LOUD, LOUD, LOUD, SOFT, SOFT, SOFT], Playback::DEFAULT);
+  console_core_atomic_writes::whole(&samples, &fixture).map_err(io::Error::other)?;
+
+  let mut player = match client {
+    MeterPlayer::Native => {
+      let Ok(mut player) = session.command("pw-cat");
+      player.arg("--playback").args(AUDIO).args([
+        "--target", "test-output", "--properties",
+        "{ node.name = metered-player console.balance.meter-capable = true state.default-volume = 0.125 }",
+        "-",
+      ]);
+      player
+    }
+    MeterPlayer::Pulse => pulse_meter(session)?,
+  };
+  let input = File::open(samples)?;
+  player.stdin(input);
+  session.start(Log::Player, player)?;
+  wait_for("observed boost and attenuation", || {
+    let report = match fs::read_to_string(&log) {
+      Ok(text) => text,
+      Err(_opening) => return Ok(Ready::NotYet),
+    };
+
+    let mut boost = false;
+    let mut attenuation = false;
+    let mut nodes = BTreeSet::new();
+
+    for line in report.lines().filter(|line| line.starts_with("Node ")) {
+      let mut columns = line.split_whitespace().skip(1);
+      let _inserted = nodes.insert(columns.next());
+      let reading = columns.next().map(str::parse::<f64>);
+
+      match reading {
+        Some(Ok(gain)) => {
+          boost |= gain > 10.0;
+          attenuation |= gain < -10.0;
+        }
+        Some(Err(_invalid_gain)) => {}
+        None => {}
+      }
+    }
+
+    Ok(
+      match (boost && attenuation && nodes.len() == 2).then_some(()) {
+        Some(()) => Ready::Yes,
+        None => Ready::NotYet,
+      },
+    )
+  })
 }

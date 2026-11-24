@@ -6,6 +6,7 @@ use crate::color::{ColorComponents, ColorSpace};
 use crate::util::{Nearness, RectExt};
 use console_core_never::Never;
 use console_core_number_conversion::{nearest_f32_from_f64, nearest_f32_from_u64};
+use console_core_point::Point as Coordinates;
 use console_core_portable_document_functions::{
   Function, Interpolation, PdfSample, Values, interpolate,
 };
@@ -19,6 +20,7 @@ use console_core_portable_document_syntax::object::dict::keys::{
   DECODE, DOMAIN, EXTEND, FUNCTION, MATRIX, SHADING_TYPE, VERTICES_PER_ROW,
 };
 use console_core_portable_document_syntax::object::{Object, PdfBoolean};
+use console_core_triangle::{Triangle as GeometryTriangle, Weights, Winding};
 use kurbo::{Affine, BezPath, CubicBez, ParamCurve, Point, Shape};
 use std::sync::Arc;
 
@@ -483,44 +485,35 @@ pub struct Triangle {
   pub p1: TriangleVertex,
 
   pub p2: TriangleVertex,
-  kurbo_tri: kurbo::Triangle,
-  dot_products: EdgeDotProducts,
 }
 
-#[derive(Clone, Debug)]
-struct EdgeDotProducts([f64; 3]);
+impl From<&Triangle> for GeometryTriangle<f64> {
+  fn from(triangle: &Triangle) -> Self {
+    Self::from([triangle.p0.point, triangle.p1.point, triangle.p2.point].map(Coordinates::from))
+  }
+}
 
 impl Triangle {
-  pub fn new(
-    p0: TriangleVertex,
-    p1: TriangleVertex,
-    p2: TriangleVertex,
-  ) -> core::result::Result<Self, console_core_never::Never> {
-    let v0 = p1.point - p0.point;
-    let v1 = p2.point - p0.point;
-
-    let d00 = v0.dot(v0);
-    let d01 = v0.dot(v1);
-    let d11 = v1.dot(v1);
-
-    let kurbo_tri = kurbo::Triangle::new(p0.point, p1.point, p2.point);
-
-    Ok(Self {
-      p0,
-      p1,
-      kurbo_tri,
-      p2,
-      dot_products: EdgeDotProducts([d00, d01, d11]),
-    })
+  pub fn new(p0: TriangleVertex, p1: TriangleVertex, p2: TriangleVertex) -> Result<Self, Never> {
+    Ok(Self { p0, p1, p2 })
   }
 
-  pub fn interpolate(
-    &self,
-    pos: Point,
-  ) -> core::result::Result<ColorComponents, console_core_never::Never> {
-    let Ok((u, v, w)) = self.barycentric_coords(pos);
+  pub fn interpolate(&self, pos: Point) -> Result<ColorComponents, Never> {
+    let shape = GeometryTriangle::from(self);
+    let Ok(prepared) = shape.barycentric();
+    let Ok(weights) = prepared.weights_at(Coordinates::from(pos));
 
-    let mut result = vec![];
+    self.interpolate_weights(weights)
+  }
+
+  pub(crate) fn interpolate_weights(
+    &self,
+    weights: Weights<f64>,
+  ) -> Result<ColorComponents, Never> {
+    let Ok(first) = nearest_f32_from_f64(weights.first);
+    let Ok(second) = nearest_f32_from_f64(weights.second);
+    let Ok(third) = nearest_f32_from_f64(weights.third);
+    let mut result = Vec::new();
 
     for ((c0, c1), c2) in self
       .p0
@@ -529,57 +522,24 @@ impl Triangle {
       .zip(&self.p1.colors)
       .zip(&self.p2.colors)
     {
-      result.push(u * c0 + v * c1 + w * c2);
+      result.push(first * c0 + second * c1 + third * c2);
     }
 
     Ok(result)
   }
 
-  pub fn contains_point(
-    &self,
-    pos: Point,
-  ) -> core::result::Result<crate::Containment, console_core_never::Never> {
-    Ok(
-      match ::core::primitive::bool::then_some(self.kurbo_tri.winding(pos) != 0, ()) {
-        ::core::option::Option::Some(()) => crate::Containment::Inside,
-        ::core::option::Option::None => crate::Containment::Outside,
-      },
-    )
+  pub fn contains_point(&self, pos: Point) -> Result<crate::Containment, Never> {
+    let Ok(winding) = GeometryTriangle::from(self).winding(Coordinates::from(pos));
+
+    Ok(match winding {
+      Winding::Positive | Winding::Negative => crate::Containment::Inside,
+      Winding::Outside => crate::Containment::Outside,
+    })
   }
 
-  pub fn bounding_box(&self) -> core::result::Result<kurbo::Rect, console_core_never::Never> {
-    Ok(self.kurbo_tri.bounding_box())
-  }
-
-  fn barycentric_coords(
-    &self,
-    p: Point,
-  ) -> core::result::Result<(f32, f32, f32), console_core_never::Never> {
-    let (a, b, c) = (self.p0.point, self.p1.point, self.p2.point);
-    let v0 = b - a;
-    let v1 = c - a;
-    let v2 = p - a;
-
-    let EdgeDotProducts([d00, d01, d11]) = self.dot_products;
-    let d20 = v2.dot(v0);
-    let d21 = v2.dot(v1);
-
-    let cross_term_squared = d01 * d01;
-    let denom = d00 * d11 - cross_term_squared;
-    let v = (d11 * d20 - d01 * d21) / denom;
-    let w = (d00 * d21 - d01 * d20) / denom;
-    let ::core::result::Result::Ok(u) =
-      ::console_core_number_conversion::nearest_f32_from_f64(1.0 - v - w);
-
-    Ok((
-      u,
-      match ::console_core_number_conversion::nearest_f32_from_f64(v) {
-        ::core::result::Result::Ok(_converted_number) => _converted_number,
-      },
-      match ::console_core_number_conversion::nearest_f32_from_f64(w) {
-        ::core::result::Result::Ok(_converted_number) => _converted_number,
-      },
-    ))
+  pub fn bounding_box(&self) -> Result<kurbo::Rect, Never> {
+    let Ok(bounds) = GeometryTriangle::from(self).bounds();
+    Ok(kurbo::Rect::from_bounds(bounds))
   }
 }
 
@@ -957,7 +917,8 @@ fn neighbors<T>(items: &[T]) -> Result<impl Iterator<Item = (&T, &T)>, Never> {
 
 fn inflate_triangle(mut triangle: Triangle) -> Result<Triangle, Never> {
   const INFLATION_FACTOR: f64 = 1.025;
-  let middle = triangle.kurbo_tri.centroid();
+  let Ok(center) = GeometryTriangle::from(&triangle).centroid();
+  let middle = Point::from(center);
 
   for vertex in [&mut triangle.p0, &mut triangle.p1, &mut triangle.p2] {
     vertex.point = middle + (vertex.point - middle) * INFLATION_FACTOR;

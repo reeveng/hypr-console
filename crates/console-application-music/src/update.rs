@@ -18,7 +18,7 @@
 //! means the same as pressing it out of off.
 
 use console_core_internal_programs::InternalProgram;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{Command, Effect, Event};
@@ -26,7 +26,8 @@ use console_program_contract::{Command, Effect, Event};
 use console_core_never::Never;
 
 use crate::library::Kind;
-use crate::player::{self, Order, Over};
+use crate::management::{Management, Request as ManagementRequest, Work};
+use crate::player::{Order, Over};
 
 pub const PLAY: u32 = 2;
 
@@ -49,6 +50,7 @@ pub struct Standing {
   pub typed: String,
   pub read: Read,
   pub press: u32,
+  pub management: Management,
 }
 
 impl Default for Standing {
@@ -57,6 +59,7 @@ impl Default for Standing {
       typed: String::new(),
       read: Read::NotYet,
       press: PLAY,
+      management: Management::default(),
     }
   }
 }
@@ -71,6 +74,7 @@ pub enum MusicEvent {
   Repeating(Over),
   Chose { path: PathBuf, kind: Kind },
   Shown(PathBuf),
+  Manage(ManagementRequest),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +84,8 @@ pub enum MusicEffect {
   ForgetTyping,
   Shuffle(Order),
   Repeat(Over),
+  Manage(Work),
+  Play(PathBuf),
 }
 
 impl EffectDependencies for MusicEffect {
@@ -87,6 +93,16 @@ impl EffectDependencies for MusicEffect {
     Ok(match self {
       Self::Replace(_) | Self::Note(_) | Self::ForgetTyping => &[Service::Panels],
       Self::Shuffle(_) | Self::Repeat(_) => &[Service::MediaPlayer, Service::Panels],
+      Self::Play(_) => &[Service::FileSystem, Service::MediaPlayer, Service::Process],
+      Self::Manage(work) => match work {
+        Work::FocusFirst | Work::Redraw => &[Service::Panels],
+        Work::Refresh { .. } => &[Service::FileSystem, Service::Process],
+        Work::Cover { .. } | Work::SearchSong { .. } => {
+          &[Service::FileSystem, Service::Network, Service::Process]
+        }
+        Work::Select { .. } | Work::ConfirmSong { .. } => &[Service::FileSystem],
+        Work::PlayAlbum(_) => &[Service::MediaPlayer, Service::Process],
+      },
     })
   }
 }
@@ -232,12 +248,26 @@ fn decide(
     MusicEvent::Chose {
       path,
       kind: _the_player_is_told_the_library_either_way,
-    } => {
-      let Ok(playing) = playing(path);
+    } => Transition::new(
+      state.clone(),
+      vec![Effect::Custom(MusicEffect::Play(path.clone()))],
+    ),
 
-      Transition::new(state.clone(), playing)
+    MusicEvent::Manage(request) => {
+      let Ok((management, work)) = state.management.clone().update(request.clone());
+      let effects = work
+        .into_iter()
+        .map(|work| Effect::Custom(MusicEffect::Manage(work)))
+        .collect();
+
+      Transition::new(
+        Standing {
+          management,
+          ..state.clone()
+        },
+        effects,
+      )
     }
-
     MusicEvent::Shown(path) => match path.to_str() {
       Some(text) => {
         let Ok(files) = Command::internal(FILES, &[text]);
@@ -278,18 +308,6 @@ fn along(presses: ButtonPress, by: i32) -> Result<u32, Never> {
     ::core::option::Option::Some(()) => presses.at.saturating_sub(step),
     ::core::option::Option::None => presses.at.saturating_add(step).min(last),
   })
-}
-
-fn playing(path: &Path) -> Result<Vec<Effect<MusicEffect>>, Never> {
-  let Ok(under) = crate::library::folder();
-  let opening = player::opening_words(path, &under)?;
-  let words: Vec<&str> = opening.iter().map(String::as_str).collect();
-  let onward = player::onward_for(path)?;
-  let onward_words: Vec<&str> = onward.iter().skip(1).map(String::as_str).collect();
-  let Ok(player) = Command::internal(InternalProgram::MusicPlayer, &words);
-  let Ok(continued) = Command::internal(ONWARD, &onward_words);
-
-  Ok(vec![Effect::Spawn(player), Effect::Run(continued)])
 }
 
 fn how_many(unread: u32) -> Result<String, Never> {
@@ -450,17 +468,13 @@ mod tests {
   }
 
   #[test]
-  fn playing_a_song_starts_the_player_and_then_asks_what_comes_after_it() {
-    let Ok(after) = said(&[MusicEvent::Chose {
-      path: PathBuf::from("/music/blue-monday.flac"),
+  fn choosing_a_song_offers_playback_for_that_exact_path() {
+    let path = PathBuf::from("/music/blue-monday.flac");
+    let Ok(effects) = answered(&[MusicEvent::Chose {
+      path: path.clone(),
       kind: Kind::ASong,
     }]);
 
-    let Ok(onward) = Command::internal(ONWARD, &["/music/blue-monday.flac"]);
-
-    let Ok(effects) = after.effects();
-
-    assert_eq!(effects.last(), Some(&Effect::Run(onward)));
-    assert!(matches!(effects.first(), Some(Effect::Spawn(_))));
+    assert_eq!(effects, [Effect::Custom(MusicEffect::Play(path))]);
   }
 }

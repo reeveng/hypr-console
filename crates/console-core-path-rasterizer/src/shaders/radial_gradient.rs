@@ -1,7 +1,9 @@
 use alloc::vec::Vec;
 
+use console_core_circle::Circle;
 use console_core_never::Never;
 use console_core_paths::{Scalar, ScalarProximity, ScaleFactors};
+use console_core_point::Point as Coordinates;
 
 use crate::{ColorSpace, GradientStop, Point, Shader, SpreadMode, Transform};
 
@@ -262,50 +264,23 @@ impl RadialGradient {
         stops.clear();
         stops.extend([first, mid, last]);
 
-        Self::new_radial_unchecked(
-          Circle {
-            center: start_point,
-            radius: PixelDistance(end_radius),
-          },
-          stops,
-          mode,
-          transform,
-        )
+        let Ok(circle) = Circle::new(Coordinates::from(start_point), end_radius);
+        Self::new_radial_unchecked(circle, stops, mode, transform)
       }
       (ScalarProximity::WithinTolerance, _, ScalarProximity::WithinTolerance) => {
-        Self::new_radial_unchecked(
-          Circle {
-            center: start_point,
-            radius: PixelDistance(end_radius),
-          },
-          stops,
-          mode,
-          transform,
-        )
+        let Ok(circle) = Circle::new(Coordinates::from(start_point), end_radius);
+        Self::new_radial_unchecked(circle, stops, mode, transform)
       }
-      _ => create(
-        [
-          Circle {
-            center: start_point,
-            radius: PixelDistance(start_radius),
-          },
-          Circle {
-            center: end_point,
-            radius: PixelDistance(end_radius),
-          },
-        ],
-        stops,
-        mode,
-        transform,
-      ),
+      _ => {
+        let Ok(first) = Circle::new(Coordinates::from(start_point), start_radius);
+        let Ok(last) = Circle::new(Coordinates::from(end_point), end_radius);
+        create([first, last], stops, mode, transform)
+      }
     }
   }
 
   fn new_radial_unchecked(
-    Circle {
-      center,
-      radius: PixelDistance(radius),
-    }: Circle,
+    Circle { center, radius }: Circle<f32>,
     stops: Vec<GradientStop>,
     mode: SpreadMode,
     transform: Transform,
@@ -477,31 +452,16 @@ impl RadialGradient {
   }
 }
 
-#[derive(Clone, Copy)]
-#[cfg_attr(
-  dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(
-    explicit067_no_unit_less_quantity,
-    reason = "the radius is a length in path coordinate units"
-  )
-)]
-struct PixelDistance(f32);
-
-struct Circle {
-  center: Point,
-  radius: PixelDistance,
-}
-
 fn create(
-  [first, last]: [Circle; 2],
+  [first, last]: [Circle<f32>; 2],
   stops: Vec<GradientStop>,
   mode: SpreadMode,
   transform: Transform,
 ) -> Result<Option<Shader<'static>>, Never> {
-  let c0 = first.center;
-  let c1 = last.center;
-  let PixelDistance(r0) = first.radius;
-  let PixelDistance(r1) = last.radius;
+  let c0 = Point::from(first.center);
+  let c1 = Point::from(last.center);
+  let r0 = first.radius;
+  let r1 = last.radius;
   let Ok(distance) = (c0 - c1).length();
 
   let (gradient_type, matrix) = match distance.is_nearly_zero() {

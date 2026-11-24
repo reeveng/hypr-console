@@ -5,10 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+std = ["console-core-vector/std"]
+
 [dependencies]
 console-core-never.workspace = true
 console-core-point.workspace = true
 console-core-rectangle.workspace = true
+console-core-vector.workspace = true
 
 [lints]
 workspace = true

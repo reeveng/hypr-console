@@ -1,12 +1,6 @@
 //! The named states a decoder or container reports.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Registration {
-  AlreadyPresent,
-  Installed,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Significance {
   Insignificant,
   Significant,

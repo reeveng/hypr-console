@@ -4,7 +4,7 @@
 
 mod catalogue;
 mod packages;
-mod scene;
+mod view;
 
 use std::cmp::Ordering;
 use std::convert::Infallible;
@@ -24,9 +24,10 @@ use console_draw_surface::{
 };
 use console_input_text::{InputDeletion, TextField, Typed};
 use console_package_manager::user::{self, Profile};
+use console_panel::canvas::{AreaLayout, FocusDirection};
 use console_program_lifetime::threads::let_go;
 use packages::{Local, Matches};
-use scene::{FocusDirection, Frame, Theme};
+use view::{Frame, Theme};
 
 const APP_ID: &str = "console-application-software-store";
 const WINDOW: Size<u32> = Size {
@@ -777,7 +778,7 @@ impl Shop {
           Some(()) => FocusDirection::Previous,
           None => FocusDirection::Next,
         };
-        let Ok(tab) = frame.tab(self.focus, direction);
+        let Ok(tab) = frame.canvas.targets.tab(self.focus, direction);
         self.focus = tab;
         return Ok(WindowFlow::Stay);
       }
@@ -911,7 +912,10 @@ impl Shop {
     frame: &Frame,
   ) -> core::result::Result<(), core::convert::Infallible> {
     {
-      self.scroll = self.scroll.saturating_add(by).clamp(0, frame.max_scroll);
+      self.scroll = self
+        .scroll
+        .saturating_add(by)
+        .clamp(0, frame.canvas.max_scroll);
     };
 
     Ok(())
@@ -1104,31 +1108,20 @@ impl StoreWindow {
       None => {}
     }
 
-    let Ok(frame) = scene::draw(&self.shop, room, &self.theme);
+    let Ok(frame) = view::draw(&self.shop, room, &self.theme);
     self.frame = frame;
 
-    match self.shop.scroll.cmp(&self.frame.max_scroll) {
+    match self.shop.scroll.cmp(&self.frame.canvas.max_scroll) {
       Ordering::Greater => {
-        self.shop.scroll = self.frame.max_scroll;
-        let Ok(scrolled) = scene::draw(&self.shop, room, &self.theme);
+        self.shop.scroll = self.frame.canvas.max_scroll;
+        let Ok(scrolled) = view::draw(&self.shop, room, &self.theme);
         self.frame = scrolled;
       }
       Ordering::Less | Ordering::Equal => {}
     }
 
-    self.surface.draw(|pixels, device, _| {
-      let size = console_draw_painting::Frame {
-        device,
-        points: room,
-      };
-
-      match console_draw_painting::onto(pixels, size, &self.frame.shapes) {
-        Ok(()) => {}
-        Err(fault) => console_core_logging::warn!("store window: {fault}"),
-      }
-
-      Ok(())
-    })?;
+    let painted = self.frame.canvas.paint(&mut self.surface, room);
+    painted?;
     let Ok(state) = self.shop.input_state(&self.frame);
     self.surface.set_text_input(state)?;
     self.drawing = drawing;
@@ -1168,7 +1161,7 @@ impl StoreWindow {
   }
 
   fn pointer_down(&mut self, point: Point<f64>) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(target) = self.frame.hit(point);
+    let Ok(target) = self.frame.canvas.targets.action(point);
     self.gesture = Some(Gesture {
       start: point,
       last: point,
@@ -1186,7 +1179,7 @@ impl StoreWindow {
   }
 
   fn pointer_moved(&mut self, point: Point<f64>) -> Result<(), Infallible> {
-    let Ok(target) = self.frame.hit(point);
+    let Ok(target) = self.frame.canvas.targets.action(point);
 
     match (target != self.shop.hover).then_some(()) {
       Some(()) => self.drawing = Drawing::Pending,
@@ -1198,9 +1191,8 @@ impl StoreWindow {
       Some(gesture) => gesture,
       None => return Ok(()),
     };
-    let started = (gesture.start.x, gesture.start.y);
     let scrollable = self.shop.overlay.is_none()
-      && self.frame.scroll_area.hit(started) == Ok(Containment::Inside);
+      && self.frame.scroll_area.contains_point(gesture.start) == Ok(Containment::Inside);
     let distant = (gesture.start.y - point.y).abs() > 10.0;
 
     match (scrollable, gesture.drag, distant) {
@@ -1237,7 +1229,7 @@ impl StoreWindow {
       }
     };
     let (target, last) = gesture;
-    let Ok(hit) = self.frame.hit(last);
+    let Ok(hit) = self.frame.canvas.targets.action(last);
 
     match (hit == Some(target)).then_some(()) {
       Some(()) => {
@@ -1283,30 +1275,59 @@ mod tests {
   use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
   #[test]
-  fn browse_scene_draws_and_opens_the_obs_feature() -> Result<(), Box<dyn std::error::Error>> {
+  fn browse_view_draws_and_opens_the_obs_feature() -> Result<(), Box<dyn std::error::Error>> {
     let mut shop = Shop::new()?;
     shop.nix_available = Installed::Yes;
     let theme = Theme::new()?;
-    let Ok(frame) = scene::draw(&shop, WINDOW, &theme);
-    let Ok(hit) = frame.hit(Point { x: 264.0, y: 376.0 });
+    let Ok(frame) = view::draw(&shop, WINDOW, &theme);
+    let Ok(hit) = frame.canvas.targets.action(Point { x: 264.0, y: 376.0 });
     let featured = hit.ok_or("Missing OBS feature")?;
     assert_eq!(featured, Action::Featured);
-    let Ok(tab) = Frame::default().tab(None, FocusDirection::Next);
+    let Ok(tab) = Frame::default()
+      .canvas
+      .targets
+      .tab(None, FocusDirection::Next);
     assert_eq!(tab, None);
-    let Ok(frame_tab) = frame.tab(None, FocusDirection::Next);
+    let Ok(frame_tab) = frame.canvas.targets.tab(None, FocusDirection::Next);
     let first = frame_tab.ok_or("Missing first focusable control")?;
-    let Ok(frame_end) = frame.tab(None, FocusDirection::Previous);
+    let Ok(frame_end) = frame.canvas.targets.tab(None, FocusDirection::Previous);
     let last = frame_end.ok_or("Missing last focusable control")?;
-    let Ok(wrapped_next) = frame.tab(Some(last), FocusDirection::Next);
-    let Ok(wrapped_previous) = frame.tab(Some(first), FocusDirection::Previous);
+    let Ok(wrapped_next) = frame.canvas.targets.tab(Some(last), FocusDirection::Next);
+    let Ok(wrapped_previous) = frame
+      .canvas
+      .targets
+      .tab(Some(first), FocusDirection::Previous);
     assert_eq!(wrapped_next, Some(first));
     assert_eq!(wrapped_previous, Some(last));
     check_painting(&frame)?;
 
     let Ok(_flow) = shop.action(featured);
     assert!(
-      matches!(shop.overlay, Some(Overlay::Package(row)) if row.installable.attribute == "obs-studio")
+      matches!(&shop.overlay, Some(Overlay::Package(row)) if row.installable.attribute == "obs-studio")
     );
+    let Ok(dialog) = view::draw(&shop, WINDOW, &theme);
+    let Ok(back) = dialog.canvas.targets.action(Point { x: 780.0, y: 280.0 });
+    assert_eq!(back, Some(Action::Back));
+    Ok(())
+  }
+
+  #[test]
+  fn focused_search_keeps_its_caret_and_clear_target() -> Result<(), Box<dyn std::error::Error>> {
+    let mut shop = Shop::new()?;
+    let Ok(query) = TextField::holding("obs");
+    shop.query = query;
+    shop.focus = Some(Action::Search);
+    shop.preedit = " studio".to_owned();
+    let theme = Theme::new()?;
+    let Ok(frame) = view::draw(&shop, WINDOW, &theme);
+    let Ok(input) = shop.input_state(&frame);
+    let state = input.ok_or("Search text input is inactive")?;
+    assert!(state.cursor.is_some());
+
+    let Ok(search) = frame.canvas.targets.action(Point { x: 265.0, y: 40.0 });
+    let Ok(clear) = frame.canvas.targets.action(Point { x: 840.0, y: 40.0 });
+    assert_eq!(search, Some(Action::Search));
+    assert_eq!(clear, Some(Action::ClearSearch));
     Ok(())
   }
 
@@ -1331,7 +1352,7 @@ mod tests {
         device: WINDOW,
         points: WINDOW,
       },
-      &frame.shapes,
+      &frame.canvas.shapes,
     )?;
     let (rgba, _) = pixels.as_chunks::<4>();
     assert!(rgba.iter().all(|[_, _, _, alpha]| *alpha == 255));

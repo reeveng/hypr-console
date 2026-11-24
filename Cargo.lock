@@ -440,12 +440,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "byteorder-lite"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
-
-[[package]]
 name = "camino"
 version = "1.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -893,10 +887,12 @@ dependencies = [
  "console-bus",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-external-programs",
  "console-core-file-names",
  "console-core-file-urls",
  "console-core-internal-programs",
  "console-core-iteration",
+ "console-core-jpeg-files",
  "console-core-localization",
  "console-core-logging",
  "console-core-never",
@@ -958,7 +954,6 @@ dependencies = [
  "console-core-atomic-writes",
  "console-core-color",
  "console-core-external-programs",
- "console-core-fonts",
  "console-core-geometry",
  "console-core-iteration",
  "console-core-logging",
@@ -1635,6 +1630,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-circle"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
+ "console-core-rectangle",
+]
+
+[[package]]
 name = "console-core-color"
 version = "0.1.0"
 dependencies = [
@@ -1663,13 +1667,17 @@ dependencies = [
 name = "console-core-curve-geometry"
 version = "0.13.1"
 dependencies = [
+ "console-core-circle",
  "console-core-fixed-capacity-vectors",
  "console-core-line",
+ "console-core-never",
  "console-core-point",
  "console-core-polynomial-roots",
  "console-core-rectangle",
  "console-core-size",
  "console-core-transform",
+ "console-core-triangle",
+ "console-core-vector",
  "euclid",
  "libm",
 ]
@@ -1899,6 +1907,8 @@ dependencies = [
  "console-core-point",
  "console-core-rectangle",
  "console-core-size",
+ "console-core-triangle",
+ "console-core-vector",
 ]
 
 [[package]]
@@ -1928,6 +1938,14 @@ dependencies = [
  "console-core-geometry",
  "console-core-never",
  "console-core-number-conversion",
+]
+
+[[package]]
+name = "console-core-icc"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "moxcms",
 ]
 
 [[package]]
@@ -1977,7 +1995,7 @@ name = "console-core-jpeg-2000-files"
 version = "0.3.5"
 dependencies = [
  "console-core-api-compatibility",
- "console-core-bounded-reads",
+ "console-core-icc",
  "console-core-logging",
  "console-core-mq-decoding",
  "console-core-never",
@@ -1985,8 +2003,6 @@ dependencies = [
  "console-core-point",
  "console-core-simd",
  "console-core-size",
- "image",
- "moxcms",
 ]
 
 [[package]]
@@ -2008,6 +2024,7 @@ dependencies = [
  "console-core-never",
  "console-core-point",
  "console-core-rectangle",
+ "console-core-vector",
 ]
 
 [[package]]
@@ -2295,6 +2312,7 @@ dependencies = [
  "cfg-if",
  "console-core-api-compatibility",
  "console-core-atomic-writes",
+ "console-core-circle",
  "console-core-curve-geometry",
  "console-core-fixed-capacity-vectors",
  "console-core-logging",
@@ -2321,6 +2339,7 @@ dependencies = [
  "console-core-rectangle",
  "console-core-size",
  "console-core-transform",
+ "console-core-vector",
  "libm",
 ]
 
@@ -2424,18 +2443,22 @@ version = "0.7.0"
 dependencies = [
  "bitflags",
  "console-core-character-maps",
+ "console-core-circle",
  "console-core-curve-geometry",
  "console-core-font-encodings",
  "console-core-font-metrics",
  "console-core-glyph-names",
+ "console-core-icc",
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-perfect-hash",
+ "console-core-point",
  "console-core-portable-document-functions",
  "console-core-portable-document-syntax",
  "console-core-size",
- "moxcms",
+ "console-core-triangle",
+ "console-core-vector",
  "siphasher",
  "yoke",
 ]
@@ -2787,11 +2810,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-core-triangle"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
+ "console-core-rectangle",
+ "console-core-vector",
+]
+
+[[package]]
 name = "console-core-urls"
 version = "0.3.2"
 dependencies = [
  "console-core-never",
  "console-core-percent-decoding",
+]
+
+[[package]]
+name = "console-core-vector"
+version = "0.1.0"
+dependencies = [
+ "console-core-never",
+ "console-core-point",
 ]
 
 [[package]]
@@ -3184,6 +3225,7 @@ dependencies = [
  "console-core-number-conversion",
  "console-core-places",
  "console-core-shapes",
+ "console-core-vector",
  "console-core-walking",
  "console-core-words",
  "console-draw-painting",
@@ -3758,6 +3800,7 @@ dependencies = [
  "console-core-audio-decoding",
  "console-core-audio-decoding-opus",
  "console-core-audio-metadata",
+ "console-core-checksums",
  "console-core-directory-listing",
  "console-core-external-programs",
  "console-core-file-urls",
@@ -3767,6 +3810,7 @@ dependencies = [
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
+ "console-core-state-machine",
  "console-core-temporary-directories",
  "console-core-words",
  "console-operating-system-linux",
@@ -4354,6 +4398,7 @@ dependencies = [
  "console-audio-streams",
  "console-core-arguments",
  "console-core-atomic-writes",
+ "console-core-iteration",
  "console-core-never",
  "console-core-number-conversion",
  "console-core-places",
@@ -4667,6 +4712,7 @@ dependencies = [
  "console-core-logging",
  "console-core-never",
  "console-core-number-conversion",
+ "console-core-vector",
  "console-input-key-symbols",
  "console-input-keymaps",
  "console-response-times",
@@ -5348,18 +5394,6 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
-]
-
-[[package]]
-name = "image"
-version = "0.25.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
-dependencies = [
- "bytemuck",
- "byteorder-lite",
- "moxcms",
- "num-traits",
 ]
 
 [[package]]

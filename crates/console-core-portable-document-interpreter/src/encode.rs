@@ -6,9 +6,13 @@ use crate::pattern::ShadingPattern;
 use crate::shading::{
   GradientExtension, GradientGeometry, ShadingFunction, ShadingType, Triangle,
 };
+use console_core_circle::Circle;
 use console_core_never::Never;
 use console_core_number_conversion::nearest_f32_from_f64;
 use console_core_perfect_hash::collections::FixedMap;
+use console_core_point::Point as Coordinates;
+use console_core_triangle::{Triangle as GeometryTriangle, Winding};
+use console_core_vector::Vector2;
 use kurbo::{Affine, Point};
 
 #[derive(Debug)]
@@ -195,10 +199,16 @@ fn encode_axial_shading(
       let new_x1 = x_1 - x_0;
       let new_y1 = y_1 - y_0;
 
-      let p1 = Point::new(f64::from(new_x1), f64::from(new_y1));
-      let r = Point::new(f64::from(r0), f64::from(r_1));
+      let Ok(first) = Circle::new(Coordinates::default(), f64::from(r0));
+      let Ok(last) = Circle::new(
+        Coordinates {
+          x: f64::from(new_x1),
+          y: f64::from(new_y1),
+        },
+        f64::from(r_1),
+      );
 
-      RadialAxialParams::Radial { p1, r }
+      RadialAxialParams::Radial([first, last])
     }
   };
 
@@ -216,46 +226,38 @@ fn encode_axial_shading(
 fn sample_triangles(
   triangles: &[Triangle],
   transform: Affine,
-) -> core::result::Result<FixedMap<(u16, u16), ColorComponents>, console_core_never::Never> {
+) -> Result<FixedMap<(u16, u16), ColorComponents>, Never> {
   let mut map = FixedMap::default();
 
-  for t in triangles {
-    let t_2 = {
-      let p0 = transform * t.p0.point;
-      let p1 = transform * t.p1.point;
-      let p2 = transform * t.p2.point;
+  for triangle in triangles {
+    let geometry = GeometryTriangle::from(triangle);
+    let transformed = GeometryTriangle::from(
+      geometry
+        .vertices
+        .map(|vertex| Coordinates::from(transform * Point::from(vertex))),
+    );
+    let Ok(bounds) = transformed.bounds();
+    let Ok(prepared) = transformed.barycentric();
+    let Ok(top) = console_core_number_conversion::toward_zero_u16(bounds.y0.floor());
+    let Ok(bottom) = console_core_number_conversion::toward_zero_u16(bounds.y1.ceil());
+    let Ok(left) = console_core_number_conversion::toward_zero_u16(bounds.x0.floor());
+    let Ok(right) = console_core_number_conversion::toward_zero_u16(bounds.x1.ceil());
 
-      let mut v0 = t.p0.clone();
-      v0.point = p0;
-      let mut v1 = t.p1.clone();
-      v1.point = p1;
-      let mut v2 = t.p2.clone();
-      v2.point = p2;
+    for y in top..bottom {
+      for x in left..right {
+        let point = Coordinates {
+          x: f64::from(x),
+          y: f64::from(y),
+        };
+        let Ok(winding) = transformed.winding(point);
 
-      let Ok(triangle) = Triangle::new(v0, v1, v2);
-
-      triangle
-    };
-
-    let Ok(bbox) = t_2.bounding_box();
-
-    let Ok(floor) = console_core_number_conversion::toward_zero_u16(bbox.y0.floor());
-    let Ok(ceil) = console_core_number_conversion::toward_zero_u16(bbox.y1.ceil());
-
-    for y in floor..ceil {
-      let Ok(bbox_floor) = console_core_number_conversion::toward_zero_u16(bbox.x0.floor());
-      let Ok(bbox_ceil) = console_core_number_conversion::toward_zero_u16(bbox.x1.ceil());
-
-      for x in bbox_floor..bbox_ceil {
-        let point = Point::new(f64::from(x), f64::from(y));
-        let Ok(contains_point) = t_2.contains_point(point);
-
-        match contains_point {
-          crate::Containment::Inside => {
-            let Ok(interpolate) = t_2.interpolate(point);
-            map.insert((x, y), interpolate);
+        match winding {
+          Winding::Positive | Winding::Negative => {
+            let Ok(weights) = prepared.weights_at(point);
+            let Ok(color) = triangle.interpolate_weights(weights);
+            map.insert((x, y), color);
           }
-          crate::Containment::Outside => {}
+          Winding::Outside => {}
         }
       }
     }
@@ -292,7 +294,7 @@ fn encode_function_shading(
 #[derive(Debug)]
 pub(crate) enum RadialAxialParams {
   Axial,
-  Radial { p1: Point, r: Point },
+  Radial([Circle<f64>; 2]),
 }
 
 #[derive(Debug)]
@@ -329,8 +331,8 @@ fn gradient_sample_parameter(
         Some(core::cmp::Ordering::Less | core::cmp::Ordering::Greater) | None => position,
       }
     }
-    RadialAxialParams::Radial { p1, r } => {
-      let Ok(position) = radial_pos(&pos, p1, *r, first, last);
+    RadialAxialParams::Radial(circles) => {
+      let Ok(position) = radial_pos(pos, circles, [first, last]);
 
       match position {
         Some(value) => match value.partial_cmp(&f32::MIN) {
@@ -479,30 +481,23 @@ fn unit_to_line(p0: Point, p1: Point) -> core::result::Result<Affine, console_co
 }
 
 fn radial_pos(
-  pos: &Point,
-  p1: &Point,
-  r: Point,
-  min_extend: GradientExtension,
-  max_extend: GradientExtension,
-) -> core::result::Result<Option<f32>, console_core_never::Never> {
-  let ::core::result::Result::Ok(r0) =
-    ::console_core_number_conversion::nearest_f32_from_f64(r.x);
-  let ::core::result::Result::Ok(dx) =
-    ::console_core_number_conversion::nearest_f32_from_f64(p1.x);
-  let ::core::result::Result::Ok(dy) =
-    ::console_core_number_conversion::nearest_f32_from_f64(p1.y);
-  let dr = (match ::console_core_number_conversion::nearest_f32_from_f64(r.y) {
-    ::core::result::Result::Ok(_converted_number) => _converted_number,
-  }) - r0;
-
-  let ::core::result::Result::Ok(px) =
-    ::console_core_number_conversion::nearest_f32_from_f64(pos.x);
-  let ::core::result::Result::Ok(py) =
-    ::console_core_number_conversion::nearest_f32_from_f64(pos.y);
-
-  let a = dx * dx + dy * dy - dr * dr;
-  let b = -2.0 * (px * dx + py * dy + r0 * dr);
-  let c = px * px + py * py - r0 * r0;
+  pos: Point,
+  [first, last]: &[Circle<f64>; 2],
+  [min_extend, max_extend]: [GradientExtension; 2],
+) -> Result<Option<f32>, Never> {
+  let Ok(distance) = Vector2::<f64>::between([first.center, last.center]);
+  let Ok(from_first) = Vector2::<f64>::between([first.center, Coordinates::from(pos)]);
+  let Ok(axis) = distance.try_map(nearest_f32_from_f64);
+  let Ok(offset) = from_first.try_map(nearest_f32_from_f64);
+  let Ok(r0) = nearest_f32_from_f64(first.radius);
+  let Ok(r1) = nearest_f32_from_f64(last.radius);
+  let dr = r1 - r0;
+  let Ok(axis_length_squared) = axis.length_squared();
+  let Ok(projected) = offset.dot(axis);
+  let Ok(offset_squared) = offset.length_squared();
+  let a = axis_length_squared - dr * dr;
+  let b = -2.0 * (projected + r0 * dr);
+  let c = offset_squared - r0 * r0;
 
   let discriminant = b * b - 4.0 * a * c;
 
@@ -584,4 +579,23 @@ fn radial_pos(
     (None, Some(max_3)) => Some(max_3),
     (None, None) => None,
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn radial_samples_follow_the_centers_and_radii() {
+    let Ok(first) = Circle::new(Coordinates::from((4.0, 5.0)), 1.0);
+    let Ok(last) = Circle::new(Coordinates::from((6.0, 5.0)), 3.0);
+    let circles = [first, last];
+    let stop = [GradientExtension::Stop; 2];
+
+    assert_eq!(
+      radial_pos(Point::new(4.0, 7.0), &circles, stop),
+      Ok(Some(0.75))
+    );
+    assert_eq!(radial_pos(Point::new(4.0, 9.0), &circles, stop), Ok(None));
+  }
 }

@@ -14,6 +14,8 @@ let
   '';
   applicationVolumes = pkgs.writeTextDir "share/pipewire/pipewire-pulse.conf.d/console-electron.conf"
     (builtins.readFile (source + "/files/home/@user@/.config/pipewire/pipewire-pulse.conf.d/console-electron.conf"));
+  playbackGain = pkgs.writeTextDir "share/pipewire/pipewire-pulse.conf.d/60-console-playback-gain.conf"
+    (builtins.readFile (source + "/files/etc/pipewire/pipewire-pulse.conf.d/60-console-playback-gain.conf"));
   minimumRust = (builtins.fromTOML (builtins.readFile (source + "/Cargo.toml")))
     .workspace.package.rust-version;
   replace = text: builtins.replaceStrings
@@ -39,7 +41,9 @@ let
   drops = [ "console-.service.d/restarting.conf" "console-.service.d/confining.conf"
     "console-bar.service.d/opening.conf" "console-input-controller.service.d/opening.conf"
     "console-home.service.d/opening.conf" "console-panels.service.d/opening.conf"
-    "console-session.service.d/opening.conf" ];
+    "console-session.service.d/opening.conf"
+    "pipewire-pulse.service.d/console-playback-gain.conf"
+    "wireplumber.service.d/console-playback-gain.conf" ];
 
   seedPrefix = "/home/@user@/.config/console/";
   seedNames = builtins.filter (name: lib.hasPrefix seedPrefix name) manifest.files;
@@ -133,7 +137,7 @@ in
       enable = true;
       alsa.enable = true;
       pulse.enable = true;
-      configPackages = [ applicationVolumes ];
+      configPackages = [ applicationVolumes playbackGain ];
       wireplumber.configPackages = [ balancedPlayback ];
     };
     security.rtkit.enable = true;

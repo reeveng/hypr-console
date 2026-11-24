@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 console-core-geometry.workspace = true
+console-core-vector = { workspace = true, features = ["std"] }
 console-core-highlight = { workspace = true, optional = true }
 console-core-logging.workspace = true
 console-core-never.workspace = true

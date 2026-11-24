@@ -3,6 +3,8 @@
 
 //! A simple 2D vector.
 
+use console_core_never::Never;
+use console_core_vector::Vector2;
 use core::fmt;
 use core::iter::Sum;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -41,7 +43,9 @@ impl Vec2 {
     /// Convert this vector into a [`Point`].
     #[inline(always)]
     pub const fn to_point(self) -> Point {
-        Point::new(self.x, self.y)
+        let Ok(vector) = self.displacement();
+        let Ok(point) = vector.to_point();
+        Point::from_coordinates(point)
     }
 
     /// Convert this vector into a [`Size`].
@@ -59,7 +63,10 @@ impl Vec2 {
     /// Dot product of two vectors.
     #[inline]
     pub const fn dot(self, other: Vec2) -> f64 {
-        self.x * other.x + self.y * other.y
+        let Ok(vector) = self.displacement();
+        let Ok(right) = other.displacement();
+        let Ok(product) = vector.dot(right);
+        product
     }
 
     /// Cross product of two vectors.
@@ -73,7 +80,10 @@ impl Vec2 {
     /// `v.cross(v) = 0.0`
     #[inline]
     pub const fn cross(self, other: Vec2) -> f64 {
-        self.x * other.y - self.y * other.x
+        let Ok(vector) = self.displacement();
+        let Ok(right) = other.displacement();
+        let Ok(product) = vector.cross(right);
+        product
     }
 
     /// Magnitude of vector.
@@ -328,7 +338,10 @@ impl Vec2 {
     /// `u.cross(v) = u.turn_90().dot(v)`
     #[inline]
     pub const fn turn_90(self) -> Vec2 {
-        Vec2::new(-self.y, self.x)
+        let Ok(vector) = self.displacement();
+        let Ok(turned) = vector.turned_quarter();
+        let Ok(answer) = Self::from_displacement(turned);
+        answer
     }
 
     /// Combine two vectors interpreted as rotation and scaling.
@@ -339,10 +352,11 @@ impl Vec2 {
     /// are interpreted as complex numbers. It is commutative.
     #[inline]
     pub const fn rotate_scale(self, rhs: Vec2) -> Vec2 {
-        Vec2::new(
-            self.x * rhs.x - self.y * rhs.y,
-            self.x * rhs.y + self.y * rhs.x,
-        )
+        let Ok(vector) = self.displacement();
+        let Ok(right) = rhs.displacement();
+        let Ok(transformed) = vector.rotate_scale(right);
+        let Ok(answer) = Self::from_displacement(transformed);
+        answer
     }
 
     /// Get the member matching the given axis.
@@ -370,6 +384,30 @@ impl Vec2 {
             Axis::Horizontal => self.x = value,
             Axis::Vertical => self.y = value,
         }
+    }
+}
+
+impl Vec2 {
+    pub(crate) const fn displacement(self) -> Result<Vector2<f64>, Never> {
+        Ok(Vector2 { x: self.x, y: self.y })
+    }
+
+    pub(crate) const fn from_displacement(vector: Vector2<f64>) -> Result<Self, Never> {
+        Ok(Self::new(vector.x, vector.y))
+    }
+}
+
+impl From<Vec2> for Vector2<f64> {
+    fn from(vector: Vec2) -> Self {
+        let Ok(displacement) = vector.displacement();
+        displacement
+    }
+}
+
+impl From<Vector2<f64>> for Vec2 {
+    fn from(vector: Vector2<f64>) -> Self {
+        let Ok(displacement) = Self::from_displacement(vector);
+        displacement
     }
 }
 

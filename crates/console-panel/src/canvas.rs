@@ -1,12 +1,16 @@
-//! Drawing and interaction components for native Console scenes.
+//! Layout and interaction for native Console screens.
+//!
+//! A canvas records logical shapes and input targets from the same placement.
+//! `console-draw-painting` rasterizes the shapes, and `console-draw-surface`
+//! presents the pixels on a Wayland surface.
 
 use std::cmp::Ordering;
 
 use console_core_color::Oklch;
 use console_core_fonts::{LETTERS, MONOSPACED, SERIF};
-use console_core_geometry::{Bounds, Containment, Point, Rectangle, Size};
+use console_core_geometry::{Bounds, Containment, CropMinimum, Point, Rectangle, Size};
 use console_core_never::Never;
-use console_core_shapes::{Clip, Edge, Font, Panel, Round, Shape, Text, Weight};
+use console_core_shapes::{Clip, Cropped, Edge, Font, Panel, Pixels, Round, Shape, Text, Weight};
 use console_draw_painting::{Lines, Run, at_most, measure_text};
 use console_draw_surface::{Surface, SurfaceError};
 
@@ -190,7 +194,7 @@ pub enum Face {
 
 impl Face {
   #[must_use]
-  fn font(self, height: u32) -> core::result::Result<(Font, Weight), console_core_never::Never> {
+  pub(crate) fn font(self, height: u32) -> Result<(Font, Weight), Never> {
     let family = match self {
       Self::Body | Self::Medium => LETTERS,
       Self::Title => SERIF,
@@ -242,11 +246,25 @@ pub struct Interaction<A> {
   pub hover: Option<A>,
 }
 
+#[derive(Clone, Copy)]
+pub struct TextLayout {
+  pub align: Align,
+  pub lines: Lines,
+}
+
+pub(crate) struct ControlStyle {
+  pub background: Option<(Oklch, u32, Option<Oklch>)>,
+  pub label_area: Area,
+  pub ink: Oklch,
+  pub height: u32,
+  pub align: Align,
+}
+
 pub struct Canvas<A> {
   pub frame: Frame<A>,
   clip: Area,
   style: Style,
-  interaction: Interaction<A>,
+  pub(crate) interaction: Interaction<A>,
 }
 
 impl<A> Canvas<A> {
@@ -315,67 +333,103 @@ impl<A: Copy + PartialEq> Canvas<A> {
     ink: Oklch,
     alignment: Align,
   ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      match area.size.width.cmp(&3) {
-        Ordering::Less => {
-          return Ok(());
-        }
-        Ordering::Equal | Ordering::Greater => {}
-      }
-
-      let width = i32::cast_unsigned(area.size.width);
-      let Ok((font, weight)) = face.font(height);
-      let Ok(title_2) = at_most(
-        Run {
-          said: title,
-          weight,
-          width,
-        },
-        &font,
-        Lines(1),
-      );
-      let Ok(size) = measure_text(
-        Run {
-          said: &title_2,
-          weight,
-          width,
-        },
-        &font,
-      );
-      let remaining = area
-        .size
-        .width
-        .saturating_sub(u32::cast_signed(size.width))
-        .max(0);
-      let x = i32::wrapping_add(
-        area.origin.x,
-        match alignment {
-          Align::Left => 0,
-          Align::Center => i32::wrapping_div(remaining, 2),
-          Align::Right => remaining,
-        },
-      );
-      let y = i32::wrapping_add(
-        area.origin.y,
-        i32::wrapping_div(
-          area
-            .size
-            .height
-            .saturating_sub(u32::cast_signed(size.height)),
-          2,
-        )
-        .max(0),
-      );
-      self.frame.shapes.push(Shape::Text(Text {
-        at: Point { x, y },
-        width,
-        said: title_2,
-        weight,
-        font,
+    match area.size.width.cmp(&3) {
+      Ordering::Less => Ok(()),
+      Ordering::Equal | Ordering::Greater => self.draw_text(
+        area,
+        title,
+        height,
+        face,
         ink,
-      }));
-    };
+        TextLayout {
+          align: alignment,
+          lines: Lines(1),
+        },
+      ),
+    }
+  }
 
+  pub fn paragraph(
+    &mut self,
+    area: Area,
+    text: &str,
+    height: u32,
+    face: Face,
+    ink: Oklch,
+    layout: TextLayout,
+  ) -> Result<(), Never> {
+    let Ok(visible) = area.inside(self.clip);
+
+    match (visible, text) {
+      (None, _) | (Some(_), "") => Ok(()),
+      (Some(_), _) => self.draw_text(area, text, height, face, ink, layout),
+    }
+  }
+
+  fn draw_text(
+    &mut self,
+    area: Area,
+    text: &str,
+    height: u32,
+    face: Face,
+    ink: Oklch,
+    layout: TextLayout,
+  ) -> Result<(), Never> {
+    let width = i32::cast_unsigned(area.size.width);
+    let Ok((font, weight)) = face.font(height);
+    let Ok(said) = at_most(
+      Run {
+        said: text,
+        weight,
+        width,
+      },
+      &font,
+      layout.lines,
+    );
+    let Ok(measured) = measure_text(
+      Run {
+        said: &said,
+        weight,
+        width,
+      },
+      &font,
+    );
+    let remaining = area
+      .size
+      .width
+      .saturating_sub(u32::cast_signed(measured.width))
+      .max(0);
+    let left = match layout.align {
+      Align::Left => 0,
+      Align::Center => remaining.wrapping_div(2),
+      Align::Right => remaining,
+    };
+    let top = match layout.lines {
+      Lines(1) => {
+        let measured_height = match i32::try_from(measured.height) {
+          Ok(value) => value,
+          Err(_outside_the_viewport_range) => i32::MAX,
+        };
+        area
+          .size
+          .height
+          .saturating_sub(measured_height)
+          .max(0)
+          .wrapping_div(2)
+      }
+      Lines(_) => 0,
+    };
+    self.frame.shapes.push(Shape::Text(Text {
+      at: Point {
+        x: area.origin.x.wrapping_add(left),
+        y: area.origin.y.wrapping_add(top),
+      },
+      width,
+      said,
+      weight,
+      font,
+      ink,
+    }));
     Ok(())
   }
 
@@ -414,28 +468,96 @@ impl<A: Copy + PartialEq> Canvas<A> {
 
       let interactive = button != Button::Unavailable;
 
-      match (interactive && (button == Button::Selected || hover || focus)).then_some(()) {
-        Some(()) => {
-          let Ok(()) = self.panel(area, colors.lifted, 8, focus.then_some(colors.accent));
-        }
-        None => {}
-      }
-
+      let background = (interactive && (button == Button::Selected || hover || focus))
+        .then_some((colors.lifted, 8, focus.then_some(colors.accent)));
       let ink = match button {
         Button::Selected => colors.ink,
         Button::Unselected => colors.quiet,
         Button::Unavailable => colors.disabled,
       };
-      let Ok(()) = self.text(area, text, 13, Face::Medium, ink, Align::Center);
-
-      match interactive.then_some(()) {
-        Some(()) => {
-          let Ok(()) = self.hit(area, action);
-        }
-        None => {}
-      }
+      let look = ControlStyle {
+        background,
+        label_area: area,
+        ink,
+        height: 13,
+        align: Align::Center,
+      };
+      let Ok(()) = self.control(area, text, interactive.then_some(action), look);
     };
 
+    Ok(())
+  }
+
+  pub(crate) fn control(
+    &mut self,
+    area: Area,
+    text: &str,
+    action: Option<A>,
+    style: ControlStyle,
+  ) -> Result<(), Never> {
+    match style.background {
+      Some((fill, radius, edge)) => {
+        let Ok(()) = self.panel(area, fill, radius, edge);
+      }
+      None => {}
+    }
+
+    let Ok(()) = match style.align {
+      Align::Left => self.paragraph(
+        style.label_area,
+        text,
+        style.height,
+        Face::Medium,
+        style.ink,
+        TextLayout {
+          align: Align::Left,
+          lines: Lines(1),
+        },
+      ),
+      Align::Center | Align::Right => self.text(
+        style.label_area,
+        text,
+        style.height,
+        Face::Medium,
+        style.ink,
+        style.align,
+      ),
+    };
+
+    match action {
+      Some(activated) => self.hit(area, activated),
+      None => Ok(()),
+    }
+  }
+
+  pub fn cover(&mut self, area: Area, pixels: &Pixels) -> Result<(), Never> {
+    let Ok(visible) = area.inside(self.clip);
+
+    match visible {
+      Some(_) => {}
+      None => return Ok(()),
+    }
+
+    let Ok(size) = area.pixel_size();
+    let Ok(destination) = size.map(f64::from);
+    let source = Size {
+      width: pixels.width,
+      height: pixels.height,
+    };
+    let Ok(crop) = Rectangle::centered_cover(source, destination, CropMinimum::Subpixel);
+    self.frame.shapes.push(Shape::Cropped(Cropped {
+      at: area.origin,
+      size,
+      pixels: pixels.clone(),
+      from: crop.origin,
+      seen: crop.size,
+    }));
+    Ok(())
+  }
+
+  pub fn lift_clip(&mut self, whole: Area) -> Result<(), Never> {
+    self.clip = whole;
+    self.frame.shapes.push(Shape::Clip(Clip::Lifted));
     Ok(())
   }
 

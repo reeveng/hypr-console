@@ -15,13 +15,30 @@ Sound Settings shows the current device and jack where available. The Output
 picker switches between connected devices and shows the chosen device's volume.
 
 The built-in music and film players and desktop effects derive their limits from
-the rendered bell. The first play of a local file in the built-in players
-scans the entire audio track before opening its playback stream. FFmpeg's EBU
-R128 scanner measures integrated loudness and true peak. Console caches the
-measurements by file revision, then applies one gain from the start of playback.
-Later plays and seeks reuse the measurement. An edit invalidates the cache,
-and the original audio file is left intact. If analysis fails, live leveling
-can handle the decoded audio. [FFmpeg EBU R128 filter](https://ffmpeg.org/ffmpeg-filters.html#ebur128)
+the rendered bell. Music Library scans local audio in the background and
+caches integrated loudness, true peak, and a histogram of momentary levels.
+Unchanged files use a filesystem revision lookup. After a tag edit or move,
+the index can recover the measurement from the encoded audio packets and
+decoder parameters. The built-in players reuse these measurements. A file played
+while the background scan is busy can start with live leveling and use the
+saved measurement the next time it plays. Without a scan running, a cache miss
+triggers file analysis on first play. Album playback combines the momentary
+histograms, applies the loudness gates to the combined energy, and constrains
+one gain by the largest track true peak. Shuffle uses track gain. Playback
+and analysis leave the source files intact. [FFmpeg EBU R128 filter](https://ffmpeg.org/ffmpeg-filters.html#ebur128)
+
+Console Music and Music Library share one playback session. Music Library
+opens on All Songs, displays the current song and adds Albums, Possible
+Duplicates, and Metadata Suggestions tabs. Album browsing uses the credited album artist, release
+identity when available, and disc and track numbers. Cover art comes from
+embedded images and local album folders. Find Album Art checks the Cover Art
+Archive, then uses YouTube when the release title and credited channel agree.
+The cache holds compressed JPEG thumbnails. The recording scan saves waveform
+and title evidence. Listeners can play and compare every version, and include
+all recordings or choose a subset for browsing and new playback queues.
+For tracks missing artist or title tags, Music Library suggests matches from
+local audio and filenames. It can also search MusicBrainz on request.
+Confirmed choices are stored in the library and leave the audio files intact.
 
 With **Automatic Leveling** on, WirePlumber installs an internal PipeWire
 filter on compatible PCM playback streams. Indexed files get their fixed gain.
@@ -37,6 +54,16 @@ Live leveling keeps a three-second moving level in memory for each stream.
 A sustained loud passage can reduce the available boost by up to 1.6 dB as
 the stream gets quiet. The estimate fades as the stream continues and resets
 when the stream is recreated. Pauses have no way to raise the maximum boost.
+Marked calls use attenuation without quiet boosting and marked notifications
+use fixed attenuation. Night Mode applies stronger dynamic leveling when
+Automatic Leveling is enabled.
+
+Run `console-sound-effect --watch-gain` to see the current gain in dB for
+adaptive leveling on PulseAudio-compatible streams and the final output limiter. Use
+`wpctl inspect NODE_ID` to identify a row. The readout samples the DSP gain
+before the listener's volume. Native PipeWire clients can opt in with the
+`console.balance.meter-capable` stream property and the session's
+`$XDG_RUNTIME_DIR/console-playback-gain` on their `LADSPA_PATH`.
 
 Sound Settings groups active streams by application. An app's menu can bypass
 leveling for that app and can restore the global policy. WirePlumber remembers
@@ -48,8 +75,10 @@ WirePlumber saves app levels when it recognizes their identity.
 The output filter uses one gain across all advertised channels. It limits
 individual samples and uses a faster power detector to hold down short loud
 bursts, including after silence and with automatic leveling disabled. Its
-sample ceiling sits about 9 dB below the bell's sample peak, allowing extra
-headroom for later resampling. WirePlumber rebuilds a lost filter while its
+sample ceiling sits about 9 dB below the bell's sample peak. A linked
+inter-sample limiter bounds quarter-sample estimates of the mixed output.
+The playback leg uses high-quality resampling. Physical device clocks and
+hardware processing can still change the measured result. WirePlumber rebuilds a lost filter while its
 output remains connected. Regular playback stays silent on that output while
 the filter is unavailable. The bell and the filtered mix share the device's
 volume and mute controls. The desktop manifest and NixOS module install the
@@ -64,15 +93,9 @@ Digital level measurements cannot determine how loud a specific device
 sounds at the ear. This policy covers playback linked by WirePlumber.
 Applications that open the hardware directly can bypass the filter.
 
-An evaluation fork of [sdroege/ebur128](https://github.com/sdroege/ebur128) lives
-in [forks/console-core-audio-loudness](forks/console-core-audio-loudness), pinned in
-[UPSTREAM.toml](forks/console-core-audio-loudness/UPSTREAM.toml). The fork
-retains the upstream source and license text. Its standalone workspace lets
-the crate build independently. The installed policy uses PipeWire's built-in
-filters and the existing sound synthesizer for its reference. [PipeWire filter chain](https://docs.pipewire.org/page_module_filter_chain.html)
-
-The library provides momentary, short-term, integrated, loudness-range and
-true-peak measurements that could also support a system-wide processor.
+The file analyzer uses FFmpeg's EBU R 128 filter for integrated loudness,
+momentary loudness, and true peak. The live policy uses PipeWire's built-in
+filters and the volume bell as its reference. [PipeWire filter chain](https://docs.pipewire.org/page_module_filter_chain.html)
 
 ## What to build
 
@@ -105,10 +128,12 @@ flowchart LR
 The installed policy applies indexed track gain or live leveling before the
 final mix.
 The volume preview joins at the output device with the listener's volume
-control. Background library scanning, album gain and role policies in this
-graph remain proposals. Encoded audio requires decoding before it can be leveled.
+control. The library scans in the background and applies shared album gain
+when the queue has measurements for all of its tracks. The live graph handles
+calls and notifications according to their declared media roles. Encoded
+audio requires decoding before it can be leveled.
 
-### Local files: background indexing and album gain
+### Local files and album analysis
 
 1. Decode the full track in the background. Measure integrated gated loudness
    and maximum true peak across the correctly mapped channels. Account for the
@@ -268,7 +293,7 @@ cannot apply that bound.
 
 | Project | What it contributes | Fit here |
 | --- | --- | --- |
-| [ebur128](https://github.com/sdroege/ebur128) | Rust loudness and true-peak measurement; MIT | Best small common building block; vendored here |
+| [ebur128](https://github.com/sdroege/ebur128) | Rust loudness and true-peak measurement; MIT | Can measure raw PCM in-process with configurable windows and per-channel peaks |
 | [bs1770](https://github.com/ruuda/bs1770) | Rust BS.1770-4 loudness measurement and a FLAC tagging example; Apache-2.0 | Another small Rust option; its example uses custom loudness tags, so interoperability needs consideration |
 | [GStreamer audioloudnorm](https://gstreamer.freedesktop.org/documentation/rsaudiofx/audioloudnorm.html) | Rust streaming normalizer in `gst-plugin-audiofx`; MPL-2.0 | Useful algorithm reference; plugin requires GStreamer and 192 kHz F64 audio, so evaluate cost and latency before reuse |
 | [CamillaDSP](https://github.com/HEnquist/camilladsp) | Rust processing engine with PipeWire backend and compressor; GPLv3 or MPL-2.0, with backend qualifications | Useful routing/DSP reference; its `Loudness` filter is frequency compensation at low volume, not track normalization; its documented `Limiter` clips, so it is not the transparent true-peak limiter proposed here |
@@ -276,16 +301,6 @@ cannot apply that bound.
 | [rsgain](https://github.com/complexlogic/rsgain) | ReplayGain 2.0 library tagging and a MusicBrainz Picard frontend | Ready-made file scanner; supporting players apply gain without re-encoding; C++, despite the `rs` prefix |
 | [loudgain](https://github.com/Moonbase59/loudgain) | ReplayGain 2.0 file analysis and metadata writing without changing audio samples | Useful scanner and interoperability reference; C/C++, not Rust; the maintainer currently notes limited time for maintenance |
 | [PipeWire filter-chain](https://pipewire.pages.freedesktop.org/pipewire/page_module_filter_chain.html) | Virtual sinks, graph filters, optional EBU metering and LUFS-to-gain conversion | Possible system integration host; check the installed version and build features |
-
-Keep this meter fork small. Copying entire processing engines would add
-substantial routing, GUI or framework dependencies before choosing the live
-controller and limiter. Preserve the original license notices if adapting
-MPL/GPL code from those projects.
-
-Upstream's `examples/normalize.rs` is a demonstration, not the proposed file
-pipeline: it assumes 16-bit WAV and clamps boosted samples. That can distort
-audio. Its `examples/replaygain.rs` uses sample peaks, not true peaks. Use the
-library API and the policy above rather than those examples as production code.
 
 ## Validation and remaining integration
 
@@ -314,31 +329,17 @@ output changes during playback, the preview route, mono and surround channel
 layouts, and filter recovery. Listening on physical speakers and headphones
 remains to be tested.
 
-Run the upstream unit and Rust/C comparison tests independently:
-
-```sh
-cargo test --manifest-path forks/console-core-audio-loudness/Cargo.toml --features c-tests
-```
-
-This evaluation passed all 39 upstream unit and Rust/C comparison tests with
-that command. No EBU reference-fixture suite or live playback test was run.
-
-The comparison suite needs Clang and the C reference crate as development
-dependencies. `--features reference-tests` additionally needs the separately
-downloaded EBU audio fixtures under `tests/reference_files`; those files are
-not bundled. Passing unit/comparison tests is not a new certification of EBU
-conformance, audible transparency, latency or the proposed desktop graph.
-
 Before changing the system-wide playback policy further, test target matching on files that
 have sufficient headroom, peak-limited exceptions, album continuity, seeking,
 mono/surround mapping, Opus header/tag gain, silence, abrupt adverts, simultaneous
 apps, user volume changes, output-device switches and processor restart. Listen
 for pumping and stereo-image changes, measure true peaks after the output
 chain, and measure CPU, buffering latency and audio/video synchronization on
-the handheld. The remaining work includes background library indexing,
-album gain, live gain metering, and true-peak protection after final
-resampling. The official Rust bindings can integrate streamed processing and
-routing into the operating system. [PipeWire Rust bindings](https://pipewire.pages.freedesktop.org/pipewire-rs/pipewire/index.html)
+the handheld. Physical-output verification remains open. Use an external
+capture of each route to measure true peaks after its final resampler and
+hardware processing. Compare the volume cue and programme at the same route
+volume, including simultaneous loud sources, playback after silence, and
+device changes. Delete this note once those physical checks are complete.
 
 The measurement and baseline references are
 [EBU R 128](https://tech.ebu.ch/publications/r128),

@@ -58,6 +58,13 @@ pub enum Moved {
   No,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Context {
+  #[default]
+  Library,
+  Album,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Playlist {
   songs: Vec<PathBuf>,
@@ -65,6 +72,7 @@ pub struct Playlist {
   at: u32,
   ordered: Order,
   over: Over,
+  context: Context,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +81,7 @@ pub(crate) struct SavedQueue {
   pub order: Vec<u32>,
   pub ordered: Order,
   pub over: Over,
+  pub context: Context,
 }
 
 impl Playlist {
@@ -86,6 +95,7 @@ impl Playlist {
       at: 0,
       ordered: Order::AsListed,
       over: Over::default(),
+      context: Context::Library,
     })
   }
 
@@ -96,6 +106,20 @@ impl Playlist {
     Ok(Playlist { at, ..held })
   }
 
+  pub(crate) fn album(songs: Vec<PathBuf>, song: &Path) -> Result<Playlist, Never> {
+    let Ok(list) = Self::opened(songs, song);
+
+    Ok(Self {
+      over: Over::On,
+      context: Context::Album,
+      ..list
+    })
+  }
+
+  pub(crate) fn context(&self) -> Result<Context, Never> {
+    Ok(self.context)
+  }
+
   #[must_use]
   pub(crate) fn checkpoint(&self) -> Result<SavedQueue, Never> {
     Ok(SavedQueue {
@@ -103,6 +127,7 @@ impl Playlist {
       order: self.order.clone(),
       ordered: self.ordered,
       over: self.over,
+      context: self.context,
     })
   }
 
@@ -164,6 +189,7 @@ impl Playlist {
       at: 0,
       ordered: saved.ordered,
       over: saved.over,
+      context: saved.context,
     };
     let Ok(at) = playlist.position_of(was);
     playlist.at = at;

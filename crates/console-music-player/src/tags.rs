@@ -32,11 +32,14 @@ pub const BETWEEN: &str = " \u{00b7} ";
 
 pub const AS_MUCH: u32 = 300;
 
-const NAMED: [(ItemKey, &str); 15] = [
+const NAMED: [(ItemKey, &str); 18] = [
   (ItemKey::TrackTitle, "title"),
   (ItemKey::TrackArtist, "artist"),
   (ItemKey::AlbumArtist, "album_artist"),
   (ItemKey::AlbumTitle, "album"),
+  (ItemKey::DiscNumber, "disc"),
+  (ItemKey::TrackNumber, "track"),
+  (ItemKey::MusicBrainzAlbumId, "release_id"),
   (ItemKey::TrackSubtitle, "subtitle"),
   (ItemKey::RecordingDate, "date"),
   (ItemKey::Year, "date"),
@@ -55,6 +58,16 @@ pub struct Tags {
   pub title: String,
   pub artist: String,
   pub rest: String,
+  pub album: Album,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Album {
+  pub title: String,
+  pub artist: String,
+  pub release_id: String,
+  pub disc: Option<u32>,
+  pub track: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,7 +135,7 @@ fn heard(path: &Path) -> Result<Metadata, Never> {
   Ok(match metadata(path) {
     Ok(metadata) => metadata,
     Err(fault) => {
-      eprintln!("music: {}: {fault}", path.display());
+      console_core_logging::warn!("music: {}: {fault}", path.display());
 
       Metadata::default()
     }
@@ -208,6 +221,41 @@ pub fn read(all: &[(String, String)]) -> Result<Tags, Never> {
     rest,
     title,
     artist,
+    album: Album {
+      title: match first(&["album"]) {
+        Some(album_title) => album_title,
+        None => String::new(),
+      },
+      artist: match first(&["album_artist"]) {
+        Some(credited_artist) => credited_artist,
+        None => String::new(),
+      },
+      release_id: match first(&["release_id"]) {
+        Some(identifier) => identifier,
+        None => String::new(),
+      },
+      disc: first(&["disc"]).and_then(|said| {
+        let Ok(value) = number(&said);
+        value
+      }),
+      track: first(&["track"]).and_then(|said| {
+        let Ok(value) = number(&said);
+        value
+      }),
+    },
+  })
+}
+
+#[must_use]
+fn number(said: &str) -> Result<Option<u32>, Never> {
+  let raw = match said.split_once('/') {
+    Some((numerator, _total)) => numerator,
+    None => said,
+  };
+
+  Ok(match raw.trim().parse() {
+    Ok(value) => Some(value),
+    Err(_invalid_tag_number) => None,
   })
 }
 

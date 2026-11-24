@@ -68,6 +68,7 @@ The crate is `no_std` compatible but requires an allocator to be available.
 extern crate alloc;
 
 use alloc::vec::Vec;
+use console_core_icc::ProfileColorSpace;
 use console_core_never::Never;
 use console_core_number_conversion::{
   checked_index, fixed_index, index, narrow_f32, toward_zero_u8,
@@ -77,7 +78,6 @@ use crate::j2c::{ComponentData, Header};
 use crate::jp2::cdef::{ChannelAssociation, ChannelType};
 use crate::jp2::cmap::ComponentMappingType;
 use crate::jp2::colr::{CieLab, EnumeratedColorspace};
-use crate::jp2::icc::ICCMetadata;
 use crate::jp2::{DecodedImage, ImageBoxes};
 
 pub mod error;
@@ -91,15 +91,13 @@ pub use error::{
 };
 pub use j2c::DecoderContext;
 
-#[cfg(feature = "image")]
-pub mod integration;
 mod j2c;
 mod jp2;
 pub(crate) mod states;
 
 pub use states::{
-  AlphaChannel, EphMarkers, NextStripeNeighbor, PaletteMode, Precincts, ReaderEnd, Registration,
-  Significance, SopMarkers, StuffBit, ValidationMode, ZeroCoding,
+  AlphaChannel, EphMarkers, NextStripeNeighbor, PaletteMode, Precincts, ReaderEnd, Significance,
+  SopMarkers, StuffBit, ValidationMode, ZeroCoding,
 };
 
 mod reader;
@@ -542,14 +540,14 @@ fn get_color_space(boxes: &ImageBoxes, num_components: u64) -> Result<ColorSpace
       EnumeratedColorspace::Cmyk => ColorSpace::CMYK,
       EnumeratedColorspace::Srgb => ColorSpace::RGB,
       EnumeratedColorspace::RommRgb => ColorSpace::Icc {
-        profile: include_bytes!("../assets/ProPhoto-v2-micro.icc").to_vec(),
+        profile: console_core_icc::PROPHOTO_RGB.to_vec(),
         num_channels: 3,
       },
       EnumeratedColorspace::EsRgb => ColorSpace::RGB,
       EnumeratedColorspace::Greyscale => ColorSpace::Gray,
       EnumeratedColorspace::Sycc => ColorSpace::RGB,
       EnumeratedColorspace::CieLab(_) => ColorSpace::Icc {
-        profile: include_bytes!("../assets/LAB.icc").to_vec(),
+        profile: console_core_icc::LAB.to_vec(),
         num_channels: 3,
       },
       EnumeratedColorspace::BiLevel1
@@ -572,15 +570,17 @@ fn get_color_space(boxes: &ImageBoxes, num_components: u64) -> Result<ColorSpace
       }
     },
     Some(jp2::colr::ColorSpace::Icc(icc)) => {
-      let Ok(icc_metadata) = ICCMetadata::from_data(icc);
+      let Ok(profile_space) = ProfileColorSpace::from_header(icc);
 
-      match icc_metadata {
-        Some(metadata) => ColorSpace::Icc {
-          profile: icc.clone(),
-          num_channels: (match metadata.color_space.num_components() {
-            Ok(value) => value,
-          }),
-        },
+      match profile_space {
+        Some(color_space) => {
+          let Ok(num_channels) = color_space.num_components();
+
+          ColorSpace::Icc {
+            profile: icc.clone(),
+            num_channels,
+          }
+        }
         None => ColorSpace::RGB,
       }
     }

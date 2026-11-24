@@ -126,11 +126,17 @@ name = "rect_expand"
 path = "benches/rect_expand.rs"
 harness = false
 
+[dependencies.console-core-circle]
+path = "../../crates/console-core-circle"
+
 [dependencies.console-core-fixed-capacity-vectors]
 path = "../../crates/console-core-fixed-capacity-vectors"
 
 [dependencies.console-core-line]
 path = "../../crates/console-core-line"
+
+[dependencies.console-core-never]
+path = "../../crates/console-core-never"
 
 [dependencies.console-core-point]
 path = "../../crates/console-core-point"
@@ -143,6 +149,12 @@ path = "../../crates/console-core-size"
 
 [dependencies.console-core-transform]
 path = "../../crates/console-core-transform"
+
+[dependencies.console-core-triangle]
+path = "../../crates/console-core-triangle"
+
+[dependencies.console-core-vector]
+path = "../../crates/console-core-vector"
 
 [dependencies.euclid]
 version = "0.22"

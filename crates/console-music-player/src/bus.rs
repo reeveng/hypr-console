@@ -55,7 +55,7 @@ use std::path::{Path, PathBuf};
 use crate::answers::{self, Reply, Song, Status};
 use crate::bookmark::{self, Bookmark, QueueSaved};
 use crate::library;
-use crate::playlist::{Moved, Order, Playlist, SavedQueue};
+use crate::playlist::{Context, Moved, Order, Playlist, SavedQueue};
 use crate::sounding::{Sounding, Wanted};
 use crate::{art, tags};
 
@@ -121,6 +121,9 @@ const XML: &str = r#"<node>
       <arg name="TrackId" type="o" direction="in"/>
       <arg name="Position" type="x" direction="in"/>
     </method>
+    <method name="OpenAlbum">
+      <arg name="Uris" type="s" direction="in"/>
+    </method>
     <method name="OpenUri">
       <arg name="Uri" type="s" direction="in"/>
     </method>
@@ -149,6 +152,7 @@ pub struct PlayerState {
   pub folder: Option<PathBuf>,
   pub turn: u64,
   saved_queue: Option<SavedQueue>,
+  album: Option<crate::loudness::AlbumGain>,
 }
 
 enum Restored {
@@ -169,6 +173,7 @@ impl PlayerState {
       }),
       turn: 0,
       saved_queue: None,
+      album: None,
     };
 
     let Ok(()) = held.remembered();
@@ -252,6 +257,15 @@ impl PlayerState {
 
     self.list = playlist;
     let Ok(checkpoint) = self.list.checkpoint();
+    let Ok(context) = self.list.context();
+    self.album = match context {
+      Context::Library => None,
+      Context::Album => {
+        let Ok(gain) = crate::loudness::album_gain(&checkpoint.songs);
+
+        gain
+      }
+    };
     self.saved_queue = Some(checkpoint);
     let at = match (path == kept.song).then_some(()) {
       Some(()) => kept.at,
@@ -262,7 +276,8 @@ impl PlayerState {
       what: "remembered",
     });
     let Ok(()) = self.describing(&path, &mut waiting);
-    let Ok(()) = self.sounding.ready(&path, at);
+    let Ok(gain) = self.gain();
+    let Ok(()) = self.sounding.ready_with_gain(&path, at, gain);
 
     Ok(Restored::Yes)
   }
@@ -298,7 +313,34 @@ impl PlayerState {
     bookmark::write(&song_3, crate::Seconds(at))
   }
 
+  pub fn opened_album(&mut self, argument: &str) -> Result<(), Never> {
+    let Ok(saved) = library::album_paths(argument);
+    let library::AlbumQueue { mut tracks, first } = match saved {
+      Some(queue) => queue,
+      None => return Ok(()),
+    };
+    let Ok(index) = index(first);
+    let path = match tracks.get(index) {
+      Some(path) => path.clone(),
+      None => return Ok(()),
+    };
+    tracks.retain(|track| library::queueable(track) == Ok(library::Playable::Yes));
+
+    match tracks.contains(&path).then_some(()) {
+      Some(()) => {}
+      None => return Ok(()),
+    }
+
+    let Ok(gain) = crate::loudness::album_gain(&tracks);
+    let Ok(list) = Playlist::album(tracks, &path);
+    self.album = gain;
+    self.list = list;
+
+    self.started()
+  }
+
   pub fn opened(&mut self, at: &Path) -> Result<(), Never> {
+    self.album = None;
     let at_2 = match std::path::absolute(at) {
       Ok(path) => path,
       Err(_unrooted) => return Ok(()),
@@ -316,7 +358,24 @@ impl PlayerState {
       },
     };
 
-    let Ok(songs) = library::songs_under(&under);
+    let Ok(mut songs) = library::songs_under(&under);
+
+    match crate::selection::Selection::load() {
+      Ok(selection) => songs.retain(|song| {
+        song == &at_2 || selection.visibility(song) == Ok(crate::selection::Visibility::Included)
+      }),
+      Err(fault) => {
+        console_core_logging::warn!("could not read Music Library selections: {fault}")
+      }
+    }
+
+    match (!songs.contains(&at_2) && library::queueable(&at_2) == Ok(library::Playable::Yes))
+      .then_some(())
+    {
+      Some(()) => songs.insert(0, at_2.clone()),
+      None => {}
+    }
+
     let Ok(()) = waiting.mark("walked");
     let Ok(many) = fitted::<_, u64>(songs.len());
     let Ok(list) = Playlist::opened(songs, &at_2);
@@ -345,7 +404,20 @@ impl PlayerState {
     let Ok(()) = self.describing(&song_3, &mut waiting);
     let Ok(()) = waiting.done_if_felt();
 
-    self.sounding.play(&song_3, 0.0)
+    let Ok(gain) = self.gain();
+
+    self
+      .sounding
+      .play_album_track(&song_3, crate::Seconds(0.0), gain)
+  }
+
+  fn gain(&self) -> Result<Option<crate::loudness::AlbumGain>, Never> {
+    let Ok(order) = self.list.ordering();
+
+    Ok(match order {
+      Order::Any => None,
+      Order::AsListed => self.album,
+    })
   }
 
   fn describing(&mut self, song: &Path, waiting: &mut Waiting) -> Result<(), Never> {
@@ -670,6 +742,11 @@ fn doing(held: &mut PlayerState, method: &str, values: &[Value]) -> Result<(), N
         Wanted::Playing => Ok(()),
         Wanted::Stopped => held.started(),
       }
+    }
+    "OpenAlbum" => {
+      let Ok(argument) = word(values, 0);
+
+      held.opened_album(&argument)
     }
     "OpenUri" => {
       let Ok(at) = word(values, 0);

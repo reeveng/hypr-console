@@ -167,7 +167,7 @@
 //! Each recorded `KeyPress` includes the effective XKB modifiers at the
 //! time of the press.
 
-use console_core_geometry::{Point, Size};
+use console_core_geometry::{Insets, Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, toward_zero_i32};
 use std::io;
@@ -254,19 +254,7 @@ pub enum KeyboardFocus {
   Elsewhere,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Margin {
-  pub top: i32,
-  pub right: i32,
-  pub bottom: i32,
-  pub left: i32,
-}
-
-impl Margin {
-  pub fn none() -> Result<Margin, Never> {
-    Ok(Margin::default())
-  }
-}
+pub type Margin = Insets<i32>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Room {

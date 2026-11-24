@@ -84,7 +84,7 @@
 
 use crate::Seconds;
 use crate::decoding::{self, Block, Decoding, Format};
-use crate::loudness::{self, Analysis};
+use crate::loudness::{self, AlbumGain, Analysis};
 use crate::stretching::Stretching;
 pub use console_audio_streams::PlaybackApp;
 use console_audio_streams::{Media, Pcm, PlaybackStream, Sample, play_stream};
@@ -165,11 +165,20 @@ impl Default for Tempo {
   }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+enum TrackGain {
+  #[default]
+  Pending,
+  Live,
+  Fixed(f64),
+}
+
 #[derive(Debug, Clone, Default)]
 struct Task {
   song: Option<PathBuf>,
   from: Seconds,
   tempo: Tempo,
+  gain: TrackGain,
   turn: u64,
 }
 
@@ -320,7 +329,7 @@ impl Sounding {
   where
     Seconds: From<T>,
   {
-    let Ok(()) = self.taking(song, Seconds::from(from), tempo, Wanted::Playing);
+    let Ok(()) = self.taking(song, Seconds::from(from), tempo, Wanted::Playing, None);
 
     self.telling.woken.notify_all();
 
@@ -331,7 +340,34 @@ impl Sounding {
   where
     Seconds: From<T>,
   {
-    self.taking(song, Seconds::from(from), Tempo::default(), Wanted::Paused)
+    self.taking(
+      song,
+      Seconds::from(from),
+      Tempo::default(),
+      Wanted::Paused,
+      None,
+    )
+  }
+
+  pub(crate) fn play_album_track(
+    &self,
+    song: &Path,
+    from: Seconds,
+    gain: Option<AlbumGain>,
+  ) -> Result<(), Never> {
+    let Ok(()) = self.taking(song, from, Tempo::default(), Wanted::Playing, gain);
+    self.telling.woken.notify_all();
+
+    Ok(())
+  }
+
+  pub(crate) fn ready_with_gain(
+    &self,
+    song: &Path,
+    at: Seconds,
+    gain: Option<AlbumGain>,
+  ) -> Result<(), Never> {
+    self.taking(song, at, Tempo::default(), Wanted::Paused, gain)
   }
 
   fn taking(
@@ -340,6 +376,7 @@ impl Sounding {
     from: Seconds,
     tempo: Tempo,
     wanted: Wanted,
+    album_gain: Option<AlbumGain>,
   ) -> Result<(), Never> {
     let Ok(mut state) = lock(&self.telling.state);
 
@@ -347,6 +384,10 @@ impl Sounding {
       song: Some(song.to_path_buf()),
       from,
       tempo,
+      gain: match album_gain {
+        Some(AlbumGain(gain)) => TrackGain::Fixed(gain),
+        None => TrackGain::Pending,
+      },
       turn: state.job.turn.saturating_add(1),
     };
     state.wanted = wanted;
@@ -708,18 +749,11 @@ fn one(
   };
 
   let Ok(()) = waiting.mark("decoder");
-  let Ok(analysis) = loudness::before_playback(song, || {
-    let Ok(request) = carrying_on(telling, job.turn);
-
-    match request {
-      Payload::On => loudness::Request::Continue,
-      Payload::Hold | Payload::Stop => loudness::Request::Cancel,
-    }
-  });
-  let indexed_gain = match analysis {
-    Analysis::Indexed(gain) => Some(gain),
-    Analysis::Unavailable => None,
-    Analysis::Interrupted => return Ok(Reached::Requested),
+  let Ok(gain) = choose_gain(telling, job, song);
+  let indexed_gain = match gain {
+    TrackGain::Fixed(multiplier) => Some(multiplier),
+    TrackGain::Live => None,
+    TrackGain::Pending => return Ok(Reached::Requested),
   };
   let Ok(()) = waiting.mark("loudness");
   let Ok(carrying) = began(telling, job.turn, first_3.format.rate);
@@ -758,6 +792,37 @@ fn one(
     Ok(reached) => reached,
     Err(_endless) => Reached::Requested,
   })
+}
+
+fn choose_gain(telling: &Playback, job: &Task, song: &Path) -> Result<TrackGain, Never> {
+  match job.gain {
+    known @ (TrackGain::Live | TrackGain::Fixed(_)) => return Ok(known),
+    TrackGain::Pending => {}
+  }
+
+  let Ok(analysis) = loudness::before_playback(song, || {
+    let Ok(request) = carrying_on(telling, job.turn);
+
+    match request {
+      Payload::On => loudness::Request::Continue,
+      Payload::Hold | Payload::Stop => loudness::Request::Cancel,
+    }
+  });
+  let gain = match analysis {
+    Analysis::Indexed(gain) => TrackGain::Fixed(gain),
+    Analysis::Unavailable => TrackGain::Live,
+    Analysis::Interrupted => return Ok(TrackGain::Pending),
+  };
+  let Ok(mut state) = lock(&telling.state);
+
+  match (state.job.turn == job.turn).then_some(()) {
+    Some(()) => {
+      state.job.gain = gain;
+
+      Ok(gain)
+    }
+    None => Ok(TrackGain::Pending),
+  }
 }
 
 fn stretching(first: &Block, tempo: Tempo) -> Result<Option<Stretching>, Never> {
@@ -1007,6 +1072,7 @@ mod tests {
           song: Some(PathBuf::from("a-song.flac")),
           from,
           tempo: Tempo::default(),
+          gain: TrackGain::Pending,
           turn: 1,
         },
         wanted,

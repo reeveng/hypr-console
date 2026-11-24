@@ -15,6 +15,18 @@ pub struct Point<T> {
   pub y: T,
 }
 
+impl<T> From<(T, T)> for Point<T> {
+  fn from((x, y): (T, T)) -> Self {
+    Self { x, y }
+  }
+}
+
+impl<T> From<Point<T>> for (T, T) {
+  fn from(point: Point<T>) -> Self {
+    (point.x, point.y)
+  }
+}
+
 impl<T> Point<T> {
   pub fn map<U>(self, mut each: impl FnMut(T) -> U) -> Result<Point<U>, Never> {
     Ok(Point {

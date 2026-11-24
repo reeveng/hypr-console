@@ -84,6 +84,7 @@ console-core-pixel-buffers = { path = "crates/console-core-pixel-buffers" }
 console-core-prefix-codes = { path = "crates/console-core-prefix-codes" }
 console-core-webp-files = { path = "crates/console-core-webp-files" }
 console-core-color = { path = "crates/console-core-color" }
+console-core-icc = { path = "crates/console-core-icc" }
 console-compositor = { path = "crates/console-compositor" }
 console-concurrency = { path = "crates/console-concurrency" }
 console-core-parallel-execution = { path = "crates/console-core-parallel-execution" }
@@ -134,11 +135,14 @@ console-application-music = { path = "crates/console-application-music" }
 console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }
 console-core-geometry = { path = "crates/console-core-geometry" }
+console-core-circle = { path = "crates/console-core-circle" }
 console-core-line = { path = "crates/console-core-line" }
 console-core-point = { path = "crates/console-core-point" }
 console-core-rectangle = { path = "crates/console-core-rectangle" }
 console-core-size = { path = "crates/console-core-size" }
 console-core-transform = { path = "crates/console-core-transform" }
+console-core-triangle = { path = "crates/console-core-triangle" }
+console-core-vector = { path = "crates/console-core-vector" }
 console-core-picture-sizes = { path = "crates/console-core-picture-sizes" }
 console-core-highlight = { path = "crates/console-core-highlight" }
 console-core-controls = { path = "crates/console-core-controls" }

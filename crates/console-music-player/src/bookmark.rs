@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::playlist::{Order, Over, SavedQueue};
+use crate::playlist::{Context, Order, Over, SavedQueue};
 use console_core_atomic_writes::Stored;
 use console_core_never::Never;
 use console_core_places::Base;
@@ -145,7 +145,11 @@ fn encode_queue(queue: &SavedQueue) -> Result<String, Never> {
     Over::Again => "track",
     Over::Round => "queue",
   };
-  let mut text = format!("{shuffle} {repeat}\n");
+  let mode = match queue.context {
+    Context::Library => "",
+    Context::Album => " album",
+  };
+  let mut text = format!("{shuffle} {repeat}{mode}\n");
   let mut ranks = vec![0_u32; queue.songs.len()];
 
   for (rank, song) in (0_u32..).zip(&queue.order) {
@@ -172,7 +176,8 @@ fn encode_queue(queue: &SavedQueue) -> Result<String, Never> {
 #[must_use]
 fn decode_queue(text: &str) -> Result<Option<SavedQueue>, Never> {
   let mut lines = text.lines();
-  let (shuffle, repeat) = match lines.next().and_then(|header| header.split_once(' ')) {
+  let (shuffle, repeat_and_context) = match lines.next().and_then(|header| header.split_once(' '))
+  {
     Some(modes) => modes,
     None => return Ok(None),
   };
@@ -180,6 +185,10 @@ fn decode_queue(text: &str) -> Result<Option<SavedQueue>, Never> {
     "shuffle" => Order::Any,
     "listed" => Order::AsListed,
     _ => return Ok(None),
+  };
+  let (repeat, context) = match repeat_and_context.strip_suffix(" album") {
+    Some(mode) => (mode, Context::Album),
+    None => (repeat_and_context, Context::Library),
   };
   let over = match repeat {
     "none" => Over::On,
@@ -229,6 +238,7 @@ fn decode_queue(text: &str) -> Result<Option<SavedQueue>, Never> {
     order: order.into_iter().map(|(_, index)| index).collect(),
     ordered,
     over,
+    context,
   }))
 }
 
@@ -286,6 +296,7 @@ mod tests {
       order: vec![1, 0],
       over: Over::Again,
       ordered: Order::Any,
+      context: Context::Album,
     };
     let Ok(encoded) = encode_queue(&queue);
 

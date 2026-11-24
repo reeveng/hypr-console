@@ -54,6 +54,9 @@ path = "src/lib.rs"
 [dependencies.console-core-api-compatibility]
 workspace = true
 
+[dependencies.console-core-circle]
+workspace = true
+
 [dependencies.console-core-curve-geometry]
 workspace = true
 

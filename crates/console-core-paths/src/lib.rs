@@ -29,6 +29,9 @@ mod size;
 mod stroker;
 mod transform;
 
+use console_core_point::Point as Coordinates;
+use console_core_vector::Vector2;
+
 pub use dash::StrokeDash;
 pub use f32x2_t::f32x2;
 pub use floating_point::*;
@@ -54,6 +57,38 @@ type LengthU32 = core::num::NonZeroU32;
 pub struct Point {
   pub x: f32,
   pub y: f32,
+}
+
+impl From<Coordinates<f32>> for Point {
+  fn from(point: Coordinates<f32>) -> Self {
+    Self {
+      x: point.x,
+      y: point.y,
+    }
+  }
+}
+
+impl From<Point> for Coordinates<f32> {
+  fn from(point: Point) -> Self {
+    Self {
+      x: point.x,
+      y: point.y,
+    }
+  }
+}
+
+impl From<Vector2<f32>> for Point {
+  fn from(vector: Vector2<f32>) -> Self {
+    let Ok(point) = vector.to_point();
+    Self::from(point)
+  }
+}
+
+impl From<Point> for Vector2<f32> {
+  fn from(point: Point) -> Self {
+    let Ok(vector) = Self::from_origin(Coordinates::from(point));
+    vector
+  }
 }
 
 impl From<(f32, f32)> for Point {
@@ -307,21 +342,19 @@ impl Point {
   }
 
   pub fn dot(&self, other: Point) -> core::result::Result<f32, console_core_never::Never> {
-    Ok(self.x * other.x + self.y * other.y)
+    Vector2::from(*self).dot(Vector2::from(other))
   }
 
   pub fn cross(&self, other: Point) -> core::result::Result<f32, console_core_never::Never> {
-    Ok(self.x * other.y - self.y * other.x)
+    Vector2::from(*self).cross(Vector2::from(other))
   }
 
   pub(crate) fn distance_to_sqd(
     &self,
     pt: Point,
   ) -> core::result::Result<f32, console_core_never::Never> {
-    let dx = self.x - pt.x;
-    let dy = self.y - pt.y;
-
-    Ok(dx * dx + dy * dy)
+    let Ok(shift) = Vector2::<f32>::between([Coordinates::from(pt), Coordinates::from(*self)]);
+    shift.length_squared()
   }
 
   pub(crate) fn length_sqd(&self) -> core::result::Result<f32, console_core_never::Never> {

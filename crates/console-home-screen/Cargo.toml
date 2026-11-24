@@ -20,6 +20,7 @@ path = "src/bin/home-square.rs"
 [dependencies]
 console-core-atomic-writes.workspace = true
 console-core-geometry.workspace = true
+console-core-vector = { workspace = true, features = ["std"] }
 console-core-iteration.workspace = true
 console-core-arguments.workspace = true
 console-core-never.workspace = true

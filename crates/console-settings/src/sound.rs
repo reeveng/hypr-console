@@ -114,6 +114,7 @@ impl VolumeTarget {
 }
 
 pub(crate) const AUTOMATIC_LEVELING: &str = "console.balanced-playback.automatic-leveling";
+pub(crate) const NIGHT_MODE: &str = "console.balanced-playback.night-mode";
 pub(crate) const APP_LEVELING: &str = "console-balanced-playback";
 
 #[must_use]

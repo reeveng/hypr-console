@@ -4,6 +4,8 @@
 //! Triangle shape
 use crate::{Circle, PathEl, Point, Rect, Shape, Vec2};
 
+use console_core_point::Point as Coordinates;
+use console_core_triangle::{Triangle as GeometryTriangle, Winding};
 use core::cmp::*;
 use core::f64::consts::FRAC_PI_4;
 use core::ops::{Add, Sub};
@@ -69,7 +71,8 @@ impl Triangle {
     /// The centroid of the [`Triangle`].
     #[inline]
     pub fn centroid(&self) -> Point {
-        (1.0 / 3.0 * (self.a.to_vec2() + self.b.to_vec2() + self.c.to_vec2())).to_point()
+        let Ok(centroid) = GeometryTriangle::from(*self).centroid();
+        Point::from(centroid)
     }
 
     /// The offset of each vertex from the centroid.
@@ -87,7 +90,8 @@ impl Triangle {
     /// The area of the [`Triangle`].
     #[inline]
     pub fn area(&self) -> f64 {
-        0.5 * (self.b - self.a).cross(self.c - self.a)
+        let Ok(area) = GeometryTriangle::from(*self).signed_area();
+        area
     }
 
     /// Whether this [`Triangle`] has zero area.
@@ -164,6 +168,19 @@ impl Triangle {
     }
 }
 
+impl From<Triangle> for GeometryTriangle<f64> {
+    fn from(triangle: Triangle) -> Self {
+        Self::from([triangle.a, triangle.b, triangle.c].map(Coordinates::from))
+    }
+}
+
+impl From<GeometryTriangle<f64>> for Triangle {
+    fn from(triangle: GeometryTriangle<f64>) -> Self {
+        let [a, b, c] = triangle.vertices.map(Point::from);
+        Self { a, b, c }
+    }
+}
+
 impl From<(Point, Point, Point)> for Triangle {
     fn from(points: (Point, Point, Point)) -> Triangle {
         Triangle::new(points.0, points.1, points.2)
@@ -216,21 +233,18 @@ impl Shape for Triangle {
 
     #[inline]
     fn winding(&self, pt: Point) -> i32 {
-        let s0 = (self.b - self.a).cross(pt - self.a).signum();
-        let s1 = (self.c - self.b).cross(pt - self.b).signum();
-        let s2 = (self.a - self.c).cross(pt - self.c).signum();
-
-        if s0 == s1 && s1 == s2 { s0 as i32 } else { 0 }
+        let Ok(winding) = GeometryTriangle::from(*self).winding(Coordinates::from(pt));
+        match winding {
+            Winding::Positive => 1,
+            Winding::Negative => -1,
+            Winding::Outside => 0,
+        }
     }
 
     #[inline]
     fn bounding_box(&self) -> Rect {
-        Rect::new(
-            self.a.x.min(self.b.x.min(self.c.x)),
-            self.a.y.min(self.b.y.min(self.c.y)),
-            self.a.x.max(self.b.x.max(self.c.x)),
-            self.a.y.max(self.b.y.max(self.c.y)),
-        )
+        let Ok(bounds) = GeometryTriangle::from(*self).bounds();
+        Rect::from_bounds(bounds)
     }
 }
 

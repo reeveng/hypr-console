@@ -1,64 +1,12 @@
-//! The music, drawn.
+//! The player and Music Library share the songs and Now Playing views.
 //!
-//! Two tabs: what is playing, and what there is to play -- and two ways in.
-//! The panel the bar's note opens is the first tab alone, because what a hand
-//! reaching for the bar wants is the song on now, and a glance at it. The app
-//! is both, the library first: somewhere a person stays and walks a shelf of
-//! nine hundred songs, which a panel that went away whenever the settings
-//! came up was the wrong shape for. The player itself is
-//! kew, running headless behind this, and every button here is one MPRIS call.
-//! Nothing about a song is worked out in this program: the title, the artist
-//! and the cover are what the player says they are.
-//!
-//! The Playing tab is one card about one song, and it is three rows: the
-//! sleeve with the title and whose it is beside it, the bar, and the row of
-//! buttons. It was five, one thing under another up the middle, which is a
-//! card taller than the screen it opens on -- the buttons a hand came for were
-//! off the bottom of it. The sleeve is written in characters off kew's ramp,
-//! which is the same picture the player draws in a terminal and the one
-//! alphabet the rest of the screen is in. Its square is held whether there is
-//! a cover for it yet or not, because the player says what the song is a
-//! moment before it says where its picture is. The bar says where in the song
-//! you are, the width of the card, with the two clocks under its ends: a tap
-//! lands on the moment, and the d-pad moves it a few seconds a press. Under it
-//! are the five buttons, said five times so each is its own press for the
-//! d-pad: shuffle on the left, repeat on the right, and the three that move
-//! between songs in the middle. The card opens with the thumb on play, which
-//! is what a hand came to it for.
-//!
-//! The head of the card is a thing to read rather than a thing to choose, so
-//! the d-pad walks past it and nothing on the card draws as though it could be
-//! pressed and then cannot.
-//!
-//! The Music tab stands under letters -- `console_panel::page::lettered` --
-//! and that is why an album is no longer above the songs beside it. Folders
-//! first was the player's order and it read as a shelf only while the folder
-//! was short; a heading over each letter cannot be right about a list ordered
-//! twice, so the whole folder is one alphabet now and what is an album is said
-//! beside its name rather than by where it stands. The viewer's Media page
-//! asks the same question of the same place, which is what keeps a file called
-//! `_draft` under the same heading in both.
-//!
-//! Y is the files panel, standing on the song: renaming a song, copying it to
-//! a stick and throwing it away all live there already, behind the same
-//! button, and none of it is worth teaching this panel twice. It is offered on
-//! the song playing now as well, so the one you are listening to does not have
-//! to be found in a list of nine hundred first -- from any row of the card a
-//! thumb can stand on, because the whole card is about the one song. The mark
-//! that says so is drawn once, in the corner of the head, rather than on each
-//! of the rows a thumb stands on: three of the same offer down one card about
-//! one song reads as three different offers.
-//!
-//! The Music tab is the folder, and the line at the top of it is not a filter
-//! on the folder. It looks at every song under the music folder and at what
-//! each of them says about itself, which is what `music-index` reads and writes
-//! down; the ordering of what it finds is `looking`'s.
-//!
-//! What is here is the machine: MPRIS, the folder, and the cover on the disk.
-//! Where the thumb is standing, what is typed, and whether the library has
-//! already been asked to read itself are `crate::update`, which is a
-//! `console_core_state_machine::Machine`.
+//! The transport speaks MPRIS to one session player. The management app also
+//! has album and recording review tabs whose actions go through the same
+//! card actor. The panel by the bar has only Now Playing.
 
+mod catalog;
+
+use catalog::{albums_page, manage_effect, review_page, suggestions_page};
 use console_core_arguments::{Command, Operands};
 use console_core_localization::positional;
 use console_core_never::Never;
@@ -68,18 +16,23 @@ use std::time::Duration;
 
 use crate::ascii;
 use crate::library::folder;
-use crate::library::{self, Kind, Thing};
+use crate::library::{self, Kind};
 use crate::looking::{self, Song};
+use crate::management::{Job, Request as Manage, Status, Work};
 use crate::player::{self, Order, Over, Playing, Sound};
 use crate::update::{Closes, Music, MusicEffect, MusicEvent, Standing, closes};
+use crate::{album_art, albums, review};
 use console_actor::Actor;
+use console_music_player::selection::{Selection, Visibility};
 use console_panel::card::{Card, Door};
 use console_panel::icons::Icon;
 use console_panel::page::{
   ActionOutcome, Active, Aside, Bar, ButtonPress, Handler, Page, Picture, Row, Rows, Showing,
 };
 use console_panel::running;
-use console_program_contract::{Effect, Event, EventGroup};
+use console_program_contract::{
+  Command as RunCommand, Effect, Event, EventGroup, ExitStatus, Notification,
+};
 
 const TALL: u32 = 8;
 
@@ -117,13 +70,13 @@ fn press(held: &Panel, heard: MusicEvent, showing: &dyn Showing) -> Result<(), N
   let effects = decided(held, heard)?;
 
   for effect in effects {
-    carry(&effect, showing)?;
+    carry(held, &effect, showing)?;
   }
 
   Ok(())
 }
 
-fn carry(effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Never> {
+fn carry(held: &Panel, effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Never> {
   match effect {
     Effect::Custom(MusicEffect::Replace(row)) => {
       let Ok(row_2) = fitted(*row);
@@ -141,6 +94,8 @@ fn carry(effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Neve
       showing.refresh();
     }
 
+    Effect::Custom(MusicEffect::Manage(work)) => manage_effect(held, work, showing)?,
+    Effect::Custom(MusicEffect::Play(path)) => play_track(path, showing)?,
     Effect::Run(runs) => {
       let Ok(task) = console_panel::tasks::Task::of(runs.clone());
 
@@ -163,6 +118,26 @@ fn carry(effect: &Effect<MusicEffect>, showing: &dyn Showing) -> Result<(), Neve
     | Effect::Print(_)
     | Effect::Stop(_) => {}
   }
+
+  Ok(())
+}
+
+fn play_track(path: &Path, showing: &dyn Showing) -> Result<(), Never> {
+  let folder = folder()?;
+  let words = player::opening_words(path, &folder)?;
+  let args: Vec<_> = words.iter().map(String::as_str).collect();
+  let Ok(command) = RunCommand::internal(
+    console_core_internal_programs::InternalProgram::MusicPlayer,
+    &args,
+  );
+  let Ok(start) = running::words_of(&command);
+  showing.leave_running(start);
+
+  let onward = player::onward_for(path)?;
+  let args: Vec<_> = onward.iter().skip(1).map(String::as_str).collect();
+  let Ok(command) = RunCommand::internal(crate::update::ONWARD, &args);
+  let Ok(task) = console_panel::tasks::Task::of(command);
+  showing.run(task);
 
   Ok(())
 }
@@ -399,39 +374,55 @@ fn music_rows(held: &Panel) -> Result<Vec<Row>, Never> {
 }
 
 fn in_the_folder(held: &Panel, folder: &Path) -> Result<Vec<Row>, Never> {
-  let mut things = library::things(folder)?;
+  let mut listed = visible_songs(folder)?;
 
-  match ::core::primitive::bool::then_some(things.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
+  match listed.is_empty().then_some(()) {
+    Some(()) => {
       let Ok(row) = Row::placeholder(&format!("No Music in {}", folder.display()));
 
       return Ok(vec![row]);
     }
-    ::core::option::Option::None => {}
+    None => {}
   }
 
-  things.sort_by(|one, other| {
-    let Ok(first) = console_panel::page::sort_rank(&one.name);
-    let Ok(second) = console_panel::page::sort_rank(&other.name);
+  listed.sort_by_cached_key(|song| {
+    let Ok(name) = song.says();
+    let Ok(rank) = console_panel::page::sort_rank(name);
 
-    first
-      .cmp(&second)
-      .then_with(|| one.name.to_lowercase().cmp(&other.name.to_lowercase()))
+    (rank, name.to_lowercase())
   });
 
-  let mut rows: Vec<Row> = Vec::new();
-
-  for thing in &things {
-    let row = thing_row(held, thing)?;
-
-    rows.push(row);
-  }
+  let rows: Result<Vec<Row>, Never> = listed
+    .iter()
+    .map(|song| played(held, song, folder))
+    .collect();
+  let Ok(rows) = rows;
 
   console_panel::page::lettered(rows)
 }
 
+fn selection() -> Result<Selection, Never> {
+  Ok(match Selection::load() {
+    Ok(selection) => selection,
+    Err(fault) => {
+      console_core_logging::warn!("could not read Music Library selections: {fault}");
+
+      Selection::default()
+    }
+  })
+}
+
+fn visible_songs(folder: &Path) -> Result<Vec<Song>, Never> {
+  let mut songs = songs(folder)?;
+  let Ok(()) = crate::suggestions::apply_saved(&mut songs);
+  let selected = selection()?;
+  songs.retain(|song| selected.visibility(&song.path) == Ok(Visibility::Included));
+
+  Ok(songs)
+}
+
 fn answering(held: &Panel, folder: &Path, word: &str) -> Result<Vec<Row>, Never> {
-  let songs = songs(folder)?;
+  let songs = visible_songs(folder)?;
   let found = looking::ranked(&songs, word)?;
 
   match ::core::primitive::bool::then_some(found.is_empty(), ()) {
@@ -467,26 +458,6 @@ fn songs(folder: &Path) -> Result<Vec<Song>, Never> {
   let known = looking::load(&at)?;
 
   looking::songs(folder, &library::things, &known)
-}
-
-fn thing_row(held: &Panel, thing: &Thing) -> Result<Row, Never> {
-  let said = match ::core::primitive::bool::then_some(thing.folder, ()) {
-    ::core::option::Option::Some(()) => "album",
-    ::core::option::Option::None => "",
-  };
-  let kind = match ::core::primitive::bool::then_some(thing.folder, ()) {
-    ::core::option::Option::Some(()) => Kind::AFolder,
-    ::core::option::Option::None => Kind::ASong,
-  };
-  let plays = plays(held, &thing.path, kind)?;
-  let shows = shown_in_the_files(held, &thing.path)?;
-  let Ok(offering) = console_panel::page::shown_or_selected(&thing.name, &thing.path, shows);
-
-  let Ok(row) = Row::new(&thing.name, Aside(said), plays);
-  let Ok(key) = player::on_bus(&thing.path);
-  let Ok(row_2) = row.selectable(&key);
-
-  row_2.offering(offering)
 }
 
 fn played(held: &Panel, song: &Song, folder: &Path) -> Result<Row, Never> {
@@ -566,21 +537,44 @@ fn playing_page(held: &Panel) -> Result<Page, Never> {
   page_2.with_subscription(EventGroup::Player, player::worth_moving_the_clock)
 }
 
-fn music_page(held: &Panel) -> Result<Page, Never> {
+fn music_page(held: &Panel, purpose: Holds) -> Result<Page, Never> {
   let reading = held.clone();
   let arriving = held.clone();
   let backing = held.clone();
   let typing = held.clone();
 
   let Ok(asked) = Rows::computed(move || {
-    let Ok(rows) = music_rows(&reading);
+    let Ok(mut rows) = music_rows(&reading);
+
+    match purpose {
+      Holds::Management => {
+        let Ok(shortcut) = now_playing_shortcut();
+
+        match shortcut {
+          Some(shortcut) => rows.insert(0, shortcut),
+          None => {}
+        }
+      }
+      Holds::Library | Holds::Playing => {}
+    }
 
     rows
   });
-  let Ok(page) = Page::new("Music", asked);
+  let Ok(page) = Page::new("All Songs", asked);
   let Ok(page_2) = page.trashing_selected();
-  let Ok(page_3) = page_2.on_arriving(move |showing| {
-    let Ok(()) = read_the_library(&arriving, showing);
+  let Ok(page_3) = page_2.on_arriving(move |showing| match purpose {
+    Holds::Management => {
+      let Ok(standing) = panel_state(&arriving);
+      match standing.management.scan {
+        Status::Idle => {
+          let Ok(()) = press(&arriving, MusicEvent::Manage(Manage::Refresh), showing);
+        }
+        Status::Pending(_) | Status::Finished(_) => {}
+      }
+    }
+    Holds::Library | Holds::Playing => {
+      let Ok(()) = read_the_library(&arriving, showing);
+    }
   });
   let Ok(page_4) = page_3.on_back(move |showing| {
     let Ok(was) = panel_state(&backing);
@@ -595,9 +589,39 @@ fn music_page(held: &Panel) -> Result<Page, Never> {
     }
   });
 
-  page_4.searching(ABOUT, move |showing, word| {
+  let Ok(page) = page_4.searching(ABOUT, move |showing, word| {
     let Ok(()) = press(&typing, MusicEvent::Typed(word.to_string()), showing);
-  })
+  });
+
+  match purpose {
+    Holds::Management => page.with_subscription(EventGroup::Player, player::worth_asking_after),
+    Holds::Library | Holds::Playing => Ok(page),
+  }
+}
+
+fn now_playing_shortcut() -> Result<Option<Row>, Never> {
+  let playing = player::playing()?;
+  let playing = match playing {
+    Some(playing) => match playing.sound {
+      Sound::Playing | Sound::Paused => playing,
+      Sound::Stopped => return Ok(None),
+    },
+    None => return Ok(None),
+  };
+  let Ok(does) = Handler::and_stay(|showing| showing.turn_to(4));
+  let title = format!(
+    "{} · {}",
+    match playing.sound {
+      Sound::Playing => "Now Playing",
+      Sound::Paused => "Paused",
+      Sound::Stopped => "Stopped",
+    },
+    playing.title
+  );
+  let Ok(row) = Row::new(&title, Aside(&playing.artist), does);
+  let Ok(row) = row.opening();
+
+  Ok(Some(row))
 }
 
 pub const WHO: &str = "music-panel";
@@ -621,6 +645,7 @@ pub fn door(_argv: &[String]) -> Result<Door, Never> {
 enum Holds {
   Playing,
   Library,
+  Management,
 }
 
 fn held_as(holds: Holds) -> Result<Card, Never> {
@@ -630,9 +655,17 @@ fn held_as(holds: Holds) -> Result<Card, Never> {
     Ok(match holds {
       Holds::Playing => vec![playing],
       Holds::Library => {
-        let Ok(music) = music_page(held);
+        let Ok(music) = music_page(held, holds);
 
         vec![music, playing]
+      }
+      Holds::Management => {
+        let Ok(music) = music_page(held, holds);
+        let Ok(albums) = albums_page(held);
+        let Ok(review) = review_page(held);
+        let Ok(suggestions) = suggestions_page(held);
+
+        vec![music, albums, review, suggestions, playing]
       }
     })
   })
@@ -643,7 +676,15 @@ pub fn card(_argv: &[String]) -> Result<Card, Never> {
 }
 
 pub fn library(_argv: &[String]) -> Result<Card, Never> {
-  held_as(Holds::Library)
+  let card = held_as(Holds::Library)?;
+
+  card.opening_at(Some("All Songs"))
+}
+
+pub fn management(_argv: &[String]) -> Result<Card, Never> {
+  let card = held_as(Holds::Management)?;
+
+  card.opening_at(Some("All Songs"))
 }
 
 #[cfg(test)]

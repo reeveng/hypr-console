@@ -75,6 +75,9 @@ workspace = true
 [dependencies.console-core-point]
 workspace = true
 
+[dependencies.console-core-vector]
+workspace = true
+
 [dependencies.console-core-rectangle]
 workspace = true
 

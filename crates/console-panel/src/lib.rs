@@ -38,6 +38,7 @@ pub mod pictures;
 mod row_window;
 pub mod running;
 pub mod shape;
+pub mod storefront;
 pub mod strip;
 pub mod surface;
 pub mod tab;

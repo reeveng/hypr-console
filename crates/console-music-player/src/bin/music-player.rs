@@ -169,10 +169,16 @@ const OPEN_URI: Flag = Flag {
   about: "open a track in the session's player",
 };
 
+const ALBUM_URIS: Flag = Flag {
+  spelling: "--album-uris",
+  takes: Takes::Value("FILE_URIS"),
+  about: "play an ordered album from newline-separated local file URIs",
+};
+
 const COMMAND: Command = Command {
   name: "music-player",
   about: "the player, answering on the session bus, with the music under FOLDER",
-  flags: &[FOLDER_URI, OPEN_URI],
+  flags: &[FOLDER_URI, OPEN_URI, ALBUM_URIS],
   operands: Operands::Optional("FOLDER"),
 };
 
@@ -180,6 +186,7 @@ const COMMAND: Command = Command {
 struct Starting {
   folder: Option<PathBuf>,
   song: Option<PathBuf>,
+  album: Option<String>,
 }
 
 fn starting(words: &[String]) -> Result<Starting, ValidationError> {
@@ -208,7 +215,10 @@ fn starting(words: &[String]) -> Result<Starting, ValidationError> {
     }
   };
 
+  let Ok(album) = line.value(ALBUM_URIS);
+
   Ok(Starting {
+    album: album.map(str::to_owned),
     folder: {
       let checked_value = uri_path(FOLDER_URI)?;
       checked_value
@@ -221,15 +231,23 @@ fn starting(words: &[String]) -> Result<Starting, ValidationError> {
   })
 }
 
-fn tell_existing(bus: &mut Bus, song: &std::path::Path) -> Result<(), ConnectionError> {
-  let Ok(location) = console_core_file_urls::url(song);
+enum OpenRequest<'a> {
+  Album(&'a str),
+  Song(&'a str),
+}
+
+fn tell_existing(bus: &mut Bus, request: OpenRequest<'_>) -> Result<(), ConnectionError> {
+  let (method, location) = match request {
+    OpenRequest::Album(tracks) => ("OpenAlbum", tracks),
+    OpenRequest::Song(uri) => ("OpenUri", uri),
+  };
   let Ok(asked) = Message::call(&Whom {
     to: answers::NAME,
     at: answers::OBJECT,
     on: answers::PLAYER,
-    calling: "OpenUri",
+    calling: method,
   });
-  let Ok(value) = Value::word(&location);
+  let Ok(value) = Value::word(location);
   let Ok(asked_2) = asked.carrying("s", vec![value]);
   let answer = bus.call(&asked_2)?;
 
@@ -238,7 +256,7 @@ fn tell_existing(bus: &mut Bus, song: &std::path::Path) -> Result<(), Connection
     Kind::Call | Kind::ErrorReply | Kind::Signal => {
       Err(ConnectionError::Rejected(match answer.fault {
         ::core::option::Option::Some(present) => present,
-        ::core::option::Option::None => "the player did not accept OpenUri".to_owned(),
+        ::core::option::Option::None => "the player did not accept playback".to_owned(),
       }))
     }
   }
@@ -258,29 +276,42 @@ mod tests {
       starting(std::slice::from_ref(&literal)),
       Ok(Starting {
         folder: Some(PathBuf::from(&literal)),
-        song: None
+        song: None,
+        album: None,
       })
     );
     assert_eq!(
       starting(&[FOLDER_URI.spelling.to_owned(), literal]),
       Ok(Starting {
         folder: Some(decoded),
-        song: None
+        song: None,
+        album: None,
       })
     );
   }
 }
 
-fn answering(Starting { folder, song }: Starting) -> Result<(), ConnectionError> {
+fn answering(
+  Starting {
+    folder,
+    song,
+    album,
+  }: Starting,
+) -> Result<(), ConnectionError> {
   let mut bus = Bus::session()?;
   let got = bus.request_name(answers::NAME)?;
 
   match got {
     NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
     NameRequestResult::InQueue | NameRequestResult::Exists => {
-      return match song {
-        Some(path) => tell_existing(&mut bus, &path),
-        None => Ok(()),
+      return match (album, song) {
+        (Some(tracks), _) => tell_existing(&mut bus, OpenRequest::Album(&tracks)),
+        (None, Some(path)) => {
+          let Ok(uri) = console_core_file_urls::url(&path);
+
+          tell_existing(&mut bus, OpenRequest::Song(&uri))
+        }
+        (None, None) => Ok(()),
       };
     }
   }
@@ -293,12 +324,16 @@ fn answering(Starting { folder, song }: Starting) -> Result<(), ConnectionError>
   let Ok(sounding) = Sounding::new(move |progress| wake(&audio, progress));
   let Ok(mut player) = PlayerState::new(sounding, folder);
 
-  match song {
-    Some(path) => {
+  match (album, song) {
+    (Some(tracks), _) => {
+      let Ok(()) = player.opened_album(&tracks);
+      let Ok(()) = player.remember();
+    }
+    (None, Some(path)) => {
       let Ok(()) = player.opened(&path);
       let Ok(()) = player.remember();
     }
-    None => {}
+    (None, None) => {}
   }
 
   let Ok((hearing, saying)) = bus.split();

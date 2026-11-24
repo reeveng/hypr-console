@@ -7,7 +7,9 @@
 //! and nothing is pressed while it lasts. The pointer is lifted when the last
 //! finger is, so a pinch never ends in a tap on whatever was under it.
 
+use console_core_geometry::Point;
 use console_core_never::Never;
+use console_core_vector::Vector2;
 
 use super::standing::PointerEvent;
 
@@ -26,7 +28,11 @@ pub struct Fingers {
 
 fn apart(down: &[(i32, (f64, f64))]) -> Result<Option<f64>, Never> {
   Ok(match (down.first(), down.get(1)) {
-    (Some((_, one)), Some((_, other))) => Some((one.0 - other.0).hypot(one.1 - other.1)),
+    (Some((_, one)), Some((_, other))) => {
+      let Ok(spread) = Vector2::<f64>::between([Point::from(*other), Point::from(*one)]);
+      let Ok(distance) = spread.length();
+      Some(distance)
+    }
     (Some(_) | None, _) => None,
   })
 }

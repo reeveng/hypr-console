@@ -427,7 +427,8 @@ fn volume_row(
   leveled.sliding(standing)
 }
 
-pub(crate) fn automatic_leveling(
+pub(crate) fn playback_switch(
+  label: &str,
   now: Switch,
   change: fn(Switch) -> Result<(), Never>,
 ) -> Result<Row, Never> {
@@ -439,7 +440,7 @@ pub(crate) fn automatic_leveling(
     let Ok(()) = change(next);
     showing.refresh();
   });
-  turned("Automatic Leveling", now, choose)
+  turned(label, now, choose)
 }
 
 fn chosen_among<T>(

@@ -17,15 +17,16 @@ path = "src/bin/console-sound-effect.rs"
 console-audio-streams.workspace = true
 console-defaults.workspace = true
 console-core-arguments.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-iteration.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-places.workspace = true
 console-core-words.workspace = true
+console-waiting.workspace = true
 
 [dev-dependencies]
-console-core-atomic-writes.workspace = true
 console-core-temporary-directories.workspace = true
-console-waiting.workspace = true
 
 [lints]
 workspace = true

@@ -32,10 +32,8 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
 use crate::library::{Thing, visible_name};
-use console_music_player::tags::Tags;
+use console_music_player::tags::{Album, Tags};
 
-const ENOUGH: u32 = 4000;
-const FAR: u32 = 400;
 const MAX_RECORDS: u32 = 65_536;
 const MAX_FIELD_BYTES: u32 = 64 * 1024;
 
@@ -45,6 +43,40 @@ pub struct Song {
   pub name: String,
   pub tags: Tags,
   pub read: bool,
+  pub revision: Option<FileRevision>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, serde::Serialize, Eq, PartialEq)]
+pub struct FileRevision {
+  device: u64,
+  inode: u64,
+  bytes: u64,
+  changed: i64,
+  nanos: i64,
+}
+
+impl FileRevision {
+  pub fn of(path: &Path) -> Result<Option<Self>, Never> {
+    use std::os::unix::fs::MetadataExt;
+
+    Ok(match path.metadata() {
+      Ok(info) => Some(Self {
+        device: info.dev(),
+        inode: info.ino(),
+        bytes: info.len(),
+        changed: info.ctime(),
+        nanos: info.ctime_nsec(),
+      }),
+      Err(_unavailable) => None,
+    })
+  }
+
+  pub fn file(self) -> Result<console_music_player::loudness::FileId, Never> {
+    Ok(console_music_player::loudness::FileId {
+      device: self.device,
+      inode: self.inode,
+    })
+  }
 }
 
 impl Song {
@@ -98,22 +130,15 @@ pub fn under(
   folder: &Path,
   read: &dyn Fn(&Path) -> Result<Vec<Thing>, Never>,
 ) -> Result<Vec<PathBuf>, Never> {
-  let first = (Vec::new(), VecDeque::from([folder.to_path_buf()]), 0_u32);
+  let first = (Vec::new(), VecDeque::from([folder.to_path_buf()]));
 
   let walked = console_core_iteration::iterate(
     first,
-    |(mut found, mut waiting, read_so_far): (Vec<PathBuf>, VecDeque<PathBuf>, u32)| {
+    |(mut found, mut waiting): (Vec<PathBuf>, VecDeque<PathBuf>)| {
       let at = match waiting.pop_front() {
         Some(at) => at,
         None => return Ok(Step::Halt(found)),
       };
-
-      let Ok(many) = console_core_number_conversion::fitted::<_, u32>(found.len());
-
-      match ::core::primitive::bool::then_some(many >= ENOUGH || read_so_far >= FAR, ()) {
-        ::core::option::Option::Some(()) => return Ok(Step::Halt(found)),
-        ::core::option::Option::None => {}
-      }
 
       let Ok(things) = read(&at);
 
@@ -124,7 +149,7 @@ pub fn under(
         }
       }
 
-      Ok(Step::Again((found, waiting, read_so_far.saturating_add(1))))
+      Ok(Step::Again((found, waiting)))
     },
   );
 
@@ -149,9 +174,17 @@ pub fn songs(
   let mut songs: Vec<Song> = Vec::new();
 
   for path in under {
-    let song = match known_2.get(path.as_path()) {
+    let revision = FileRevision::of(&path)?;
+    let song = match known_2
+      .get(path.as_path())
+      .filter(|song| song.revision == revision)
+    {
       Some(song) => (*song).clone(),
-      None => Song::of(&path)?,
+      None => {
+        let song = Song::of(&path)?;
+
+        Song { revision, ..song }
+      }
     };
 
     songs.push(song);
@@ -166,6 +199,14 @@ pub fn unread(songs: &[Song]) -> Result<u32, Never> {
 
 pub fn at(cache: &Path) -> Result<PathBuf, Never> {
   Ok(cache.join("console").join("music").join("songs.json"))
+}
+
+pub fn lock_catalog(cache: &Path) -> std::io::Result<std::fs::File> {
+  std::fs::create_dir_all(cache)?;
+  let gate = console_core_atomic_writes::open_lock_file(&cache.join("catalog.lock"))?;
+  gate.lock()?;
+
+  Ok(gate)
 }
 
 pub fn load(at: &Path) -> Result<Vec<Song>, Never> {
@@ -186,8 +227,12 @@ pub fn load(at: &Path) -> Result<Vec<Song>, Never> {
 }
 
 pub fn serialize(songs: &[Song]) -> Result<String, Never> {
+  serialize_records(songs)
+}
+
+pub fn serialize_records<'a>(songs: impl IntoIterator<Item = &'a Song>) -> Result<String, Never> {
   let held: Vec<Value> = songs
-    .iter()
+    .into_iter()
     .filter(|song| song.read)
     .map(|song| {
       let (path_key, path) = match song.path.to_str() {
@@ -204,6 +249,12 @@ pub fn serialize(songs: &[Song]) -> Result<String, Never> {
           "title": song.tags.title,
           "artist": song.tags.artist,
           "rest": song.tags.rest,
+          "album": song.tags.album.title,
+          "album_artist": song.tags.album.artist,
+          "release_id": song.tags.album.release_id,
+          "disc": song.tags.album.disc,
+          "track": song.tags.album.track,
+          "revision": song.revision,
       })
     })
     .collect();
@@ -279,6 +330,12 @@ struct SongRecord {
   artist: IndexText,
   rest: IndexText,
   path_url: IndexText,
+  album: IndexText,
+  album_artist: IndexText,
+  release_id: IndexText,
+  disc: Option<u32>,
+  track: Option<u32>,
+  revision: Option<FileRevision>,
 }
 
 #[derive(Default)]
@@ -336,10 +393,18 @@ pub fn parse(said: &str) -> Result<Vec<Song>, Never> {
     let song = Song::of(&at)?;
     kept.push(Song {
       read: true,
+      revision: recorded.revision,
       tags: Tags {
         title: recorded.title.0,
         artist: recorded.artist.0,
         rest: recorded.rest.0,
+        album: Album {
+          title: recorded.album.0,
+          artist: recorded.album_artist.0,
+          release_id: recorded.release_id.0,
+          disc: recorded.disc,
+          track: recorded.track,
+        },
       },
       ..song
     });
@@ -492,6 +557,7 @@ mod tests {
           title: "505".to_string(),
           artist: "Arctic Monkeys".to_string(),
           rest: "Favourite Worst Nightmare".to_string(),
+          ..Tags::default()
         },
       ),
       (
@@ -500,6 +566,7 @@ mod tests {
           title: String::new(),
           artist: "Nujabes".to_string(),
           rest: "Samurai Champloo".to_string(),
+          ..Tags::default()
         },
       ),
       (
@@ -508,6 +575,7 @@ mod tests {
           title: "Nujabes Tribute".to_string(),
           artist: "Someone".to_string(),
           rest: String::new(),
+          ..Tags::default()
         },
       ),
       (
@@ -516,6 +584,7 @@ mod tests {
           title: "Luv (sic) Part 3".to_string(),
           artist: "Shing02".to_string(),
           rest: "by Nujabes".to_string(),
+          ..Tags::default()
         },
       ),
     ]
@@ -563,6 +632,7 @@ mod tests {
         title: "505".to_string(),
         artist: "Arctic Monkeys".to_string(),
         rest: String::new(),
+        ..Tags::default()
       },
     );
     let known_2 = vec![known];
@@ -590,6 +660,7 @@ mod tests {
         title: String::new(),
         artist: String::new(),
         rest: String::new(),
+        ..Tags::default()
       },
     );
     let Ok(written) = serialize(&[quiet]);
